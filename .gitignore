@@ -1,0 +1,15 @@
+.venv/
+.pytest_cache/
+.ruff_cache/
+__pycache__/
+*.py[cod]
+.fccg/
+.staging/
+plugins/installed/
+build/
+dist/
+tests/.tmp/
+tests/artifacts/
+tests/generated_projects/
+tests/reference_copy/
+*.egg-info/

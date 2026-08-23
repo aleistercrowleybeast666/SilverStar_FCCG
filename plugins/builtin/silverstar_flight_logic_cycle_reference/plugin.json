@@ -1,0 +1,59 @@
+{
+  "schema_version": 0,
+  "id": "silverstar.flight_logic.cycle.reference",
+  "name": "SilverStar Flight Cycle",
+  "type": "flight_logic",
+  "class": "cycle",
+  "version": "0.0.9",
+  "description": "Validated SilverStar lifecycle and recovery decision component.",
+  "requires": {
+    "components": [
+      {
+        "id": "silverstar.core.0_0_9",
+        "optional": false
+      }
+    ],
+    "resources": [],
+    "capabilities": [
+      "flight_logic.deployment",
+      "flight_logic.landing"
+    ]
+  },
+  "resources": {
+    "provides": [],
+    "roles": [],
+    "conflicts": []
+  },
+  "provides": [
+    "flight_logic.cycle"
+  ],
+  "build": {
+    "sources": [
+      "FlightLogic/FlightCycle/Src/silverstar_flight_cycle.c",
+      "FlightLogic/FlightCycle/Src/silverstar_flight_recovery.c"
+    ],
+    "asm_sources": [],
+    "include_dirs": [],
+    "defines": []
+  },
+  "payload": {
+    "roots": [
+      "FlightLogic/FlightCycle"
+    ]
+  },
+  "metadata": {
+    "reference": {
+      "path": "C:\\Users\\chdxm\\Desktop\\stm32-1\\Flight_Controller0.5",
+      "commit": "b8c90e997c3113dd23074302682c5560dae18926",
+      "branch": "codex/refactor-silverstar-0.0.9-platform",
+      "working_tree": "clean",
+      "status": [],
+      "snapshot_digest": "67e89c36cf11bbe3538469a1461c48a87967691ffd556995c8b5fc6c4b1c4d54",
+      "recorded_at_utc": "2026-08-23T14:50:21+00:00"
+    },
+    "display_names": {
+      "zh_CN": "SilverStar 飞行周期",
+      "en_US": "SilverStar Flight Cycle"
+    }
+  }
+}

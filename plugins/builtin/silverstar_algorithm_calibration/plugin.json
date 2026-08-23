@@ -1,0 +1,78 @@
+{
+  "schema_version": 0,
+  "id": "silverstar.algorithm.calibration",
+  "name": "IMU Calibration",
+  "type": "algorithm",
+  "class": "calibration",
+  "version": "0.0.9",
+  "description": "One-face and six-face calibration modes in one component.",
+  "requires": {
+    "components": [],
+    "resources": [],
+    "capabilities": []
+  },
+  "resources": {
+    "provides": [],
+    "roles": [],
+    "conflicts": []
+  },
+  "provides": [
+    "algorithm.calibration"
+  ],
+  "build": {
+    "sources": [
+      "Algorithm/Calibration/Src/imu_six_face_calibration.c"
+    ],
+    "asm_sources": [],
+    "include_dirs": [
+      "Algorithm/Calibration/Inc"
+    ],
+    "defines": []
+  },
+  "payload": {
+    "roots": [
+      "Algorithm/Calibration"
+    ]
+  },
+  "metadata": {
+    "reference": {
+      "path": "C:\\Users\\chdxm\\Desktop\\stm32-1\\Flight_Controller0.5",
+      "commit": "b8c90e997c3113dd23074302682c5560dae18926",
+      "branch": "codex/refactor-silverstar-0.0.9-platform",
+      "working_tree": "clean",
+      "status": [],
+      "snapshot_digest": "67e89c36cf11bbe3538469a1461c48a87967691ffd556995c8b5fc6c4b1c4d54",
+      "recorded_at_utc": "2026-08-23T14:50:21+00:00"
+    },
+    "display_names": {
+      "zh_CN": "IMU 校准",
+      "en_US": "IMU Calibration"
+    }
+  },
+  "selection": {
+    "kind": "mode",
+    "slot": "calibration",
+    "required": true,
+    "allow_none": false,
+    "allow_multiple": false,
+    "ui_order": 10,
+    "options": [
+      "Existing",
+      "OneFace",
+      "SixFace"
+    ],
+    "default": "Existing",
+    "labels": {
+      "zh_CN": {
+        "Existing": "使用现有校准",
+        "OneFace": "单面校准",
+        "SixFace": "六面校准"
+      },
+      "en_US": {
+        "Existing": "Use existing calibration",
+        "OneFace": "One-face",
+        "SixFace": "Six-face"
+      }
+    }
+  }
+}

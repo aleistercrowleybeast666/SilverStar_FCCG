@@ -1,0 +1,115 @@
+from __future__ import annotations
+
+from dataclasses import replace
+from pathlib import Path
+
+import pytest
+
+from silverstar_fccg.core.workspace import WorkspacePolicy
+from silverstar_fccg.build.runner import BuildAction, BuildRunner
+from silverstar_fccg.build.toolchain import ToolchainDetector
+from silverstar_fccg.generator.render import ProjectDigest_Get
+from silverstar_fccg.generator.source_graph import SourceGraph_Resolve
+from silverstar_fccg.project.model import (
+    ProjectModelError,
+    ProjectModel_Load,
+    ProjectModel_Parse,
+    ProjectModel_Save,
+)
+from silverstar_fccg.project.reference import ReferenceProject_Create
+from silverstar_fccg.project.resources import ResourceAssignments_Resolve
+from silverstar_fccg.project.validation import Project_Validate
+
+
+def test_reference_project_json_round_trip(tmp_path: Path, builtin_catalog) -> None:
+    model = ReferenceProject_Create("Domain_Roundtrip")
+    model.build = replace(
+        model.build,
+        tool_paths={"compiler": str(tmp_path / "Arm Toolchain" / "gcc.exe")},
+    )
+    policy = WorkspacePolicy(tmp_path)
+    path = ProjectModel_Save(model, tmp_path / "SilverStar.ssproject", policy)
+    loaded = ProjectModel_Load(path)
+    assert loaded.Dictionary_Get() == model.Dictionary_Get()
+    assert Project_Validate(loaded, builtin_catalog).valid
+
+
+def test_manual_tool_paths_drive_detection_and_make_arguments(tmp_path: Path) -> None:
+    model = ReferenceProject_Create()
+    portable_digest = ProjectDigest_Get(model)
+    model.build = replace(
+        model.build,
+        tool_paths={
+            "make": str(tmp_path / "tools" / "make.exe"),
+            "compiler": str(tmp_path / "Arm Toolchain" / "arm-none-eabi-gcc.exe"),
+            "objcopy": str(tmp_path / "Arm Toolchain" / "arm-none-eabi-objcopy.exe"),
+        },
+    )
+    command = BuildRunner(WorkspacePolicy(tmp_path)).Command_Get(
+        model, BuildAction.BUILD
+    )
+    assert command[0].endswith("make.exe")
+    assert any(argument.startswith("GCC_PATH=") for argument in command)
+    assert any(argument.startswith('CP="') for argument in command)
+    assert ProjectDigest_Get(model) == portable_digest
+    assert ToolchainDetector._Version_Compatible(
+        "compiler", "arm-none-eabi-gcc (Arm GNU Toolchain) 14.3.1"
+    )
+    assert not ToolchainDetector._Version_Compatible(
+        "compiler", "clang version 20"
+    )
+
+
+def test_project_loader_is_strict(tmp_path: Path) -> None:
+    path = tmp_path / "bad.ssproject"
+    path.write_text('{"format_version": 7}', encoding="utf-8")
+    with pytest.raises(ProjectModelError):
+        ProjectModel_Load(path)
+
+    data = ReferenceProject_Create().Dictionary_Get()
+    data["build"]["target_profile"] = "../../escape"
+    with pytest.raises(ProjectModelError, match="target profile"):
+        ProjectModel_Parse(data)
+
+    data = ReferenceProject_Create().Dictionary_Get()
+    data["logging"]["streams"][0]["record"] = "BAD\nmake:"
+    with pytest.raises(ProjectModelError, match="record contains control characters"):
+        ProjectModel_Parse(data)
+
+
+def test_dependency_and_resource_conflicts_are_reported(builtin_catalog) -> None:
+    model = ReferenceProject_Create()
+    model.base_components.remove("silverstar.algorithm.common")
+    validation = Project_Validate(model, builtin_catalog)
+    assert not validation.valid
+    assert any(issue.code == "dependency" for issue in validation.issues)
+
+    model = ReferenceProject_Create()
+    model.resource_assignments["silverstar.device.console.uart:console"] = "PLATFORM_UART_1"
+    resources = ResourceAssignments_Resolve(model, builtin_catalog)
+    assert not resources.valid
+    assert any("not an allowed candidate" in error for error in resources.errors)
+
+    model = ReferenceProject_Create()
+    model.logging_streams.reverse()
+    validation = Project_Validate(model, builtin_catalog)
+    assert not validation.valid
+    assert any(issue.code == "logging_records" for issue in validation.issues)
+
+
+def test_source_graph_is_complete_and_has_one_truth(builtin_catalog) -> None:
+    graph = SourceGraph_Resolve(ReferenceProject_Create(), builtin_catalog)
+    assert len(graph.sources) == 133
+    assert len(graph.sources) == len(set(graph.sources))
+    assert graph.asm_sources == ("startup_stm32f407xx.s",)
+    assert "USE_HAL_DRIVER" in graph.defines
+    assert "STM32F407xx" in graph.defines
+    assert "SYSTEM_BUILD_FUSION_ALGORITHM=SYSTEM_FUSION_KF6" in graph.defines
+    assert graph.forced_includes == (
+        "Targets/SilverStar_F407/Inc/platform_memory_target.h",
+    )
+    assert graph.exclude_sources == ("Core/Src/sysmem.c",)
+    assert graph.linker_script == "STM32F407XX_FLASH.ld"
+    fragment = graph.MakeFragment_Render()
+    assert "wildcard" not in fragment
+    assert "Generated/Src/project_metadata.c" in fragment

@@ -1,0 +1,169 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://silverstar.local/schemas/project.schema.json",
+  "title": "SilverStar FCCG project",
+  "type": "object",
+  "required": [
+    "format_version", "project", "components", "modes", "hardware",
+    "resources", "logging", "build", "generated_glue",
+    "component_provenance", "reference_provenance"
+  ],
+  "properties": {
+    "format_version": {"const": 1},
+    "project": {
+      "type": "object",
+      "required": ["name", "firmware_version", "build_target"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1, "maxLength": 80, "pattern": "^[A-Za-z0-9][A-Za-z0-9_. -]{0,79}$"},
+        "firmware_version": {"$ref": "#/$defs/version"},
+        "build_target": {"$ref": "#/$defs/projectToken"}
+      },
+      "additionalProperties": false
+    },
+    "components": {
+      "type": "object",
+      "required": ["core", "mcu", "board", "os", "devices", "base", "strategies", "protocol_bundles", "development_environment"],
+      "properties": {
+        "core": {"$ref": "#/$defs/componentId"},
+        "mcu": {"$ref": "#/$defs/componentId"},
+        "board": {"oneOf": [{"const": ""}, {"$ref": "#/$defs/componentId"}]},
+        "os": {"$ref": "#/$defs/componentId"},
+        "devices": {"$ref": "#/$defs/componentIds"},
+        "base": {"$ref": "#/$defs/componentIds"},
+        "strategies": {
+          "type": "object",
+          "propertyNames": {"$ref": "#/$defs/lowerIdentifier"},
+          "additionalProperties": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/componentId"}]}
+        },
+        "protocol_bundles": {"$ref": "#/$defs/componentIds"},
+        "development_environment": {"$ref": "#/$defs/componentId"}
+      },
+      "additionalProperties": false
+    },
+    "modes": {
+      "type": "object",
+      "propertyNames": {"$ref": "#/$defs/lowerIdentifier"},
+      "additionalProperties": {
+        "type": "array", "uniqueItems": true,
+        "items": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"}
+      }
+    },
+    "hardware": {
+      "type": "object",
+      "required": [
+        "mode", "source_kind", "provider", "snapshot_id", "ioc_file",
+        "mcu", "capabilities", "resources", "build_sources", "asm_sources",
+        "include_dirs", "defines", "linker_script", "source_digest",
+        "source_label", "risk_acknowledged"
+      ],
+      "properties": {
+        "mode": {"enum": ["board_plugin", "custom"]},
+        "source_kind": {"enum": ["verified_builtin", "manual_import", "third_party"]},
+        "provider": {"oneOf": [{"const": ""}, {"$ref": "#/$defs/componentId"}]},
+        "snapshot_id": {"oneOf": [{"const": ""}, {"$ref": "#/$defs/sha256"}]},
+        "ioc_file": {"type": "string", "pattern": "^(?:[A-Za-z0-9_./+@-]+)?$"},
+        "mcu": {"type": "string"},
+        "capabilities": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/lowerIdentifier"}},
+        "resources": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "kind", "metadata"],
+            "properties": {
+              "id": {"$ref": "#/$defs/resourceId"},
+              "kind": {"$ref": "#/$defs/lowerIdentifier"},
+              "metadata": {"type": "object"}
+            },
+            "additionalProperties": false
+          }
+        },
+        "build_sources": {"$ref": "#/$defs/buildPaths"},
+        "asm_sources": {"$ref": "#/$defs/buildPaths"},
+        "include_dirs": {"$ref": "#/$defs/buildPaths"},
+        "defines": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
+        "linker_script": {"type": "string", "pattern": "^(?:[A-Za-z0-9_./+@-]+)?$"},
+        "source_digest": {"oneOf": [{"const": ""}, {"$ref": "#/$defs/sha256"}]},
+        "source_label": {"type": "string"},
+        "risk_acknowledged": {"type": "boolean"}
+      },
+      "additionalProperties": false
+    },
+    "resources": {
+      "type": "object",
+      "propertyNames": {"pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*:[a-z0-9]+(?:[._-][a-z0-9]+)*$"},
+      "additionalProperties": {"$ref": "#/$defs/resourceId"}
+    },
+    "logging": {
+      "type": "object",
+      "required": ["streams"],
+      "properties": {
+        "streams": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["record", "enabled", "policy", "decimation", "period_us"],
+            "properties": {
+              "record": {"type": "string", "pattern": "^FLIGHT_LOG_RECORD_[A-Z0-9_]+$"},
+              "enabled": {"type": "boolean"},
+              "policy": {"enum": ["EVERY", "DECIMATION", "PERIODIC", "EVENT", "ONE_SHOT"]},
+              "decimation": {"type": "integer", "minimum": 1, "maximum": 65535},
+              "period_us": {"type": "integer", "minimum": 0, "maximum": 4294967295}
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "build": {
+      "type": "object",
+      "required": ["target_profile", "configuration", "make_command", "toolchain_prefix", "gcc_path", "flash_command", "eide_mode", "tool_paths"],
+      "properties": {
+        "target_profile": {"$ref": "#/$defs/projectToken"},
+        "configuration": {"enum": ["Debug", "Release"]},
+        "make_command": {"type": "string", "minLength": 1},
+        "toolchain_prefix": {"type": "string", "pattern": "^[A-Za-z0-9_.+-]+$"},
+        "gcc_path": {"type": "string"},
+        "flash_command": {"type": "string", "minLength": 1},
+        "eide_mode": {"const": "native"},
+        "tool_paths": {
+          "type": "object",
+          "propertyNames": {"enum": ["compiler", "objcopy", "size", "make", "host_gcc", "debugger", "static_analyzer", "cubemx", "eide_builder"]},
+          "additionalProperties": {"type": "string", "minLength": 1}
+        }
+      },
+      "additionalProperties": false
+    },
+    "generated_glue": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/projectToken"}},
+    "component_provenance": {
+      "type": "object",
+      "propertyNames": {"$ref": "#/$defs/componentId"},
+      "additionalProperties": {"$ref": "#/$defs/provenance"}
+    },
+    "reference_provenance": {"type": "object"}
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "componentId": {"type": "string", "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*$"},
+    "componentIds": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/componentId"}},
+    "lowerIdentifier": {"type": "string", "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*$"},
+    "projectToken": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$"},
+    "resourceId": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"},
+    "buildPath": {"type": "string", "minLength": 1, "pattern": "^[A-Za-z0-9_./+@-]+$"},
+    "buildPaths": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/buildPath"}},
+    "version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+(?:\\.[0-9]+)?(?:[-+][0-9A-Za-z.-]+)?$"},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "provenance": {
+      "type": "object",
+      "required": ["version", "source", "manifest_id", "payload_digest", "files"],
+      "properties": {
+        "version": {"$ref": "#/$defs/version"},
+        "source": {"enum": ["builtin", "installed"]},
+        "manifest_id": {"$ref": "#/$defs/componentId"},
+        "payload_digest": {"$ref": "#/$defs/sha256"},
+        "files": {"type": "object", "additionalProperties": {"$ref": "#/$defs/sha256"}}
+      },
+      "additionalProperties": false
+    }
+  }
+}

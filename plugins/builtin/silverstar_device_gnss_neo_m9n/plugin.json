@@ -1,0 +1,96 @@
+{
+  "schema_version": 0,
+  "id": "silverstar.device.gnss.neo_m9n",
+  "name": "NEO-M9N",
+  "type": "device",
+  "class": "gnss",
+  "version": "0.0.9",
+  "description": "Reference NEO-M9N Device driver and canonical adapter.",
+  "requires": {
+    "components": [
+      {
+        "id": "silverstar.core.0_0_9",
+        "optional": false
+      },
+      {
+        "id": "silverstar.mcu.stm32f407vet6",
+        "optional": false
+      }
+    ],
+    "resources": [
+      {
+        "name": "data",
+        "kind": "uart",
+        "binding_macro": "PROJECT_RESOURCE_GNSS_UART"
+      },
+      {
+        "name": "reset",
+        "kind": "gpio_output",
+        "binding_macro": "PROJECT_RESOURCE_GNSS_RESET"
+      },
+      {
+        "name": "timepulse",
+        "kind": "gpio_interrupt",
+        "binding_macro": "PROJECT_RESOURCE_GNSS_TIMEPULSE"
+      },
+      {
+        "name": "time",
+        "kind": "time",
+        "mode": "shared"
+      }
+    ],
+    "capabilities": []
+  },
+  "resources": {
+    "provides": [],
+    "roles": [],
+    "conflicts": []
+  },
+  "provides": [
+    "device.gnss",
+    "gnss.position",
+    "gnss.velocity"
+  ],
+  "build": {
+    "sources": [
+      "Devices/GNSS/NEO_M9N/Src/neo_m9n_device.c",
+      "Devices/GNSS/NEO_M9N/Adapter/Src/neo_m9n_system_adapter.c"
+    ],
+    "asm_sources": [],
+    "include_dirs": [
+      "Devices/GNSS/NEO_M9N/Inc"
+    ],
+    "defines": []
+  },
+  "payload": {
+    "roots": [
+      "Devices/GNSS/NEO_M9N"
+    ]
+  },
+  "metadata": {
+    "reference": {
+      "path": "C:\\Users\\chdxm\\Desktop\\stm32-1\\Flight_Controller0.5",
+      "commit": "b8c90e997c3113dd23074302682c5560dae18926",
+      "branch": "codex/refactor-silverstar-0.0.9-platform",
+      "working_tree": "clean",
+      "status": [],
+      "snapshot_digest": "67e89c36cf11bbe3538469a1461c48a87967691ffd556995c8b5fc6c4b1c4d54",
+      "recorded_at_utc": "2026-08-23T14:50:21+00:00"
+    },
+    "display_names": {
+      "zh_CN": "NEO-M9N",
+      "en_US": "NEO-M9N"
+    },
+    "device_descriptors": [
+      {
+        "order": 2,
+        "class": "SYSTEM_DEVICE_CLASS_GNSS",
+        "flags": "SYSTEM_DESCRIPTOR_FLAG_ENABLED | SYSTEM_DESCRIPTOR_FLAG_PRIMARY",
+        "capability": "SYSTEM_CAPABILITY_GNSS",
+        "rate": "SYSTEM_GNSS_NAVIGATION_RATE_HZ",
+        "driver_hash": "0xC751E890UL",
+        "name_hash": "0xA8E98337UL"
+      }
+    ]
+  }
+}

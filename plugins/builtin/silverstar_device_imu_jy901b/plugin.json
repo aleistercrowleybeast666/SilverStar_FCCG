@@ -1,0 +1,110 @@
+{
+  "schema_version": 0,
+  "id": "silverstar.device.imu.jy901b",
+  "name": "JY901B",
+  "type": "device",
+  "class": "imu",
+  "version": "0.0.9",
+  "description": "Reference JY901B Device driver and canonical adapter.",
+  "requires": {
+    "components": [
+      {
+        "id": "silverstar.core.0_0_9",
+        "optional": false
+      },
+      {
+        "id": "silverstar.mcu.stm32f407vet6",
+        "optional": false
+      }
+    ],
+    "resources": [
+      {
+        "name": "data",
+        "kind": "uart",
+        "binding_macro": "PROJECT_RESOURCE_IMU_UART"
+      },
+      {
+        "name": "time",
+        "kind": "time",
+        "mode": "shared"
+      }
+    ],
+    "capabilities": []
+  },
+  "resources": {
+    "provides": [],
+    "roles": [],
+    "conflicts": []
+  },
+  "provides": [
+    "device.imu",
+    "imu.acceleration",
+    "imu.angular_rate",
+    "imu.quaternion",
+    "barometer.altitude"
+  ],
+  "build": {
+    "sources": [
+      "Devices/IMU/JY901B/Src/jy901b_device.c",
+      "Devices/IMU/JY901B/Adapter/Src/jy901b_imu_adapter.c",
+      "Devices/IMU/JY901B/Adapter/Src/jy901b_barometer_adapter.c",
+      "Devices/IMU/JY901B/Adapter/Src/jy901b_magnetometer_adapter.c",
+      "Devices/IMU/JY901B/Adapter/Src/jy901b_quaternion_adapter.c"
+    ],
+    "asm_sources": [],
+    "include_dirs": [
+      "Devices/IMU/JY901B/Inc",
+      "Devices/IMU/JY901B/Adapter/Inc"
+    ],
+    "defines": []
+  },
+  "payload": {
+    "roots": [
+      "Devices/IMU/JY901B"
+    ]
+  },
+  "metadata": {
+    "reference": {
+      "path": "C:\\Users\\chdxm\\Desktop\\stm32-1\\Flight_Controller0.5",
+      "commit": "b8c90e997c3113dd23074302682c5560dae18926",
+      "branch": "codex/refactor-silverstar-0.0.9-platform",
+      "working_tree": "clean",
+      "status": [],
+      "snapshot_digest": "67e89c36cf11bbe3538469a1461c48a87967691ffd556995c8b5fc6c4b1c4d54",
+      "recorded_at_utc": "2026-08-23T14:50:21+00:00"
+    },
+    "display_names": {
+      "zh_CN": "JY901B",
+      "en_US": "JY901B"
+    },
+    "device_descriptors": [
+      {
+        "order": 1,
+        "class": "SYSTEM_DEVICE_CLASS_IMU",
+        "flags": "SYSTEM_DESCRIPTOR_FLAG_ENABLED | SYSTEM_DESCRIPTOR_FLAG_REQUIRED | SYSTEM_DESCRIPTOR_FLAG_PRIMARY",
+        "capability": "SYSTEM_CAPABILITY_IMU",
+        "rate": "SYSTEM_IMU_OUTPUT_RATE_HZ",
+        "driver_hash": "0xADF02482UL",
+        "name_hash": "0x53692179UL"
+      },
+      {
+        "order": 3,
+        "class": "SYSTEM_DEVICE_CLASS_BAROMETER",
+        "flags": "SYSTEM_DESCRIPTOR_FLAG_ENABLED | SYSTEM_DESCRIPTOR_FLAG_SHARED_PHYSICAL",
+        "capability": "SYSTEM_CAPABILITY_BAROMETER",
+        "rate": "SYSTEM_BAROMETER_OUTPUT_RATE_HZ",
+        "driver_hash": "0xADF02482UL",
+        "name_hash": "0x53692179UL"
+      },
+      {
+        "order": 4,
+        "class": "SYSTEM_DEVICE_CLASS_HARDWARE_QUATERNION",
+        "flags": "SYSTEM_DESCRIPTOR_FLAG_ENABLED | SYSTEM_DESCRIPTOR_FLAG_SHARED_PHYSICAL",
+        "capability": "SYSTEM_CAPABILITY_HARDWARE_QUATERNION",
+        "rate": "SYSTEM_HARDWARE_QUATERNION_OUTPUT_RATE_HZ",
+        "driver_hash": "0xADF02482UL",
+        "name_hash": "0x53692179UL"
+      }
+    ]
+  }
+}

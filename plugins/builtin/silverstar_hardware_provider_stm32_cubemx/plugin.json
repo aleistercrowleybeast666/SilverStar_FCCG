@@ -1,0 +1,54 @@
+{
+  "schema_version": 0,
+  "id": "silverstar.hardware_provider.stm32_cubemx",
+  "name": "STM32CubeMX Hardware Provider",
+  "type": "hardware_configuration_provider",
+  "class": "stm32_cubemx",
+  "version": "0.0.9",
+  "description": "Trusted FCCG provider for validating and importing generated STM32CubeMX projects as data.",
+  "requires": {
+    "components": [],
+    "resources": [],
+    "capabilities": []
+  },
+  "resources": {
+    "provides": [],
+    "roles": [],
+    "conflicts": []
+  },
+  "provides": [
+    "hardware_provider.stm32_cubemx"
+  ],
+  "build": {
+    "sources": [],
+    "asm_sources": [],
+    "include_dirs": [],
+    "defines": []
+  },
+  "payload": {
+    "roots": []
+  },
+  "metadata": {
+    "reference": {
+      "path": "C:\\Users\\chdxm\\Desktop\\stm32-1\\Flight_Controller0.5",
+      "commit": "b8c90e997c3113dd23074302682c5560dae18926",
+      "branch": "codex/refactor-silverstar-0.0.9-platform",
+      "working_tree": "clean",
+      "status": [],
+      "snapshot_digest": "67e89c36cf11bbe3538469a1461c48a87967691ffd556995c8b5fc6c4b1c4d54",
+      "recorded_at_utc": "2026-08-23T14:50:21+00:00"
+    },
+    "display_names": {
+      "zh_CN": "STM32CubeMX 硬件配置导入",
+      "en_US": "STM32CubeMX Hardware Provider"
+    }
+  },
+  "hardware_provider": {
+    "vendor": "STM32",
+    "handler": "stm32_cubemx",
+    "accepted_inputs": [
+      "ioc",
+      "directory"
+    ]
+  }
+}

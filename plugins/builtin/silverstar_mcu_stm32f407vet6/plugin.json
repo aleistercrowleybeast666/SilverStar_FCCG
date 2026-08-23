@@ -1,0 +1,130 @@
+{
+  "schema_version": 0,
+  "id": "silverstar.mcu.stm32f407vet6",
+  "name": "STM32F407VET6",
+  "type": "mcu",
+  "class": "stm32f4",
+  "version": "0.0.9",
+  "description": "STM32F407VET6 capabilities, STM32F4 Platform backend, HAL/CMSIS dependency and target memory contract.",
+  "requires": {
+    "components": [],
+    "resources": [],
+    "capabilities": []
+  },
+  "resources": {
+    "provides": [],
+    "roles": [],
+    "conflicts": []
+  },
+  "provides": [
+    "mcu.cortex_m4f",
+    "platform.stm32f4",
+    "memory.ccmram",
+    "hardware_provider.stm32_cubemx"
+  ],
+  "build": {
+    "sources": [
+      "Platform/STM32F4/Src/platform_adc_stm32f4.c",
+      "Platform/STM32F4/Src/platform_critical_stm32f4.c",
+      "Platform/STM32F4/Src/platform_gpio_stm32f4.c",
+      "Platform/STM32F4/Src/platform_i2c_stm32f4.c",
+      "Platform/STM32F4/Src/platform_memory_stm32f4.c",
+      "Platform/STM32F4/Src/platform_spi_stm32f4.c",
+      "Platform/STM32F4/Src/platform_time_stm32f4.c",
+      "Platform/STM32F4/Src/platform_uart_stm32f4.c",
+      "Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_tim.c",
+      "Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_tim_ex.c",
+      "Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_rcc.c",
+      "Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_rcc_ex.c",
+      "Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_flash.c",
+      "Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_flash_ex.c",
+      "Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_flash_ramfunc.c",
+      "Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_gpio.c",
+      "Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_dma_ex.c",
+      "Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_dma.c",
+      "Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_pwr.c",
+      "Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_pwr_ex.c",
+      "Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_cortex.c",
+      "Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal.c",
+      "Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_exti.c",
+      "Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_uart.c",
+      "Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_spi.c",
+      "Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_adc.c",
+      "Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_adc_ex.c",
+      "Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_ll_adc.c",
+      "Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_ll_sdmmc.c",
+      "Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_sd.c",
+      "Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_mmc.c"
+    ],
+    "asm_sources": [
+      "startup_stm32f407xx.s"
+    ],
+    "include_dirs": [
+      "Platform/Inc",
+      "Platform/STM32F4/Inc",
+      "Drivers/STM32F4xx_HAL_Driver/Inc",
+      "Drivers/STM32F4xx_HAL_Driver/Inc/Legacy",
+      "Drivers/CMSIS/Device/ST/STM32F4xx/Include",
+      "Drivers/CMSIS/Include",
+      "Targets/SilverStar_F407/Inc"
+    ],
+    "defines": [
+      "USE_HAL_DRIVER",
+      "STM32F407xx"
+    ],
+    "mcu_flags": [
+      "-mcpu=cortex-m4",
+      "-mthumb",
+      "-mfpu=fpv4-sp-d16",
+      "-mfloat-abi=hard"
+    ],
+    "specs": [
+      "-specs=nano.specs"
+    ],
+    "libraries": [
+      "-lc",
+      "-lm",
+      "-lnosys"
+    ],
+    "forced_includes": [
+      "Targets/SilverStar_F407/Inc/platform_memory_target.h"
+    ],
+    "linker_script": "STM32F407XX_FLASH.ld",
+    "toolchain_prefix": "arm-none-eabi-"
+  },
+  "payload": {
+    "roots": [
+      "Platform",
+      "Drivers",
+      "BuildSystem/stm32_hal.mk",
+      "Targets/SilverStar_F407/Inc/platform_memory_target.h",
+      "Targets/SilverStar_F407/Inc/target_system_config.h",
+      "Targets/SilverStar_F407/Inc/target_build_capabilities.h",
+      "startup_stm32f407xx.s",
+      "STM32F407XX_FLASH.ld"
+    ]
+  },
+  "metadata": {
+    "reference": {
+      "path": "C:\\Users\\chdxm\\Desktop\\stm32-1\\Flight_Controller0.5",
+      "commit": "b8c90e997c3113dd23074302682c5560dae18926",
+      "branch": "codex/refactor-silverstar-0.0.9-platform",
+      "working_tree": "clean",
+      "status": [],
+      "snapshot_digest": "67e89c36cf11bbe3538469a1461c48a87967691ffd556995c8b5fc6c4b1c4d54",
+      "recorded_at_utc": "2026-08-23T14:50:21+00:00"
+    },
+    "vendor": "STM32",
+    "mcu_model": "STM32F407VET6",
+    "display_names": {
+      "zh_CN": "STM32F407VET6",
+      "en_US": "STM32F407VET6"
+    },
+    "supported_environments": [
+      "silverstar.environment.vscode_eide_gcc"
+    ],
+    "supported_toolchains": [
+      "arm-none-eabi-gcc"
+    ]
+  }
+}

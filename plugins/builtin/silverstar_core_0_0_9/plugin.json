@@ -1,0 +1,121 @@
+{
+  "schema_version": 0,
+  "id": "silverstar.core.0_0_9",
+  "name": "SilverStar Core 0.0.9",
+  "type": "core",
+  "class": "flight_controller_core",
+  "version": "0.0.9",
+  "description": "MCU-independent SilverStar application, system, interfaces and host validation sources.",
+  "requires": {
+    "components": [],
+    "resources": [],
+    "capabilities": []
+  },
+  "resources": {
+    "provides": [],
+    "roles": [],
+    "conflicts": []
+  },
+  "provides": [
+    "core.silverstar",
+    "interface.canonical",
+    "system.lifecycle"
+  ],
+  "build": {
+    "sources": [
+      "APP/Src/device_task.c",
+      "APP/Src/app_tasks.c",
+      "APP/Src/estimator_barometer_pending.c",
+      "APP/Src/estimator_bus.c",
+      "APP/Src/estimator_task.c",
+      "APP/Src/flight_task.c",
+      "APP/Src/imu_sample_bus.c",
+      "APP/Src/ins_task.c",
+      "APP/Src/logger_bus.c",
+      "APP/Src/logger_task.c",
+      "APP/Src/serial_task.c",
+      "APP/Src/telemetry_task.c",
+      "Common/Src/common_format.c",
+      "Common/Src/common_ringbuf.c",
+      "Common/Src/common_spsc_queue.c",
+      "Common/Src/silverstar_assert.c",
+      "Common/Src/debug_log.c",
+      "Modules/Src/telemetry_service.c",
+      "System/Src/system_barometer.c",
+      "System/Src/system_capabilities.c",
+      "System/Src/system_console.c",
+      "System/Src/system_estimator_diagnostics.c",
+      "System/Src/system_estimator_profile.c",
+      "System/Src/system_gnss_quality.c",
+      "System/Src/system_health.c",
+      "System/Src/system_log_policy.c",
+      "System/Src/system_navigation_profile.c",
+      "System/Src/system_profile.c",
+      "System/Src/system_sensor_status.c",
+      "System/Src/system_startup.c",
+      "System/Src/system_time.c",
+      "System/Alignment/Src/system_alignment.c",
+      "System/Alignment/Src/system_alignment_source.c",
+      "System/Calibration/Src/system_calibration.c",
+      "System/Calibration/Src/system_calibration_correction.c",
+      "System/Indicator/Src/system_indicator.c",
+      "System/Inertial/Src/system_inertial.c",
+      "System/User/system_user_inertial_config.c"
+    ],
+    "asm_sources": [],
+    "include_dirs": [
+      "APP/Inc",
+      "Common/Inc",
+      "Modules/Inc",
+      "Interfaces/Inc",
+      "System/Inc",
+      "System/Alignment/Inc",
+      "System/Calibration/Inc",
+      "System/Indicator/Inc",
+      "System/Inertial/Inc",
+      "System/User"
+    ],
+    "defines": []
+  },
+  "payload": {
+    "roots": [
+      "APP",
+      "Common",
+      "Interfaces",
+      "Modules",
+      "System",
+      "Tests",
+      "Tools",
+      "BuildSystem/first_party.mk",
+      ".clang-format"
+    ]
+  },
+  "metadata": {
+    "reference": {
+      "path": "C:\\Users\\chdxm\\Desktop\\stm32-1\\Flight_Controller0.5",
+      "commit": "b8c90e997c3113dd23074302682c5560dae18926",
+      "branch": "codex/refactor-silverstar-0.0.9-platform",
+      "working_tree": "clean",
+      "status": [],
+      "snapshot_digest": "67e89c36cf11bbe3538469a1461c48a87967691ffd556995c8b5fc6c4b1c4d54",
+      "recorded_at_utc": "2026-08-23T14:50:21+00:00"
+    },
+    "display_names": {
+      "zh_CN": "SilverStar 核心 0.0.9",
+      "en_US": "SilverStar Core 0.0.9"
+    },
+    "device_descriptors": [
+      {
+        "order": 12,
+        "class": "SYSTEM_DEVICE_CLASS_TIME",
+        "instance": 0,
+        "driver_id": 1,
+        "flags": "SYSTEM_DESCRIPTOR_FLAG_ENABLED | SYSTEM_DESCRIPTOR_FLAG_PRIMARY",
+        "capability": "0U",
+        "rate": "1000000UL",
+        "driver_hash": "0x162F2C94UL",
+        "name_hash": "0xADE08D82UL"
+      }
+    ]
+  }
+}

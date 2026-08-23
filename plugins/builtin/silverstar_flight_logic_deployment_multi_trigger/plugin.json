@@ -1,0 +1,85 @@
+{
+  "schema_version": 0,
+  "id": "silverstar.flight_logic.deployment.multi_trigger",
+  "name": "Multi-Trigger Deployment",
+  "type": "flight_logic",
+  "class": "deployment",
+  "version": "0.0.9",
+  "description": "Deployment component with independently selectable apogee, tilt and delay modes.",
+  "requires": {
+    "components": [
+      {
+        "id": "silverstar.core.0_0_9",
+        "optional": false
+      }
+    ],
+    "resources": [],
+    "capabilities": []
+  },
+  "resources": {
+    "provides": [],
+    "roles": [],
+    "conflicts": []
+  },
+  "provides": [
+    "flight_logic.deployment"
+  ],
+  "build": {
+    "sources": [
+      "FlightLogic/Deployment/MultiTrigger/Src/flight_deployment.c"
+    ],
+    "asm_sources": [],
+    "include_dirs": [
+      "FlightLogic/Deployment/MultiTrigger/Inc"
+    ],
+    "defines": []
+  },
+  "payload": {
+    "roots": [
+      "FlightLogic/Deployment/MultiTrigger"
+    ]
+  },
+  "metadata": {
+    "reference": {
+      "path": "C:\\Users\\chdxm\\Desktop\\stm32-1\\Flight_Controller0.5",
+      "commit": "b8c90e997c3113dd23074302682c5560dae18926",
+      "branch": "codex/refactor-silverstar-0.0.9-platform",
+      "working_tree": "clean",
+      "status": [],
+      "snapshot_digest": "67e89c36cf11bbe3538469a1461c48a87967691ffd556995c8b5fc6c4b1c4d54",
+      "recorded_at_utc": "2026-08-23T14:50:21+00:00"
+    },
+    "display_names": {
+      "zh_CN": "多条件开伞",
+      "en_US": "Multi-Trigger Deployment"
+    }
+  },
+  "selection": {
+    "kind": "mode",
+    "slot": "deployment",
+    "required": false,
+    "allow_none": true,
+    "allow_multiple": true,
+    "ui_order": 20,
+    "options": [
+      "ApogeeVerticalVelocity",
+      "Tilt",
+      "Delay"
+    ],
+    "default": [
+      "ApogeeVerticalVelocity"
+    ],
+    "labels": {
+      "zh_CN": {
+        "ApogeeVerticalVelocity": "越过最高点 / 垂直速度",
+        "Tilt": "姿态倾斜",
+        "Delay": "延时"
+      },
+      "en_US": {
+        "ApogeeVerticalVelocity": "Apogee / vertical velocity",
+        "Tilt": "Tilt",
+        "Delay": "Delay"
+      }
+    }
+  }
+}

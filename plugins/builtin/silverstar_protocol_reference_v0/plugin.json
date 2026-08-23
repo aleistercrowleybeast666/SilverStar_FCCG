@@ -1,0 +1,57 @@
+{
+  "schema_version": 0,
+  "id": "silverstar.protocol.reference_v0",
+  "name": "SilverStar AIR V0 + SSLOG0",
+  "type": "protocol_bundle",
+  "class": "reference_protocols",
+  "version": "0.0.9",
+  "description": "Complete AIR, SSLOG, Maintenance protocol sources and documentation.",
+  "requires": {
+    "components": [],
+    "resources": [],
+    "capabilities": []
+  },
+  "resources": {
+    "provides": [],
+    "roles": [],
+    "conflicts": []
+  },
+  "provides": [
+    "protocol.air",
+    "protocol.sslog",
+    "protocol.maintenance"
+  ],
+  "build": {
+    "sources": [
+      "Protocol/Src/air_protocol.c",
+      "Protocol/SSLOG/Src/sslog_protocol.c",
+      "Protocol/SSLOG/Src/sslog_records.c"
+    ],
+    "asm_sources": [],
+    "include_dirs": [
+      "Protocol/Inc",
+      "Protocol/SSLOG/Inc"
+    ],
+    "defines": []
+  },
+  "payload": {
+    "roots": [
+      "Protocol"
+    ]
+  },
+  "metadata": {
+    "reference": {
+      "path": "C:\\Users\\chdxm\\Desktop\\stm32-1\\Flight_Controller0.5",
+      "commit": "b8c90e997c3113dd23074302682c5560dae18926",
+      "branch": "codex/refactor-silverstar-0.0.9-platform",
+      "working_tree": "clean",
+      "status": [],
+      "snapshot_digest": "67e89c36cf11bbe3538469a1461c48a87967691ffd556995c8b5fc6c4b1c4d54",
+      "recorded_at_utc": "2026-08-23T14:50:21+00:00"
+    },
+    "display_names": {
+      "zh_CN": "SilverStar AIR V0 + SSLOG0 协议包",
+      "en_US": "SilverStar AIR V0 + SSLOG0"
+    }
+  }
+}

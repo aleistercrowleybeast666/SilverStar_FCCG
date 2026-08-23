@@ -1,0 +1,149 @@
+# SilverStar Build 与 Targets
+
+> 文档版本：0.0.9  
+> 适用范围：SilverStar 0.0.9
+
+## 1. 唯一source graph
+
+顶层`Makefile`是正式入口，只显式包含Target和第一方通用manifest：
+
+```text
+Targets/<Target>/target.mk
+BuildSystem/first_party.mk
+```
+
+Target manifest再显式选择`Platform/<MCU>/module.mk`、Device core及其`Adapter/`、`Board/<Board>/module.mk`、`FlightLogic/module.mk`、`Generated/module.mk`，并选择该Target需要的HAL、FatFs和FreeRTOS vendor source manifest。这样MCU/链接参数和vendor source资格由Target拥有，通用Make不认识任何具体MCU或板卡。
+
+所有`.c`逐文件登记。禁止`$(wildcard ...)`、递归目录扫描、IDE手工exclude和另一个未跟踪的object列表。Make在解析阶段拒绝重复C/ASM源。
+
+## 2. Target选择
+
+当前唯一Target：
+
+```make
+TARGET_PROFILE ?= SilverStar_F407
+CONFIG ?= Debug
+```
+
+`Targets/SilverStar_F407/target.mk`声明：
+
+```make
+IMU_DRIVER       := JY901B
+GNSS_DRIVER      := NEO_M9N
+TELEMETRY_DRIVER := SX1281
+PLATFORM_BACKEND := STM32F4
+BOARD_PROFILE    := SILVERSTAR_0_5
+ALIGNMENT_STRATEGY  ?= GravityKnownYaw
+INS_STRATEGY        ?= Coning2Sculling2
+ESTIMATOR_STRATEGY  ?= KF6
+LANDING_STRATEGY    ?= BarometerImuWindow
+DEPLOYMENT_STRATEGY ?= MultiTrigger
+TOOLCHAIN_PREFIX := arm-none-eabi-
+TARGET_MCU_FLAGS := -mcpu=cortex-m4 ...
+TARGET_LDSCRIPT  := STM32F407XX_FLASH.ld
+```
+
+其中MCU为`STM32F407VET6`，Board为`SilverStar 0.5`，固件Target为`SilverStar_F407`；三者不是同一个概念。当前`BOARD_PROFILE`值为`SILVERSTAR_0_5`。
+
+这些变量是目标可读描述；实际选择通过该Target只include相应module manifest实现。未被include的driver/backend即使存在于仓库也不会进入固件。
+
+## 3. 构建命令
+
+```powershell
+mingw32-make TARGET_PROFILE=SilverStar_F407 CONFIG=Debug all
+mingw32-make TARGET_PROFILE=SilverStar_F407 CONFIG=Release all
+mingw32-make TARGET_PROFILE=SilverStar_F407 CONFIG=Debug clean
+mingw32-make TARGET_PROFILE=SilverStar_F407 CONFIG=Debug artifact-check
+mingw32-make list-sources
+mingw32-make power10-check
+mingw32-make static-analysis
+mingw32-make memory-report
+```
+
+Debug使用`-Og -g`，Release使用`-O2`。两者都启用section GC、基础warning和关键`-Werror`。正式工具链前缀为`arm-none-eabi-`，可用`GCC_PATH`指定目录。
+
+SSLOG Record ID、metadata和逐字段little-endian serializer/deserializer是`Protocol/SSLOG/Inc/sslog_records.h`与`Protocol/SSLOG/Src/sslog_records.c`中的普通受控源码。authoritative firmware build直接编译它们，不运行Python或代码生成器；`Protocol/SSLOG/schema/`仅保存离线解析器参考资料，不是固件构建输入。
+
+## 4. 输出
+
+```text
+build/SilverStar_F407/Debug/
+build/SilverStar_F407/Release/
+build/SilverStar_F407/StaticAnalysis/Debug/
+build/EIDE/SilverStar_F407/Debug/
+build/Host/Tests/
+```
+
+目标产物名为`SilverStar_0_0_9.elf/.map/.hex/.bin`。C对象由源码相对路径派生，例如：
+
+```text
+build/SilverStar_F407/Debug/Platform/STM32F4/Src/platform_uart_stm32f4.o
+build/SilverStar_F407/Debug/Devices/IMU/JY901B/Src/jy901b_device.o
+```
+
+不允许使用`$(notdir ...)`压平对象名。
+
+## 5. FreeRTOS source set
+
+`BuildSystem/freertos.mk`只登记：
+
+```text
+ThirdParty/FreeRTOS-Kernel/list.c
+ThirdParty/FreeRTOS-Kernel/queue.c
+ThirdParty/FreeRTOS-Kernel/tasks.c
+ThirdParty/FreeRTOS-Kernel/portable/GCC/ARM_CM4F/port.c
+```
+
+不得登记`heap_*.c`、`Core/Src/sysmem.c`、`timers.c`、`event_groups.c`、`stream_buffer.c`或`croutine.c`，除非未来确有第一方使用、配置和验收同时变更。`.ioc`和链接脚本的C heap reserve均为0；旧`Middlewares/Third_Party/FreeRTOS`与`cmsis_os2.c`不得恢复。
+
+## 6. EIDE、VS Code与CubeMX
+
+`.eide/eide.yml`恢复为当前F407可直接调用Arm GNU Toolchain的开发镜像。它只列出Make正式选择的目录和显式virtual sources，使用Cortex-M4F、single-precision FPU、hard-float、C11、`STM32F407XX_FLASH.ld`和`platform_memory_target.h` forced include，输出隔离在`build/EIDE/SilverStar_F407/Debug`。
+
+Make manifest仍是唯一权威source graph。`architecture-check`枚举EIDE实际C/S集合并与`make list-sources`比较，同时逐项比较include和define；任何漂移都失败。当前YML为可手工维护镜像，不允许反向驱动Make。未来FCCG可以从`SilverStar.ssproject`生成/覆盖该镜像、Target/Board选择和`Generated/`薄胶水。
+
+CubeMX只生成F407 HAL/外设初始化。`.ioc`不管理FreeRTOS和APP任务。重新生成后必须复核：
+
+- 没有恢复`Core/Src/freertos.c`、defaultTask或CMSIS-RTOS2；
+- startup/linker/Core/Drivers/FATFS路径仍与manifest一致；
+- UART DMA、NVIC、TIM1 HAL tick、SysTick和GPIO映射没有漂移；
+- USER CODE以外的必要手工修改已有说明或同步配置。
+
+## 7. 自动目标
+
+```powershell
+mingw32-make host-tests
+mingw32-make architecture-check
+mingw32-make power10-check
+mingw32-make static-analysis
+mingw32-make TARGET_PROFILE=SilverStar_F407 CONFIG=Debug artifact-check
+```
+
+`architecture-check`同时评估manifest/EIDE镜像源集、文件存在性、重复源、目标backend、FreeRTOS精简源集、无heap/CMSIS、SSLOG普通源码的双向endian codec、禁止struct直写wire，以及authoritative manifest不调用Python/生成器。`power10-check`对第一方代码执行10条硬门禁；`static-analysis`在隔离输出目录对第一方启用`-fanalyzer`。`artifact-check`检查ELF/MAP/HEX/BIN、CCMRAM/主SRAM归属和预算，并拒绝allocator或旧OS/heap object。
+
+## 8. Strategy source graph
+
+Strategy变量只决定哪个组件manifest被include；runtime配置不得选择未编入实现。当前正式图包含Alignment Common + GravityKnownYaw、INS Coning2Sculling2、Estimator KF6、Landing BarometerImuWindow、Deployment MultiTrigger、Calibration及Algorithm Common。GravityMagTriad、HardwareQuat6AxisKnownYaw和HardwareQuat9Axis只由独立Host tests编译。
+
+构建级None验收：
+
+```powershell
+mingw32-make ESTIMATOR_STRATEGY=None list-sources
+```
+
+该输出不得包含`Algorithm/Estimator/KF6/Src/navigation_kf.c`。Calibration modes与MultiTrigger trigger modes不做source-level极限裁剪；trigger mask=0表示合法空集。
+
+## 9. CCMRAM与DMA
+
+F407 Target用forced include把`PLATFORM_CPU_FAST_BSS`映射到`.ccmram_bss`，linker/startup负责section定义和清零。CCMRAM不可被F407 DMA访问，因此UART DMA/ring、Logger aggregation、SDIO/FatFs DMA和HAL/DMA handles必须保留主SRAM。新增Target不得复制F407 section名到Component Source；它必须自行定义placement语义、linker、startup和artifact预算。
+
+## 10. 新Target流程
+
+新增Target只允许增加目标所需的Target、Board、Platform backend、Device Adapter、Generated glue manifest与配置；不要修改通用System来识别Target名。必须证明：
+
+1. source list唯一且只含选中模块；
+2. 对象路径不冲突；
+3. Debug/Release clean build均生成完整产物；
+4. OS port、interrupt priority和tick分工正确；
+5. architecture check扩展到新backend；
+6. 文档只声明实际完成的编译/硬件验证范围。

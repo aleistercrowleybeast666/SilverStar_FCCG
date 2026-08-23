@@ -1,0 +1,66 @@
+{
+  "schema_version": 0,
+  "id": "fixture.board.f407_a",
+  "name": "F407 Board A",
+  "type": "board",
+  "class": "flight_controller_board",
+  "version": "1.0.0",
+  "description": "Test fixture mapping IMU to USART1 and GNSS to USART2.",
+  "requires": {
+    "components": [
+      {"id": "silverstar.core.0_0_9", "optional": false},
+      {"id": "silverstar.mcu.stm32f407vet6", "optional": false}
+    ],
+    "resources": [],
+    "capabilities": []
+  },
+  "resources": {
+    "provides": [
+      {"id": "USART1", "kind": "uart", "metadata": {"c_id": "PLATFORM_UART_1", "header": "platform_uart.h"}},
+      {"id": "USART2", "kind": "uart", "metadata": {"c_id": "PLATFORM_UART_2", "header": "platform_uart.h"}},
+      {"id": "GNSS_RESET_A", "kind": "gpio_output", "metadata": {"c_id": "PLATFORM_GPIO_0", "header": "platform_gpio.h"}},
+      {"id": "GNSS_TIMEPULSE_A", "kind": "gpio_interrupt", "metadata": {"c_id": "PLATFORM_GPIO_1", "header": "platform_gpio.h"}},
+      {"id": "SYSTEM_TIME", "kind": "time", "metadata": {}}
+    ],
+    "roles": [
+      {"key": "imu:data", "kind": "uart", "default": "USART1", "candidates": ["USART1"], "fixed": true},
+      {"key": "imu:time", "kind": "time", "default": "SYSTEM_TIME", "candidates": ["SYSTEM_TIME"], "fixed": true},
+      {"key": "gnss:data", "kind": "uart", "default": "USART2", "candidates": ["USART2"], "fixed": true},
+      {"key": "gnss:reset", "kind": "gpio_output", "default": "GNSS_RESET_A", "candidates": ["GNSS_RESET_A"], "fixed": true},
+      {"key": "gnss:timepulse", "kind": "gpio_interrupt", "default": "GNSS_TIMEPULSE_A", "candidates": ["GNSS_TIMEPULSE_A"], "fixed": true},
+      {"key": "gnss:time", "kind": "time", "default": "SYSTEM_TIME", "candidates": ["SYSTEM_TIME"], "fixed": true}
+    ],
+    "conflicts": []
+  },
+  "provides": ["board.fixture.f407_a"],
+  "build": {
+    "sources": [],
+    "asm_sources": [],
+    "include_dirs": [],
+    "defines": []
+  },
+  "payload": {"roots": ["BoardVariants/A"]},
+  "metadata": {
+    "display_names": {"zh_CN": "F407 板卡 A", "en_US": "F407 Board A"},
+    "platform_resources": {
+      "uarts": [
+        {"id": "USART1", "handle": "huart1"},
+        {"id": "USART2", "handle": "huart2"}
+      ],
+      "spis": [],
+      "adcs": [],
+      "gpios": [
+        {"id": "GNSS_RESET_A", "port": "GNSS_RESET_A_GPIO_Port", "pin": "GNSS_RESET_A_Pin"},
+        {"id": "GNSS_TIMEPULSE_A", "port": "GNSS_TIMEPULSE_A_GPIO_Port", "pin": "GNSS_TIMEPULSE_A_Pin", "active_high": 1}
+      ]
+    }
+  },
+  "board": {
+    "source_kind": "third_party",
+    "compatible_mcus": ["silverstar.mcu.stm32f407vet6"],
+    "vendor": "STM32",
+    "provider": "silverstar.hardware_provider.stm32_cubemx",
+    "verified": false,
+    "hardware_root": "BoardVariants/A"
+  }
+}
