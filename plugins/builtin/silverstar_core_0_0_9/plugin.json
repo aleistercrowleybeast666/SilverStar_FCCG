@@ -101,8 +101,12 @@
       "recorded_at_utc": "2026-08-23T14:50:21+00:00"
     },
     "display_names": {
-      "zh_CN": "SilverStar 核心 0.0.9",
+      "zh_CN": "SilverStar核心 0.0.9",
       "en_US": "SilverStar Core 0.0.9"
+    },
+    "descriptions": {
+      "zh_CN": "与MCU无关的SilverStar应用、系统、接口和主机验证源码。",
+      "en_US": "MCU-independent SilverStar application, system, interfaces, and host validation sources."
     },
     "device_descriptors": [
       {

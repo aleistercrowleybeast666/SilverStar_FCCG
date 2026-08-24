@@ -50,8 +50,12 @@
       "recorded_at_utc": "2026-08-23T14:50:21+00:00"
     },
     "display_names": {
-      "zh_CN": "多条件开伞",
+      "zh_CN": "多触发条件开伞",
       "en_US": "Multi-Trigger Deployment"
+    },
+    "descriptions": {
+      "zh_CN": "提供最高点、姿态倾斜和延时三种可独立选择的开伞触发条件。",
+      "en_US": "Deployment component with independently selectable apogee, tilt, and delay modes."
     }
   },
   "selection": {
@@ -67,8 +71,21 @@
       "Delay"
     ],
     "default": [
-      "ApogeeVerticalVelocity"
+      "ApogeeVerticalVelocity",
+      "Tilt",
+      "Delay"
     ],
+    "option_requirements": {
+      "ApogeeVerticalVelocity": {
+        "capabilities": ["navigation.vertical_velocity"]
+      },
+      "Tilt": {
+        "capabilities": ["attitude.estimated"]
+      },
+      "Delay": {
+        "capabilities": []
+      }
+    },
     "labels": {
       "zh_CN": {
         "ApogeeVerticalVelocity": "越过最高点 / 垂直速度",

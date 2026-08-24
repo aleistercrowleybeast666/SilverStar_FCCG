@@ -14,7 +14,10 @@
       }
     ],
     "resources": [],
-    "capabilities": []
+    "capabilities": [
+      {"capability": "imu.acceleration", "purpose": "runtime"},
+      {"capability": "imu.angular_rate", "purpose": "runtime"}
+    ]
   },
   "resources": {
     "provides": [],
@@ -22,7 +25,8 @@
     "conflicts": []
   },
   "provides": [
-    "algorithm.mechanization"
+    "algorithm.mechanization",
+    "attitude.estimated"
   ],
   "build": {
     "sources": [
@@ -52,8 +56,12 @@
       "recorded_at_utc": "2026-08-23T14:50:21+00:00"
     },
     "display_names": {
-      "zh_CN": "Coning2 / Sculling2 惯导",
+      "zh_CN": "二阶圆锥补偿 / 二阶划桨补偿",
       "en_US": "Coning2 / Sculling2 INS"
+    },
+    "descriptions": {
+      "zh_CN": "采用二阶圆锥与划桨补偿的惯性导航机械编排。",
+      "en_US": "Build-selected Coning2/Sculling2 inertial mechanization strategy."
     },
     "algorithm_descriptors": [
       {

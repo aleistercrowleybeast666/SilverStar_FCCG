@@ -11,8 +11,9 @@ from silverstar_fccg.core.task import TaskCancelledError, TaskContext
 
 class WorkerSignals(QObject):
     progress = Signal(float, str)
+    line = Signal(str)
     result = Signal(object)
-    error = Signal(str, str)
+    error = Signal(object, str)
     cancelled = Signal()
     finished = Signal()
 
@@ -21,7 +22,10 @@ class FunctionWorker(QRunnable):
     def __init__(self, function: Callable[[TaskContext], Any]) -> None:
         super().__init__()
         self.signals = WorkerSignals()
-        self.context = TaskContext(progress_callback=self.signals.progress.emit)
+        self.context = TaskContext(
+            progress_callback=self.signals.progress.emit,
+            line_callback=self.signals.line.emit,
+        )
         self._function = function
         self.setAutoDelete(True)
 
@@ -32,7 +36,7 @@ class FunctionWorker(QRunnable):
         except TaskCancelledError:
             self.signals.cancelled.emit()
         except Exception as exc:  # Worker boundary keeps Qt's event loop alive.
-            self.signals.error.emit(str(exc), traceback.format_exc())
+            self.signals.error.emit(exc, traceback.format_exc())
         else:
             self.signals.result.emit(result)
         finally:
@@ -40,4 +44,3 @@ class FunctionWorker(QRunnable):
 
     def Worker_Cancel(self) -> None:
         self.context.Cancel_Request()
-

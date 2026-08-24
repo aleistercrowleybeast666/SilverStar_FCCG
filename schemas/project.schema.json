@@ -5,11 +5,11 @@
   "type": "object",
   "required": [
     "format_version", "project", "components", "modes", "hardware",
-    "resources", "logging", "build", "generated_glue",
+    "resources", "capability_sources", "logging", "build", "generated_glue",
     "component_provenance", "reference_provenance"
   ],
   "properties": {
-    "format_version": {"const": 1},
+    "format_version": {"const": 5},
     "project": {
       "type": "object",
       "required": ["name", "firmware_version", "build_target"],
@@ -28,7 +28,11 @@
         "mcu": {"$ref": "#/$defs/componentId"},
         "board": {"oneOf": [{"const": ""}, {"$ref": "#/$defs/componentId"}]},
         "os": {"$ref": "#/$defs/componentId"},
-        "devices": {"$ref": "#/$defs/componentIds"},
+        "devices": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/deviceInstance"}
+        },
         "base": {"$ref": "#/$defs/componentIds"},
         "strategies": {
           "type": "object",
@@ -52,18 +56,19 @@
       "type": "object",
       "required": [
         "mode", "source_kind", "provider", "snapshot_id", "ioc_file",
-        "mcu", "capabilities", "resources", "build_sources", "asm_sources",
+        "mcu", "capabilities", "inventory", "resources", "build_sources", "asm_sources",
         "include_dirs", "defines", "linker_script", "source_digest",
         "source_label", "risk_acknowledged"
       ],
       "properties": {
-        "mode": {"enum": ["board_plugin", "custom"]},
-        "source_kind": {"enum": ["verified_builtin", "manual_import", "third_party"]},
+        "mode": {"enum": ["unselected", "board_plugin", "custom"]},
+        "source_kind": {"enum": ["unselected", "verified_builtin", "manual_import", "third_party"]},
         "provider": {"oneOf": [{"const": ""}, {"$ref": "#/$defs/componentId"}]},
         "snapshot_id": {"oneOf": [{"const": ""}, {"$ref": "#/$defs/sha256"}]},
         "ioc_file": {"type": "string", "pattern": "^(?:[A-Za-z0-9_./+@-]+)?$"},
         "mcu": {"type": "string"},
         "capabilities": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/lowerIdentifier"}},
+        "inventory": {"type": "object"},
         "resources": {
           "type": "array",
           "items": {
@@ -93,6 +98,11 @@
       "propertyNames": {"pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*:[a-z0-9]+(?:[._-][a-z0-9]+)*$"},
       "additionalProperties": {"$ref": "#/$defs/resourceId"}
     },
+    "capability_sources": {
+      "type": "object",
+      "propertyNames": {"$ref": "#/$defs/lowerIdentifier"},
+      "additionalProperties": {"$ref": "#/$defs/instanceId"}
+    },
     "logging": {
       "type": "object",
       "required": ["streams"],
@@ -117,14 +127,13 @@
     },
     "build": {
       "type": "object",
-      "required": ["target_profile", "configuration", "make_command", "toolchain_prefix", "gcc_path", "flash_command", "eide_mode", "tool_paths"],
+      "required": ["target_profile", "make_command", "toolchain_prefix", "gcc_path", "flash_command", "eide_mode", "tool_paths"],
       "properties": {
         "target_profile": {"$ref": "#/$defs/projectToken"},
-        "configuration": {"enum": ["Debug", "Release"]},
         "make_command": {"type": "string", "minLength": 1},
         "toolchain_prefix": {"type": "string", "pattern": "^[A-Za-z0-9_.+-]+$"},
         "gcc_path": {"type": "string"},
-        "flash_command": {"type": "string", "minLength": 1},
+        "flash_command": {"type": "string"},
         "eide_mode": {"const": "native"},
         "tool_paths": {
           "type": "object",
@@ -146,6 +155,16 @@
   "$defs": {
     "componentId": {"type": "string", "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*$"},
     "componentIds": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/componentId"}},
+    "instanceId": {"type": "string", "pattern": "^[a-z][a-z0-9_]{0,63}$"},
+    "deviceInstance": {
+      "type": "object",
+      "required": ["instance_id", "plugin"],
+      "properties": {
+        "instance_id": {"$ref": "#/$defs/instanceId"},
+        "plugin": {"$ref": "#/$defs/componentId"}
+      },
+      "additionalProperties": false
+    },
     "lowerIdentifier": {"type": "string", "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*$"},
     "projectToken": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$"},
     "resourceId": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"},

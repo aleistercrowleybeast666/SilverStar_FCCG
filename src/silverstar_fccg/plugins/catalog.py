@@ -4,10 +4,12 @@ import json
 from collections import defaultdict
 from pathlib import Path
 
+from silverstar_fccg.core.errors import FccgError
+
 from silverstar_fccg.plugins.manifest import PluginManifest, PluginManifestError, PluginManifest_Load
 
 
-class PluginCatalogError(ValueError):
+class PluginCatalogError(FccgError):
     pass
 
 

@@ -21,6 +21,17 @@ def _Manifest_Get(component_id: str = "example.device.safe", dependency: str = "
         "name": "Safe Example",
         "type": "device",
         "class": "example",
+        "instance_policy": {
+            "project_max": 1,
+            "same_plugin_multiple": False,
+            "multi_instance_ready": False,
+        },
+        "physical_device": {
+            "vendor": "Example",
+            "model": "Safe Example",
+            "chipset": "Example",
+            "driver": "Example Driver",
+        },
         "version": "1.0.0",
         "requires": {"components": components, "resources": [], "capabilities": []},
         "resources": {"provides": []},

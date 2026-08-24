@@ -4,11 +4,25 @@ import json
 from dataclasses import replace
 from pathlib import Path
 
+from silverstar_fccg.app.service import FccgService
 from silverstar_fccg.core.workspace import WorkspacePolicy
 from silverstar_fccg.generator.assembler import ProjectAssembler
 from silverstar_fccg.plugins.catalog import PluginCatalog
-from silverstar_fccg.project.model import ProjectModel_Load
+from silverstar_fccg.project.model import DeviceInstance, ProjectModel_Load
 from silverstar_fccg.project.reference import ReferenceProject_Create
+
+
+def test_service_normalizes_relative_generation_root(
+    tmp_path: Path, workspace_root: Path, monkeypatch
+) -> None:
+    service = FccgService(workspace_root)
+    model = service.ReferenceProject_Create("RelativeRoot")
+    monkeypatch.chdir(tmp_path.parent)
+
+    plan = service.GenerationPlan_Create(model, Path(tmp_path.name))
+
+    assert plan.project_root == tmp_path.resolve()
+    assert plan.validation.valid
 
 
 def test_generate_reopen_and_apply_preserves_component_source(
@@ -70,7 +84,9 @@ def test_generated_glue_is_small_static_and_heap_free(tmp_path: Path, builtin_ca
         for path in (project_root / "Generated").rglob("*")
         if path.is_file()
     )
-    assert len(generated_files) == 7
+    assert len(generated_files) == 9
+    assert "Generated/Inc/project_capability_routes.h" in generated_files
+    assert "Generated/Src/project_capability_routes.c" in generated_files
     source_text = "\n".join(
         path.read_text(encoding="utf-8")
         for path in (project_root / "Generated").rglob("*.c")
@@ -91,8 +107,19 @@ def test_component_cannot_claim_generated_namespace(
         "schema_version": 0,
         "id": "example.protocol.managed_collision",
         "name": "Managed Path Collision",
-        "type": "protocol_bundle",
+        "type": "device",
         "class": "test",
+        "instance_policy": {
+            "project_max": 4,
+            "same_plugin_multiple": True,
+            "multi_instance_ready": True,
+        },
+        "physical_device": {
+            "vendor": "Fixture",
+            "model": "Managed Collision",
+            "chipset": "Fixture",
+            "driver": "Fixture Driver",
+        },
         "version": "1.0.0",
         "requires": {"components": [], "resources": [], "capabilities": []},
         "resources": {"provides": []},
@@ -112,7 +139,9 @@ def test_component_cannot_claim_generated_namespace(
     catalog = PluginCatalog(builtin_catalog.builtin_root, tmp_path / "installed")
     catalog.Scan()
     model = ReferenceProject_Create("ManagedCollision")
-    model.protocol_bundles.append("example.protocol.managed_collision")
+    model.device_instances.append(
+        DeviceInstance("test0", "example.protocol.managed_collision")
+    )
     assembler = ProjectAssembler(WorkspacePolicy(tmp_path), catalog)
     plan = assembler.Plan(model, tmp_path / "ManagedCollision")
     assert not plan.valid

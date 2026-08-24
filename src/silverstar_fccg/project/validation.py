@@ -5,9 +5,17 @@ import re
 
 from silverstar_fccg.plugins.catalog import PluginCatalog
 from silverstar_fccg.plugins.manifest import SelectionKind
+from silverstar_fccg.project.logging import (
+    LogAvailability_Get,
+    LogPolicyLevel,
+    ProtocolLogDefinitions_Get,
+)
+from silverstar_fccg.project.capabilities import CapabilityResolution_Resolve
 from silverstar_fccg.project.model import ProjectModel, ProjectModelError, ProjectModel_Parse
-from silverstar_fccg.project.reference import ReferenceLogStreams_Get
-from silverstar_fccg.project.resources import ResourceAssignments_Resolve
+from silverstar_fccg.project.resources import (
+    BoardHardwareInventory_Get,
+    ResourceAssignments_Resolve,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -149,6 +157,25 @@ def _Modes_Validate(
                     "error", "mode_required", f"Mode slot {slot} requires a selection"
                 )
             )
+        selected_components = set(model.ComponentIds_Get())
+        for option in values:
+            requirements = selection.option_requirements.get(option)
+            if requirements is None:
+                continue
+            missing_components = tuple(
+                component_id
+                for component_id in requirements.components
+                if component_id not in selected_components
+            )
+            if missing_components:
+                issues.append(
+                    ValidationIssue(
+                        "error",
+                        "mode_component",
+                        f"Mode option {slot}.{option} requires components: "
+                        + ", ".join(missing_components),
+                    )
+                )
 
 
 def _Hardware_Validate(
@@ -158,6 +185,23 @@ def _Hardware_Validate(
 ) -> None:
     mcu = catalog.Component_Get(model.mcu)
     mcu_vendor = str(mcu.metadata.get("vendor", ""))
+    if mcu_vendor.casefold() != "stm32":
+        issues.append(
+            ValidationIssue(
+                "error",
+                "mcu_scope",
+                "FCCG v0.x exposes STM32 targets only",
+            )
+        )
+    if model.hardware.mode == "unselected":
+        issues.append(
+            ValidationIssue(
+                "error",
+                "hardware_unselected",
+                "A Board or imported STM32CubeMX hardware configuration is required",
+            )
+        )
+        return
     if model.hardware.mode == "board_plugin":
         board = catalog.Component_Get(model.board)
         if board.board is None:
@@ -181,6 +225,53 @@ def _Hardware_Validate(
                     f"Board {model.board} is not an official verified builtin",
                 )
             )
+        inventory = BoardHardwareInventory_Get(board)
+        if inventory is None:
+            issues.append(
+                ValidationIssue(
+                    (
+                        "warning"
+                        if board.board.source_kind == "third_party"
+                        else "error"
+                    ),
+                    "board_ioc",
+                    "Board plugin does not declare a CubeMX .ioc inventory",
+                )
+            )
+        else:
+            expected_mcu = re.sub(
+                r"[^A-Z0-9]", "", str(mcu.metadata.get("mcu_model", "")).upper()
+            )
+            actual_mcu = re.sub(r"[^A-Z0-9]", "", inventory.mcu_part.upper())
+            if expected_mcu and actual_mcu != expected_mcu:
+                issues.append(
+                    ValidationIssue(
+                        "error",
+                        "board_ioc_mcu",
+                        f"Board .ioc MCU {inventory.mcu_part} does not match {expected_mcu}",
+                    )
+                )
+            for issue_code in inventory.issues:
+                issues.append(
+                    ValidationIssue(
+                        "warning", "board_ioc_inventory", issue_code
+                    )
+                )
+        return
+    if not (
+        model.hardware.snapshot_id
+        and model.hardware.ioc_file
+        and model.hardware.mcu
+        and model.hardware.source_digest
+        and model.hardware.inventory
+    ):
+        issues.append(
+            ValidationIssue(
+                "error",
+                "hardware_import_incomplete",
+                "Custom STM32CubeMX hardware import metadata is incomplete",
+            )
+        )
         return
     provider = catalog.Component_Get(model.hardware.provider)
     if provider.hardware_provider is None:
@@ -240,6 +331,14 @@ def _Hardware_Validate(
             "Custom hardware is not officially hardware-validated by SilverStar",
         )
     )
+    if not model.hardware.inventory:
+        issues.append(
+            ValidationIssue(
+                "error",
+                "hardware_inventory",
+                "Imported CubeMX hardware inventory is missing",
+            )
+        )
 
 
 def Project_Validate(model: ProjectModel, catalog: PluginCatalog) -> ProjectValidationResult:
@@ -251,7 +350,6 @@ def Project_Validate(model: ProjectModel, catalog: PluginCatalog) -> ProjectVali
             (ValidationIssue("error", "project_model", str(error)),)
         )
     raw_components = [model.core, model.mcu, model.board, model.os]
-    raw_components.extend(model.devices)
     raw_components.extend(model.base_components)
     raw_components.extend(
         component_id
@@ -279,15 +377,83 @@ def Project_Validate(model: ProjectModel, catalog: PluginCatalog) -> ProjectVali
         _ComponentType_Validate(catalog, component_id, expected_type, issues)
     if model.hardware.mode == "board_plugin":
         _ComponentType_Validate(catalog, model.board, "board", issues)
-    else:
+    elif model.hardware.mode == "custom":
         _ComponentType_Validate(
             catalog,
             model.hardware.provider,
             "hardware_configuration_provider",
             issues,
         )
-    for component_id in model.devices:
-        _ComponentType_Validate(catalog, component_id, "device", issues)
+    devices_by_class: dict[str, list[str]] = {}
+    devices_by_plugin: dict[str, list[str]] = {}
+    for instance in model.device_instances:
+        _ComponentType_Validate(catalog, instance.plugin, "device", issues)
+        try:
+            manifest = catalog.Component_Get(instance.plugin)
+        except ValueError:
+            continue
+        devices_by_class.setdefault(manifest.component_class, []).append(
+            instance.instance_id
+        )
+        devices_by_plugin.setdefault(instance.plugin, []).append(
+            instance.instance_id
+        )
+    for plugin_id, instance_ids in sorted(devices_by_plugin.items()):
+        policy = catalog.Component_Get(plugin_id).instance_policy
+        if len(instance_ids) > policy.project_max:
+            issues.append(
+                ValidationIssue(
+                    "error",
+                    "device_instance_limit",
+                    f"Device plugin {plugin_id} allows at most "
+                    f"{policy.project_max} instance(s)",
+                )
+            )
+        if len(instance_ids) > 1 and not policy.same_plugin_multiple:
+            issues.append(
+                ValidationIssue(
+                    "error",
+                    "device_same_plugin_multiple",
+                    f"Device plugin {plugin_id} cannot be instantiated twice",
+                )
+            )
+        if len(instance_ids) > 1 and not policy.multi_instance_ready:
+            issues.append(
+                ValidationIssue(
+                    "error",
+                    "device_multi_instance_not_ready",
+                    f"Device plugin {plugin_id} has no context-safe multi-instance driver",
+                )
+            )
+    for component_class, instance_ids in sorted(devices_by_class.items()):
+        class_limit = max(
+            catalog.Component_Get(instance.plugin).instance_policy.project_max
+            for instance in model.device_instances
+            if catalog.Component_Get(instance.plugin).component_class
+            == component_class
+        )
+        if len(instance_ids) > class_limit:
+            issues.append(
+                ValidationIssue(
+                    "error",
+                    "device_class_instance_limit",
+                    f"Device class {component_class} allows at most "
+                    f"{class_limit} instance(s)",
+                )
+            )
+        if len(instance_ids) > 1 and any(
+            not catalog.Component_Get(instance.plugin).instance_policy.multi_instance_ready
+            for instance in model.device_instances
+            if catalog.Component_Get(instance.plugin).component_class
+            == component_class
+        ):
+            issues.append(
+                ValidationIssue(
+                    "error",
+                    "device_class_multi_instance_not_ready",
+                    f"Device class {component_class} includes a singleton driver",
+                )
+            )
     for component_id in model.base_components:
         try:
             component_type = catalog.Component_Get(component_id).component_type
@@ -356,15 +522,53 @@ def Project_Validate(model: ProjectModel, catalog: PluginCatalog) -> ProjectVali
     else:
         for error in resource_result.errors:
             issues.append(ValidationIssue("error", "resource", error))
+
+    try:
+        capability_result = CapabilityResolution_Resolve(model, catalog)
+    except ValueError as error:
+        issues.append(ValidationIssue("error", "capability_catalog", str(error)))
+    else:
+        for requirement in capability_result.missing:
+            issues.append(
+                ValidationIssue(
+                    "error",
+                    "capability_missing",
+                    f"{requirement.consumer_component} requires "
+                    f"{requirement.capability} ({requirement.purpose})",
+                )
+            )
+        for choice in capability_result.choices:
+            if choice.requires_selection:
+                issues.append(
+                    ValidationIssue(
+                        "error",
+                        "capability_ambiguous",
+                        f"Capability {choice.capability} has multiple providers",
+                    )
+                )
+        for capability in capability_result.invalid_overrides:
+            issues.append(
+                ValidationIssue(
+                    "error",
+                    "capability_source_override",
+                    f"Invalid or unnecessary capability source override: "
+                    f"{capability}",
+                )
+            )
     if not model.logging_streams:
         issues.append(
             ValidationIssue(
                 "error", "logging", "No SSLOG stream policy is configured"
             )
         )
-    expected_records = tuple(stream.record for stream in ReferenceLogStreams_Get())
+    try:
+        definitions = ProtocolLogDefinitions_Get(model, catalog)
+    except ValueError as error:
+        definitions = ()
+        issues.append(ValidationIssue("error", "logging_metadata", str(error)))
+    expected_records = tuple(definition.record for definition in definitions)
     actual_records = tuple(stream.record for stream in model.logging_streams)
-    if actual_records != expected_records:
+    if definitions and actual_records != expected_records:
         issues.append(
             ValidationIssue(
                 "error",
@@ -372,10 +576,120 @@ def Project_Validate(model: ProjectModel, catalog: PluginCatalog) -> ProjectVali
                 "The SSLOG record table must match the selected protocol bundle order",
             )
         )
+    streams = {stream.record: stream for stream in model.logging_streams}
+    for definition in definitions:
+        stream = streams.get(definition.record)
+        if stream is None:
+            continue
+        availability = LogAvailability_Get(definition, model, catalog)
+        if not availability.available and stream.enabled:
+            issues.append(
+                ValidationIssue(
+                    "error",
+                    "logging_unavailable",
+                    f"Unavailable SSLOG record is enabled: {definition.record}",
+                )
+            )
+        if (
+            availability.available
+            and definition.level == LogPolicyLevel.REQUIRED
+            and not stream.enabled
+        ):
+            issues.append(
+                ValidationIssue(
+                    "error",
+                    "logging_required",
+                    f"Required SSLOG record cannot be disabled: {definition.record}",
+                )
+            )
     if model.build.target_profile != "SilverStar_F407":
         issues.append(
             ValidationIssue(
                 "error", "target", "Only SilverStar_F407 is currently validated"
             )
+        )
+    return ProjectValidationResult(tuple(issues))
+
+
+def Project_EditValidate(
+    model: ProjectModel, catalog: PluginCatalog
+) -> ProjectValidationResult:
+    """Validate an in-memory editing state without requiring finished hardware.
+
+    Structural corruption remains an error. Expected intermediate states are surfaced as
+    warnings so the GUI can keep accepting configuration changes safely.
+    """
+
+    issues: list[ValidationIssue] = []
+    try:
+        ProjectModel_Parse(model.Dictionary_Get())
+    except ProjectModelError as error:
+        return ProjectValidationResult(
+            (ValidationIssue("error", "project_model", str(error)),)
+        )
+
+    if model.hardware.mode == "unselected":
+        issues.append(
+            ValidationIssue(
+                "warning",
+                "hardware_unselected",
+                "Hardware has not been selected",
+            )
+        )
+    elif model.hardware.mode == "custom" and not model.hardware.snapshot_id:
+        issues.append(
+            ValidationIssue(
+                "warning",
+                "hardware_import_pending",
+                "A STM32CubeMX project still needs to be imported",
+            )
+        )
+
+    for slot in catalog.SelectionSlots_Get(SelectionKind.STRATEGY.value):
+        manifests = catalog.SelectionSlot_Get(slot)
+        required = any(
+            manifest.selection is not None and manifest.selection.required
+            for manifest in manifests
+        )
+        if required and not model.strategies.get(slot):
+            issues.append(
+                ValidationIssue(
+                    "warning",
+                    "strategy_pending",
+                    f"Strategy slot {slot} needs a compatible selection",
+                )
+            )
+
+    try:
+        capability_result = CapabilityResolution_Resolve(model, catalog)
+    except ValueError as error:
+        issues.append(ValidationIssue("error", "capability_catalog", str(error)))
+    else:
+        for requirement in capability_result.missing:
+            issues.append(
+                ValidationIssue(
+                    "warning",
+                    "capability_pending",
+                    f"{requirement.consumer_component} needs {requirement.capability}",
+                )
+            )
+        for choice in capability_result.choices:
+            if choice.requires_selection:
+                issues.append(
+                    ValidationIssue(
+                        "warning",
+                        "capability_source_pending",
+                        f"Capability {choice.capability} needs a provider selection",
+                    )
+                )
+
+    try:
+        resources = ResourceAssignments_Resolve(model, catalog)
+    except ValueError as error:
+        issues.append(ValidationIssue("error", "resource_catalog", str(error)))
+    else:
+        issues.extend(
+            ValidationIssue("warning", "resource_pending", error)
+            for error in resources.errors
         )
     return ProjectValidationResult(tuple(issues))

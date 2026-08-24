@@ -1,0 +1,622 @@
+from __future__ import annotations
+
+import io
+import json
+import zipfile
+from dataclasses import replace
+from pathlib import Path
+
+import pytest
+from PySide6.QtWidgets import (
+    QDialogButtonBox,
+    QMessageBox,
+    QPushButton,
+    QVBoxLayout,
+)
+
+from silverstar_fccg.app.service import FccgService
+from silverstar_fccg.build.runner import BuildAction, BuildResult
+from silverstar_fccg.core.settings import SettingsStore
+from silverstar_fccg.core.view_models import (
+    ComponentType,
+    ComponentView,
+    DeviceInstanceView,
+)
+from silverstar_fccg.core.workspace import WorkspacePolicy, WorkspacePolicyError
+from silverstar_fccg.generator.assembler import ProjectAssembler
+from silverstar_fccg.generator.render import MetadataFiles_Render
+from silverstar_fccg.generator.source_graph import SourceGraph_Resolve
+from silverstar_fccg.hardware.inventory import CubeMxInventory_Parse
+from silverstar_fccg.project.logging import (
+    LogAvailability_Get,
+    LogPolicyLevel,
+    LoggingProfile_Reconcile,
+    ProtocolLogDefinitions_Load,
+)
+from silverstar_fccg.project.model import (
+    DeviceInstance,
+    HardwareConfiguration,
+    HardwareResource,
+)
+from silverstar_fccg.project.resources import ResourceAssignments_Resolve
+from silverstar_fccg.project.reference import ReferenceProject_Create
+from silverstar_fccg.project.validation import Project_Validate
+from silverstar_fccg.plugins.manifest import PluginManifestError, PluginManifest_Load
+from silverstar_fccg.ui.main_window import MainWindow
+from silverstar_fccg.ui.pages.components import DevicesPage
+from silverstar_fccg.ui.theme import Stylesheet_Get
+from silverstar_fccg.ui.widgets import (
+    CollapsibleSection,
+    HeaderComboBox,
+    LockedCheckBox,
+    StandardCheckBox,
+)
+from silverstar_fccg.core.i18n import Translator
+from tools.import_reference_components import _ProtocolMetadata_Adapt
+
+
+def test_standard_controls_and_collapsible_visibility(qapp) -> None:
+    section = CollapsibleSection("Advanced", expanded=False)
+    layout = QVBoxLayout()
+    child = StandardCheckBox("Enabled child")
+    layout.addWidget(child)
+    section.BodyLayout_Set(layout)
+    assert section.body.isHidden()
+    assert child.isEnabled()
+
+    section.toggle_button.setChecked(True)
+    qapp.processEvents()
+    assert not section.body.isHidden()
+    assert child.isEnabled()
+    section.toggle_button.setChecked(False)
+    assert child.isEnabled()
+
+    header = HeaderComboBox("headerLanguageCombo")
+    assert header.view().objectName() == "headerComboPopup"
+    locked = LockedCheckBox()
+    assert locked.isEnabled() and locked.isChecked()
+    locked.click()
+    assert locked.isChecked()
+    for theme in ("light", "dark"):
+        stylesheet = Stylesheet_Get(theme)
+        assert "QCheckBox#standardCheckBox::indicator:checked" in stylesheet
+        assert "check_white.svg" in stylesheet
+        assert "QToolButton#collapsibleHeader" in stylesheet
+
+
+def test_protocol_metadata_defaults_required_and_availability(
+    builtin_catalog,
+) -> None:
+    model = ReferenceProject_Create("LoggingPolicy")
+    definitions = LoggingProfile_Reconcile(model, builtin_catalog)
+    streams = {stream.record: stream for stream in model.logging_streams}
+    assert all(
+        streams[definition.record].enabled
+        for definition in definitions
+        if LogAvailability_Get(definition, model, builtin_catalog).available
+    )
+    assert all(
+        not streams[definition.record].enabled
+        for definition in definitions
+        if not LogAvailability_Get(definition, model, builtin_catalog).available
+    )
+
+    event = next(
+        definition
+        for definition in definitions
+        if definition.record == "FLIGHT_LOG_RECORD_EVENT"
+    )
+    assert event.level == LogPolicyLevel.REQUIRED
+    model.logging_streams = [
+        replace(stream, enabled=False)
+        if stream.record == event.record
+        else stream
+        for stream in model.logging_streams
+    ]
+    assert any(
+        issue.code == "logging_required"
+        for issue in Project_Validate(model, builtin_catalog).issues
+    )
+
+    model.device_instances = [
+        instance
+        for instance in model.device_instances
+        if instance.plugin != "silverstar.device.telemetry.sx1281"
+    ]
+    definitions = LoggingProfile_Reconcile(model, builtin_catalog)
+    telemetry = next(
+        definition
+        for definition in definitions
+        if definition.record == "FLIGHT_LOG_RECORD_TELEMETRY_DIAG"
+    )
+    availability = LogAvailability_Get(telemetry, model, builtin_catalog)
+    assert not availability.available
+    assert next(
+        stream
+        for stream in model.logging_streams
+        if stream.record == telemetry.record
+    ).enabled is False
+
+
+def test_new_project_mode_and_logging_defaults_do_not_override_later_choices(
+    builtin_catalog,
+) -> None:
+    model = ReferenceProject_Create("NewDefaults")
+    definitions = LoggingProfile_Reconcile(model, builtin_catalog)
+    streams = {stream.record: stream for stream in model.logging_streams}
+
+    assert model.modes["deployment"] == [
+        "ApogeeVerticalVelocity",
+        "Tilt",
+        "Delay",
+    ]
+    assert model.modes["calibration"] == ["Existing", "OneFace", "SixFace"]
+    assert all(
+        streams[definition.record].enabled
+        for definition in definitions
+        if LogAvailability_Get(definition, model, builtin_catalog).available
+    )
+
+    optional = next(
+        definition
+        for definition in definitions
+        if definition.level == LogPolicyLevel.OPTIONAL
+        and LogAvailability_Get(definition, model, builtin_catalog).available
+    )
+    model.modes["deployment"] = []
+    model.logging_streams = [
+        replace(stream, enabled=False)
+        if stream.record == optional.record
+        else stream
+        for stream in model.logging_streams
+    ]
+    LoggingProfile_Reconcile(model, builtin_catalog)
+
+    assert model.modes["deployment"] == []
+    assert not next(
+        stream
+        for stream in model.logging_streams
+        if stream.record == optional.record
+    ).enabled
+
+
+def test_protocol_can_add_a_record_without_fccg_source_changes(
+    tmp_path: Path, workspace_root: Path
+) -> None:
+    source = (
+        workspace_root
+        / "plugins"
+        / "builtin"
+        / "silverstar_protocol_reference_v0"
+        / "payload"
+        / "Protocol"
+        / "SSLOG"
+        / "schema"
+        / "sslog_parser_metadata.json"
+    )
+    data = json.loads(source.read_text(encoding="utf-8"))
+    added = dict(data["records"][0])
+    added.update(
+        {
+            "id": "0x7E",
+            "enum": "FLIGHT_LOG_RECORD_PLUGIN_ADDED",
+            "name": "PLUGIN_ADDED",
+            "payload_size": 4,
+            "fields": [{"name": "value", "type": "u32", "unit": "count"}],
+            "default_stream": {
+                "enabled": False,
+                "policy": "event",
+                "decimation": 1,
+                "period_us": 0,
+            },
+        }
+    )
+    data["records"].append(added)
+    data["fccg"]["records"][added["enum"]] = {"level": "optional"}
+    metadata = tmp_path / "extended_sslog_metadata.json"
+    metadata.write_text(json.dumps(data), encoding="utf-8")
+    definitions = ProtocolLogDefinitions_Load(metadata)
+    assert definitions[-1].record == added["enum"]
+    assert definitions[-1].level == LogPolicyLevel.OPTIONAL
+
+
+def test_reference_import_restores_protocol_owned_fccg_metadata(
+    tmp_path: Path, workspace_root: Path
+) -> None:
+    builtin = (
+        workspace_root
+        / "plugins"
+        / "builtin"
+        / "silverstar_protocol_reference_v0"
+        / "payload"
+        / "Protocol"
+        / "SSLOG"
+        / "schema"
+        / "sslog_parser_metadata.json"
+    )
+    expected = json.loads(builtin.read_text(encoding="utf-8"))
+    reference_copy = json.loads(json.dumps(expected))
+    reference_copy.pop("fccg")
+    reference_defaults = {
+        "STATS": False,
+        "TELEMETRY_DIAG": False,
+        "IMU_NATIVE": False,
+        "MAG_NATIVE": True,
+    }
+    for record in reference_copy["records"]:
+        if record["name"] in reference_defaults:
+            record["default_stream"]["enabled"] = reference_defaults[record["name"]]
+    metadata = tmp_path / "sslog_parser_metadata.json"
+    metadata.write_text(json.dumps(reference_copy), encoding="utf-8")
+
+    _ProtocolMetadata_Adapt(
+        metadata,
+        workspace_root / "tools" / "reference_overlays" / "sslog_fccg_metadata.json",
+        WorkspacePolicy(tmp_path),
+    )
+    assert json.loads(metadata.read_text(encoding="utf-8")) == expected
+
+
+def test_resource_contract_schema_rejects_unknown_constraints(
+    tmp_path: Path, workspace_root: Path
+) -> None:
+    source = (
+        workspace_root
+        / "plugins"
+        / "builtin"
+        / "silverstar_device_console_uart"
+        / "plugin.json"
+    )
+    data = json.loads(source.read_text(encoding="utf-8"))
+    data["requires"]["resources"][0]["constraints"]["invented_solver"] = True
+    package = tmp_path / "invalid_constraint_plugin"
+    package.mkdir()
+    manifest = package / "plugin.json"
+    manifest.write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(PluginManifestError, match="unknown fields"):
+        PluginManifest_Load(manifest, source="installed")
+
+
+def test_cubemx_inventory_is_deep_and_has_no_parser_count_limit(
+    workspace_root: Path,
+) -> None:
+    ioc = (
+        workspace_root
+        / "plugins"
+        / "builtin"
+        / "silverstar_board_silverstar_0_5"
+        / "payload"
+        / "Flight_Controller0.5.ioc"
+    )
+    inventory = CubeMxInventory_Parse(ioc.read_text(encoding="utf-8-sig"))
+    assert inventory.mcu_part == "STM32F407VET6"
+    assert inventory.package == "LQFP100"
+    assert len(inventory.uarts) == 3
+    assert len(inventory.dmas) == 8
+    assert len(inventory.nvic) >= 20
+    assert inventory.clocks["RCC.SYSCLKFreq_VALUE"] == 168_000_000
+    usart2 = next(item for item in inventory.uarts if item.instance == "USART2")
+    assert usart2.settings["baud_rate"] == 921_600
+    assert usart2.pins == {"rx": "PD6", "tx": "PD5"}
+    assert any(item.instance == "DMA1_Stream5" for item in usart2.dma)
+    assert usart2.irq is not None and usart2.irq.enabled
+    assert any(
+        pin.label == "GNSS_TIMEPULSE" and pin.exti_line == 6
+        for pin in inventory.pins
+    )
+
+    synthetic = "\n".join(
+        ["Mcu.CPN=STM32F407VET6"]
+        + [f"Mcu.IP{index}=USART{index + 1}" for index in range(6)]
+    )
+    assert len(CubeMxInventory_Parse(synthetic).uarts) == 6
+
+
+def test_cubemx_inventory_covers_all_supported_resource_categories() -> None:
+    synthetic = "\n".join(
+        (
+            "Mcu.CPN=STM32F407VET6",
+            "Mcu.Family=STM32F4",
+            "Mcu.Package=LQFP100",
+            "Mcu.Core=ARM Cortex-M4",
+            "Mcu.IP0=USART1",
+            "Mcu.IP1=SPI2",
+            "Mcu.IP2=I2C1",
+            "Mcu.IP3=ADC1",
+            "Mcu.IP4=TIM3",
+            "Mcu.IP5=CAN1",
+            "PA9.Signal=USART1_TX",
+            "PA9.GPIO_AF=GPIO_AF7_USART1",
+            "PA10.Signal=USART1_RX",
+            "PB13.Signal=SPI2_SCK",
+            "PB14.Signal=SPI2_MISO",
+            "PB15.Signal=SPI2_MOSI",
+            "PB6.Signal=I2C1_SCL",
+            "PB7.Signal=I2C1_SDA",
+            "PB0.Signal=ADC1_IN8",
+            "PA6.Signal=TIM3_CH1",
+            "PB8.Signal=CAN1_RX",
+            "PB9.Signal=CAN1_TX",
+            "PC13.Signal=GPIO_EXTI13",
+            "PC13.GPIO_Label=USER_BUTTON",
+            "PD2.Signal=GPIO_Output",
+            "PD2.GPIO_Label=STATUS_LED",
+            "PD2.PinState=GPIO_PIN_SET",
+            "USART1.BaudRate=115200",
+            "USART1.WordLength=WORDLENGTH_8B",
+            "USART1.Parity=PARITY_NONE",
+            "USART1.StopBits=STOPBITS_1",
+            "SPI2.Mode=SPI_MODE_MASTER",
+            "SPI2.BaudRatePrescaler=SPI_BAUDRATEPRESCALER_8",
+            "I2C1.Timing=0x20404768",
+            "ADC1.NbrOfConversionFlag=1",
+            "TIM3.Prescaler=83",
+            "TIM3.Period=19999",
+            "CAN1.Mode=CAN_MODE_NORMAL",
+            "Dma.Request0=SPI2_RX",
+            "Dma.SPI2_RX.0.Instance=DMA1_Stream3",
+            "Dma.SPI2_RX.0.Channel=DMA_CHANNEL_0",
+            "Dma.SPI2_RX.0.Direction=DMA_PERIPH_TO_MEMORY",
+            "Dma.SPI2_RX.0.Mode=DMA_CIRCULAR",
+            "Dma.SPI2_RX.0.Priority=DMA_PRIORITY_HIGH",
+            "NVIC.SPI2_IRQn=true\\:1\\:0\\:false\\:false\\:true",
+            "RCC.SYSCLKFreq_VALUE=168000000",
+            "RCC.APB1Freq_Value=42000000",
+        )
+    )
+    inventory = CubeMxInventory_Parse(synthetic)
+    assert inventory.core == "ARM Cortex-M4"
+    assert len(inventory.uarts) == 1
+    assert len(inventory.spis) == 1
+    assert len(inventory.i2cs) == 1
+    assert len(inventory.adcs) == 1
+    assert len(inventory.timers) == 1
+    assert len(inventory.pwms) == 1
+    assert len(inventory.cans) == 1
+    assert inventory.spis[0].pins == {
+        "miso": "PB14",
+        "mosi": "PB15",
+        "sck": "PB13",
+    }
+    assert inventory.adcs[0].pins == {"in8": "PB0"}
+    assert inventory.pwms[0].pins == {"ch1": "PA6"}
+    assert inventory.dmas[0].instance == "DMA1_Stream3"
+    assert inventory.nvic[0].enabled
+    assert inventory.clocks["RCC.APB1Freq_Value"] == 42_000_000
+    assert next(pin for pin in inventory.pins if pin.pin == "PA9").alternate_function == (
+        "GPIO_AF7_USART1"
+    )
+    assert next(pin for pin in inventory.pins if pin.pin == "PC13").exti_line == 13
+
+
+def test_resource_sufficiency_and_exclusive_conflicts_are_reported(
+    builtin_catalog,
+) -> None:
+    missing = ReferenceProject_Create("MissingResource")
+    missing.resource_assignments["imu0:data"] = ""
+    missing_result = ResourceAssignments_Resolve(missing, builtin_catalog)
+    assert any("Unassigned resource requirement" in error for error in missing_result.errors)
+
+    conflict = ReferenceProject_Create("ResourceConflict")
+    conflict.board = ""
+    conflict.device_instances = [
+        DeviceInstance("imu0", "silverstar.device.imu.jy901b"),
+        DeviceInstance("gnss0", "silverstar.device.gnss.neo_m9n"),
+    ]
+    conflict.hardware = HardwareConfiguration(
+        mode="custom",
+        resources=(
+            HardwareResource(
+                "SHARED_UART",
+                "uart",
+                {
+                    "physical_resource": "USART1",
+                    "baud_rate": 230400,
+                    "pins": {"rx": "PA10", "tx": "PA9"},
+                    "dma": [
+                        {"request": "USART1_RX", "instance": "DMA2_Stream2"}
+                    ],
+                    "irq": {"enabled": True},
+                },
+            ),
+        ),
+    )
+    conflict.resource_assignments = {
+        "imu0:data": "SHARED_UART",
+        "gnss0:data": "SHARED_UART",
+    }
+    conflict_result = ResourceAssignments_Resolve(conflict, builtin_catalog)
+    assert any("Resource conflict" in error for error in conflict_result.errors)
+
+
+def test_decoder_profile_is_deterministic_data_only(builtin_catalog) -> None:
+    model = ReferenceProject_Create("DecoderProfile")
+    LoggingProfile_Reconcile(model, builtin_catalog)
+    graph = SourceGraph_Resolve(model, builtin_catalog)
+    first = MetadataFiles_Render(model, builtin_catalog, graph)[
+        "DecoderProfile.ssdecoder"
+    ]
+    second = MetadataFiles_Render(model, builtin_catalog, graph)[
+        "DecoderProfile.ssdecoder"
+    ]
+    assert first == second
+    with zipfile.ZipFile(io.BytesIO(first)) as archive:
+        assert archive.namelist() == [
+            "README.md",
+            "manifest.json",
+            "project_profile.json",
+            "sslog_parser_metadata.json",
+        ]
+        assert not any(
+            name.casefold().endswith((".py", ".exe", ".dll", ".pyd"))
+            for name in archive.namelist()
+        )
+        assert b"generic SSLOG decoder engine" in archive.read("README.md")
+        profile = json.loads(archive.read("project_profile.json"))
+        assert profile["devices"] == [
+            {"instance_id": instance.instance_id, "plugin": instance.plugin}
+            for instance in model.device_instances
+        ]
+        assert profile["modes"] == model.modes
+        assert len(profile["available_records"]) == len(model.logging_streams)
+
+
+def test_authorized_project_root_is_separate_from_internal_workspace(
+    tmp_path: Path, builtin_catalog
+) -> None:
+    internal_root = tmp_path / "internal"
+    external_root = tmp_path / "authorized_project"
+    internal_root.mkdir()
+    internal_policy = WorkspacePolicy(internal_root)
+    output_policy = WorkspacePolicy(external_root)
+    assembler = ProjectAssembler(internal_policy, builtin_catalog, output_policy)
+    model = ReferenceProject_Create("AuthorizedOutput")
+    plan = assembler.Plan(model, external_root)
+    assert plan.valid
+    assembler.Apply(model, plan)
+    assert (external_root / "SilverStar.ssproject").is_file()
+    assert (external_root / "AuthorizedOutput.ssdecoder").is_file()
+    assert not any(internal_root.iterdir())
+    with pytest.raises(WorkspacePolicyError):
+        internal_policy.Path_Resolve(external_root)
+    with pytest.raises(WorkspacePolicyError) as escape:
+        output_policy.Path_Resolve(tmp_path / "escape")
+    assert escape.value.code == "error.workspace_policy"
+    assert "escapes authorized workspace" in escape.value.technical_detail
+
+
+def test_other_sensors_are_plugin_driven_and_empty_state_stays_visible(qapp) -> None:
+    translator = Translator("en_US")
+    page = DevicesPage(translator)
+    components = tuple(
+        ComponentView(
+            component_id=f"fixture.device.sensor_{index}",
+            name=f"Sensor {index}",
+            component_type=ComponentType.DEVICE,
+            version="1.0.0",
+            component_class="other_sensors",
+            project_max=4,
+            same_plugin_multiple=True,
+            multi_instance_ready=True,
+        )
+        for index in (1, 2)
+    )
+    emitted: list[tuple[str, bool]] = []
+    page.otherDeviceToggled.connect(
+        lambda plugin_id, selected: emitted.append((plugin_id, selected))
+    )
+    instance = DeviceInstanceView(
+        "sensor0",
+        components[0].component_id,
+        components[0].name,
+        "other_sensors",
+        (),
+        (),
+        (),
+        project_max=4,
+        same_plugin_multiple=True,
+        multi_instance_ready=True,
+    )
+    page.Configuration_Set((), "", components, (instance,))
+    assert page.device_checks[components[0].component_id].isChecked()
+    page.device_checks[components[1].component_id].setChecked(True)
+    qapp.processEvents()
+    assert emitted[-1] == ("fixture.device.sensor_2", True)
+    page.Configuration_Set((), "", (), ())
+    assert not page.device_checks
+    assert not page.other_group.isHidden()
+    assert not page.other_empty_label.isHidden()
+
+
+def test_fixed_board_connections_have_ioc_physical_details(
+    workspace_root: Path,
+) -> None:
+    service = FccgService(workspace_root)
+    model = service.ReferenceProject_Create("PhysicalBoard")
+    service.Resources_AutoAssign(model)
+    views = service.ResourceRequirementViews_Get(model)
+    imu_uart = next(
+        view
+        for view in views
+        if view.key == "imu0:data"
+    )
+    assert imu_uart.fixed
+    assert imu_uart.assignment == "PLATFORM_UART_1"
+    assert imu_uart.physical_resource == "USART1"
+    assert "RX=PA10" in imu_uart.physical_details
+    assert "DMA2_Stream2" in imu_uart.physical_details
+
+
+def test_message_box_buttons_are_localized(tmp_path: Path, qapp) -> None:
+    window = MainWindow(SettingsStore(tmp_path / "settings.ini"), language="zh_CN")
+    try:
+        box = window._MessageBox_Create(
+            QMessageBox.Icon.Question,
+            "title",
+            "text",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        assert box.button(QMessageBox.StandardButton.Yes).text() == "是"
+        assert box.button(QMessageBox.StandardButton.No).text() == "否"
+        details_box = window._MessageBox_Create(
+            QMessageBox.Icon.Critical,
+            "title",
+            "text",
+            details="technical detail",
+        )
+        button_box = details_box.findChild(QDialogButtonBox)
+        assert button_box is not None
+        details_button = next(
+            button
+            for button in details_box.findChildren(QPushButton)
+            if button_box.buttonRole(button)
+            == QDialogButtonBox.ButtonRole.ActionRole
+        )
+        assert details_button.text() == "显示详情"
+        details_button.click()
+        assert details_button.text() == "隐藏详情"
+    finally:
+        window.close()
+
+
+def test_chinese_build_failure_uses_localized_summary_and_keeps_raw_log(
+    tmp_path: Path, qapp, monkeypatch
+) -> None:
+    window = MainWindow(SettingsStore(tmp_path / "build-error.ini"), language="zh_CN")
+    shown: list[dict[str, str]] = []
+
+    def message_box(
+        _icon,
+        title: str,
+        text: str,
+        _buttons=QMessageBox.StandardButton.Ok,
+        _default=QMessageBox.StandardButton.NoButton,
+        *,
+        details: str = "",
+    ) -> QMessageBox.StandardButton:
+        shown.append({"title": title, "text": text, "details": details})
+        return QMessageBox.StandardButton.Ok
+
+    monkeypatch.setattr(window, "_MessageBox_Exec", message_box)
+    try:
+        raw_output = "mingw32-make: *** No rule to make target 'all'. Stop."
+        window._Build_Complete(
+            BuildResult(
+                BuildAction.ARCHITECTURE_CHECK,
+                ("mingw32-make", "architecture-check"),
+                2,
+                raw_output,
+            )
+        )
+        assert raw_output in window.build_page.build_log.toPlainText()
+        assert shown[-1]["title"] == "操作失败"
+        assert shown[-1]["text"] == "构建任务失败。请查看页面中的构建日志。"
+        assert "mingw32-make" not in shown[-1]["text"]
+
+        window._Error_Show(ValueError("raw internal English exception"))
+        assert shown[-1]["text"].startswith("操作失败")
+        assert shown[-1]["details"] == "raw internal English exception"
+    finally:
+        window.close()
+        qapp.processEvents()

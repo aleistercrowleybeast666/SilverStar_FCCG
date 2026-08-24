@@ -51,8 +51,12 @@
       "recorded_at_utc": "2026-08-23T14:50:21+00:00"
     },
     "display_names": {
-      "zh_CN": "初始对准公共层",
+      "zh_CN": "初始对准公共组件",
       "en_US": "Alignment Common"
+    },
+    "descriptions": {
+      "zh_CN": "提供初始对准窗口、飞行前检查和策略公共接口。",
+      "en_US": "Shared alignment window, preflight, and strategy contracts."
     }
   }
 }

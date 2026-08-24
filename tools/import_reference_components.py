@@ -22,6 +22,7 @@ from silverstar_fccg.plugins.catalog import PluginCatalog  # noqa: E402
 
 
 BUILTIN_ROOT = WORKSPACE_ROOT / "plugins" / "builtin"
+REFERENCE_OVERLAY_ROOT = WORKSPACE_ROOT / "tools" / "reference_overlays"
 REFERENCE_MARKERS = (
     "SilverStar.ssproject",
     "AGENTS.md",
@@ -147,13 +148,16 @@ def _Component(
     resource_roles: list[dict[str, Any]] | None = None,
     resource_conflicts: list[dict[str, Any]] | None = None,
     provides: list[str] | None = None,
-    capabilities_required: list[str] | None = None,
+    capabilities_required: list[str | dict[str, str]] | None = None,
     build_extra: dict[str, Any] | None = None,
     metadata: dict[str, Any] | None = None,
     selection: dict[str, Any] | None = None,
     board: dict[str, Any] | None = None,
     hardware_provider: dict[str, Any] | None = None,
     environment: dict[str, Any] | None = None,
+    instance_policy: dict[str, Any] | None = None,
+    physical_device: dict[str, str] | None = None,
+    protocol: dict[str, str] | None = None,
     docs: list[str] | None = None,
     version: str = "0.0.9",
 ) -> dict[str, Any]:
@@ -198,6 +202,9 @@ def _Component(
         ("board", board),
         ("hardware_provider", hardware_provider),
         ("environment", environment),
+        ("instance_policy", instance_policy),
+        ("physical_device", physical_device),
+        ("protocol", protocol),
     ):
         if value is not None:
             manifest[key] = value
@@ -313,6 +320,34 @@ def _BoardRoles_Get() -> list[dict[str, Any]]:
     ]
 
 
+def _BoardConnections_Get() -> dict[str, Any]:
+    mappings = (
+        ("PLATFORM_UART_1", "USART1", "imu.data"),
+        ("PLATFORM_UART_2", "USART2", "gnss.data"),
+        ("PLATFORM_UART_3", "USART3", "console.data"),
+        ("PLATFORM_SPI_1", "SPI1", "telemetry.bus"),
+        ("PLATFORM_GPIO_0", "RADIO_NSS", "telemetry.nss"),
+        ("PLATFORM_GPIO_1", "RADIO_RST", "telemetry.reset"),
+        ("PLATFORM_GPIO_2", "RADIO_BUSY", "telemetry.busy"),
+        ("PLATFORM_GPIO_3", "RADIO_DIO1", "telemetry.dio1"),
+        ("PLATFORM_GPIO_4", "P_CONTROL1", "power.output_1"),
+        ("PLATFORM_GPIO_5", "P_CONTROL2", "power.output_2"),
+        ("PLATFORM_GPIO_6", "IMU_CAL_LED", "system.indicator"),
+        ("PLATFORM_GPIO_7", "GNSS_RST", "gnss.reset"),
+        ("PLATFORM_GPIO_8", "GNSS_TIMEPULSE", "gnss.timepulse"),
+        ("PLATFORM_ADC_1", "ADC1", "power.input_voltage"),
+        ("PLATFORM_SDIO_1", "SDIO", "storage"),
+        ("PLATFORM_TIME_1", "SYSTEM_TIME", "system.time"),
+    )
+    return {
+        "format_version": 1,
+        "resources": {
+            alias: {"physical": physical, "fixed": True, "purpose": purpose}
+            for alias, physical, purpose in mappings
+        },
+    }
+
+
 def _Components_Get(
     reference: Path, provenance: dict[str, Any]
 ) -> list[dict[str, Any]]:
@@ -381,7 +416,7 @@ def _Components_Get(
         )
     )
 
-    provisions, platform_resources = _PlatformResources_Get()
+    provisions, _legacy_platform_resources = _PlatformResources_Get()
     components.append(
         _Component(
             board_id,
@@ -406,7 +441,6 @@ def _Components_Get(
             provides=["board.silverstar_0_5", "hardware.stm32.generated", "service.output", "service.storage", "service.log_sink"],
             metadata={
                 "display_names": {"zh_CN": "SilverStar 0.5（已验证）", "en_US": "SilverStar 0.5 (Verified)"},
-                "platform_resources": platform_resources,
                 "device_descriptors": [
                     {"order": 7, "class": "SYSTEM_DEVICE_CLASS_POWER", "flags": device_flags, "capability": "SYSTEM_CAPABILITY_POWER", "rate": "(uint32_t)(1000000ULL / SYSTEM_POWER_SAMPLE_PERIOD_US)", "driver_hash": "0x7C755741UL", "name_hash": "0xEF288B50UL"},
                     {"order": 8, "class": "SYSTEM_DEVICE_CLASS_STORAGE", "flags": device_flags, "capability": "SYSTEM_CAPABILITY_STORAGE", "rate": "0U", "driver_hash": "0xF02E45D5UL", "name_hash": "0x3A7B5375UL"},
@@ -416,37 +450,60 @@ def _Components_Get(
                 ],
             },
             build_extra={"exclude_sources": ["Core/Src/sysmem.c"]},
-            board={"source_kind": "verified_builtin", "compatible_mcus": [mcu_id], "vendor": "STM32", "provider": "silverstar.hardware_provider.stm32_cubemx", "verified": True, "hardware_root": "Core"},
+            board={"source_kind": "verified_builtin", "compatible_mcus": [mcu_id], "vendor": "STM32", "provider": "silverstar.hardware_provider.stm32_cubemx", "verified": True, "hardware_root": "Core", "ioc_file": "payload/Flight_Controller0.5.ioc", "connections_file": "connections.json"},
             docs=["docs/details/STORAGE_AND_FLIGHT_LOG.md", "docs/details/BUILD_AND_TARGETS.md"],
         )
     )
 
     device_specs = (
         ("silverstar.device.imu.jy901b", "JY901B", "imu", "Devices/IMU/JY901B/module.mk", ["Devices/IMU/JY901B"], ["Devices/IMU/JY901B/Inc", "Devices/IMU/JY901B/Adapter/Inc"], [
-            {"name": "data", "kind": "uart", "binding_macro": "PROJECT_RESOURCE_IMU_UART"},
+            {"name": "data", "kind": "uart", "binding_macro": "PROJECT_RESOURCE_IMU_UART", "constraints": {"baud_rate": 230400, "signals": ["rx", "tx"], "dma_rx_required": True, "irq_required": True}},
             {"name": "time", "kind": "time", "mode": "shared"},
-        ], ["device.imu", "imu.acceleration", "imu.angular_rate", "imu.quaternion", "barometer.altitude"], [
+        ], ["device.imu", "imu.acceleration", "imu.angular_rate", "attitude.external", "magnetometer.field", "barometer.altitude"], [
             {"order": 1, "class": "SYSTEM_DEVICE_CLASS_IMU", "flags": f"{device_flags} | SYSTEM_DESCRIPTOR_FLAG_REQUIRED | SYSTEM_DESCRIPTOR_FLAG_PRIMARY", "capability": "SYSTEM_CAPABILITY_IMU", "rate": "SYSTEM_IMU_OUTPUT_RATE_HZ", "driver_hash": "0xADF02482UL", "name_hash": "0x53692179UL"},
             {"order": 3, "class": "SYSTEM_DEVICE_CLASS_BAROMETER", "flags": f"{device_flags} | SYSTEM_DESCRIPTOR_FLAG_SHARED_PHYSICAL", "capability": "SYSTEM_CAPABILITY_BAROMETER", "rate": "SYSTEM_BAROMETER_OUTPUT_RATE_HZ", "driver_hash": "0xADF02482UL", "name_hash": "0x53692179UL"},
             {"order": 4, "class": "SYSTEM_DEVICE_CLASS_HARDWARE_QUATERNION", "flags": f"{device_flags} | SYSTEM_DESCRIPTOR_FLAG_SHARED_PHYSICAL", "capability": "SYSTEM_CAPABILITY_HARDWARE_QUATERNION", "rate": "SYSTEM_HARDWARE_QUATERNION_OUTPUT_RATE_HZ", "driver_hash": "0xADF02482UL", "name_hash": "0x53692179UL"},
         ], ["docs/details/IMU_JY901B.md", "docs/details/DEVICE_INTERFACE.md"]),
         ("silverstar.device.gnss.neo_m9n", "NEO-M9N", "gnss", "Devices/GNSS/NEO_M9N/module.mk", ["Devices/GNSS/NEO_M9N"], ["Devices/GNSS/NEO_M9N/Inc"], [
-            {"name": "data", "kind": "uart", "binding_macro": "PROJECT_RESOURCE_GNSS_UART"},
+            {"name": "data", "kind": "uart", "binding_macro": "PROJECT_RESOURCE_GNSS_UART", "constraints": {"baud_rate": 921600, "signals": ["rx", "tx"], "dma_rx_required": True, "irq_required": True}},
             {"name": "reset", "kind": "gpio_output", "binding_macro": "PROJECT_RESOURCE_GNSS_RESET"},
             {"name": "timepulse", "kind": "gpio_interrupt", "binding_macro": "PROJECT_RESOURCE_GNSS_TIMEPULSE"},
             {"name": "time", "kind": "time", "mode": "shared"},
         ], ["device.gnss", "gnss.position", "gnss.velocity"], [{"order": 2, "class": "SYSTEM_DEVICE_CLASS_GNSS", "flags": primary_flags, "capability": "SYSTEM_CAPABILITY_GNSS", "rate": "SYSTEM_GNSS_NAVIGATION_RATE_HZ", "driver_hash": "0xC751E890UL", "name_hash": "0xA8E98337UL"}], ["docs/details/GNSS_NEO_M9N.md", "docs/details/GNSS_UBX.md"]),
-        ("silverstar.device.telemetry.sx1281", "SX1281", "telemetry", "Devices/Telemetry/SX1281/module.mk", ["Devices/Telemetry/SX1281", "Middlewares/Third_Party/SX1280lib"], ["Devices/Telemetry/SX1281/Inc", "Middlewares/Third_Party/SX1280lib"], [
-            {"name": "radio_bus", "kind": "spi", "binding_macro": "PROJECT_RESOURCE_RADIO_SPI"},
+        ("silverstar.device.telemetry.sx1281", "E28-2G4M12SX (SX1281)", "telemetry", "Devices/Telemetry/SX1281/module.mk", ["Devices/Telemetry/SX1281", "Middlewares/Third_Party/SX1280lib"], ["Devices/Telemetry/SX1281/Inc", "Middlewares/Third_Party/SX1280lib"], [
+            {"name": "radio_bus", "kind": "spi", "binding_macro": "PROJECT_RESOURCE_RADIO_SPI", "constraints": {"mode": "master", "signals": ["miso", "mosi", "sck"]}},
             {"name": "radio_nss", "kind": "gpio_output", "binding_macro": "PROJECT_RESOURCE_RADIO_NSS"},
             {"name": "radio_reset", "kind": "gpio_output", "binding_macro": "PROJECT_RESOURCE_RADIO_RESET"},
             {"name": "radio_busy", "kind": "gpio_input", "binding_macro": "PROJECT_RESOURCE_RADIO_BUSY"},
             {"name": "radio_dio1", "kind": "gpio_interrupt", "binding_macro": "PROJECT_RESOURCE_RADIO_DIO1"},
             {"name": "time", "kind": "time", "mode": "shared"},
         ], ["device.telemetry", "transport.lora", "transport.integrity.hardware_crc"], [{"order": 5, "class": "SYSTEM_DEVICE_CLASS_TELEMETRY", "flags": device_flags, "capability": "SYSTEM_CAPABILITY_TELEMETRY", "rate": "0U", "driver_hash": "0x3C6CF5BAUL", "name_hash": "0xC4A6E024UL"}], ["docs/details/SX1281_TRANSPORT.md"]),
-        ("silverstar.device.console.uart", "UART Console", "console", "Devices/Console/UART/module.mk", ["Devices/Console/UART"], ["Devices/Console/UART/Inc"], [{"name": "console", "kind": "uart", "binding_macro": "PROJECT_RESOURCE_CONSOLE_UART"}], ["device.console"], [{"order": 6, "class": "SYSTEM_DEVICE_CLASS_CONSOLE", "flags": device_flags, "capability": "SYSTEM_CAPABILITY_CONSOLE", "rate": "0U", "driver_hash": "0x92850855UL", "name_hash": "0xC8A9F404UL"}], ["docs/details/MAINTENANCE_PROTOCOL.md"]),
+        ("silverstar.device.console.uart", "Serial Maintenance Protocol 0.0", "console", "Devices/Console/UART/module.mk", ["Devices/Console/UART"], ["Devices/Console/UART/Inc"], [{"name": "console", "kind": "uart", "binding_macro": "PROJECT_RESOURCE_CONSOLE_UART", "constraints": {"baud_rate": 230400, "signals": ["rx", "tx"], "irq_required": True}}], ["device.console", "maintenance.console"], [{"order": 6, "class": "SYSTEM_DEVICE_CLASS_CONSOLE", "flags": device_flags, "capability": "SYSTEM_CAPABILITY_CONSOLE", "rate": "0U", "driver_hash": "0x92850855UL", "name_hash": "0xC8A9F404UL"}], ["docs/details/MAINTENANCE_PROTOCOL.md"]),
     )
+    device_details = {
+        "silverstar.device.imu.jy901b": {
+            "display_names": {"zh_CN": "JY901B", "en_US": "JY901B"},
+            "physical_device": {"vendor": "WitMotion", "model": "JY901B", "chipset": "JY901B", "driver": "JY901B Driver"},
+            "description": "Reference JY901B Device driver and canonical adapter.",
+        },
+        "silverstar.device.gnss.neo_m9n": {
+            "display_names": {"zh_CN": "NEO-M9N", "en_US": "NEO-M9N"},
+            "physical_device": {"vendor": "u-blox", "model": "NEO-M9N", "chipset": "UBX-M9", "driver": "NEO-M9N Driver"},
+            "description": "Reference NEO-M9N Device driver and canonical adapter.",
+        },
+        "silverstar.device.telemetry.sx1281": {
+            "display_names": {"zh_CN": "E28-2G4M12SX（SX1281）", "en_US": "E28-2G4M12SX (SX1281)"},
+            "physical_device": {"vendor": "Ebyte", "model": "E28-2G4M12SX", "chipset": "SX1281", "driver": "SX1281 Driver"},
+            "description": "Reference SX1281 Device driver and canonical adapter.",
+        },
+        "silverstar.device.console.uart": {
+            "display_names": {"zh_CN": "串口维护协议 0.0", "en_US": "Serial Maintenance Protocol 0.0"},
+            "physical_device": {"vendor": "SilverStar", "model": "UART Maintenance Endpoint", "chipset": "STM32 UART", "driver": "UART Console Adapter"},
+            "description": "Reference UART Console Device driver and canonical adapter.",
+        },
+    }
     for component_id, name, component_class, module, roots, includes, requirements, provides, descriptors, docs in device_specs:
+        details = device_details[component_id]
         components.append(
             _Component(
                 component_id,
@@ -454,14 +511,20 @@ def _Components_Get(
                 "device",
                 component_class,
                 roots,
-                description=f"Reference {name} Device driver and canonical adapter.",
+                description=details["description"],
                 provenance=provenance,
                 sources=_ManifestValues_Get(reference, module, "C_SOURCES"),
                 includes=includes,
-                dependencies=[core_id, mcu_id],
+                dependencies=[core_id],
                 resources_required=requirements,
                 provides=provides,
-                metadata={"display_names": {"zh_CN": name, "en_US": name}, "device_descriptors": descriptors},
+                instance_policy={
+                    "project_max": 1,
+                    "same_plugin_multiple": False,
+                    "multi_instance_ready": False,
+                },
+                physical_device=details["physical_device"],
+                metadata={"display_names": details["display_names"], "device_descriptors": descriptors},
                 docs=docs,
             )
         )
@@ -494,6 +557,10 @@ def _Components_Get(
             sources=_ManifestValues_Get(reference, "Algorithm/Calibration/module.mk", "C_SOURCES"),
             includes=["Algorithm/Calibration/Inc"],
             provides=["algorithm.calibration"],
+            capabilities_required=[
+                {"capability": "imu.acceleration", "purpose": "calibration"},
+                {"capability": "imu.angular_rate", "purpose": "calibration"},
+            ],
             selection={"kind": "mode", "slot": "calibration", "required": True, "allow_none": False, "allow_multiple": False, "ui_order": 10, "options": ["Existing", "OneFace", "SixFace"], "default": "Existing", "labels": {"zh_CN": {"Existing": "使用现有校准", "OneFace": "单面校准", "SixFace": "六面校准"}, "en_US": {"Existing": "Use existing calibration", "OneFace": "One-face", "SixFace": "Six-face"}}},
             metadata={"display_names": {"zh_CN": "IMU 校准", "en_US": "IMU Calibration"}},
             docs=["docs/details/CALIBRATION.md"],
@@ -523,6 +590,27 @@ def _Components_Get(
         ("hardware_quat_6axis_known_yaw", "Hardware Quaternion 6-Axis + Known Yaw", "HardwareQuat6AxisKnownYaw", ["SYSTEM_ALIGNMENT_BUILD_ALGORITHM=SYSTEM_ALIGNMENT_HW_QUAT_6AXIS_KNOWN_YAW", "SYSTEM_ALIGNMENT_BUILD_SOURCE=SYSTEM_ALIGNMENT_ATTITUDE_SOURCE_HARDWARE_QUATERNION", "SYSTEM_ALIGNMENT_BUILD_CAPABILITY_IMU=0U", "SYSTEM_ALIGNMENT_BUILD_CAPABILITY_MAGNETOMETER=0U", "SYSTEM_ALIGNMENT_BUILD_CAPABILITY_HARDWARE_QUATERNION=1U", "SYSTEM_ALIGNMENT_BUILD_GUARD_HARDWARE_QUATERNION=1U"], "硬件四元数六轴 + 已知航向"),
         ("hardware_quat_9axis", "Hardware Quaternion 9-Axis", "HardwareQuat9Axis", ["SYSTEM_ALIGNMENT_BUILD_ALGORITHM=SYSTEM_ALIGNMENT_HW_QUAT_9AXIS", "SYSTEM_ALIGNMENT_BUILD_SOURCE=SYSTEM_ALIGNMENT_ATTITUDE_SOURCE_HARDWARE_QUATERNION", "SYSTEM_ALIGNMENT_BUILD_CAPABILITY_IMU=0U", "SYSTEM_ALIGNMENT_BUILD_CAPABILITY_MAGNETOMETER=0U", "SYSTEM_ALIGNMENT_BUILD_CAPABILITY_HARDWARE_QUATERNION=1U", "SYSTEM_ALIGNMENT_BUILD_GUARD_HARDWARE_QUATERNION=1U"], "硬件四元数九轴"),
     )
+    alignment_capabilities = {
+        "gravity_known_yaw": [
+            {"capability": "imu.acceleration", "purpose": "initialization"},
+            {"capability": "imu.angular_rate", "purpose": "initialization"},
+        ],
+        "gravity_mag_triad": [
+            {"capability": "imu.acceleration", "purpose": "initialization"},
+            {"capability": "imu.angular_rate", "purpose": "initialization"},
+            {"capability": "magnetometer.field", "purpose": "initialization"},
+        ],
+        "hardware_quat_6axis_known_yaw": [
+            {"capability": "imu.acceleration", "purpose": "initialization"},
+            {"capability": "imu.angular_rate", "purpose": "initialization"},
+            {"capability": "attitude.external", "purpose": "initialization"},
+        ],
+        "hardware_quat_9axis": [
+            {"capability": "imu.acceleration", "purpose": "initialization"},
+            {"capability": "imu.angular_rate", "purpose": "initialization"},
+            {"capability": "attitude.external", "purpose": "initialization"},
+        ],
+    }
     for suffix, name, directory, defines, chinese_name in alignment_specs:
         components.append(
             _Component(
@@ -538,6 +626,7 @@ def _Components_Get(
                 defines=defines,
                 dependencies=[alignment_common_id],
                 provides=["algorithm.alignment"],
+                capabilities_required=alignment_capabilities[suffix],
                 selection={"kind": "strategy", "slot": "alignment", "required": True, "allow_none": False, "ui_order": 10},
                 metadata={"display_names": {"zh_CN": chinese_name, "en_US": name}, "algorithm_descriptors": [{"order": 1, "class": "SYSTEM_ALGORITHM_CLASS_ALIGNMENT", "algorithm": "SYSTEM_ALIGNMENT_ALGORITHM", "flags": primary_flags, "name_hash": "0x4B7BE479UL"}, {"order": 2, "class": "SYSTEM_ALGORITHM_CLASS_ATTITUDE", "algorithm": "SYSTEM_ATTITUDE_POLICY", "flags": primary_flags, "name_hash": "0xB6F9F6C7UL"}]},
                 docs=["docs/details/NAVIGATION_AND_ESTIMATION.md"],
@@ -549,6 +638,7 @@ def _Components_Get(
             description="Build-selected Coning2/Sculling2 inertial mechanization strategy.", provenance=provenance,
             sources=_ManifestValues_Get(reference, "Algorithm/INS/Coning2Sculling2/module.mk", "C_SOURCES"), includes=["Algorithm/INS/Coning2Sculling2/Inc"],
             defines=["SYSTEM_BUILD_MECHANIZATION_ALGORITHM=SYSTEM_MECHANIZATION_CONING2_SCULLING2"], dependencies=["silverstar.algorithm.common"], provides=["algorithm.mechanization"],
+            capabilities_required=[{"capability": "imu.acceleration", "purpose": "runtime"}, {"capability": "imu.angular_rate", "purpose": "runtime"}],
             selection={"kind": "strategy", "slot": "ins", "required": True, "allow_none": False, "ui_order": 20},
             metadata={"display_names": {"zh_CN": "Coning2 / Sculling2 惯导", "en_US": "Coning2 / Sculling2 INS"}, "algorithm_descriptors": [{"order": 3, "class": "SYSTEM_ALGORITHM_CLASS_MECHANIZATION", "algorithm": "SYSTEM_MECHANIZATION_ALGORITHM", "flags": primary_flags, "name_hash": "0x982C9707UL"}]}, docs=["docs/details/NAVIGATION_AND_ESTIMATION.md"],
         )
@@ -559,6 +649,7 @@ def _Components_Get(
             description="Optional build-selected KF6 fusion estimator.", provenance=provenance,
             sources=_ManifestValues_Get(reference, "Algorithm/Estimator/KF6/module.mk", "C_SOURCES"), includes=["Algorithm/Estimator/KF6/Inc"],
             defines=["SYSTEM_BUILD_FUSION_ALGORITHM=SYSTEM_FUSION_KF6", "SYSTEM_BUILD_ESTIMATOR_ENABLED=1U"], dependencies=["silverstar.algorithm.common"], provides=["algorithm.estimator"],
+            capabilities_required=[{"capability": "gnss.position", "purpose": "measurement_update"}, {"capability": "gnss.velocity", "purpose": "measurement_update"}, {"capability": "barometer.altitude", "purpose": "measurement_update"}],
             selection={"kind": "strategy", "slot": "estimator", "required": False, "allow_none": True, "ui_order": 30, "none_defines": ["SYSTEM_BUILD_FUSION_ALGORITHM=SYSTEM_FUSION_NONE", "SYSTEM_BUILD_ESTIMATOR_ENABLED=0U"]},
             metadata={"display_names": {"zh_CN": "KF6 融合估计", "en_US": "KF6 Navigation Estimator"}, "algorithm_descriptors": [{"order": 4, "class": "SYSTEM_ALGORITHM_CLASS_FUSION", "algorithm": "SYSTEM_FUSION_ALGORITHM", "flags": primary_flags, "name_hash": "0x81C3E556UL"}]}, docs=["docs/details/NAVIGATION_AND_ESTIMATION.md"],
         )
@@ -586,6 +677,7 @@ def _Components_Get(
             "silverstar.flight_logic.landing.baro_imu_window", "Barometer + IMU Window Landing", "flight_logic", "landing", ["FlightLogic/Landing/BarometerImuWindow"],
             description="Build-selected barometer and IMU window landing strategy.", provenance=provenance,
             sources=_ManifestValues_Get(reference, "FlightLogic/Landing/BarometerImuWindow/module.mk", "C_SOURCES"), includes=["FlightLogic/Landing/BarometerImuWindow/Inc"], defines=["SYSTEM_BUILD_LANDING_MODE=SYSTEM_LANDING_MODE_BARO_IMU_WINDOW"], dependencies=[core_id], provides=["flight_logic.landing"],
+            capabilities_required=[{"capability": "barometer.altitude", "purpose": "landing_detection"}, {"capability": "imu.acceleration", "purpose": "landing_detection"}, {"capability": "imu.angular_rate", "purpose": "landing_detection"}],
             selection={"kind": "strategy", "slot": "landing", "required": True, "allow_none": False, "ui_order": 40}, metadata={"display_names": {"zh_CN": "气压计 + IMU 窗口着陆判断", "en_US": "Barometer + IMU Window Landing"}}, docs=["docs/details/SYSTEM_LIFECYCLE.md"],
         )
     )
@@ -602,6 +694,7 @@ def _Components_Get(
             "silverstar.protocol.reference_v0", "SilverStar AIR V0 + SSLOG0", "protocol_bundle", "reference_protocols", ["Protocol"],
             description="Complete AIR, SSLOG, Maintenance protocol sources and documentation.", provenance=provenance,
             sources=protocol_sources, includes=["Protocol/Inc", "Protocol/SSLOG/Inc"], provides=["protocol.air", "protocol.sslog", "protocol.maintenance"], metadata={"display_names": {"zh_CN": "SilverStar AIR V0 + SSLOG0 协议包", "en_US": "SilverStar AIR V0 + SSLOG0"}}, docs=["docs/details/AIR_PROTOCOL.md", "docs/details/STORAGE_AND_FLIGHT_LOG.md", "docs/details/MAINTENANCE_PROTOCOL.md"],
+            protocol={"logging_metadata": "Protocol/SSLOG/schema/sslog_parser_metadata.json", "maintenance_protocol_version": "0.0", "firmware_version": "0.0.9", "documentation_version": "0.0.9"},
         )
     )
     components.append(
@@ -640,11 +733,24 @@ def _Tree_Copy(policy: WorkspacePolicy, source: Path, destination: Path) -> None
 def _ArchitectureChecker_Adapt(path: Path, policy: WorkspacePolicy) -> None:
     text = path.read_text(encoding="utf-8")
     changed = False
-    if "'Generated\\project_sources.mk'" not in text:
+    required_generated_files = (
+        "Generated\\Inc\\project_capability_routes.h",
+        "Generated\\Src\\project_capability_routes.c",
+        "Generated\\project_sources.mk",
+    )
+    missing_generated_files = tuple(
+        relative
+        for relative in required_generated_files
+        if f"'{relative}'" not in text
+    )
+    if missing_generated_files:
         needle = "    'Generated\\module.mk'"
         if needle not in text:
             raise RuntimeError("Reference architecture checker Generated allowlist changed")
-        replacement = needle + ",\n    'Generated\\project_sources.mk'"
+        insertion = "".join(
+            f"    '{relative}',\n" for relative in missing_generated_files
+        )
+        replacement = insertion + needle
         text = text.replace(needle, replacement, 1)
         changed = True
 
@@ -701,6 +807,47 @@ def _HostTestRunner_Adapt(path: Path, policy: WorkspacePolicy) -> None:
     policy.Text_AtomicWrite(path, text.replace(needle, replacement, 1))
 
 
+def _ProtocolMetadata_Adapt(
+    path: Path, overlay_path: Path, policy: WorkspacePolicy
+) -> None:
+    metadata = json.loads(path.read_text(encoding="utf-8"))
+    overlay = json.loads(overlay_path.read_text(encoding="utf-8"))
+    if set(overlay) != {"fccg", "default_stream_enabled"}:
+        raise RuntimeError("Protocol metadata overlay has unexpected fields")
+    records = metadata.get("records")
+    if not isinstance(records, list):
+        raise RuntimeError("Reference Protocol metadata records changed")
+    by_name = {
+        str(record.get("name", "")): record
+        for record in records
+        if isinstance(record, dict)
+    }
+    enabled_overrides = overlay["default_stream_enabled"]
+    if not isinstance(enabled_overrides, dict):
+        raise RuntimeError("Protocol metadata default-stream overlay is invalid")
+    for name, enabled in enabled_overrides.items():
+        record = by_name.get(str(name))
+        if record is None or not isinstance(enabled, bool):
+            raise RuntimeError(f"Protocol metadata overlay record is invalid: {name}")
+        default_stream = record.get("default_stream")
+        if not isinstance(default_stream, dict):
+            raise RuntimeError(f"Protocol record has no default stream: {name}")
+        default_stream["enabled"] = enabled
+    fccg = overlay["fccg"]
+    record_policies = fccg.get("records") if isinstance(fccg, dict) else None
+    record_enums = {
+        str(record.get("enum", ""))
+        for record in records
+        if isinstance(record, dict)
+    }
+    if not isinstance(record_policies, dict) or set(record_policies) != record_enums:
+        raise RuntimeError("Protocol metadata overlay does not cover every record")
+    metadata["fccg"] = fccg
+    policy.Text_AtomicWrite(
+        path, json.dumps(metadata, ensure_ascii=False, indent=2) + "\n"
+    )
+
+
 def Components_Import(reference: Path, *, force: bool = False) -> dict[str, Any]:
     reference = reference.resolve()
     provenance = ReferenceProvenance_Get(reference)
@@ -753,6 +900,23 @@ def Components_Import(reference: Path, *, force: bool = False) -> dict[str, Any]
             / "Host"
             / "run_tests.ps1",
             policy,
+        )
+        _ProtocolMetadata_Adapt(
+            staged_builtin
+            / "silverstar_protocol_reference_v0"
+            / "payload"
+            / "Protocol"
+            / "SSLOG"
+            / "schema"
+            / "sslog_parser_metadata.json",
+            REFERENCE_OVERLAY_ROOT / "sslog_fccg_metadata.json",
+            policy,
+        )
+        policy.Text_AtomicWrite(
+            staged_builtin
+            / "silverstar_board_silverstar_0_5"
+            / "connections.json",
+            json.dumps(_BoardConnections_Get(), ensure_ascii=False, indent=2) + "\n",
         )
         policy.Text_AtomicWrite(
             staged_builtin / "reference_provenance.json",

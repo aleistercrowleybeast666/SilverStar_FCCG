@@ -9,10 +9,12 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from silverstar_fccg.core.workspace import WorkspacePolicy, WorkspacePolicyError
+from silverstar_fccg.core.errors import FccgError
+from silverstar_fccg.hardware.inventory import HardwareInventory, CubeMxInventory_Parse
 from silverstar_fccg.project.model import HardwareConfiguration, HardwareResource
 
 
-class CubeMxImportError(ValueError):
+class CubeMxImportError(FccgError):
     pass
 
 
@@ -22,6 +24,7 @@ class CubeMxImportResult:
     snapshot_root: Path
     peripherals: tuple[str, ...]
     warnings: tuple[str, ...]
+    inventory: HardwareInventory
 
 
 class CubeMxImporter:
@@ -76,11 +79,12 @@ class CubeMxImporter:
         digest = self._SnapshotDigest_Get(root, source_files)
         snapshot_root = self._Snapshot_Store(root, source_files, digest)
         peripherals = self._Peripherals_Get(ioc_text)
-        resources = self._Resources_Get(ioc_text, peripherals)
+        inventory = CubeMxInventory_Parse(ioc_text)
+        resources = inventory.HardwareResources_Get()
         capabilities = tuple(
             sorted({f"peripheral.{resource.kind}" for resource in resources})
         )
-        warnings = self._Warnings_Get(ioc_text, peripherals)
+        warnings = self._Warnings_Get(ioc_text, peripherals, inventory)
         prefix = "HardwareGenerated/STM32CubeMX"
         core_source_root = root / "Core" / "Src"
         build_sources = tuple(
@@ -97,6 +101,7 @@ class CubeMxImporter:
             ioc_file=ioc_path.relative_to(root).as_posix(),
             mcu=actual_mcu,
             capabilities=capabilities,
+            inventory=inventory.Dictionary_Get(),
             resources=resources,
             build_sources=build_sources,
             include_dirs=include_dirs,
@@ -109,6 +114,7 @@ class CubeMxImporter:
             snapshot_root=snapshot_root,
             peripherals=peripherals,
             warnings=warnings,
+            inventory=inventory,
         )
 
     def SnapshotRoot_Get(self, snapshot_id: str) -> Path:
@@ -313,73 +319,15 @@ class CubeMxImporter:
     def _Resources_Get(
         ioc_text: str, peripherals: tuple[str, ...]
     ) -> tuple[HardwareResource, ...]:
-        resources: list[HardwareResource] = []
-        groups = (
-            ("uart", ("USART", "UART"), "platform_uart.h", "huart", 3),
-            ("spi", ("SPI",), "platform_spi.h", "hspi", 1),
-            ("adc", ("ADC",), "platform_adc.h", "hadc", 1),
-        )
-        for kind, prefixes, header, handle_prefix, limit in groups:
-            selected = [item for item in peripherals if item.startswith(prefixes)][:limit]
-            for index, peripheral in enumerate(selected):
-                suffix_match = re.search(r"(\d+)$", peripheral)
-                suffix = suffix_match.group(1) if suffix_match else str(index + 1)
-                resources.append(
-                    HardwareResource(
-                        resource_id=peripheral,
-                        kind=kind,
-                        metadata={
-                            "c_id": f"PLATFORM_{kind.upper()}_{index + 1}",
-                            "header": header,
-                            "handle": f"{handle_prefix}{suffix}",
-                            "logical_index": index,
-                            "peripheral": peripheral,
-                        },
-                    )
-                )
-        values: dict[str, str] = {}
-        for line in ioc_text.splitlines():
-            if "=" in line:
-                key, value = line.split("=", 1)
-                values[key.strip()] = value.strip()
-        gpio_entries: list[tuple[str, str, str]] = []
-        for key, signal in values.items():
-            if not key.endswith(".Signal") or not signal.startswith("GPIO_"):
-                continue
-            pin = key[: -len(".Signal")]
-            label = values.get(f"{pin}.GPIO_Label", pin).strip() or pin
-            label = re.sub(r"[^A-Za-z0-9_.-]", "_", label)
-            if signal.startswith("GPIO_EXTI"):
-                kind = "gpio_interrupt"
-            elif signal == "GPIO_Output":
-                kind = "gpio_output"
-            else:
-                kind = "gpio_input"
-            gpio_entries.append((label, pin, kind))
-        for index, (label, pin, kind) in enumerate(sorted(gpio_entries)[:9]):
-            macro = re.sub(r"[^A-Za-z0-9_]", "_", label)
-            resources.append(
-                HardwareResource(
-                    resource_id=label,
-                    kind=kind,
-                    metadata={
-                        "c_id": f"PLATFORM_GPIO_{index}",
-                        "header": "platform_gpio.h",
-                        "port": f"{macro}_GPIO_Port",
-                        "pin": f"{macro}_Pin",
-                        "logical_index": index,
-                        "physical_pin": pin,
-                        "irq_enabled": 1 if kind == "gpio_interrupt" else 0,
-                    },
-                )
-            )
-        if any(item.startswith("SDIO") or item.startswith("SDMMC") for item in peripherals):
-            resources.append(HardwareResource("SDIO", "sdio", {}))
-        resources.append(HardwareResource("SYSTEM_TIME", "time", {}))
-        return tuple(resources)
+        del peripherals
+        return CubeMxInventory_Parse(ioc_text).HardwareResources_Get()
 
     @staticmethod
-    def _Warnings_Get(ioc_text: str, peripherals: tuple[str, ...]) -> tuple[str, ...]:
+    def _Warnings_Get(
+        ioc_text: str,
+        peripherals: tuple[str, ...],
+        inventory: HardwareInventory | None = None,
+    ) -> tuple[str, ...]:
         warnings: list[str] = []
         for label, pattern in (
             ("DMA", r"(?i)DMA"),
@@ -391,4 +339,6 @@ class CubeMxImporter:
         for family in ("UART", "SPI", "I2C", "ADC"):
             if not any(item.startswith((family, "USART" if family == "UART" else family)) for item in peripherals):
                 warnings.append(f"No {family} peripheral is enabled")
+        if inventory is not None:
+            warnings.extend(inventory.issues)
         return tuple(warnings)

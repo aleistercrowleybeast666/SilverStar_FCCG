@@ -8,11 +8,12 @@ import zipfile
 from pathlib import Path, PurePosixPath
 
 from silverstar_fccg.core.workspace import WorkspacePolicy, WorkspacePolicyError
+from silverstar_fccg.core.errors import FccgError
 from silverstar_fccg.plugins.catalog import PluginCatalog, PluginCatalogError
 from silverstar_fccg.plugins.manifest import PluginManifest, PluginManifest_Parse
 
 
-class PluginInstallError(ValueError):
+class PluginInstallError(FccgError):
     pass
 
 

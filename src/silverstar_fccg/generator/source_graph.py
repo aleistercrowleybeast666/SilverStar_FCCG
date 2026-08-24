@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+from silverstar_fccg.core.errors import FccgError
+
 from dataclasses import dataclass
 
 from silverstar_fccg.plugins.catalog import PluginCatalog
 from silverstar_fccg.project.model import ProjectModel
 
 
-class SourceGraphError(ValueError):
+class SourceGraphError(FccgError):
     pass
 
 
@@ -107,12 +109,13 @@ def SourceGraph_Resolve(model: ProjectModel, catalog: PluginCatalog) -> SourceGr
             linker_scripts.append(model.hardware.linker_script)
     generated_sources = (
         "Generated/Src/platform_resources.c",
+        "Generated/Src/project_capability_routes.c",
         "Generated/Src/project_log_config.c",
         "Generated/Src/project_metadata.c",
     )
     sources.extend(generated_sources)
     include_dirs.append("Generated/Inc")
-    if model.devices:
+    if model.device_instances:
         include_dirs.append("Devices")
     duplicate_sources = sorted(
         source for source in set(sources) if sources.count(source) > 1

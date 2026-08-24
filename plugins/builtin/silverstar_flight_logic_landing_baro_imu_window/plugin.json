@@ -14,7 +14,11 @@
       }
     ],
     "resources": [],
-    "capabilities": []
+    "capabilities": [
+      {"capability": "barometer.altitude", "purpose": "landing_detection"},
+      {"capability": "imu.acceleration", "purpose": "landing_detection"},
+      {"capability": "imu.angular_rate", "purpose": "landing_detection"}
+    ]
   },
   "resources": {
     "provides": [],
@@ -52,8 +56,12 @@
       "recorded_at_utc": "2026-08-23T14:50:21+00:00"
     },
     "display_names": {
-      "zh_CN": "气压计 + IMU 窗口着陆判断",
+      "zh_CN": "气压计 + IMU窗口着陆判定",
       "en_US": "Barometer + IMU Window Landing"
+    },
+    "descriptions": {
+      "zh_CN": "使用气压高度与IMU窗口判断着陆状态。",
+      "en_US": "Build-selected barometer and IMU window landing strategy."
     }
   },
   "selection": {

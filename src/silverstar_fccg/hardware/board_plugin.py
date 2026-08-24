@@ -7,10 +7,11 @@ import zipfile
 from pathlib import Path
 
 from silverstar_fccg.core.workspace import WorkspacePolicy
+from silverstar_fccg.core.errors import FccgError
 from silverstar_fccg.project.model import ProjectModel
 
 
-class BoardPluginExportError(ValueError):
+class BoardPluginExportError(FccgError):
     pass
 
 
@@ -19,8 +20,13 @@ class BoardPluginExporter:
 
     _COMPONENT_ID_PATTERN = re.compile(r"^[a-z0-9]+(?:[._-][a-z0-9]+)*$")
 
-    def __init__(self, policy: WorkspacePolicy) -> None:
+    def __init__(
+        self,
+        policy: WorkspacePolicy,
+        output_policy: WorkspacePolicy | None = None,
+    ) -> None:
         self.policy = policy
+        self.output_policy = output_policy or policy
 
     def Plugin_Export(
         self,
@@ -41,17 +47,17 @@ class BoardPluginExporter:
         snapshot = self.policy.Path_Resolve(snapshot_root, allow_root=False)
         if not snapshot.is_dir():
             raise BoardPluginExportError("Custom hardware snapshot is unavailable")
-        output = self.policy.Path_Resolve(output_path, allow_root=False)
+        output = self.output_policy.Path_Resolve(output_path, allow_root=False)
         if output.suffix.casefold() != ".ssplugin":
             output = output.with_suffix(".ssplugin")
-            output = self.policy.Path_Resolve(output, allow_root=False)
+            output = self.output_policy.Path_Resolve(output, allow_root=False)
         manifest = self._Manifest_Get(
             model,
             component_id=component_id,
             name=name.strip(),
             version=version or model.identity.firmware_version,
         )
-        stage = self.policy.StagingDirectory_Create("board-export-")
+        stage = self.output_policy.StagingDirectory_Create("board-export-")
         staged_archive = stage / output.name
         try:
             with zipfile.ZipFile(
@@ -65,6 +71,21 @@ class BoardPluginExporter:
                     "docs/HARDWARE_PROVENANCE.md",
                     self._Provenance_Render(model, name),
                 )
+                connections = {
+                    "format_version": 1,
+                    "resources": {
+                        resource.resource_id: {
+                            "physical": resource.resource_id,
+                            "fixed": False,
+                            "purpose": "custom",
+                        }
+                        for resource in model.hardware.resources
+                    },
+                }
+                archive.writestr(
+                    "connections.json",
+                    json.dumps(connections, ensure_ascii=False, indent=2) + "\n",
+                )
                 for source in sorted(snapshot.rglob("*")):
                     if source.is_symlink():
                         raise BoardPluginExportError(
@@ -77,12 +98,19 @@ class BoardPluginExporter:
                         source,
                         f"payload/HardwareGenerated/STM32CubeMX/{relative}",
                     )
+                    if relative == model.hardware.ioc_file:
+                        archive.write(source, f"hardware/{source.name}")
             output.parent.mkdir(parents=True, exist_ok=True)
             os.replace(staged_archive, output)
             return output
         finally:
             if stage.exists():
-                self.policy.Tree_Remove(stage)
+                self.output_policy.Tree_Remove(stage)
+            staging_root = self.output_policy.Path_Resolve(
+                ".staging", allow_root=False
+            )
+            if staging_root.is_dir() and not any(staging_root.iterdir()):
+                staging_root.rmdir()
 
     @staticmethod
     def _Manifest_Get(
@@ -92,7 +120,11 @@ class BoardPluginExporter:
             {
                 "id": resource.resource_id,
                 "kind": resource.kind,
-                "metadata": resource.metadata,
+                "metadata": {
+                    key: resource.metadata[key]
+                    for key in ("c_id", "header")
+                    if key in resource.metadata
+                },
             }
             for resource in model.hardware.resources
         ]
@@ -118,8 +150,8 @@ class BoardPluginExporter:
                     "fixed": False,
                 }
             )
-        platform_resources = BoardPluginExporter._PlatformResources_Get(model)
         capability_slug = component_id.replace("-", "_").replace(".", "_")
+        ioc_name = Path(model.hardware.ioc_file).name
         return {
             "schema_version": 0,
             "id": component_id,
@@ -155,7 +187,6 @@ class BoardPluginExporter:
             "payload": {"roots": ["HardwareGenerated/STM32CubeMX"]},
             "metadata": {
                 "display_names": {"zh_CN": f"{name}（自定义硬件）", "en_US": f"{name} (Custom)"},
-                "platform_resources": platform_resources,
                 "hardware_provenance": {
                     "provider": model.hardware.provider,
                     "source_kind": "manual_import",
@@ -172,34 +203,10 @@ class BoardPluginExporter:
                 "provider": model.hardware.provider,
                 "verified": False,
                 "hardware_root": "HardwareGenerated/STM32CubeMX",
+                "ioc_file": f"hardware/{ioc_name}",
+                "connections_file": "connections.json",
             },
         }
-
-    @staticmethod
-    def _PlatformResources_Get(model: ProjectModel) -> dict[str, list[dict]]:
-        result: dict[str, list[dict]] = {
-            "uarts": [],
-            "spis": [],
-            "adcs": [],
-            "gpios": [],
-        }
-        destinations = {
-            "uart": "uarts",
-            "spi": "spis",
-            "adc": "adcs",
-        }
-        for resource in model.hardware.resources:
-            metadata = resource.metadata
-            destination = destinations.get(resource.kind)
-            if destination and isinstance(metadata.get("handle"), str):
-                result[destination].append(
-                    {"id": resource.resource_id, "handle": metadata["handle"], **metadata}
-                )
-            elif resource.kind.startswith("gpio_") and isinstance(metadata.get("port"), str):
-                result["gpios"].append(
-                    {"id": resource.resource_id, **metadata}
-                )
-        return result
 
     @staticmethod
     def _Provenance_Render(model: ProjectModel, name: str) -> str:

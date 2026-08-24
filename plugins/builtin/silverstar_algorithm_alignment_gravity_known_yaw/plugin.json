@@ -14,7 +14,10 @@
       }
     ],
     "resources": [],
-    "capabilities": []
+    "capabilities": [
+      {"capability": "imu.acceleration", "purpose": "initialization"},
+      {"capability": "imu.angular_rate", "purpose": "initialization"}
+    ]
   },
   "resources": {
     "provides": [],
@@ -58,8 +61,12 @@
       "recorded_at_utc": "2026-08-23T14:50:21+00:00"
     },
     "display_names": {
-      "zh_CN": "重力 + 已知航向",
+      "zh_CN": "重力 + 已知航向角对准",
       "en_US": "Gravity + Known Yaw"
+    },
+    "descriptions": {
+      "zh_CN": "使用重力方向和已知航向角完成初始对准。",
+      "en_US": "Build-selected Gravity + Known Yaw alignment strategy."
     },
     "algorithm_descriptors": [
       {

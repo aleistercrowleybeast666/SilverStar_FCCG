@@ -17,10 +17,10 @@ class Translator:
             raise ValueError(f"language_unsupported:{language}")
         self.language = language
 
-    def Text_Get(self, code: str, **values: Any) -> str:
+    def Text_Get(self, key: str, **values: Any) -> str:
         catalog = self._Catalog_Load(self.language)
         fallback = self._Catalog_Load("en_US")
-        text = catalog.get(code, fallback.get(code, code))
+        text = catalog.get(key, fallback.get(key, key))
         try:
             return text.format(**values)
         except (KeyError, ValueError):
@@ -41,4 +41,3 @@ class Translator:
             catalog = {}
         self._catalogs[language] = catalog
         return catalog
-

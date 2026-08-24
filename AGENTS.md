@@ -10,6 +10,9 @@ All writes made while developing or testing FCCG must remain below this reposito
 Codex or other automation working on FCCG may read, but must never modify, rename, delete,
 format, commit, or otherwise write to the reference firmware, reference GUI, or any path outside
 the FCCG workspace. Tests must place all temporary and generated outputs below `tests/`.
+The installed product may write only to a project/output directory explicitly selected by the
+user; that selected directory becomes a separate, exact authorization root and does not weaken
+the internal workspace boundary.
 
 Reference sources are always read-only:
 
@@ -27,12 +30,23 @@ environment, or any other repository. Project-local settings and logs belong bel
 - Only a deliberately small `Generated/` glue surface remains FCCG-owned and replaceable.
 - `SilverStar.ssproject` is strict JSON and, together with installed manifests, is the single
   source of truth for Make, VS Code, and supported EIDE configuration.
+- Protocol plugins own SSLOG record metadata and policy levels. FCCG must not duplicate a fixed
+  record table in Python. Generated `.ssdecoder` bundles are declarative data and never code.
+- For STM32 Boards, the bundled/imported `.ioc` is the physical truth. Board manifests retain
+  semantic aliases, legal choices, verification state, services, and provenance rather than a
+  second physical-resource database.
 - GUI widgets call application/domain services; they do not copy files, parse plugin archives,
   modify build files, or run toolchains directly.
 - All copy, extraction, replacement, and deletion operations pass through the workspace/path
   safety layer and use validation plus staging before apply.
-- Configuration follows MCU → Device → Board/Hardware → Flight Configuration. Device manifests
-  declare requirements; Board/imported hardware resolves them; the MCU plugin remains PCB-neutral.
+- Configuration follows Device → Flight Configuration → Hardware Connection → Build. Device
+  manifests declare capabilities and resource needs; Algorithm/Flight selections determine actual
+  capability consumption before Board/imported hardware resolves physical mappings. The MCU plugin
+  remains PCB-neutral.
+- Physical `DeviceInstance` records provide capabilities. Selected Algorithm/Flight components
+  require capabilities with a purpose, and the resolver stores a source override only when two or
+  more physical instances can satisfy the same capability. Usage lifecycle stays in the consuming
+  implementation; do not add a general PRE_START/ASCENT/RECOVERY phase policy.
 - Strategy and Mode slots are generic manifest-declared dictionaries. Do not add hard-coded future
   Guidance/Control/Actuator choices without real plugins and source.
 - Imported vendor configuration remains below `HardwareGenerated/STM32CubeMX/`. It is neither
@@ -40,6 +54,8 @@ environment, or any other repository. Project-local settings and logs belong bel
   plan confirmation.
 - Make and native EIDE must be rendered from the same resolved source graph. VS Code tasks call the
   generated Make project; no environment renderer may independently discover sources.
+- GUI display functions are read-only. Configuration changes apply to a candidate model, run the
+  shared reconcile pipeline, and replace the live model only after reconciliation succeeds.
 
 ## GUI standard
 
@@ -47,8 +63,11 @@ All PySide6 UI work follows `docs/GUI_STYLE_GUIDE.md` and the copied normative
 `docs/CXYL_Python_GUI_STYLE_GUIDE.md`. Preserve the stable product title, deep-blue header and
 left navigation, Light/Dark themes, Simplified Chinese/English catalogs, custom tab/table/control
 styling, bottom task status/progress, and QRunnable/QThreadPool background work. Keep exactly the
-six normal pages defined in the GUI guide and no standalone Generate page. User-visible strings
-use translation keys. Development settings remain repository-local.
+four normal pages defined in the GUI guide and no standalone Project, Plugins, or Generate page.
+Project operations belong in File; plugin management belongs in the Plugins menu. User-visible strings
+use translation keys. Boolean/multiple selections use `StandardCheckBox`; progressive disclosure
+uses `CollapsibleSection` and never disables its body. Logging remains directly visible.
+Development settings remain repository-local.
 
 ## Code and tests
 

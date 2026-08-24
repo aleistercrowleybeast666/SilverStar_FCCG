@@ -41,6 +41,10 @@
     "display_names": {
       "zh_CN": "STM32CubeMX 硬件配置导入",
       "en_US": "STM32CubeMX Hardware Provider"
+    },
+    "descriptions": {
+      "zh_CN": "以声明式数据方式验证和导入STM32CubeMX生成工程的可信FCCG硬件配置插件。",
+      "en_US": "Trusted FCCG provider for validating and importing generated STM32CubeMX projects as data."
     }
   },
   "hardware_provider": {

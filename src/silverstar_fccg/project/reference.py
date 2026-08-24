@@ -1,7 +1,20 @@
 from __future__ import annotations
 
+from pathlib import Path
+from typing import TYPE_CHECKING
+
+from silverstar_fccg.plugins.manifest import PluginManifest_Load
+from silverstar_fccg.project.logging import (
+    LoggingProfile_Reconcile,
+    ProtocolLogDefinitions_Load,
+    ProtocolLogMetadataPath_Get,
+)
+
+if TYPE_CHECKING:
+    from silverstar_fccg.plugins.catalog import PluginCatalog
 from silverstar_fccg.project.model import (
     BuildOptions,
+    DeviceInstance,
     HardwareConfiguration,
     LogStreamConfig,
     ProjectIdentity,
@@ -33,56 +46,50 @@ REFERENCE_COMPONENT_IDS = {
 }
 
 
-def ReferenceLogStreams_Get() -> list[LogStreamConfig]:
-    values = (
-        ("FLIGHT_LOG_RECORD_SAMPLE", False, "DECIMATION", 1, 0),
-        ("FLIGHT_LOG_RECORD_EVENT", True, "EVENT", 1, 0),
-        ("FLIGHT_LOG_RECORD_STATS", False, "PERIODIC", 1, 1_000_000),
-        ("FLIGHT_LOG_RECORD_ESTIMATOR", True, "DECIMATION", 4, 0),
-        ("FLIGHT_LOG_RECORD_SYSTEM_CONFIG", True, "ONE_SHOT", 1, 0),
-        ("FLIGHT_LOG_RECORD_RAW_SENSOR", False, "DECIMATION", 1, 0),
-        ("FLIGHT_LOG_RECORD_PURE_INS", True, "DECIMATION", 1, 0),
-        ("FLIGHT_LOG_RECORD_KF6_DIAGNOSTIC", True, "DECIMATION", 4, 0),
-        ("FLIGHT_LOG_RECORD_KF6_FULL_P", True, "DECIMATION", 4, 0),
-        ("FLIGHT_LOG_RECORD_POWER", True, "PERIODIC", 1, 20_000),
-        ("FLIGHT_LOG_RECORD_HEALTH", True, "PERIODIC", 1, 1_000_000),
-        ("FLIGHT_LOG_RECORD_TELEMETRY_DIAG", False, "PERIODIC", 1, 200_000),
-        ("FLIGHT_LOG_RECORD_INITIAL_STATE", True, "ONE_SHOT", 1, 0),
-        ("FLIGHT_LOG_RECORD_IMU_NATIVE", False, "DECIMATION", 1, 0),
-        ("FLIGHT_LOG_RECORD_GNSS_NATIVE", True, "DECIMATION", 1, 0),
-        ("FLIGHT_LOG_RECORD_BARO_NATIVE", True, "DECIMATION", 1, 0),
-        ("FLIGHT_LOG_RECORD_MAG_NATIVE", True, "DECIMATION", 1, 0),
-        ("FLIGHT_LOG_RECORD_HW_QUAT_NATIVE", True, "DECIMATION", 1, 0),
-        ("FLIGHT_LOG_RECORD_INERTIAL_INCREMENT", True, "DECIMATION", 1, 0),
-        ("FLIGHT_LOG_RECORD_GNSS_MEASUREMENT", True, "EVERY", 1, 0),
-        ("FLIGHT_LOG_RECORD_BARO_MEASUREMENT", True, "EVERY", 1, 0),
-        ("FLIGHT_LOG_RECORD_IMU_CORRECTED", True, "DECIMATION", 1, 0),
-        ("FLIGHT_LOG_RECORD_CALIBRATION_RESULT", True, "EVENT", 1, 0),
-        ("FLIGHT_LOG_RECORD_ALIGNMENT_RESULT", True, "EVENT", 1, 0),
-        ("FLIGHT_LOG_RECORD_MISSION_CONFIG", True, "ONE_SHOT", 1, 0),
-        ("FLIGHT_LOG_RECORD_DEVICE_DESCRIPTOR", True, "ONE_SHOT", 1, 0),
-        ("FLIGHT_LOG_RECORD_ALGORITHM_DESCRIPTOR", True, "ONE_SHOT", 1, 0),
-        ("FLIGHT_LOG_RECORD_LOG_STREAM_DESCRIPTOR", True, "ONE_SHOT", 1, 0),
+def ProtocolDefaultStreams_Get() -> list[LogStreamConfig]:
+    """Load new-project defaults from Protocol-owned metadata.
+
+    Every record available in the reference composition starts enabled. Existing
+    projects retain their serialized choices when they are opened.
+    """
+    repository_root = Path(__file__).resolve().parents[3]
+    manifest = PluginManifest_Load(
+        repository_root
+        / "plugins"
+        / "builtin"
+        / "silverstar_protocol_reference_v0"
+        / "plugin.json"
     )
-    return [LogStreamConfig(*value) for value in values]
+    return [
+        LogStreamConfig(
+            definition.record,
+            True,
+            definition.default_stream.policy,
+            definition.default_stream.decimation,
+            definition.default_stream.period_us,
+        )
+        for definition in ProtocolLogDefinitions_Load(
+            ProtocolLogMetadataPath_Get(manifest)
+        )
+    ]
 
 
 def ReferenceResourceAssignments_Get() -> dict[str, str]:
     ids = REFERENCE_COMPONENT_IDS
     return {
-        f"{ids['jy901b']}:data": "PLATFORM_UART_1",
-        f"{ids['jy901b']}:time": "PLATFORM_TIME_1",
-        f"{ids['neo_m9n']}:data": "PLATFORM_UART_2",
-        f"{ids['neo_m9n']}:reset": "PLATFORM_GPIO_7",
-        f"{ids['neo_m9n']}:timepulse": "PLATFORM_GPIO_8",
-        f"{ids['neo_m9n']}:time": "PLATFORM_TIME_1",
-        f"{ids['sx1281']}:radio_bus": "PLATFORM_SPI_1",
-        f"{ids['sx1281']}:radio_nss": "PLATFORM_GPIO_0",
-        f"{ids['sx1281']}:radio_reset": "PLATFORM_GPIO_1",
-        f"{ids['sx1281']}:radio_busy": "PLATFORM_GPIO_2",
-        f"{ids['sx1281']}:radio_dio1": "PLATFORM_GPIO_3",
-        f"{ids['sx1281']}:time": "PLATFORM_TIME_1",
-        f"{ids['console']}:console": "PLATFORM_UART_3",
+        "imu0:data": "PLATFORM_UART_1",
+        "imu0:time": "PLATFORM_TIME_1",
+        "gnss0:data": "PLATFORM_UART_2",
+        "gnss0:reset": "PLATFORM_GPIO_7",
+        "gnss0:timepulse": "PLATFORM_GPIO_8",
+        "gnss0:time": "PLATFORM_TIME_1",
+        "telemetry0:radio_bus": "PLATFORM_SPI_1",
+        "telemetry0:radio_nss": "PLATFORM_GPIO_0",
+        "telemetry0:radio_reset": "PLATFORM_GPIO_1",
+        "telemetry0:radio_busy": "PLATFORM_GPIO_2",
+        "telemetry0:radio_dio1": "PLATFORM_GPIO_3",
+        "telemetry0:time": "PLATFORM_TIME_1",
+        "maintenance0:console": "PLATFORM_UART_3",
         f"{ids['board']}:power_output_1": "PLATFORM_GPIO_4",
         f"{ids['board']}:power_output_2": "PLATFORM_GPIO_5",
         f"{ids['board']}:system_indicator": "PLATFORM_GPIO_6",
@@ -95,15 +102,21 @@ def ReferenceProject_Create(
     name: str = "SilverStar_F407_Reference_Generated",
     *,
     reference_provenance: dict | None = None,
+    catalog: PluginCatalog | None = None,
 ) -> ProjectModel:
     ids = REFERENCE_COMPONENT_IDS
-    return ProjectModel(
+    model = ProjectModel(
         identity=ProjectIdentity(name=name),
         core=ids["core"],
         mcu=ids["mcu"],
         board=ids["board"],
         os=ids["os"],
-        devices=[ids["jy901b"], ids["neo_m9n"], ids["sx1281"], ids["console"]],
+        device_instances=[
+            DeviceInstance("imu0", ids["jy901b"]),
+            DeviceInstance("gnss0", ids["neo_m9n"]),
+            DeviceInstance("telemetry0", ids["sx1281"]),
+            DeviceInstance("maintenance0", ids["console"]),
+        ],
         base_components=[
             ids["algorithm_common"],
             ids["alignment_common"],
@@ -118,8 +131,8 @@ def ReferenceProject_Create(
             "landing": ids["landing"],
         },
         modes={
-            "calibration": ["Existing"],
-            "deployment": ["ApogeeVerticalVelocity"],
+            "calibration": ["Existing", "OneFace", "SixFace"],
+            "deployment": ["ApogeeVerticalVelocity", "Tilt", "Delay"],
         },
         protocol_bundles=[ids["protocol"]],
         development_environment=ids["environment"],
@@ -128,7 +141,18 @@ def ReferenceProject_Create(
             source_kind="verified_builtin",
         ),
         resource_assignments=ReferenceResourceAssignments_Get(),
-        logging_streams=ReferenceLogStreams_Get(),
+        logging_streams=ProtocolDefaultStreams_Get(),
         build=BuildOptions(),
         reference_provenance=dict(reference_provenance or {}),
     )
+    if catalog is None:
+        from silverstar_fccg.plugins.catalog import PluginCatalog
+
+        repository_root = Path(__file__).resolve().parents[3]
+        catalog = PluginCatalog(
+            repository_root / "plugins" / "builtin",
+            repository_root / "plugins" / "installed",
+        )
+        catalog.Scan()
+    LoggingProfile_Reconcile(model, catalog)
+    return model

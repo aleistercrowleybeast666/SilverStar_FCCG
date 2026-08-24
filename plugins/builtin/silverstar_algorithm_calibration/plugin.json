@@ -9,7 +9,10 @@
   "requires": {
     "components": [],
     "resources": [],
-    "capabilities": []
+    "capabilities": [
+      {"capability": "imu.acceleration", "purpose": "calibration"},
+      {"capability": "imu.angular_rate", "purpose": "calibration"}
+    ]
   },
   "resources": {
     "provides": [],
@@ -45,8 +48,12 @@
       "recorded_at_utc": "2026-08-23T14:50:21+00:00"
     },
     "display_names": {
-      "zh_CN": "IMU 校准",
+      "zh_CN": "IMU校准",
       "en_US": "IMU Calibration"
+    },
+    "descriptions": {
+      "zh_CN": "在一个组件中提供现有、单面和六面IMU校准模式。",
+      "en_US": "One-face and six-face calibration modes in one component."
     }
   },
   "selection": {
@@ -54,14 +61,18 @@
     "slot": "calibration",
     "required": true,
     "allow_none": false,
-    "allow_multiple": false,
+    "allow_multiple": true,
     "ui_order": 10,
     "options": [
       "Existing",
       "OneFace",
       "SixFace"
     ],
-    "default": "Existing",
+    "default": [
+      "Existing",
+      "OneFace",
+      "SixFace"
+    ],
     "labels": {
       "zh_CN": {
         "Existing": "使用现有校准",

@@ -21,7 +21,9 @@ from silverstar_fccg.hardware import (
 )
 from silverstar_fccg.plugins.catalog import PluginCatalog
 from silverstar_fccg.plugins.installer import PluginInstaller
-from silverstar_fccg.project.model import HardwareConfiguration
+from silverstar_fccg.project.model import DeviceInstance, HardwareConfiguration
+from silverstar_fccg.project.logging import LoggingProfile_Reconcile
+from silverstar_fccg.project.configuration import ProjectConfiguration_Reconcile
 from silverstar_fccg.project.reference import ReferenceProject_Create
 from silverstar_fccg.project.resources import ResourceAssignments_Resolve
 from silverstar_fccg.project.validation import Project_Validate
@@ -49,6 +51,8 @@ def test_estimator_none_is_absent_from_make_and_eide(
 ) -> None:
     model = ReferenceProject_Create("NoEstimator")
     model.strategies["estimator"] = None
+    model = ProjectConfiguration_Reconcile(model, builtin_catalog).model
+    assert "ApogeeVerticalVelocity" not in model.modes["deployment"]
     validation = Project_Validate(model, builtin_catalog)
     assert validation.valid
 
@@ -96,6 +100,10 @@ def test_environment_plugin_renders_one_resolved_source_graph(
     assert actual_source_dirs == expected_source_dirs
     assert "srcDirs: []" not in eide
     assert "outDir: build\\EIDE\\SilverStar_F407" in eide
+    assert "uploadConfigMap" not in eide
+    assert "uploader:" not in eide
+    assert "OpenOCD" not in eide
+    assert "STLink" not in eide
     assert "mingw32-make" in metadata[".vscode/tasks.json"].decode("utf-8")
     for source in graph.sources:
         assert source in graph.MakeFragment_Render()
@@ -116,9 +124,9 @@ def test_same_mcu_supports_two_board_resource_maps(workspace_root: Path) -> None
 
     for board_id in ("fixture.board.f407_a", "fixture.board.f407_b"):
         model = ReferenceProject_Create(board_id.rsplit("_", 1)[-1].upper())
-        model.devices = [
-            "silverstar.device.imu.jy901b",
-            "silverstar.device.gnss.neo_m9n",
+        model.device_instances = [
+            DeviceInstance("imu0", "silverstar.device.imu.jy901b"),
+            DeviceInstance("gnss0", "silverstar.device.gnss.neo_m9n"),
         ]
         model.board = board_id
         model.hardware = HardwareConfiguration(
@@ -127,6 +135,7 @@ def test_same_mcu_supports_two_board_resource_maps(workspace_root: Path) -> None
         model.resource_assignments = {}
         resolution = ResourceAssignments_Resolve(model, catalog, auto_assign=True)
         assert resolution.valid
+        LoggingProfile_Reconcile(model, catalog)
         assert Project_Validate(model, catalog).valid
         graph = SourceGraph_Resolve(model, catalog)
         graphs.append(graph)
@@ -137,8 +146,8 @@ def test_same_mcu_supports_two_board_resource_maps(workspace_root: Path) -> None
             ].decode("utf-8")
         )
 
-    imu_key = "silverstar.device.imu.jy901b:data"
-    gnss_key = "silverstar.device.gnss.neo_m9n:data"
+    imu_key = "imu0:data"
+    gnss_key = "gnss0:data"
     assert (mappings[0][imu_key], mappings[0][gnss_key]) == ("USART1", "USART2")
     assert (mappings[1][imu_key], mappings[1][gnss_key]) == ("USART3", "USART6")
     assert graphs[0] == graphs[1]
@@ -170,6 +179,7 @@ def test_cubemx_import_generate_export_install_and_reuse(
     model.resource_assignments = {}
     resources = ResourceAssignments_Resolve(model, catalog, auto_assign=True)
     assert resources.valid
+    LoggingProfile_Reconcile(model, catalog)
     assert len(resources.assignments) == 13
     assert imported.snapshot_root.is_relative_to(tmp_path)
     assert imported.hardware.provider == "silverstar.hardware_provider.stm32_cubemx"
@@ -205,7 +215,9 @@ def test_cubemx_import_generate_export_install_and_reuse(
     with zipfile.ZipFile(archive) as package:
         names = set(package.namelist())
     assert "plugin.json" in names
+    assert "connections.json" in names
     assert "docs/HARDWARE_PROVENANCE.md" in names
+    assert "hardware/MockFlightController.ioc" in names
     assert "payload/HardwareGenerated/STM32CubeMX/MockFlightController.ioc" in names
 
     installed = PluginInstaller(policy, installed_root, catalog).Install(archive)
@@ -220,6 +232,7 @@ def test_cubemx_import_generate_export_install_and_reuse(
         second, catalog, auto_assign=True
     )
     assert second_resources.valid
+    LoggingProfile_Reconcile(second, catalog)
     assert Project_Validate(second, catalog).valid
     second_root = tmp_path / "generated" / "ReusedBoard"
     second_plan = assembler.Plan(second, second_root)

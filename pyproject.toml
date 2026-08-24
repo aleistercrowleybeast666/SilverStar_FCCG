@@ -23,7 +23,7 @@ where = ["src"]
 version = {attr = "silverstar_fccg.app.version.__version__"}
 
 [tool.setuptools.package-data]
-silverstar_fccg = ["i18n/*.json"]
+silverstar_fccg = ["i18n/*.json", "ui/assets/*.svg"]
 
 [tool.pytest.ini_options]
 addopts = "-ra --basetemp=tests/.pytest-work"

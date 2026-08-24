@@ -1,9 +1,20 @@
 {
   "schema_version": 0,
   "id": "silverstar.device.telemetry.sx1281",
-  "name": "SX1281",
+  "name": "E28-2G4M12SX (SX1281)",
   "type": "device",
   "class": "telemetry",
+  "instance_policy": {
+    "project_max": 1,
+    "same_plugin_multiple": false,
+    "multi_instance_ready": false
+  },
+  "physical_device": {
+    "vendor": "Ebyte",
+    "model": "E28-2G4M12SX",
+    "chipset": "SX1281",
+    "driver": "SX1281 Driver"
+  },
   "version": "0.0.9",
   "description": "Reference SX1281 Device driver and canonical adapter.",
   "requires": {
@@ -11,42 +22,48 @@
       {
         "id": "silverstar.core.0_0_9",
         "optional": false
-      },
-      {
-        "id": "silverstar.mcu.stm32f407vet6",
-        "optional": false
       }
     ],
     "resources": [
       {
         "name": "radio_bus",
         "kind": "spi",
-        "binding_macro": "PROJECT_RESOURCE_RADIO_SPI"
+        "binding_macro": "PROJECT_RESOURCE_RADIO_SPI",
+        "display_names": {"zh_CN": "无线SPI", "en_US": "Radio SPI"},
+        "constraints": {
+          "mode": "master",
+          "signals": ["miso", "mosi", "sck"]
+        }
       },
       {
         "name": "radio_nss",
         "kind": "gpio_output",
-        "binding_macro": "PROJECT_RESOURCE_RADIO_NSS"
+        "binding_macro": "PROJECT_RESOURCE_RADIO_NSS",
+        "display_names": {"zh_CN": "片选输出", "en_US": "Chip-Select Output"}
       },
       {
         "name": "radio_reset",
         "kind": "gpio_output",
-        "binding_macro": "PROJECT_RESOURCE_RADIO_RESET"
+        "binding_macro": "PROJECT_RESOURCE_RADIO_RESET",
+        "display_names": {"zh_CN": "复位输出", "en_US": "Reset Output"}
       },
       {
         "name": "radio_busy",
         "kind": "gpio_input",
-        "binding_macro": "PROJECT_RESOURCE_RADIO_BUSY"
+        "binding_macro": "PROJECT_RESOURCE_RADIO_BUSY",
+        "display_names": {"zh_CN": "忙状态输入", "en_US": "Busy Input"}
       },
       {
         "name": "radio_dio1",
         "kind": "gpio_interrupt",
-        "binding_macro": "PROJECT_RESOURCE_RADIO_DIO1"
+        "binding_macro": "PROJECT_RESOURCE_RADIO_DIO1",
+        "display_names": {"zh_CN": "DIO1中断", "en_US": "DIO1 Interrupt"}
       },
       {
         "name": "time",
         "kind": "time",
-        "mode": "shared"
+        "mode": "shared",
+        "display_names": {"zh_CN": "系统时间", "en_US": "System Time"}
       }
     ],
     "capabilities": []
@@ -93,8 +110,12 @@
       "recorded_at_utc": "2026-08-23T14:50:21+00:00"
     },
     "display_names": {
-      "zh_CN": "SX1281",
-      "en_US": "SX1281"
+      "zh_CN": "E28-2G4M12SX（SX1281）",
+      "en_US": "E28-2G4M12SX (SX1281)"
+    },
+    "descriptions": {
+      "zh_CN": "E28-2G4M12SX（SX1281）物理设备驱动及标准适配器。",
+      "en_US": "Reference SX1281 device driver and canonical adapter."
     },
     "device_descriptors": [
       {

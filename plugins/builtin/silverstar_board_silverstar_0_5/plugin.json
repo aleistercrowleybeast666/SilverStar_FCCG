@@ -21,26 +21,31 @@
       {
         "name": "power_output_1",
         "kind": "gpio_output",
-        "binding_macro": "PROJECT_RESOURCE_POWER_OUTPUT_1"
+        "binding_macro": "PROJECT_RESOURCE_POWER_OUTPUT_1",
+        "display_names": {"zh_CN": "开伞输出1", "en_US": "Deployment Output 1"}
       },
       {
         "name": "power_output_2",
         "kind": "gpio_output",
-        "binding_macro": "PROJECT_RESOURCE_POWER_OUTPUT_2"
+        "binding_macro": "PROJECT_RESOURCE_POWER_OUTPUT_2",
+        "display_names": {"zh_CN": "开伞输出2", "en_US": "Deployment Output 2"}
       },
       {
         "name": "system_indicator",
         "kind": "gpio_output",
-        "binding_macro": "PROJECT_RESOURCE_SYSTEM_INDICATOR"
+        "binding_macro": "PROJECT_RESOURCE_SYSTEM_INDICATOR",
+        "display_names": {"zh_CN": "系统指示灯", "en_US": "System Indicator"}
       },
       {
         "name": "input_voltage",
         "kind": "adc",
-        "binding_macro": "PROJECT_RESOURCE_INPUT_VOLTAGE_ADC"
+        "binding_macro": "PROJECT_RESOURCE_INPUT_VOLTAGE_ADC",
+        "display_names": {"zh_CN": "输入电压采样", "en_US": "Input Voltage Sampling"}
       },
       {
         "name": "storage",
-        "kind": "sdio"
+        "kind": "sdio",
+        "display_names": {"zh_CN": "日志存储", "en_US": "Log Storage"}
       }
     ],
     "capabilities": []
@@ -409,82 +414,9 @@
       "zh_CN": "SilverStar 0.5（已验证）",
       "en_US": "SilverStar 0.5 (Verified)"
     },
-    "platform_resources": {
-      "uarts": [
-        {
-          "id": "PLATFORM_UART_1",
-          "handle": "huart1"
-        },
-        {
-          "id": "PLATFORM_UART_2",
-          "handle": "huart2"
-        },
-        {
-          "id": "PLATFORM_UART_3",
-          "handle": "huart3"
-        }
-      ],
-      "spis": [
-        {
-          "id": "PLATFORM_SPI_1",
-          "handle": "hspi1"
-        }
-      ],
-      "adcs": [
-        {
-          "id": "PLATFORM_ADC_1",
-          "handle": "hadc1"
-        }
-      ],
-      "gpios": [
-        {
-          "id": "PLATFORM_GPIO_0",
-          "port": "RADIO_NSS_GPIO_Port",
-          "pin": "RADIO_NSS_Pin"
-        },
-        {
-          "id": "PLATFORM_GPIO_1",
-          "port": "RADIO_RST_GPIO_Port",
-          "pin": "RADIO_RST_Pin"
-        },
-        {
-          "id": "PLATFORM_GPIO_2",
-          "port": "RADIO_BUSY_GPIO_Port",
-          "pin": "RADIO_BUSY_Pin"
-        },
-        {
-          "id": "PLATFORM_GPIO_3",
-          "port": "RADIO_DIO1_GPIO_Port",
-          "pin": "RADIO_DIO1_Pin",
-          "active_high": 1
-        },
-        {
-          "id": "PLATFORM_GPIO_4",
-          "port": "P_CONTROL1_GPIO_Port",
-          "pin": "P_CONTROL1_Pin"
-        },
-        {
-          "id": "PLATFORM_GPIO_5",
-          "port": "P_CONTROL2_GPIO_Port",
-          "pin": "P_CONTROL2_Pin"
-        },
-        {
-          "id": "PLATFORM_GPIO_6",
-          "port": "IMU_CAL_LED_GPIO_Port",
-          "pin": "IMU_CAL_LED_Pin"
-        },
-        {
-          "id": "PLATFORM_GPIO_7",
-          "port": "GNSS_RST_GPIO_Port",
-          "pin": "GNSS_RST_Pin"
-        },
-        {
-          "id": "PLATFORM_GPIO_8",
-          "port": "GNSS_TIMEPULSE_GPIO_Port",
-          "pin": "GNSS_TIMEPULSE_Pin",
-          "active_high": 1
-        }
-      ]
+    "descriptions": {
+      "zh_CN": "已验证的SilverStar 0.5板卡、CubeMX硬件源、固定服务与资源映射。",
+      "en_US": "Verified SilverStar 0.5 PCB, CubeMX hardware source, fixed services, and resource mapping."
     },
     "device_descriptors": [
       {
@@ -542,6 +474,8 @@
     "vendor": "STM32",
     "provider": "silverstar.hardware_provider.stm32_cubemx",
     "verified": true,
-    "hardware_root": "Core"
+    "hardware_root": "Core",
+    "ioc_file": "payload/Flight_Controller0.5.ioc",
+    "connections_file": "connections.json"
   }
 }

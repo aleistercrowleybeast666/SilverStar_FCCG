@@ -4,14 +4,12 @@ from silverstar_fccg.ui.pages.components import (
     DevicesPage,
     FlightConfigurationPage,
 )
-from silverstar_fccg.ui.pages.plugins import PluginsPage
-from silverstar_fccg.ui.pages.project import ProjectPage
+from silverstar_fccg.ui.pages.plugins import PluginManagerDialog
 
 __all__ = [
     "BoardHardwarePage",
     "BuildPage",
     "DevicesPage",
     "FlightConfigurationPage",
-    "PluginsPage",
-    "ProjectPage",
+    "PluginManagerDialog",
 ]

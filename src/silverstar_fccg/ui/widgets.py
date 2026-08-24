@@ -3,13 +3,15 @@ from __future__ import annotations
 from collections.abc import Iterable, Sequence
 from typing import Any
 
-from PySide6.QtCore import QPoint, Qt
+from PySide6.QtCore import QPoint, Qt, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QCheckBox,
     QComboBox,
     QHeaderView,
     QLabel,
     QStyle,
+    QToolButton,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -64,6 +66,100 @@ class StandardComboBox(QComboBox):
             else max(available.top(), combo_top.y() - popup.height())
         )
         popup.move(popup_x, popup_y)
+
+
+class HeaderComboBox(StandardComboBox):
+    """Header dropdown whose popup keeps the deep-blue product styling."""
+
+    def __init__(self, object_name: str, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.setObjectName(object_name)
+        self.view().setObjectName("headerComboPopup")
+
+
+class StandardCheckBox(QCheckBox):
+    """Application checkbox with a consistent visible indicator in both themes."""
+
+    def __init__(self, text: str = "", parent: QWidget | None = None) -> None:
+        super().__init__(text, parent)
+        self.setObjectName("standardCheckBox")
+
+
+class LockedCheckBox(StandardCheckBox):
+    """Read-only selection that stays visually active while rejecting toggles."""
+
+    def __init__(
+        self,
+        text: str = "",
+        parent: QWidget | None = None,
+        *,
+        checked: bool = True,
+    ) -> None:
+        super().__init__(text, parent)
+        self.setProperty("locked", True)
+        self._locked_checked = checked
+        self.setChecked(checked)
+        self.setEnabled(True)
+
+    def nextCheckState(self) -> None:
+        self.setChecked(self._locked_checked)
+
+    def LockedState_Set(self, checked: bool) -> None:
+        self._locked_checked = checked
+        self.setChecked(checked)
+
+
+class CollapsibleSection(QWidget):
+    """A disclosure section that changes visibility, never child enabled state."""
+
+    ExpandedChanged = Signal(bool)
+
+    def __init__(
+        self,
+        title: str = "",
+        *,
+        expanded: bool = False,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self._title = title
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
+        self.toggle_button = QToolButton()
+        self.toggle_button.setObjectName("collapsibleHeader")
+        self.toggle_button.setToolButtonStyle(
+            Qt.ToolButtonStyle.ToolButtonTextBesideIcon
+        )
+        self.toggle_button.setCheckable(True)
+        self.toggle_button.setChecked(expanded)
+        self.toggle_button.setArrowType(
+            Qt.ArrowType.DownArrow if expanded else Qt.ArrowType.RightArrow
+        )
+        self.toggle_button.setText(title)
+        self.toggle_button.toggled.connect(self._Expanded_Set)
+        self.body = QWidget()
+        self.body.setObjectName("collapsibleBody")
+        self.body.setVisible(expanded)
+        layout.addWidget(self.toggle_button)
+        layout.addWidget(self.body)
+
+    def _Expanded_Set(self, expanded: bool) -> None:
+        self.toggle_button.setArrowType(
+            Qt.ArrowType.DownArrow if expanded else Qt.ArrowType.RightArrow
+        )
+        self.body.setVisible(expanded)
+        self.ExpandedChanged.emit(expanded)
+
+    def Title_Set(self, title: str) -> None:
+        self._title = title
+        self.toggle_button.setText(title)
+
+    def BodyLayout_Set(self, layout: QVBoxLayout) -> None:
+        self.body.setLayout(layout)
+
+    def Expanded_Is(self) -> bool:
+        return self.toggle_button.isChecked()
 
 
 class PageHeader(QWidget):
@@ -127,4 +223,3 @@ class StatusPill(QLabel):
         self.setProperty("statusLevel", level)
         self.style().unpolish(self)
         self.style().polish(self)
-

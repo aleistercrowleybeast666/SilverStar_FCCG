@@ -80,6 +80,10 @@
     "display_names": {
       "zh_CN": "FreeRTOS Kernel 11.3.0",
       "en_US": "FreeRTOS Kernel 11.3.0"
+    },
+    "descriptions": {
+      "zh_CN": "FreeRTOS 11.3.0官方静态内核子集及SilverStar钩子。",
+      "en_US": "Official FreeRTOS 11.3.0 static kernel subset and SilverStar hooks."
     }
   }
 }

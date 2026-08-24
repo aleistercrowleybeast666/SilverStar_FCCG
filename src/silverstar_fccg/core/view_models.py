@@ -24,10 +24,15 @@ class ResourceRequirementView:
     kind: str
     name: str
     key: str = ""
+    display_name: str = ""
     assignment: str = ""
+    recommended_assignment: str = ""
     candidates: tuple[str, ...] = ()
     required: bool = True
     mode: str = "exclusive"
+    fixed: bool = False
+    physical_resource: str = ""
+    physical_details: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,6 +59,43 @@ class ComponentView:
     board_source_kind: str = ""
     board_verified: bool = False
     compatible_mcus: tuple[str, ...] = ()
+    cardinality: str = "single"
+    project_max: int = 1
+    same_plugin_multiple: bool = False
+    multi_instance_ready: bool = False
+    vendor: str = ""
+    physical_vendor: str = ""
+    physical_model: str = ""
+    chipset: str = ""
+    driver: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class DeviceInstanceView:
+    instance_id: str
+    plugin_id: str
+    name: str
+    component_class: str
+    provides: tuple[str, ...]
+    consumed: tuple[str, ...]
+    unused: tuple[str, ...]
+    enabled: tuple[str, ...] = ()
+    project_max: int = 1
+    same_plugin_multiple: bool = False
+    multi_instance_ready: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class CapabilityUsageView:
+    capability: str
+    source_instance_id: str = ""
+    source_name: str = ""
+    used: bool = False
+    missing: bool = False
+    ambiguous: bool = False
+    consumers: tuple[str, ...] = ()
+    purposes: tuple[str, ...] = ()
+    providers: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,6 +127,13 @@ class LoggingStreamView:
     description: str = ""
     policy: str = ""
     period_us: int = 0
+    level: str = "recommended"
+    required: bool = False
+    available: bool = True
+    availability_reason: str = ""
+    record_id: str = ""
+    version: int = 0
+    payload_size: int = 0
 
 
 @dataclass(frozen=True, slots=True)

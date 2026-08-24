@@ -1,0 +1,86 @@
+from __future__ import annotations
+
+import hashlib
+import json
+from pathlib import Path
+from typing import Any
+
+from silverstar_fccg.plugins.catalog import PluginCatalog
+from silverstar_fccg.project.model import ProjectModel
+
+
+def _FileDigest_Get(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def HardwarePreparationFingerprint_Get(
+    model: ProjectModel, catalog: PluginCatalog
+) -> str:
+    """Return the declarative hardware-input fingerprint for one project."""
+    data: dict[str, Any] = {
+        "mode": model.hardware.mode,
+        "mcu": model.mcu,
+        "board": model.board,
+        "resource_assignments": dict(sorted(model.resource_assignments.items())),
+    }
+    if model.hardware.mode == "board_plugin":
+        board = catalog.Component_Get(model.board)
+        payload_files = {
+            source.relative_to(board.payload_root).as_posix(): _FileDigest_Get(source)
+            for source in board.PayloadFiles_Get()
+        }
+        connection_digest = ""
+        if board.board is not None and board.board.connections_file:
+            connection_path = board.package_root.joinpath(
+                *board.board.connections_file.split("/")
+            )
+            if connection_path.is_file() and not connection_path.is_symlink():
+                connection_digest = _FileDigest_Get(connection_path)
+        data["verified_board"] = {
+            "id": board.component_id,
+            "version": board.version,
+            "verified": bool(board.board and board.board.verified),
+            "hardware_root": board.board.hardware_root if board.board else "",
+            "ioc_file": board.board.ioc_file if board.board else "",
+            "connections_file": (
+                board.board.connections_file if board.board else ""
+            ),
+            "connections_digest": connection_digest,
+            "payload_files": payload_files,
+        }
+    else:
+        data["custom_hardware"] = {
+            "provider": model.hardware.provider,
+            "snapshot_id": model.hardware.snapshot_id,
+            "source_digest": model.hardware.source_digest,
+            "ioc_file": model.hardware.ioc_file,
+            "build_sources": list(model.hardware.build_sources),
+            "asm_sources": list(model.hardware.asm_sources),
+            "include_dirs": list(model.hardware.include_dirs),
+            "defines": list(model.hardware.defines),
+            "linker_script": model.hardware.linker_script,
+        }
+    canonical = json.dumps(
+        data, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def HardwarePreparationMetadata_Render(
+    model: ProjectModel, catalog: PluginCatalog
+) -> str:
+    board = catalog.Component_Get(model.board) if model.board else None
+    value = {
+        "format_version": 1,
+        "fingerprint": HardwarePreparationFingerprint_Get(model, catalog),
+        "mode": model.hardware.mode,
+        "board": model.board,
+        "verified": bool(board and board.board and board.board.verified),
+        "external_generator_invoked": False,
+        "hardware_location": (
+            board.board.hardware_root
+            if board is not None and board.board is not None
+            else "HardwareGenerated/STM32CubeMX"
+        ),
+    }
+    return json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n"

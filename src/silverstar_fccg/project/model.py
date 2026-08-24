@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import json
 import re
+from copy import deepcopy
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from silverstar_fccg.core.workspace import WorkspacePolicy
+from silverstar_fccg.core.errors import FccgError
 
 
 PROJECT_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_. -]{0,79}$")
@@ -22,18 +24,19 @@ RESOURCE_KEY_PATTERN = re.compile(
     r"^[a-z0-9]+(?:[._-][a-z0-9]+)*:[a-z0-9]+(?:[._-][a-z0-9]+)*$"
 )
 RESOURCE_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
+DEVICE_INSTANCE_ID_PATTERN = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 TOOLCHAIN_PREFIX_PATTERN = re.compile(r"^[A-Za-z0-9_.+-]+$")
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 RELATIVE_FILE_PATTERN = re.compile(r"^[A-Za-z0-9_./+@-]+$")
 
-PROJECT_FORMAT_VERSION = 1
-HARDWARE_MODES = frozenset({"board_plugin", "custom"})
+PROJECT_FORMAT_VERSION = 5
+HARDWARE_MODES = frozenset({"unselected", "board_plugin", "custom"})
 BOARD_SOURCE_KINDS = frozenset(
-    {"verified_builtin", "manual_import", "third_party"}
+    {"unselected", "verified_builtin", "manual_import", "third_party"}
 )
 
 
-class ProjectModelError(ValueError):
+class ProjectModelError(FccgError):
     pass
 
 
@@ -45,13 +48,18 @@ class ProjectIdentity:
 
 
 @dataclass(frozen=True, slots=True)
+class DeviceInstance:
+    instance_id: str
+    plugin: str
+
+
+@dataclass(frozen=True, slots=True)
 class BuildOptions:
     target_profile: str = "SilverStar_F407"
-    configuration: str = "Debug"
     make_command: str = "mingw32-make"
     toolchain_prefix: str = "arm-none-eabi-"
     gcc_path: str = ""
-    flash_command: str = "openocd"
+    flash_command: str = ""
     eide_mode: str = "native"
     tool_paths: dict[str, str] = field(default_factory=dict)
 
@@ -74,13 +82,14 @@ class HardwareResource:
 
 @dataclass(frozen=True, slots=True)
 class HardwareConfiguration:
-    mode: str = "board_plugin"
-    source_kind: str = "verified_builtin"
+    mode: str = "unselected"
+    source_kind: str = "unselected"
     provider: str = ""
     snapshot_id: str = ""
     ioc_file: str = ""
     mcu: str = ""
     capabilities: tuple[str, ...] = ()
+    inventory: dict[str, Any] = field(default_factory=dict)
     resources: tuple[HardwareResource, ...] = ()
     build_sources: tuple[str, ...] = ()
     asm_sources: tuple[str, ...] = ()
@@ -99,7 +108,7 @@ class ProjectModel:
     mcu: str
     board: str
     os: str
-    devices: list[str] = field(default_factory=list)
+    device_instances: list[DeviceInstance] = field(default_factory=list)
     base_components: list[str] = field(default_factory=list)
     strategies: dict[str, str | None] = field(default_factory=dict)
     modes: dict[str, list[str]] = field(default_factory=dict)
@@ -107,11 +116,13 @@ class ProjectModel:
     development_environment: str = ""
     hardware: HardwareConfiguration = field(default_factory=HardwareConfiguration)
     resource_assignments: dict[str, str] = field(default_factory=dict)
+    capability_source_overrides: dict[str, str] = field(default_factory=dict)
     logging_streams: list[LogStreamConfig] = field(default_factory=list)
     build: BuildOptions = field(default_factory=BuildOptions)
     generated_glue: list[str] = field(
         default_factory=lambda: [
             "project_bindings",
+            "project_capability_routes",
             "platform_resources",
             "project_resources",
             "project_log_config",
@@ -125,7 +136,7 @@ class ProjectModel:
 
     def ComponentIds_Get(self) -> tuple[str, ...]:
         ordered = [self.core, self.mcu, self.board, self.os]
-        ordered.extend(self.devices)
+        ordered.extend(self.DevicePluginIds_Get())
         ordered.extend(self.base_components)
         ordered.extend(
             component_id
@@ -137,6 +148,15 @@ class ProjectModel:
         if self.hardware.mode == "custom":
             ordered.append(self.hardware.provider)
         return tuple(dict.fromkeys(component_id for component_id in ordered if component_id))
+
+    def DevicePluginIds_Get(self) -> tuple[str, ...]:
+        return tuple(instance.plugin for instance in self.device_instances)
+
+    def DeviceInstance_Get(self, instance_id: str) -> DeviceInstance | None:
+        for instance in self.device_instances:
+            if instance.instance_id == instance_id:
+                return instance
+        return None
 
     def Dictionary_Get(self) -> dict[str, Any]:
         return {
@@ -151,7 +171,13 @@ class ProjectModel:
                 "mcu": self.mcu,
                 "board": self.board,
                 "os": self.os,
-                "devices": list(self.devices),
+                "devices": [
+                    {
+                        "instance_id": instance.instance_id,
+                        "plugin": instance.plugin,
+                    }
+                    for instance in self.device_instances
+                ],
                 "base": list(self.base_components),
                 "strategies": dict(sorted(self.strategies.items())),
                 "protocol_bundles": list(self.protocol_bundles),
@@ -169,6 +195,7 @@ class ProjectModel:
                 "ioc_file": self.hardware.ioc_file,
                 "mcu": self.hardware.mcu,
                 "capabilities": list(self.hardware.capabilities),
+                "inventory": self.hardware.inventory,
                 "resources": [
                     {
                         "id": resource.resource_id,
@@ -187,6 +214,9 @@ class ProjectModel:
                 "risk_acknowledged": self.hardware.risk_acknowledged,
             },
             "resources": dict(sorted(self.resource_assignments.items())),
+            "capability_sources": dict(
+                sorted(self.capability_source_overrides.items())
+            ),
             "logging": {
                 "streams": [
                     {
@@ -201,7 +231,6 @@ class ProjectModel:
             },
             "build": {
                 "target_profile": self.build.target_profile,
-                "configuration": self.build.configuration,
                 "make_command": self.build.make_command,
                 "toolchain_prefix": self.build.toolchain_prefix,
                 "gcc_path": self.build.gcc_path,
@@ -277,7 +306,7 @@ def _ProjectV0_Migrate(root: dict[str, Any]) -> dict[str, Any]:
         else:
             base.append(component_id)
     migrated = {
-        "format_version": PROJECT_FORMAT_VERSION,
+        "format_version": 2,
         "project": root.get("project"),
         "components": {
             "core": components.get("core"),
@@ -302,6 +331,7 @@ def _ProjectV0_Migrate(root: dict[str, Any]) -> dict[str, Any]:
             "ioc_file": "",
             "mcu": "",
             "capabilities": [],
+            "inventory": {},
             "resources": [],
             "build_sources": [],
             "asm_sources": [],
@@ -323,12 +353,104 @@ def _ProjectV0_Migrate(root: dict[str, Any]) -> dict[str, Any]:
     return migrated
 
 
+def _ProjectV1_Migrate(root: dict[str, Any]) -> dict[str, Any]:
+    migrated = deepcopy(root)
+    migrated["format_version"] = 2
+    hardware = _Object_Require(migrated.get("hardware"), "hardware")
+    hardware.setdefault("inventory", {})
+    return migrated
+
+
+def _LegacyDeviceClass_Get(plugin_id: str) -> str:
+    marker = ".device."
+    suffix = plugin_id.split(marker, 1)[1] if marker in plugin_id else "device"
+    component_class = suffix.split(".", 1)[0]
+    return "maintenance" if component_class == "console" else component_class
+
+
+def _ProjectV2_Migrate(root: dict[str, Any]) -> dict[str, Any]:
+    migrated = deepcopy(root)
+    components = _Object_Require(migrated.get("components"), "components")
+    legacy_devices = components.get("devices", [])
+    if not isinstance(legacy_devices, list) or not all(
+        isinstance(plugin_id, str) and plugin_id for plugin_id in legacy_devices
+    ):
+        raise ProjectModelError("components.devices must be an array of component ids")
+    class_counts: dict[str, int] = {}
+    instance_by_plugin: dict[str, str] = {}
+    instances: list[dict[str, str]] = []
+    for plugin_id in legacy_devices:
+        component_class = _LegacyDeviceClass_Get(plugin_id)
+        index = class_counts.get(component_class, 0)
+        class_counts[component_class] = index + 1
+        instance_id = f"{component_class}{index}"
+        instance_by_plugin[plugin_id] = instance_id
+        instances.append({"instance_id": instance_id, "plugin": plugin_id})
+    components["devices"] = instances
+    resources = _Object_Require(migrated.get("resources"), "resources")
+    migrated["resources"] = {
+        (
+            f"{instance_by_plugin[owner]}:{requirement}"
+            if owner in instance_by_plugin
+            else key
+        ): resource_id
+        for key, resource_id in resources.items()
+        for owner, separator, requirement in (key.partition(":"),)
+        if separator
+    }
+    generated_glue = migrated.get("generated_glue", [])
+    if isinstance(generated_glue, list) and "project_capability_routes" not in generated_glue:
+        generated_glue.append("project_capability_routes")
+    migrated["capability_sources"] = {}
+    migrated["format_version"] = 3
+    return migrated
+
+
+def _ProjectV3_Migrate(root: dict[str, Any]) -> dict[str, Any]:
+    migrated = deepcopy(root)
+    migrated["capability_selections"] = {}
+    migrated["format_version"] = 4
+    return migrated
+
+
+def _ProjectV4_Migrate(root: dict[str, Any]) -> dict[str, Any]:
+    migrated = deepcopy(root)
+    migrated.pop("capability_selections", None)
+    build = _Object_Require(migrated.get("build"), "build")
+    build.pop("configuration", None)
+    migrated["format_version"] = PROJECT_FORMAT_VERSION
+    return migrated
+
+
+def _DeviceInstances_Parse(value: Any) -> list[DeviceInstance]:
+    if not isinstance(value, list):
+        raise ProjectModelError("components.devices must be an array")
+    instances: list[DeviceInstance] = []
+    instance_ids: set[str] = set()
+    for entry_value in value:
+        entry = _Object_Require(entry_value, "device instance")
+        if set(entry) != {"instance_id", "plugin"}:
+            raise ProjectModelError(
+                "device instance must contain instance_id and plugin"
+            )
+        instance_id = _String_Require(entry, "instance_id")
+        plugin = _String_Require(entry, "plugin")
+        if not DEVICE_INSTANCE_ID_PATTERN.fullmatch(instance_id):
+            raise ProjectModelError(f"Invalid device instance id: {instance_id!r}")
+        _ComponentId_Validate(plugin, "device plugin")
+        if instance_id in instance_ids:
+            raise ProjectModelError(f"Duplicate device instance id: {instance_id}")
+        instance_ids.add(instance_id)
+        instances.append(DeviceInstance(instance_id, plugin))
+    return instances
+
+
 def _Components_Parse(data: Any) -> tuple[
     str,
     str,
     str,
     str,
-    list[str],
+    list[DeviceInstance],
     list[str],
     dict[str, str | None],
     list[str],
@@ -352,7 +474,7 @@ def _Components_Parse(data: Any) -> tuple[
     mcu = _String_Require(components, "mcu")
     board = _String_Require(components, "board", allow_empty=True)
     os_component = _String_Require(components, "os")
-    devices = _StringList_Require(components, "devices")
+    device_instances = _DeviceInstances_Parse(components.get("devices"))
     base = _StringList_Require(components, "base")
     protocol_bundles = _StringList_Require(components, "protocol_bundles")
     environment = _String_Require(components, "development_environment")
@@ -364,7 +486,11 @@ def _Components_Parse(data: Any) -> tuple[
         ("development environment", environment, False),
     ):
         _ComponentId_Validate(value, name, allow_empty=allow_empty)
-    for component_id in (*devices, *base, *protocol_bundles):
+    for component_id in (
+        *(instance.plugin for instance in device_instances),
+        *base,
+        *protocol_bundles,
+    ):
         _ComponentId_Validate(component_id, "component id")
     strategy_data = _Object_Require(components.get("strategies"), "strategies")
     strategies: dict[str, str | None] = {}
@@ -381,7 +507,7 @@ def _Components_Parse(data: Any) -> tuple[
         mcu,
         board,
         os_component,
-        devices,
+        device_instances,
         base,
         strategies,
         protocol_bundles,
@@ -421,6 +547,7 @@ def _Hardware_Parse(value: Any, *, board: str) -> HardwareConfiguration:
         "ioc_file",
         "mcu",
         "capabilities",
+        "inventory",
         "resources",
         "build_sources",
         "asm_sources",
@@ -442,6 +569,7 @@ def _Hardware_Parse(value: Any, *, board: str) -> HardwareConfiguration:
     source_digest = _String_Require(data, "source_digest", allow_empty=True)
     source_label = _String_Require(data, "source_label", allow_empty=True)
     capabilities = tuple(_StringList_Require(data, "capabilities"))
+    inventory = _Object_Require(data.get("inventory"), "hardware inventory")
     resources_value = data.get("resources")
     if not isinstance(resources_value, list):
         raise ProjectModelError("hardware.resources must be an array")
@@ -508,13 +636,18 @@ def _Hardware_Parse(value: Any, *, board: str) -> HardwareConfiguration:
         or ".." in Path(ioc_file).parts
     ):
         raise ProjectModelError("hardware.ioc_file is invalid")
+    if mode == "unselected":
+        if board or provider or snapshot_id or ioc_file or mcu or source_digest:
+            raise ProjectModelError("unselected hardware must not contain a selection")
+        if source_kind != "unselected":
+            raise ProjectModelError("unselected hardware requires unselected source_kind")
     if mode == "board_plugin" and not board:
         raise ProjectModelError("board_plugin hardware requires a board component")
     if mode == "custom":
         if board:
             raise ProjectModelError("custom hardware must not select a board plugin")
-        if not provider or not snapshot_id or not ioc_file or not mcu or not source_digest:
-            raise ProjectModelError("custom hardware import metadata is incomplete")
+        if not provider:
+            raise ProjectModelError("custom hardware requires a provider")
     return HardwareConfiguration(
         mode=mode,
         source_kind=source_kind,
@@ -523,6 +656,7 @@ def _Hardware_Parse(value: Any, *, board: str) -> HardwareConfiguration:
         ioc_file=ioc_file,
         mcu=mcu,
         capabilities=capabilities,
+        inventory=dict(inventory),
         resources=tuple(resources),
         build_sources=build_sources,
         asm_sources=asm_sources,
@@ -575,7 +709,6 @@ def _Build_Parse(value: Any) -> BuildOptions:
     data = _Object_Require(value, "build")
     expected = {
         "target_profile",
-        "configuration",
         "make_command",
         "toolchain_prefix",
         "gcc_path",
@@ -588,11 +721,8 @@ def _Build_Parse(value: Any) -> BuildOptions:
     target_profile = _String_Require(data, "target_profile")
     if not PROJECT_TOKEN_PATTERN.fullmatch(target_profile):
         raise ProjectModelError(f"Invalid target profile: {target_profile!r}")
-    configuration = _String_Require(data, "configuration")
     toolchain_prefix = _String_Require(data, "toolchain_prefix")
     eide_mode = _String_Require(data, "eide_mode")
-    if configuration not in ("Debug", "Release"):
-        raise ProjectModelError("build.configuration must be Debug or Release")
     if not TOOLCHAIN_PREFIX_PATTERN.fullmatch(toolchain_prefix):
         raise ProjectModelError("build.toolchain_prefix is invalid")
     if eide_mode != "native":
@@ -620,11 +750,10 @@ def _Build_Parse(value: Any) -> BuildOptions:
         raise ProjectModelError("build.tool_paths must map tool ids to non-empty paths")
     return BuildOptions(
         target_profile=target_profile,
-        configuration=configuration,
         make_command=_String_Require(data, "make_command"),
         toolchain_prefix=toolchain_prefix,
         gcc_path=_String_Require(data, "gcc_path", allow_empty=True),
-        flash_command=_String_Require(data, "flash_command"),
+        flash_command=_String_Require(data, "flash_command", allow_empty=True),
         eide_mode=eide_mode,
         tool_paths=dict(tool_paths),
     )
@@ -677,6 +806,14 @@ def ProjectModel_Parse(data: dict[str, Any]) -> ProjectModel:
     root = _Object_Require(data, "project file")
     if root.get("format_version") == 0:
         root = _ProjectV0_Migrate(root)
+    if root.get("format_version") == 1:
+        root = _ProjectV1_Migrate(root)
+    if root.get("format_version") == 2:
+        root = _ProjectV2_Migrate(root)
+    if root.get("format_version") == 3:
+        root = _ProjectV3_Migrate(root)
+    if root.get("format_version") == 4:
+        root = _ProjectV4_Migrate(root)
     required_root = {
         "format_version",
         "project",
@@ -684,6 +821,7 @@ def ProjectModel_Parse(data: dict[str, Any]) -> ProjectModel:
         "modes",
         "hardware",
         "resources",
+        "capability_sources",
         "logging",
         "build",
         "generated_glue",
@@ -721,7 +859,7 @@ def ProjectModel_Parse(data: dict[str, Any]) -> ProjectModel:
         mcu,
         board,
         os_component,
-        devices,
+        device_instances,
         base,
         strategies,
         protocol_bundles,
@@ -740,6 +878,20 @@ def ProjectModel_Parse(data: dict[str, Any]) -> ProjectModel:
         raise ProjectModelError(
             "resources must map requirement keys to resource ids"
         )
+    capability_sources = _Object_Require(
+        root.get("capability_sources"), "capability_sources"
+    )
+    instance_ids = {instance.instance_id for instance in device_instances}
+    if not all(
+        isinstance(capability, str)
+        and COMPONENT_ID_PATTERN.fullmatch(capability)
+        and isinstance(instance_id, str)
+        and instance_id in instance_ids
+        for capability, instance_id in capability_sources.items()
+    ):
+        raise ProjectModelError(
+            "capability_sources must map capabilities to selected device instances"
+        )
     generated_wrapper = {"generated_glue": root.get("generated_glue")}
     generated_glue = _StringList_Require(generated_wrapper, "generated_glue")
     if any(not PROJECT_TOKEN_PATTERN.fullmatch(value) for value in generated_glue):
@@ -753,7 +905,7 @@ def ProjectModel_Parse(data: dict[str, Any]) -> ProjectModel:
         mcu=mcu,
         board=board,
         os=os_component,
-        devices=devices,
+        device_instances=device_instances,
         base_components=base,
         strategies=strategies,
         modes=modes,
@@ -761,6 +913,7 @@ def ProjectModel_Parse(data: dict[str, Any]) -> ProjectModel:
         development_environment=environment,
         hardware=hardware,
         resource_assignments=dict(resources),
+        capability_source_overrides=dict(capability_sources),
         logging_streams=_Logging_Parse(root.get("logging")),
         build=_Build_Parse(root.get("build")),
         generated_glue=generated_glue,

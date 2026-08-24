@@ -6,8 +6,10 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
+from silverstar_fccg.core.errors import FccgError
 
-class WorkspacePolicyError(ValueError):
+
+class WorkspacePolicyError(FccgError):
     """Raised when a filesystem operation would escape an authorized root."""
 
 

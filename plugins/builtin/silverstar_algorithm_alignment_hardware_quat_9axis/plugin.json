@@ -14,7 +14,11 @@
       }
     ],
     "resources": [],
-    "capabilities": []
+    "capabilities": [
+      {"capability": "imu.acceleration", "purpose": "initialization"},
+      {"capability": "imu.angular_rate", "purpose": "initialization"},
+      {"capability": "attitude.external", "purpose": "initialization"}
+    ]
   },
   "resources": {
     "provides": [],
@@ -57,8 +61,12 @@
       "recorded_at_utc": "2026-08-23T14:50:21+00:00"
     },
     "display_names": {
-      "zh_CN": "硬件四元数九轴",
+      "zh_CN": "九轴硬件四元数取样对准",
       "en_US": "Hardware Quaternion 9-Axis"
+    },
+    "descriptions": {
+      "zh_CN": "使用九轴硬件四元数取样完成初始对准。",
+      "en_US": "Build-selected Hardware Quaternion 9-Axis alignment strategy."
     },
     "algorithm_descriptors": [
       {

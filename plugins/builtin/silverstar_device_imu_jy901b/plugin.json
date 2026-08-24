@@ -4,6 +4,17 @@
   "name": "JY901B",
   "type": "device",
   "class": "imu",
+  "instance_policy": {
+    "project_max": 1,
+    "same_plugin_multiple": false,
+    "multi_instance_ready": false
+  },
+  "physical_device": {
+    "vendor": "WitMotion",
+    "model": "JY901B",
+    "chipset": "JY901B",
+    "driver": "JY901B Driver"
+  },
   "version": "0.0.9",
   "description": "Reference JY901B Device driver and canonical adapter.",
   "requires": {
@@ -11,22 +22,26 @@
       {
         "id": "silverstar.core.0_0_9",
         "optional": false
-      },
-      {
-        "id": "silverstar.mcu.stm32f407vet6",
-        "optional": false
       }
     ],
     "resources": [
       {
         "name": "data",
         "kind": "uart",
-        "binding_macro": "PROJECT_RESOURCE_IMU_UART"
+        "binding_macro": "PROJECT_RESOURCE_IMU_UART",
+        "display_names": {"zh_CN": "数据通信", "en_US": "Data Communication"},
+        "constraints": {
+          "baud_rate": 230400,
+          "signals": ["rx", "tx"],
+          "dma_rx_required": true,
+          "irq_required": true
+        }
       },
       {
         "name": "time",
         "kind": "time",
-        "mode": "shared"
+        "mode": "shared",
+        "display_names": {"zh_CN": "系统时间", "en_US": "System Time"}
       }
     ],
     "capabilities": []
@@ -40,7 +55,8 @@
     "device.imu",
     "imu.acceleration",
     "imu.angular_rate",
-    "imu.quaternion",
+    "attitude.external",
+    "magnetometer.field",
     "barometer.altitude"
   ],
   "build": {
@@ -76,6 +92,10 @@
     "display_names": {
       "zh_CN": "JY901B",
       "en_US": "JY901B"
+    },
+    "descriptions": {
+      "zh_CN": "JY901B物理设备驱动及SilverStar标准适配器。",
+      "en_US": "Reference JY901B device driver and canonical adapter."
     },
     "device_descriptors": [
       {

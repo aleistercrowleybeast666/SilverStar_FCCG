@@ -14,7 +14,11 @@
       }
     ],
     "resources": [],
-    "capabilities": []
+    "capabilities": [
+      {"capability": "gnss.position", "purpose": "measurement_update"},
+      {"capability": "gnss.velocity", "purpose": "measurement_update"},
+      {"capability": "barometer.altitude", "purpose": "measurement_update"}
+    ]
   },
   "resources": {
     "provides": [],
@@ -22,7 +26,8 @@
     "conflicts": []
   },
   "provides": [
-    "algorithm.estimator"
+    "algorithm.estimator",
+    "navigation.vertical_velocity"
   ],
   "build": {
     "sources": [
@@ -53,8 +58,12 @@
       "recorded_at_utc": "2026-08-23T14:50:21+00:00"
     },
     "display_names": {
-      "zh_CN": "KF6 融合估计",
+      "zh_CN": "六状态卡尔曼滤波（KF6）",
       "en_US": "KF6 Navigation Estimator"
+    },
+    "descriptions": {
+      "zh_CN": "融合GNSS与气压高度的六状态卡尔曼滤波估计器。",
+      "en_US": "Optional build-selected KF6 fusion estimator."
     },
     "algorithm_descriptors": [
       {

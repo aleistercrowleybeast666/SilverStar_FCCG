@@ -3,7 +3,14 @@ from __future__ import annotations
 from collections.abc import Iterable
 
 from PySide6.QtCore import Signal
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QVBoxLayout
+from PySide6.QtWidgets import (
+    QDialog,
+    QDialogButtonBox,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QVBoxLayout,
+)
 
 from silverstar_fccg.core.i18n import Translator
 from silverstar_fccg.core.view_models import ComponentView
@@ -11,10 +18,9 @@ from silverstar_fccg.ui.pages.base import LocalizedPage
 from silverstar_fccg.ui.widgets import EngineeringTable
 
 
-class PluginsPage(LocalizedPage):
+class PluginManagerPanel(LocalizedPage):
     installRequested = Signal()
     removeRequested = Signal(str)
-    detailsRequested = Signal(str)
 
     def __init__(self, translator: Translator) -> None:
         super().__init__(translator, "page.plugins", "page.plugins.description")
@@ -35,12 +41,8 @@ class PluginsPage(LocalizedPage):
         self.remove_button.setObjectName("dangerButton")
         self.Text_Register(self.remove_button, "action.remove_plugin")
         self.remove_button.clicked.connect(self._Remove_Emit)
-        self.details_button = QPushButton()
-        self.Text_Register(self.details_button, "action.plugin_details")
-        self.details_button.clicked.connect(self._Details_Emit)
         toolbar.addWidget(self.install_button)
         toolbar.addWidget(self.remove_button)
-        toolbar.addWidget(self.details_button)
         toolbar.addStretch(1)
         self.root_layout.addLayout(toolbar)
 
@@ -69,10 +71,20 @@ class PluginsPage(LocalizedPage):
             (
                 component.component_id,
                 component.name,
-                component.component_type.value,
-                component.component_class or "—",
+                self._translator.Text_Get(
+                    f"component.type.{component.component_type.value}"
+                ),
+                self._translator.Text_Get(
+                    f"component.class.{component.component_class}"
+                )
+                if component.component_class
+                else "—",
                 component.version,
-                component.source or "—",
+                self._translator.Text_Get(
+                    f"plugin.source.{component.source}"
+                )
+                if component.source
+                else "—",
                 ", ".join(component.dependencies) or "—",
                 ", ".join(component.provides) or "—",
                 self._translator.Text_Get(f"component.status.{component.status}"),
@@ -93,7 +105,28 @@ class PluginsPage(LocalizedPage):
         if component_id:
             self.removeRequested.emit(component_id)
 
-    def _Details_Emit(self) -> None:
-        component_id = self._SelectedId_Get()
-        if component_id:
-            self.detailsRequested.emit(component_id)
+class PluginManagerDialog(QDialog):
+    """Modal host for declarative plugin management."""
+
+    def __init__(self, translator: Translator, parent=None) -> None:
+        super().__init__(parent)
+        self._translator = translator
+        self.resize(1180, 680)
+        layout = QVBoxLayout(self)
+        self.panel = PluginManagerPanel(translator)
+        layout.addWidget(self.panel, 1)
+        self.buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        self.buttons.rejected.connect(self.reject)
+        layout.addWidget(self.buttons)
+        self.Language_Apply(translator)
+
+    def Components_Set(self, components: Iterable[ComponentView]) -> None:
+        self.panel.Components_Set(components)
+
+    def Language_Apply(self, translator: Translator) -> None:
+        self._translator = translator
+        self.setWindowTitle(translator.Text_Get("dialog.plugin_manager"))
+        self.panel.Language_Apply(translator)
+        close_button = self.buttons.button(QDialogButtonBox.StandardButton.Close)
+        if close_button is not None:
+            close_button.setText(translator.Text_Get("action.close"))

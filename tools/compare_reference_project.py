@@ -14,7 +14,16 @@ DEFAULT_GENERATED = (
     / "generated_projects"
     / "SilverStar_F407_Reference_Generated"
 )
-INTENTIONAL_ADAPTATIONS = {"Tools/check_architecture.ps1"}
+INTENTIONAL_ADAPTATIONS = {
+    "Tests/Host/run_tests.ps1",
+    "Tools/check_architecture.ps1",
+}
+INTENTIONAL_GENERATED_SOURCES = {"Generated/Src/project_capability_routes.c"}
+INTENTIONAL_LOG_ENABLE_OVERRIDES = {
+    "FLIGHT_LOG_RECORD_IMU_NATIVE",
+    "FLIGHT_LOG_RECORD_STATS",
+    "FLIGHT_LOG_RECORD_TELEMETRY_DIAG",
+}
 
 
 def _MakeOutput_Get(root: Path, *arguments: str) -> str:
@@ -92,13 +101,62 @@ def _LogRows_Get(root: Path) -> tuple[tuple[str, str, str, str, str], ...]:
     return tuple(pattern.findall(text))
 
 
+def _PayloadBytes_Equivalent(reference: bytes, generated: bytes) -> bool:
+    if reference == generated:
+        return True
+    try:
+        reference_text = reference.decode("utf-8")
+        generated_text = generated.decode("utf-8")
+    except UnicodeDecodeError:
+        return False
+    return reference_text.replace("\r\n", "\n") == generated_text.replace(
+        "\r\n", "\n"
+    )
+
+
+def _LogPolicy_Compare(
+    reference_rows: tuple[tuple[str, str, str, str, str], ...],
+    generated_rows: tuple[tuple[str, str, str, str, str], ...],
+) -> tuple[bool, bool, list[str]]:
+    reference_by_record = {row[0]: row[1:] for row in reference_rows}
+    generated_by_record = {row[0]: row[1:] for row in generated_rows}
+    equal = reference_by_record == generated_by_record
+    if reference_by_record.keys() != generated_by_record.keys():
+        return equal, False, []
+    applied_overrides: list[str] = []
+    for record, reference_policy in reference_by_record.items():
+        generated_policy = generated_by_record[record]
+        if reference_policy == generated_policy:
+            continue
+        permitted = (
+            record in INTENTIONAL_LOG_ENABLE_OVERRIDES
+            and reference_policy[0] == "0U"
+            and generated_policy[0] == "1U"
+            and reference_policy[1:] == generated_policy[1:]
+        )
+        if not permitted:
+            return equal, False, applied_overrides
+        applied_overrides.append(record)
+    return equal, set(applied_overrides) == INTENTIONAL_LOG_ENABLE_OVERRIDES, sorted(
+        applied_overrides
+    )
+
+
 def Project_Compare(reference: Path, generated: Path) -> dict:
     reference = reference.resolve()
     generated = generated.resolve()
     reference_sources, reference_asm = _SourceSet_Get(reference)
     generated_sources, generated_asm = _SourceSet_Get(generated)
+    missing_sources = reference_sources - generated_sources
+    extra_sources = generated_sources - reference_sources
+    source_graph_compatible = (
+        not missing_sources and extra_sources == INTENTIONAL_GENERATED_SOURCES
+    )
     reference_vars = _MakeVariables_Get(reference)
     generated_vars = _MakeVariables_Get(generated)
+    log_policy_equal, log_policy_compatible, log_policy_overrides = _LogPolicy_Compare(
+        _LogRows_Get(reference), _LogRows_Get(generated)
+    )
     variable_comparison = {
         name: set(reference_vars.get(name, ())) == set(generated_vars.get(name, ()))
         for name in sorted(set(reference_vars) | set(generated_vars))
@@ -118,7 +176,7 @@ def Project_Compare(reference: Path, generated: Path) -> dict:
             target = generated.joinpath(*relative.split("/"))
             if not source.is_file():
                 missing_reference.append(relative)
-            elif source.read_bytes() != target.read_bytes():
+            elif not _PayloadBytes_Equivalent(source.read_bytes(), target.read_bytes()):
                 copied_mismatches.append(relative)
     report = {
         "reference": str(reference),
@@ -126,15 +184,19 @@ def Project_Compare(reference: Path, generated: Path) -> dict:
         "c_sources": {
             "reference_count": len(reference_sources),
             "generated_count": len(generated_sources),
-            "missing": sorted(reference_sources - generated_sources),
-            "extra": sorted(generated_sources - reference_sources),
+            "missing": sorted(missing_sources),
+            "extra": sorted(extra_sources),
             "equal": reference_sources == generated_sources,
+            "compatible": source_graph_compatible,
+            "intentional_generated": sorted(INTENTIONAL_GENERATED_SOURCES),
         },
         "asm_sources_equal": reference_asm == generated_asm,
         "build_variables_equal": variable_comparison,
         "resource_mapping_equal": _ResourceDefines_Get(reference)
         == _ResourceDefines_Get(generated),
-        "log_policy_equal": _LogRows_Get(reference) == _LogRows_Get(generated),
+        "log_policy_equal": log_policy_equal,
+        "log_policy_compatible": log_policy_compatible,
+        "intentional_log_enable_overrides": log_policy_overrides,
         "component_files_checked": copied_count,
         "component_file_mismatches": copied_mismatches,
         "component_files_without_reference": missing_reference,
@@ -142,11 +204,11 @@ def Project_Compare(reference: Path, generated: Path) -> dict:
     }
     report["equivalent"] = all(
         (
-            report["c_sources"]["equal"],
+            report["c_sources"]["compatible"],
             report["asm_sources_equal"],
             all(variable_comparison.values()),
             report["resource_mapping_equal"],
-            report["log_policy_equal"],
+            report["log_policy_compatible"],
             not copied_mismatches,
             not missing_reference,
         )

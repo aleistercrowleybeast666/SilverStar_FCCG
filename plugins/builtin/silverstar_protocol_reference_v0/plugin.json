@@ -6,6 +6,12 @@
   "class": "reference_protocols",
   "version": "0.0.9",
   "description": "Complete AIR, SSLOG, Maintenance protocol sources and documentation.",
+  "protocol": {
+    "logging_metadata": "Protocol/SSLOG/schema/sslog_parser_metadata.json",
+    "maintenance_protocol_version": "0.0",
+    "firmware_version": "0.0.9",
+    "documentation_version": "0.0.9"
+  },
   "requires": {
     "components": [],
     "resources": [],
@@ -52,6 +58,10 @@
     "display_names": {
       "zh_CN": "SilverStar AIR V0 + SSLOG0 协议包",
       "en_US": "SilverStar AIR V0 + SSLOG0"
+    },
+    "descriptions": {
+      "zh_CN": "完整的AIR、SSLOG、维护协议源码及文档。",
+      "en_US": "Complete AIR, SSLOG, Maintenance protocol sources and documentation."
     }
   }
 }

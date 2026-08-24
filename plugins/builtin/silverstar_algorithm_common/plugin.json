@@ -46,8 +46,12 @@
       "recorded_at_utc": "2026-08-23T14:50:21+00:00"
     },
     "display_names": {
-      "zh_CN": "导航算法公共层",
+      "zh_CN": "导航算法公共组件",
       "en_US": "Navigation Algorithm Common"
+    },
+    "descriptions": {
+      "zh_CN": "提供与MCU无关的姿态坐标系和局部大地测量公共算法。",
+      "en_US": "Shared MCU-independent attitude-frame and local-geodesy algorithms."
     }
   }
 }

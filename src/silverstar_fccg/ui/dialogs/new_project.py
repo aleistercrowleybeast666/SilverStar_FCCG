@@ -3,110 +3,165 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from PySide6.QtCore import Signal, Qt
 from PySide6.QtWidgets import (
+    QDialog,
+    QDialogButtonBox,
     QFileDialog,
     QFormLayout,
     QHBoxLayout,
     QLabel,
+    QLayout,
     QLineEdit,
     QPushButton,
-    QWizard,
-    QWizardPage,
+    QSizePolicy,
+    QVBoxLayout,
+    QWidget,
 )
 
 from silverstar_fccg.core.i18n import Translator
-from silverstar_fccg.core.view_models import ComponentView
-from silverstar_fccg.ui.widgets import StandardComboBox
 
 
-class ProjectIdentityWizardPage(QWizardPage):
+class ProjectIdentityForm(QWidget):
+    completionChanged = Signal()
+
     def __init__(self, translator: Translator) -> None:
         super().__init__()
         self._translator = translator
         layout = QFormLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setHorizontalSpacing(16)
+        layout.setVerticalSpacing(12)
+        layout.setLabelAlignment(
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+        )
+        layout.setFormAlignment(
+            Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft
+        )
+        layout.setFieldGrowthPolicy(
+            QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow
+        )
+        layout.setRowWrapPolicy(QFormLayout.RowWrapPolicy.DontWrapRows)
+
         self.name_label = QLabel()
+        self.name_label.setMinimumHeight(32)
+        self.name_label.setAlignment(
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+        )
         self.name_edit = QLineEdit()
-        self.name_edit.textChanged.connect(lambda _text: self.completeChanged.emit())
+        self.name_edit.setMinimumSize(480, 32)
+        self.name_edit.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
+        self.name_edit.textChanged.connect(
+            lambda _text: self.completionChanged.emit()
+        )
         layout.addRow(self.name_label, self.name_edit)
+
         self.output_label = QLabel()
-        output_layout = QHBoxLayout()
+        self.output_label.setMinimumHeight(32)
+        self.output_label.setAlignment(
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+        )
+        output_widget = QWidget()
+        output_layout = QHBoxLayout(output_widget)
+        output_layout.setContentsMargins(0, 0, 0, 0)
+        output_layout.setSpacing(10)
         self.output_edit = QLineEdit()
-        self.output_edit.textChanged.connect(lambda _text: self.completeChanged.emit())
+        self.output_edit.setMinimumHeight(32)
+        self.output_edit.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
+        self.output_edit.textChanged.connect(
+            lambda _text: self.completionChanged.emit()
+        )
         self.browse_button = QPushButton()
+        self.browse_button.setMinimumHeight(32)
         self.browse_button.clicked.connect(self._Output_Browse)
         output_layout.addWidget(self.output_edit, 1)
         output_layout.addWidget(self.browse_button)
-        layout.addRow(self.output_label, output_layout)
-        self.firmware_label = QLabel()
-        self.firmware_edit = QLineEdit("0.0.9")
-        layout.addRow(self.firmware_label, self.firmware_edit)
-        self.mcu_label = QLabel()
-        self.mcu_combo = StandardComboBox()
-        layout.addRow(self.mcu_label, self.mcu_combo)
+        layout.addRow(self.output_label, output_widget)
         self.Language_Apply(translator)
 
     def isComplete(self) -> bool:
-        return bool(
-            self.name_edit.text().strip()
-            and self.output_edit.text().strip()
-            and self.mcu_combo.currentData()
-        )
+        return bool(self.name_edit.text().strip() and self.output_edit.text().strip())
 
     def Language_Apply(self, translator: Translator) -> None:
         self._translator = translator
-        self.setTitle(translator.Text_Get("wizard.step.project"))
-        self.setSubTitle(translator.Text_Get("wizard.identity_summary"))
         self.name_label.setText(translator.Text_Get("field.project_name"))
-        self.name_edit.setPlaceholderText(translator.Text_Get("placeholder.project_name"))
+        self.name_edit.setPlaceholderText(
+            translator.Text_Get("placeholder.project_name")
+        )
         self.output_label.setText(translator.Text_Get("field.output_directory"))
         self.output_edit.setPlaceholderText(
             translator.Text_Get("placeholder.output_directory")
         )
         self.browse_button.setText(translator.Text_Get("action.browse"))
-        self.firmware_label.setText(translator.Text_Get("field.firmware_version"))
-        self.mcu_label.setText(translator.Text_Get("field.mcu"))
 
     def _Output_Browse(self) -> None:
         selected = QFileDialog.getExistingDirectory(
             self,
             self._translator.Text_Get("dialog.select_output_directory"),
-            self.output_edit.text() or str(Path.cwd()),
+            self.output_edit.text() or str(Path.home() / "Documents"),
         )
         if selected:
             self.output_edit.setText(selected)
 
 
-class NewProjectWizard(QWizard):
-    """One-step identity dialog; configuration continues through the six main pages."""
+class NewProjectWizard(QDialog):
+    """Compact identity dialog; configuration continues through the main pages."""
 
     def __init__(self, translator: Translator, parent=None) -> None:
         super().__init__(parent)
         self._translator = translator
-        self.identity_page = ProjectIdentityWizardPage(translator)
-        self.addPage(self.identity_page)
-        self.setOption(QWizard.WizardOption.NoBackButtonOnStartPage, True)
-        self.Language_Apply(translator)
+        self.setModal(True)
+        self.setSizeGripEnabled(False)
 
-    def Catalog_Set(self, components: list[ComponentView] | tuple[ComponentView, ...]) -> None:
-        self.identity_page.mcu_combo.clear()
-        for component in components:
-            if component.component_type.value == "mcu":
-                self.identity_page.mcu_combo.addItem(
-                    component.name, component.component_id
-                )
-        self.identity_page.completeChanged.emit()
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(28, 18, 28, 18)
+        layout.setSpacing(14)
+        layout.setSizeConstraint(QLayout.SizeConstraint.SetFixedSize)
+
+        self.summary_label = QLabel()
+        self.summary_label.setWordWrap(True)
+        self.summary_label.setObjectName("muted")
+        layout.addWidget(self.summary_label)
+
+        self.identity_page = ProjectIdentityForm(translator)
+        self.identity_page.completionChanged.connect(self._Completion_Refresh)
+        layout.addWidget(self.identity_page)
+
+        self.buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok
+            | QDialogButtonBox.StandardButton.Cancel
+        )
+        self.buttons.accepted.connect(self.accept)
+        self.buttons.rejected.connect(self.reject)
+        layout.addWidget(self.buttons)
+
+        self.setMinimumWidth(720)
+        self.Language_Apply(translator)
+        self._Completion_Refresh()
 
     def WizardData_Get(self) -> dict[str, Any]:
         return {
             "name": self.identity_page.name_edit.text().strip(),
             "output_directory": self.identity_page.output_edit.text().strip(),
-            "firmware_version": self.identity_page.firmware_edit.text().strip(),
-            "mcu": str(self.identity_page.mcu_combo.currentData() or ""),
         }
 
     def Language_Apply(self, translator: Translator) -> None:
         self._translator = translator
         self.setWindowTitle(translator.Text_Get("dialog.new_project"))
+        self.summary_label.setText(translator.Text_Get("wizard.identity_summary"))
         self.identity_page.Language_Apply(translator)
-        self.setButtonText(QWizard.WizardButton.FinishButton, translator.Text_Get("wizard.finish"))
-        self.setButtonText(QWizard.WizardButton.CancelButton, translator.Text_Get("action.cancel"))
+        create_button = self.buttons.button(QDialogButtonBox.StandardButton.Ok)
+        if create_button is not None:
+            create_button.setText(translator.Text_Get("wizard.finish"))
+        cancel_button = self.buttons.button(QDialogButtonBox.StandardButton.Cancel)
+        if cancel_button is not None:
+            cancel_button.setText(translator.Text_Get("action.cancel"))
+
+    def _Completion_Refresh(self) -> None:
+        create_button = self.buttons.button(QDialogButtonBox.StandardButton.Ok)
+        if create_button is not None:
+            create_button.setEnabled(self.identity_page.isComplete())

@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from silverstar_fccg.core.workspace import WorkspacePolicy
+from silverstar_fccg.core.errors import FccgError
 from silverstar_fccg.generator.render import GeneratedFiles_Render, MetadataFiles_Render
 from silverstar_fccg.generator.source_graph import SourceGraph_Resolve
 from silverstar_fccg.plugins.catalog import PluginCatalog
@@ -15,7 +16,7 @@ from silverstar_fccg.project.model import ProjectModel
 from silverstar_fccg.project.validation import ProjectValidationResult, Project_Validate
 
 
-class ProjectAssemblerError(RuntimeError):
+class ProjectAssemblerError(FccgError):
     pass
 
 
@@ -62,12 +63,14 @@ class ProjectAssembler:
         self,
         workspace_policy: WorkspacePolicy,
         catalog: PluginCatalog,
+        output_policy: WorkspacePolicy | None = None,
     ) -> None:
-        self.policy = workspace_policy
+        self.internal_policy = workspace_policy
+        self.policy = output_policy or workspace_policy
         self.catalog = catalog
 
     def Plan(self, model: ProjectModel, project_root: Path) -> GenerationPlan:
-        destination = self.policy.Path_Resolve(project_root, allow_root=False)
+        destination = self.policy.Path_Resolve(project_root, allow_root=True)
         if destination.exists() and not destination.is_dir():
             raise ProjectAssemblerError(
                 f"Project destination is not a directory: {destination}"
@@ -314,8 +317,8 @@ class ProjectAssembler:
         snapshot_id = model.hardware.snapshot_id
         if not _Sha256_Is(snapshot_id):
             raise ProjectAssemblerError("Custom hardware snapshot id is invalid")
-        snapshot = self.policy.Path_Resolve(
-            self.policy.root
+        snapshot = self.internal_policy.Path_Resolve(
+            self.internal_policy.root
             / ".fccg"
             / "hardware_imports"
             / snapshot_id
@@ -334,7 +337,7 @@ class ProjectAssembler:
                 continue
             relative = source.relative_to(snapshot).as_posix()
             target = f"{self.HARDWARE_ROOT}/{relative}"
-            self.policy.RelativePath_Validate(target)
+            self.internal_policy.RelativePath_Validate(target)
             files[target] = source.read_bytes()
         return files
 
@@ -419,20 +422,24 @@ class ProjectAssembler:
     ) -> ApplyResult:
         if destination.exists() and any(destination.iterdir()):
             raise ProjectAssemblerError("New-project destination became non-empty")
+        destination_preexisted = destination.exists()
+        destination.mkdir(parents=True, exist_ok=True)
         stage = self.policy.StagingDirectory_Create("project-")
+        staged_project = stage / "project"
         added = 0
+        applied: list[Path] = []
         try:
             for component_id in model.ComponentIds_Get():
                 manifest = self.catalog.Component_Get(component_id)
                 for source in manifest.PayloadFiles_Get():
                     relative = source.relative_to(manifest.payload_root)
-                    target = stage / relative
+                    target = staged_project / relative
                     target.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy2(source, target)
                     added += 1
             hardware_files = self._HardwareFiles_Get(model)
             for relative, content in hardware_files.items():
-                target = stage.joinpath(*relative.split("/"))
+                target = staged_project.joinpath(*relative.split("/"))
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_bytes(content)
                 added += 1
@@ -440,19 +447,42 @@ class ProjectAssembler:
                 model, destination, hardware_files
             )
             for relative, content in desired.items():
-                target = stage.joinpath(*relative.split("/"))
+                target = staged_project.joinpath(*relative.split("/"))
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_bytes(content)
                 added += 1
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            if destination.exists():
-                destination.rmdir()
-            os.replace(stage, destination)
+            for source in sorted(
+                staged_project.iterdir(),
+                key=lambda item: (
+                    item.name == "SilverStar.ssproject",
+                    item.name,
+                ),
+            ):
+                target = destination / source.name
+                if target.exists():
+                    raise ProjectAssemblerError(
+                        f"New-project destination changed during apply: {target}"
+                    )
+                os.replace(source, target)
+                applied.append(target)
             return ApplyResult(destination, added, 0, 0)
         except Exception:
+            for target in reversed(applied):
+                if target.is_dir():
+                    self.policy.Tree_Remove(target)
+                else:
+                    target.unlink(missing_ok=True)
+            raise
+        finally:
             if stage.exists():
                 self.policy.Tree_Remove(stage)
-            raise
+            self._StagingRoot_Cleanup()
+            if (
+                not destination_preexisted
+                and destination.is_dir()
+                and not any(destination.iterdir())
+            ):
+                destination.rmdir()
 
     def _ExistingProject_Apply(
         self,
@@ -500,7 +530,13 @@ class ProjectAssembler:
                     shutil.copy2(source, staged)
 
             managed_targets: list[tuple[Path, Path, bool]] = []
-            for relative, content in desired.items():
+            for relative, content in sorted(
+                desired.items(),
+                key=lambda item: (
+                    item[0] == "SilverStar.ssproject",
+                    item[0],
+                ),
+            ):
                 relative_path = Path(*relative.split("/"))
                 staged = staged_files / "managed" / relative_path
                 staged.parent.mkdir(parents=True, exist_ok=True)
@@ -592,6 +628,12 @@ class ProjectAssembler:
         finally:
             if stage.exists():
                 self.policy.Tree_Remove(stage)
+            self._StagingRoot_Cleanup()
+
+    def _StagingRoot_Cleanup(self) -> None:
+        staging_root = self.policy.Path_Resolve(".staging", allow_root=False)
+        if staging_root.is_dir() and not any(staging_root.iterdir()):
+            staging_root.rmdir()
 
 
 def _Sha256_Is(value: str) -> bool:

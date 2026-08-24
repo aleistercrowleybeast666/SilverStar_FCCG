@@ -16,6 +16,28 @@
       ]
     },
     "class": {"type": "string"},
+    "cardinality": {"enum": ["single", "multiple"]},
+    "instance_policy": {
+      "type": "object",
+      "required": ["project_max", "same_plugin_multiple", "multi_instance_ready"],
+      "properties": {
+        "project_max": {"type": "integer", "minimum": 1, "maximum": 64},
+        "same_plugin_multiple": {"type": "boolean"},
+        "multi_instance_ready": {"type": "boolean"}
+      },
+      "additionalProperties": false
+    },
+    "physical_device": {
+      "type": "object",
+      "required": ["vendor", "model", "chipset", "driver"],
+      "properties": {
+        "vendor": {"type": "string", "minLength": 1},
+        "model": {"type": "string", "minLength": 1},
+        "chipset": {"type": "string", "minLength": 1},
+        "driver": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    },
     "version": {"$ref": "#/$defs/version"},
     "description": {"type": "string"},
     "requires": {
@@ -39,7 +61,12 @@
         },
         "capabilities": {
           "type": "array", "uniqueItems": true,
-          "items": {"$ref": "#/$defs/capability"}
+          "items": {
+            "oneOf": [
+              {"$ref": "#/$defs/capability"},
+              {"$ref": "#/$defs/capabilityRequirement"}
+            ]
+          }
         }
       },
       "additionalProperties": false
@@ -136,6 +163,30 @@
             "additionalProperties": {"type": "string", "minLength": 1}
           }
         },
+        "option_requirements": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "capabilities": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": {
+                  "oneOf": [
+                    {"$ref": "#/$defs/capability"},
+                    {"$ref": "#/$defs/capabilityRequirement"}
+                  ]
+                }
+              },
+              "components": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": {"$ref": "#/$defs/componentId"}
+              }
+            },
+            "additionalProperties": false
+          }
+        },
         "none_defines": {
           "type": "array", "uniqueItems": true,
           "items": {"type": "string"}
@@ -152,7 +203,23 @@
         "vendor": {"type": "string", "minLength": 1},
         "provider": {"$ref": "#/$defs/componentId"},
         "verified": {"type": "boolean"},
-        "hardware_root": {"$ref": "#/$defs/buildPath"}
+        "hardware_root": {"$ref": "#/$defs/buildPath"},
+        "ioc_file": {"$ref": "#/$defs/buildPath"},
+        "connections_file": {"$ref": "#/$defs/buildPath"}
+      },
+      "additionalProperties": false
+    },
+    "protocol": {
+      "type": "object",
+      "required": [
+        "logging_metadata", "maintenance_protocol_version",
+        "firmware_version", "documentation_version"
+      ],
+      "properties": {
+        "logging_metadata": {"$ref": "#/$defs/buildPath"},
+        "maintenance_protocol_version": {"$ref": "#/$defs/version"},
+        "firmware_version": {"$ref": "#/$defs/version"},
+        "documentation_version": {"$ref": "#/$defs/version"}
       },
       "additionalProperties": false
     },
@@ -182,15 +249,26 @@
   },
   "additionalProperties": false,
   "allOf": [
+    {"if": {"properties": {"type": {"const": "device"}}}, "then": {"required": ["instance_policy", "physical_device"]}},
     {"if": {"properties": {"type": {"const": "board"}}}, "then": {"required": ["board"]}},
     {"if": {"properties": {"type": {"const": "hardware_configuration_provider"}}}, "then": {"required": ["hardware_provider"]}},
-    {"if": {"properties": {"type": {"const": "development_environment"}}}, "then": {"required": ["environment"]}}
+    {"if": {"properties": {"type": {"const": "development_environment"}}}, "then": {"required": ["environment"]}},
+    {"if": {"properties": {"type": {"const": "protocol_bundle"}}}, "then": {"required": ["protocol"]}}
   ],
   "$defs": {
     "componentId": {"type": "string", "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*$"},
     "lowerIdentifier": {"type": "string", "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*$"},
     "selectionOption": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"},
     "capability": {"type": "string", "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*$"},
+    "capabilityRequirement": {
+      "type": "object",
+      "required": ["capability", "purpose"],
+      "properties": {
+        "capability": {"$ref": "#/$defs/capability"},
+        "purpose": {"$ref": "#/$defs/lowerIdentifier"}
+      },
+      "additionalProperties": false
+    },
     "resourceId": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"},
     "version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+(?:\\.[0-9]+)?(?:[-+][0-9A-Za-z.-]+)?$"},
     "buildPath": {"type": "string", "minLength": 1, "pattern": "^[A-Za-z0-9_./+@-]+$"},
@@ -206,7 +284,26 @@
         "binding_macro": {"type": "string", "pattern": "^(?:[A-Z][A-Z0-9_]*)?$"},
         "required": {"type": "boolean"},
         "mode": {"enum": ["exclusive", "shared"]},
-        "candidates": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/resourceId"}}
+        "candidates": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/resourceId"}},
+        "constraints": {
+          "type": "object",
+          "properties": {
+            "baud_rate": {"type": "integer", "minimum": 1},
+            "mode": {"type": "string", "minLength": 1},
+            "signals": {
+              "type": "array", "uniqueItems": true,
+              "items": {"$ref": "#/$defs/lowerIdentifier"}
+            },
+            "dma_rx_required": {"type": "boolean"},
+            "dma_tx_required": {"type": "boolean"},
+            "irq_required": {"type": "boolean"}
+          },
+          "additionalProperties": false
+        },
+        "display_names": {
+          "type": "object",
+          "additionalProperties": {"type": "string", "minLength": 1}
+        }
       },
       "additionalProperties": false
     },

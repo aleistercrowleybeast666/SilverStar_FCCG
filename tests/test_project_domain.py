@@ -85,7 +85,7 @@ def test_dependency_and_resource_conflicts_are_reported(builtin_catalog) -> None
     assert any(issue.code == "dependency" for issue in validation.issues)
 
     model = ReferenceProject_Create()
-    model.resource_assignments["silverstar.device.console.uart:console"] = "PLATFORM_UART_1"
+    model.resource_assignments["maintenance0:console"] = "PLATFORM_UART_1"
     resources = ResourceAssignments_Resolve(model, builtin_catalog)
     assert not resources.valid
     assert any("not an allowed candidate" in error for error in resources.errors)
@@ -99,7 +99,7 @@ def test_dependency_and_resource_conflicts_are_reported(builtin_catalog) -> None
 
 def test_source_graph_is_complete_and_has_one_truth(builtin_catalog) -> None:
     graph = SourceGraph_Resolve(ReferenceProject_Create(), builtin_catalog)
-    assert len(graph.sources) == 133
+    assert len(graph.sources) == 134
     assert len(graph.sources) == len(set(graph.sources))
     assert graph.asm_sources == ("startup_stm32f407xx.s",)
     assert "USE_HAL_DRIVER" in graph.defines
@@ -113,3 +113,4 @@ def test_source_graph_is_complete_and_has_one_truth(builtin_catalog) -> None:
     fragment = graph.MakeFragment_Render()
     assert "wildcard" not in fragment
     assert "Generated/Src/project_metadata.c" in fragment
+    assert "Generated/Src/project_capability_routes.c" in fragment

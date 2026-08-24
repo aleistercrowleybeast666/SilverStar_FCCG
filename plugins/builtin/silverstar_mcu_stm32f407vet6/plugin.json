@@ -120,6 +120,10 @@
       "zh_CN": "STM32F407VET6",
       "en_US": "STM32F407VET6"
     },
+    "descriptions": {
+      "zh_CN": "STM32F407VET6能力、STM32F4平台后端、HAL/CMSIS依赖和目标内存约束。",
+      "en_US": "STM32F407VET6 capabilities, STM32F4 Platform backend, HAL/CMSIS dependency, and target memory contract."
+    },
     "supported_environments": [
       "silverstar.environment.vscode_eide_gcc"
     ],

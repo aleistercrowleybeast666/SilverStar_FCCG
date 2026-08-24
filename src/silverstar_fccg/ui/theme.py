@@ -3,6 +3,7 @@ from __future__ import annotations
 import ctypes
 import sys
 from dataclasses import asdict, dataclass
+from pathlib import Path
 from string import Template
 
 from PySide6.QtGui import QColor, QPalette
@@ -88,6 +89,24 @@ QScrollArea > QWidget > QWidget {
 }
 QDialog, QMessageBox, QFileDialog, QWizard { background: $surface_alt; color: $text; }
 QLabel, QCheckBox, QRadioButton { background: transparent; }
+QCheckBox#standardCheckBox { spacing: 7px; }
+QCheckBox#standardCheckBox::indicator {
+    width: 16px;
+    height: 16px;
+    border: 2px solid $border_strong;
+    border-radius: 3px;
+    background: $surface_input;
+}
+QCheckBox#standardCheckBox::indicator:hover { border-color: $accent; }
+QCheckBox#standardCheckBox::indicator:checked {
+    background: $accent;
+    border-color: $accent;
+    image: url("$checkbox_check_image");
+}
+QCheckBox#standardCheckBox::indicator:disabled {
+    background: $surface;
+    border-color: $border;
+}
 QFrame#headerBar {
     background: $brand;
     border: 0;
@@ -97,6 +116,7 @@ QLabel#headerTitle { color: $header_text; font-size: 20px; font-weight: 700; pad
 QLabel#headerVersion { color: $header_muted; font-size: 13px; font-weight: 600; padding: 4px 2px; }
 QLabel#headerCredit { color: $header_muted; font-size: 13px; font-weight: 500; padding: 4px 2px; }
 QLabel#headerControlLabel { color: $header_text; font-weight: 600; }
+QLabel#headerProjectValue { color: $header_muted; font-weight: 600; }
 QLabel#pageTitle { color: $text; font-size: 23px; font-weight: 700; }
 QLabel#pageDescription, QLabel#muted { color: $muted; }
 QLabel#noticeLabel {
@@ -183,6 +203,10 @@ QTableWidget, QTreeWidget, QListWidget {
     selection-color: $accent_text;
 }
 QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox { min-height: 26px; padding: 2px 7px; }
+QComboBox[validationIssue="true"], QTableWidget[validationIssue="true"],
+QCheckBox[validationIssue="true"], QWidget[validationIssue="true"] {
+    border: 2px solid $error;
+}
 QComboBox QAbstractItemView {
     background: $surface_input;
     color: $text;
@@ -243,6 +267,21 @@ QToolBar, QToolBar#mainToolBar {
 QToolButton { background: $brand; color: $header_text; border: 1px solid transparent;
     border-radius: 3px; padding: 5px 9px; }
 QToolButton:hover { background: $accent; color: $accent_text; }
+QToolButton#collapsibleHeader {
+    background: $surface_alt;
+    color: $accent;
+    border: 1px solid $border;
+    border-radius: 6px;
+    padding: 7px 9px;
+    font-weight: 700;
+    text-align: left;
+}
+QToolButton#collapsibleHeader:hover { background: $surface; color: $accent; }
+QWidget#collapsibleBody {
+    background: $surface_alt;
+    border: 1px solid $border;
+    border-radius: 6px;
+}
 QMenu { background: $surface_input; color: $text; border: 1px solid $border_strong; }
 QMenu::item { padding: 6px 26px; }
 QMenu::item:selected { background: $accent; color: $accent_text; }
@@ -265,7 +304,11 @@ def ThemeTokens_Get(theme: str) -> ThemeTokens:
 
 
 def Stylesheet_Get(theme: str) -> str:
-    return _STYLESHEET.substitute(asdict(ThemeTokens_Get(theme)))
+    values = asdict(ThemeTokens_Get(theme))
+    values["checkbox_check_image"] = (
+        Path(__file__).resolve().parent / "assets" / "check_white.svg"
+    ).as_posix()
+    return _STYLESHEET.substitute(values)
 
 
 def _ColorRef_Get(color_hex: str) -> int:

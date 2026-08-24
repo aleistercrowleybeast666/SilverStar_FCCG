@@ -13,6 +13,8 @@ class TaskCancelledError(RuntimeError):
 class TaskContext:
     cancellation_event: Event = field(default_factory=Event)
     progress_callback: Callable[[float, str], None] | None = None
+    line_callback: Callable[[str], None] | None = None
+    line_callback: Callable[[str], None] | None = None
 
     def Progress_Report(self, progress: float, code: str) -> None:
         self.Cancel_RaiseIfRequested()
@@ -23,6 +25,16 @@ class TaskContext:
     def Cancel_RaiseIfRequested(self) -> None:
         if self.cancellation_event.is_set():
             raise TaskCancelledError("task_cancelled")
+
+    def Line_Report(self, line: str) -> None:
+        self.Cancel_RaiseIfRequested()
+        if self.line_callback is not None:
+            self.line_callback(line)
+
+    def Line_Report(self, line: str) -> None:
+        self.Cancel_RaiseIfRequested()
+        if self.line_callback is not None:
+            self.line_callback(line)
 
     def Cancel_Request(self) -> None:
         self.cancellation_event.set()

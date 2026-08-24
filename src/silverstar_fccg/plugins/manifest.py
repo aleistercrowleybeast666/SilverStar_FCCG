@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from silverstar_fccg.core.workspace import WorkspacePolicy
+from silverstar_fccg.core.errors import FccgError
 
 
 PLUGIN_ID_PATTERN = re.compile(r"^[a-z0-9]+(?:[._-][a-z0-9]+)*$")
@@ -47,9 +48,10 @@ ALLOWED_BOARD_SOURCE_KINDS = frozenset(
 )
 ALLOWED_PROVIDER_HANDLERS = frozenset({"stm32_cubemx"})
 ALLOWED_ENVIRONMENT_RENDERERS = frozenset({"vscode_eide_gcc"})
+ALLOWED_DEVICE_CARDINALITIES = frozenset({"single", "multiple"})
 
 
-class PluginManifestError(ValueError):
+class PluginManifestError(FccgError):
     pass
 
 
@@ -70,6 +72,33 @@ class ComponentRequirement:
 
 
 @dataclass(frozen=True, slots=True)
+class CapabilityRequirement:
+    capability: str
+    purpose: str = "runtime"
+
+
+@dataclass(frozen=True, slots=True)
+class SelectionOptionRequirements:
+    capabilities: tuple[CapabilityRequirement, ...] = ()
+    components: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class DeviceInstancePolicy:
+    project_max: int = 1
+    same_plugin_multiple: bool = False
+    multi_instance_ready: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class PhysicalDeviceContribution:
+    vendor: str
+    model: str
+    chipset: str
+    driver: str
+
+
+@dataclass(frozen=True, slots=True)
 class ResourceRequirement:
     name: str
     kind: str
@@ -77,6 +106,12 @@ class ResourceRequirement:
     required: bool = True
     mode: ResourceMode = ResourceMode.EXCLUSIVE
     candidates: tuple[str, ...] = ()
+    constraints: dict[str, Any] = field(default_factory=dict)
+    display_names: dict[str, str] = field(default_factory=dict)
+
+    def DisplayName_Get(self, language: str) -> str:
+        localized = self.display_names.get(language)
+        return localized if localized else self.name.replace("_", " ")
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,6 +149,9 @@ class SelectionContribution:
     options: tuple[str, ...] = ()
     default: tuple[str, ...] = ()
     labels: dict[str, dict[str, str]] = field(default_factory=dict)
+    option_requirements: dict[str, SelectionOptionRequirements] = field(
+        default_factory=dict
+    )
     none_defines: tuple[str, ...] = ()
 
 
@@ -125,6 +163,16 @@ class BoardContribution:
     provider: str
     verified: bool
     hardware_root: str
+    ioc_file: str = ""
+    connections_file: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class ProtocolContribution:
+    logging_metadata: str
+    maintenance_protocol_version: str
+    firmware_version: str
+    documentation_version: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -174,16 +222,32 @@ class PluginManifest:
     resource_roles: tuple[ResourceRole, ...]
     resource_conflicts: tuple[ResourceConflict, ...]
     provides: tuple[str, ...]
-    capabilities_required: tuple[str, ...]
+    capability_requirements: tuple[CapabilityRequirement, ...]
     build: BuildContribution
     payload_roots: tuple[str, ...]
     metadata: dict[str, Any]
     manifest_path: Path
+    instance_policy: DeviceInstancePolicy = DeviceInstancePolicy()
+    physical_device: PhysicalDeviceContribution | None = None
     selection: SelectionContribution | None = None
     board: BoardContribution | None = None
+    protocol: ProtocolContribution | None = None
     hardware_provider: HardwareProviderContribution | None = None
     environment: EnvironmentContribution | None = None
     source: str = "builtin"
+
+    @property
+    def capabilities_required(self) -> tuple[str, ...]:
+        return tuple(
+            dict.fromkeys(
+                requirement.capability
+                for requirement in self.capability_requirements
+            )
+        )
+
+    @property
+    def cardinality(self) -> str:
+        return "multiple" if self.instance_policy.project_max > 1 else "single"
 
     @property
     def package_root(self) -> Path:
@@ -200,6 +264,14 @@ class PluginManifest:
             if isinstance(localized, str) and localized.strip():
                 return localized
         return self.name
+
+    def Description_Get(self, language: str) -> str:
+        values = self.metadata.get("descriptions", {})
+        if isinstance(values, dict):
+            localized = values.get(language)
+            if isinstance(localized, str) and localized.strip():
+                return localized
+        return self.description
 
     def PayloadFiles_Get(self) -> tuple[Path, ...]:
         files: list[Path] = []
@@ -254,6 +326,138 @@ def _CapabilityTuple_Validate(values: tuple[str, ...], field_name: str) -> None:
         raise PluginManifestError(
             f"{field_name} contains invalid capability: {invalid[0]!r}"
         )
+
+
+def _CapabilityRequirements_Parse(value: Any) -> tuple[CapabilityRequirement, ...]:
+    if not isinstance(value, list):
+        raise PluginManifestError("requires.capabilities must be an array")
+    requirements: list[CapabilityRequirement] = []
+    identities: set[tuple[str, str]] = set()
+    for entry in value:
+        if isinstance(entry, str):
+            capability = entry
+            purpose = "runtime"
+        elif isinstance(entry, dict) and set(entry) == {"capability", "purpose"}:
+            capability = entry.get("capability")
+            purpose = entry.get("purpose")
+        else:
+            raise PluginManifestError(
+                "requires.capabilities entries must be strings or "
+                "capability/purpose objects"
+            )
+        if not isinstance(capability, str) or not PLUGIN_ID_PATTERN.fullmatch(
+            capability
+        ):
+            raise PluginManifestError(
+                f"requires.capabilities contains invalid capability: {capability!r}"
+            )
+        if not isinstance(purpose, str) or not PLUGIN_ID_PATTERN.fullmatch(purpose):
+            raise PluginManifestError(
+                f"requires.capabilities contains invalid purpose: {purpose!r}"
+            )
+        identity = (capability, purpose)
+        if identity in identities:
+            raise PluginManifestError(
+                "requires.capabilities contains duplicate capability/purpose"
+            )
+        identities.add(identity)
+        requirements.append(CapabilityRequirement(capability, purpose))
+    return tuple(requirements)
+
+
+def _InstancePolicy_Parse(
+    value: Any, *, component_type: str, legacy_cardinality: Any
+) -> DeviceInstancePolicy:
+    if component_type != "device":
+        if value is not None or legacy_cardinality is not None:
+            raise PluginManifestError(
+                "only device plugins may declare instance_policy/cardinality"
+            )
+        return DeviceInstancePolicy()
+    if value is not None and legacy_cardinality is not None:
+        raise PluginManifestError(
+            "device plugin cannot declare both instance_policy and cardinality"
+        )
+    if value is None:
+        if legacy_cardinality is None:
+            raise PluginManifestError(
+                "device plugin must declare instance_policy"
+            )
+        if legacy_cardinality not in ALLOWED_DEVICE_CARDINALITIES:
+            raise PluginManifestError("cardinality must be single or multiple")
+        return DeviceInstancePolicy(
+            project_max=16 if legacy_cardinality == "multiple" else 1,
+            same_plugin_multiple=False,
+            multi_instance_ready=False,
+        )
+    if not isinstance(value, dict) or set(value) not in (
+        {"project_max", "same_plugin_multiple"},
+        {"project_max", "same_plugin_multiple", "multi_instance_ready"},
+    ):
+        raise PluginManifestError(
+            "instance_policy must contain project_max, same_plugin_multiple "
+            "and optionally multi_instance_ready"
+        )
+    project_max = value.get("project_max")
+    same_plugin_multiple = value.get("same_plugin_multiple")
+    multi_instance_ready = value.get("multi_instance_ready", False)
+    if (
+        isinstance(project_max, bool)
+        or not isinstance(project_max, int)
+        or not 1 <= project_max <= 64
+    ):
+        raise PluginManifestError(
+            "instance_policy.project_max must be an integer from 1 to 64"
+        )
+    if not isinstance(same_plugin_multiple, bool):
+        raise PluginManifestError(
+            "instance_policy.same_plugin_multiple must be boolean"
+        )
+    if not isinstance(multi_instance_ready, bool):
+        raise PluginManifestError(
+            "instance_policy.multi_instance_ready must be boolean"
+        )
+    if project_max == 1 and same_plugin_multiple:
+        raise PluginManifestError(
+            "same_plugin_multiple cannot be true when project_max is 1"
+        )
+    if same_plugin_multiple and not multi_instance_ready:
+        raise PluginManifestError(
+            "same_plugin_multiple requires multi_instance_ready"
+        )
+    if project_max == 1 and multi_instance_ready:
+        raise PluginManifestError(
+            "multi_instance_ready cannot be true when project_max is 1"
+        )
+    return DeviceInstancePolicy(
+        project_max, same_plugin_multiple, multi_instance_ready
+    )
+
+
+def _PhysicalDevice_Parse(
+    value: Any, *, component_type: str
+) -> PhysicalDeviceContribution | None:
+    if value is None:
+        if component_type == "device":
+            raise PluginManifestError(
+                "device plugin must declare physical_device"
+            )
+        return None
+    if component_type != "device":
+        raise PluginManifestError("only device plugins may declare physical_device")
+    if not isinstance(value, dict) or set(value) != {
+        "vendor",
+        "model",
+        "chipset",
+        "driver",
+    }:
+        raise PluginManifestError(
+            "physical_device must contain vendor, model, chipset and driver"
+        )
+    fields = tuple(value.get(name) for name in ("vendor", "model", "chipset", "driver"))
+    if not all(isinstance(field_value, str) and field_value.strip() for field_value in fields):
+        raise PluginManifestError("physical_device fields must be non-empty strings")
+    return PhysicalDeviceContribution(*fields)
 
 
 def _BuildTokens_Validate(
@@ -314,6 +518,8 @@ def _ResourceRequirements_Parse(
             "required",
             "mode",
             "candidates",
+            "constraints",
+            "display_names",
         }:
             raise PluginManifestError("resource requirement contains unknown fields")
         name = entry.get("name")
@@ -339,6 +545,68 @@ def _ResourceRequirements_Parse(
             raise PluginManifestError(
                 f"Invalid resource binding_macro for {name}: {binding_macro!r}"
             )
+        constraints = entry.get("constraints", {})
+        if not isinstance(constraints, dict):
+            raise PluginManifestError(
+                f"Resource constraints for {name} must be an object"
+            )
+        allowed_constraints = {
+            "baud_rate",
+            "mode",
+            "signals",
+            "dma_rx_required",
+            "dma_tx_required",
+            "irq_required",
+        }
+        unknown_constraints = set(constraints) - allowed_constraints
+        if unknown_constraints:
+            raise PluginManifestError(
+                f"Resource constraints for {name} contain unknown fields: "
+                + ", ".join(sorted(unknown_constraints))
+            )
+        baud_rate = constraints.get("baud_rate")
+        if baud_rate is not None and (
+            isinstance(baud_rate, bool)
+            or not isinstance(baud_rate, int)
+            or baud_rate < 1
+        ):
+            raise PluginManifestError(
+                f"Resource baud_rate constraint for {name} must be a positive integer"
+            )
+        constraint_mode = constraints.get("mode")
+        if constraint_mode is not None and (
+            not isinstance(constraint_mode, str) or not constraint_mode
+        ):
+            raise PluginManifestError(
+                f"Resource mode constraint for {name} must be a non-empty string"
+            )
+        signals = constraints.get("signals")
+        if signals is not None:
+            _StringTuple_Get(signals, f"resource signals for {name}")
+            if len(signals) != len(set(signals)):
+                raise PluginManifestError(
+                    f"Resource signal constraints for {name} contain duplicates"
+                )
+        for flag in (
+            "dma_rx_required",
+            "dma_tx_required",
+            "irq_required",
+        ):
+            if flag in constraints and not isinstance(constraints[flag], bool):
+                raise PluginManifestError(
+                    f"Resource {flag} constraint for {name} must be a boolean"
+                )
+        display_names = entry.get("display_names", {})
+        if not isinstance(display_names, dict) or not all(
+            isinstance(language, str)
+            and bool(language)
+            and isinstance(display_name, str)
+            and bool(display_name.strip())
+            for language, display_name in display_names.items()
+        ):
+            raise PluginManifestError(
+                f"Resource display_names for {name} must map languages to text"
+            )
         requirements.append(
             ResourceRequirement(
                 name=name,
@@ -347,6 +615,8 @@ def _ResourceRequirements_Parse(
                 required=_Boolean_Get(entry, "required", True),
                 mode=mode,
                 candidates=candidates,
+                constraints=dict(constraints),
+                display_names=dict(display_names),
             )
         )
     names = [requirement.name for requirement in requirements]
@@ -482,6 +752,7 @@ def _Selection_Parse(value: Any) -> SelectionContribution | None:
         "options",
         "default",
         "labels",
+        "option_requirements",
         "none_defines",
     }:
         raise PluginManifestError("selection contains unknown fields")
@@ -543,6 +814,34 @@ def _Selection_Parse(value: Any) -> SelectionContribution | None:
         ):
             raise PluginManifestError("selection.labels contains invalid options")
         normalized_labels[language] = dict(language_values)
+    option_requirements_value = value.get("option_requirements", {})
+    if not isinstance(option_requirements_value, dict):
+        raise PluginManifestError("selection.option_requirements must be an object")
+    option_requirements: dict[str, SelectionOptionRequirements] = {}
+    for option, requirements_value in option_requirements_value.items():
+        if option not in options or not isinstance(requirements_value, dict):
+            raise PluginManifestError(
+                "selection.option_requirements contains an invalid option"
+            )
+        if set(requirements_value) - {"capabilities", "components"}:
+            raise PluginManifestError(
+                "selection.option_requirements contains unknown fields"
+            )
+        components = _StringTuple_Get(
+            requirements_value.get("components", []),
+            f"selection.option_requirements.{option}.components",
+        )
+        _BuildTokens_Validate(
+            components,
+            f"selection.option_requirements.{option}.components",
+            PLUGIN_ID_PATTERN,
+        )
+        option_requirements[option] = SelectionOptionRequirements(
+            capabilities=_CapabilityRequirements_Parse(
+                requirements_value.get("capabilities", [])
+            ),
+            components=components,
+        )
     none_defines = _StringTuple_Get(
         value.get("none_defines", []), "selection.none_defines"
     )
@@ -557,6 +856,7 @@ def _Selection_Parse(value: Any) -> SelectionContribution | None:
         options=options,
         default=default,
         labels=normalized_labels,
+        option_requirements=option_requirements,
         none_defines=none_defines,
     )
 
@@ -571,6 +871,8 @@ def _Board_Parse(value: Any) -> BoardContribution | None:
         "provider",
         "verified",
         "hardware_root",
+        "ioc_file",
+        "connections_file",
     }:
         raise PluginManifestError("board contains unknown fields")
     source_kind = value.get("source_kind")
@@ -586,6 +888,8 @@ def _Board_Parse(value: Any) -> BoardContribution | None:
     vendor = value.get("vendor", "")
     provider = value.get("provider", "")
     hardware_root = value.get("hardware_root", "")
+    ioc_file = value.get("ioc_file", "")
+    connections_file = value.get("connections_file", "")
     if not isinstance(vendor, str) or not vendor:
         raise PluginManifestError("board.vendor must be a non-empty string")
     if not isinstance(provider, str) or (
@@ -596,6 +900,14 @@ def _Board_Parse(value: Any) -> BoardContribution | None:
         raise PluginManifestError("board.hardware_root must be a string")
     if hardware_root:
         _RelativePaths_Validate((hardware_root,), "board.hardware_root")
+    for field_name, relative_path in (
+        ("board.ioc_file", ioc_file),
+        ("board.connections_file", connections_file),
+    ):
+        if not isinstance(relative_path, str):
+            raise PluginManifestError(f"{field_name} must be a string")
+        if relative_path:
+            _RelativePaths_Validate((relative_path,), field_name)
     return BoardContribution(
         source_kind=source_kind,
         compatible_mcus=compatible_mcus,
@@ -603,7 +915,42 @@ def _Board_Parse(value: Any) -> BoardContribution | None:
         provider=provider,
         verified=_Boolean_Get(value, "verified", False),
         hardware_root=hardware_root,
+        ioc_file=ioc_file,
+        connections_file=connections_file,
     )
+
+
+def _Protocol_Parse(value: Any) -> ProtocolContribution | None:
+    if value is None:
+        return None
+    expected = {
+        "logging_metadata",
+        "maintenance_protocol_version",
+        "firmware_version",
+        "documentation_version",
+    }
+    if not isinstance(value, dict) or set(value) != expected:
+        raise PluginManifestError(
+            "protocol must contain logging metadata and explicit version fields"
+        )
+    metadata_path = value.get("logging_metadata")
+    if not isinstance(metadata_path, str) or not metadata_path:
+        raise PluginManifestError("protocol.logging_metadata must be a path")
+    _RelativePaths_Validate((metadata_path,), "protocol.logging_metadata")
+    versions = tuple(
+        value.get(field_name)
+        for field_name in (
+            "maintenance_protocol_version",
+            "firmware_version",
+            "documentation_version",
+        )
+    )
+    if not all(
+        isinstance(version, str) and VERSION_PATTERN.fullmatch(version)
+        for version in versions
+    ):
+        raise PluginManifestError("protocol version fields are invalid")
+    return ProtocolContribution(metadata_path, *versions)
 
 
 def _HardwareProvider_Parse(value: Any) -> HardwareProviderContribution | None:
@@ -767,6 +1114,10 @@ def PluginManifest_Parse(
         "board",
         "hardware_provider",
         "environment",
+        "cardinality",
+        "instance_policy",
+        "physical_device",
+        "protocol",
     }
     unknown = set(data) - allowed_top_level
     if unknown:
@@ -792,6 +1143,18 @@ def PluginManifest_Parse(
     metadata = data.get("metadata", {})
     if not isinstance(metadata, dict):
         raise PluginManifestError("metadata must be an object")
+    for metadata_field in ("display_names", "descriptions"):
+        localized_values = metadata.get(metadata_field, {})
+        if not isinstance(localized_values, dict) or not all(
+            isinstance(language, str)
+            and bool(language)
+            and isinstance(localized, str)
+            and bool(localized.strip())
+            for language, localized in localized_values.items()
+        ):
+            raise PluginManifestError(
+                f"metadata.{metadata_field} must map languages to non-empty strings"
+            )
 
     requires = data.get("requires", {})
     if not isinstance(requires, dict) or set(requires) - {
@@ -805,17 +1168,25 @@ def PluginManifest_Parse(
     resource_provisions, resource_roles, resource_conflicts = _Resources_Parse(
         data.get("resources", {})
     )
-    capabilities_required = _StringTuple_Get(
-        requires.get("capabilities", []), "requires.capabilities"
+    capability_requirements = _CapabilityRequirements_Parse(
+        requires.get("capabilities", [])
     )
     provides = _StringTuple_Get(data.get("provides", []), "provides")
     _CapabilityTuple_Validate(provides, "provides")
-    _CapabilityTuple_Validate(capabilities_required, "requires.capabilities")
     build = _Build_Parse(data.get("build", {}))
     selection = _Selection_Parse(data.get("selection"))
     board = _Board_Parse(data.get("board"))
     hardware_provider = _HardwareProvider_Parse(data.get("hardware_provider"))
     environment = _Environment_Parse(data.get("environment"))
+    protocol = _Protocol_Parse(data.get("protocol"))
+    instance_policy = _InstancePolicy_Parse(
+        data.get("instance_policy"),
+        component_type=component_type,
+        legacy_cardinality=data.get("cardinality"),
+    )
+    physical_device = _PhysicalDevice_Parse(
+        data.get("physical_device"), component_type=component_type
+    )
 
     if (component_type == "board") != (board is not None):
         raise PluginManifestError("board plugins must declare exactly one board block")
@@ -828,6 +1199,10 @@ def PluginManifest_Parse(
     if (component_type == "development_environment") != (environment is not None):
         raise PluginManifestError(
             "development environment plugins must declare environment"
+        )
+    if (component_type == "protocol_bundle") != (protocol is not None):
+        raise PluginManifestError(
+            "protocol_bundle plugins must declare exactly one protocol block"
         )
     if selection is not None and component_type not in {"algorithm", "flight_logic"}:
         raise PluginManifestError(
@@ -857,13 +1232,16 @@ def PluginManifest_Parse(
         resource_roles=resource_roles,
         resource_conflicts=resource_conflicts,
         provides=provides,
-        capabilities_required=capabilities_required,
+        capability_requirements=capability_requirements,
         build=build,
         payload_roots=payload_roots,
         metadata=dict(metadata),
         manifest_path=manifest_path.resolve(),
+        instance_policy=instance_policy,
+        physical_device=physical_device,
         selection=selection,
         board=board,
+        protocol=protocol,
         hardware_provider=hardware_provider,
         environment=environment,
         source=source,
@@ -891,6 +1269,25 @@ def PluginManifest_Parse(
         raise PluginManifestError(
             f"Linker script is missing from payload: {build.linker_script}"
         )
+    if protocol is not None and protocol.logging_metadata not in payload_files:
+        raise PluginManifestError(
+            "Protocol logging metadata is missing from payload: "
+            f"{protocol.logging_metadata}"
+        )
+    if board is not None:
+        for field_name, relative_path in (
+            ("board.ioc_file", board.ioc_file),
+            ("board.connections_file", board.connections_file),
+        ):
+            if not relative_path:
+                continue
+            target = manifest.package_root.joinpath(*relative_path.split("/"))
+            try:
+                target.relative_to(manifest.package_root)
+            except ValueError as error:
+                raise PluginManifestError(f"{field_name} leaves the plugin") from error
+            if not target.is_file() or target.is_symlink():
+                raise PluginManifestError(f"{field_name} is missing or unsafe")
     return manifest
 
 

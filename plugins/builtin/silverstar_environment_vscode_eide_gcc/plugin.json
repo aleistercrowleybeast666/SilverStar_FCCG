@@ -43,6 +43,10 @@
     "display_names": {
       "zh_CN": "VS Code + EIDE + Arm GNU 工具链",
       "en_US": "VS Code + EIDE + Arm GNU Toolchain"
+    },
+    "descriptions": {
+      "zh_CN": "由同一源码图生成Make、VS Code和EIDE工程环境。",
+      "en_US": "Native Make, VS Code, and EIDE project environment resolved from one source graph."
     }
   },
   "environment": {
@@ -60,7 +64,6 @@
     "tasks": [
       "build",
       "clean",
-      "flash",
       "host_tests",
       "architecture_check",
       "power10_check",
