@@ -3,7 +3,8 @@ from __future__ import annotations
 from collections import defaultdict
 from collections.abc import Iterable
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QSignalBlocker, Qt, Signal
+from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QFormLayout,
@@ -11,6 +12,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLayout,
+    QDoubleSpinBox,
     QPushButton,
     QSpinBox,
     QTableWidget,
@@ -29,6 +31,8 @@ from silverstar_fccg.core.view_models import (
     ResourceRequirementView,
 )
 from silverstar_fccg.project.capabilities import (
+    CapabilityKind,
+    CapabilityKind_Get,
     Capability_UserSelectable_Is,
 )
 from silverstar_fccg.project.configuration import SelectionAvailability
@@ -97,6 +101,21 @@ class DevicesPage(ScrollableLocalizedPage):
         self.other_group = self.Group_Create("group.other_sensors", self.other_layout)
         self.other_group.setObjectName("otherSensorsGroup")
         self.root_layout.addWidget(self.other_group)
+
+        self.actuator_layout = QVBoxLayout()
+        self.actuator_empty_label = QLabel()
+        self.actuator_empty_label.setWordWrap(True)
+        self.Text_Register(self.actuator_empty_label, "device.actuator_empty")
+        self.actuator_layout.addWidget(self.actuator_empty_label)
+        self.actuator_checks_container = QWidget()
+        self.actuator_checks_layout = QVBoxLayout(self.actuator_checks_container)
+        self.actuator_checks_layout.setContentsMargins(0, 0, 0, 0)
+        self.actuator_layout.addWidget(self.actuator_checks_container)
+        self.actuator_group = self.Group_Create(
+            "group.actuators", self.actuator_layout
+        )
+        self.actuator_group.setObjectName("actuatorsGroup")
+        self.root_layout.addWidget(self.actuator_group)
 
         self.root_layout.addStretch(1)
         self.device_combos: dict[str, StandardComboBox] = {}
@@ -240,30 +259,79 @@ class DevicesPage(ScrollableLocalizedPage):
                 self.add_buttons[component_class] = add_button
 
         self._Layout_Clear(self.other_checks_layout)
+        self._Layout_Clear(self.actuator_checks_layout)
         self.device_checks.clear()
+        actuator_classes = {
+            "mission_action_actuator",
+            "continuous_control_actuator",
+        }
         other_components = sorted(
             (
                 component
                 for component in self._components
                 if component.component_class not in self._PRIMARY_CLASSES
+                and component.component_class not in actuator_classes
             ),
             key=lambda item: item.name,
         )
+        actuator_components = sorted(
+            (
+                component
+                for component in self._components
+                if component.component_class in actuator_classes
+            ),
+            key=lambda item: (item.component_id, item.name),
+        )
         selected_plugins = {instance.plugin_id for instance in self._instances}
-        for component in other_components:
-            check = StandardCheckBox(component.name)
-            check.setProperty("componentId", component.component_id)
-            check.setChecked(component.component_id in selected_plugins)
-            check.setToolTip(self._PhysicalDetails_Get(component))
-            check.toggled.connect(
-                lambda checked, plugin_id=component.component_id: self.otherDeviceToggled.emit(
-                    plugin_id, checked
+        instances_by_plugin = {
+            instance.plugin_id: instance for instance in self._instances
+        }
+        for components, layout in (
+            (other_components, self.other_checks_layout),
+            (actuator_components, self.actuator_checks_layout),
+        ):
+            for component in components:
+                instance = instances_by_plugin.get(component.component_id)
+                required = bool(
+                    instance is not None
+                    and instance.required
+                    and component.component_class not in actuator_classes
                 )
-            )
-            self.other_checks_layout.addWidget(check)
-            self.device_checks[component.component_id] = check
+                check = (
+                    LockedCheckBox(component.name)
+                    if required
+                    else StandardCheckBox(component.name)
+                )
+                check.setProperty("componentId", component.component_id)
+                with QSignalBlocker(check):
+                    check.setChecked(component.component_id in selected_plugins)
+                details = self._PhysicalDetails_Get(component)
+                if required:
+                    details = "\n".join(
+                        filter(
+                            None,
+                            (
+                                details,
+                                self._translator.Text_Get(
+                                    "device.required_tooltip"
+                                ),
+                            ),
+                        )
+                    )
+                check.setToolTip(details)
+                if not required:
+                    check.toggled.connect(
+                        lambda checked, plugin_id=component.component_id: self.otherDeviceToggled.emit(
+                            plugin_id, checked
+                        )
+                    )
+                layout.addWidget(check)
+                self.device_checks[component.component_id] = check
         self.other_empty_label.setVisible(not other_components)
         self.other_checks_container.setVisible(bool(other_components))
+        self.install_button.setVisible(not other_components)
+        self.actuator_empty_label.setVisible(not actuator_components)
+        self.actuator_checks_container.setVisible(bool(actuator_components))
 
     def Language_Apply(self, translator: Translator) -> None:
         super().Language_Apply(translator)
@@ -277,13 +345,27 @@ class DevicesPage(ScrollableLocalizedPage):
             )
 
     def _CapabilitySummary_Get(self, instance: DeviceInstanceView) -> str:
-        capabilities = ", ".join(
+        raw_capabilities = ", ".join(
             self._translator.Text_Get(f"capability.{capability}")
             for capability in instance.provides
             if Capability_UserSelectable_Is(capability)
+            and CapabilityKind_Get(capability) == CapabilityKind.RAW_DATA
+        )
+        qualified_capabilities = ", ".join(
+            self._translator.Text_Get(f"capability.{capability}")
+            for capability in instance.provides
+            if Capability_UserSelectable_Is(capability)
+            and CapabilityKind_Get(capability) == CapabilityKind.QUALIFIED
+        )
+        unqualified_capabilities = ", ".join(
+            self._translator.Text_Get(f"capability.{capability}")
+            for capability in instance.unqualified
         )
         return self._translator.Text_Get(
-            "device.provides_summary", capabilities=capabilities or "—"
+            "device.provides_summary_typed",
+            raw=raw_capabilities or "—",
+            qualified=qualified_capabilities or "—",
+            unqualified=unqualified_capabilities or "—",
         )
 
     @staticmethod
@@ -306,6 +388,7 @@ class BoardHardwarePage(ScrollableLocalizedPage):
     autoAssignRequested = Signal()
     assignmentChanged = Signal(str, str)
     prepareRequested = Signal()
+    manualValidationRequested = Signal()
 
     def __init__(self, translator: Translator) -> None:
         super().__init__(
@@ -321,6 +404,28 @@ class BoardHardwarePage(ScrollableLocalizedPage):
         self.Text_Register(self.hardware_status_label, "field.hardware_resources")
         self.hardware_status = StatusPill()
         selection_form.addRow(self.hardware_status_label, self.hardware_status)
+        self.manual_validation_label = QLabel()
+        self.Text_Register(
+            self.manual_validation_label, "field.manual_hardware_validation"
+        )
+        self.manual_validation_widget = QWidget()
+        manual_validation_row = QHBoxLayout(self.manual_validation_widget)
+        manual_validation_row.setContentsMargins(0, 0, 0, 0)
+        self.manual_validation_button = QPushButton()
+        self.manual_validation_button.setObjectName("primaryButton")
+        self.Text_Register(
+            self.manual_validation_button,
+            "action.complete_manual_assignment_check",
+        )
+        self.manual_validation_button.clicked.connect(
+            lambda _checked=False: self.manualValidationRequested.emit()
+        )
+        self.manual_validation_status = StatusPill()
+        manual_validation_row.addWidget(self.manual_validation_button)
+        manual_validation_row.addWidget(self.manual_validation_status, 1)
+        selection_form.addRow(
+            self.manual_validation_label, self.manual_validation_widget
+        )
         self.preparation_label = QLabel()
         self.Text_Register(self.preparation_label, "field.hardware_preparation")
         self.preparation_widget = QWidget()
@@ -386,11 +491,27 @@ class BoardHardwarePage(ScrollableLocalizedPage):
         self.resource_table = QTableWidget(0, 6)
         self.resource_table.setObjectName("engineeringTable")
         self.resource_table.setAlternatingRowColors(True)
-        self.resource_table.setSelectionBehavior(
-            QAbstractItemView.SelectionBehavior.SelectRows
+        self.resource_table.setSelectionMode(
+            QAbstractItemView.SelectionMode.NoSelection
         )
+        self.resource_table.setWordWrap(True)
         self.resource_table.verticalHeader().setVisible(False)
-        self.resource_table.horizontalHeader().setStretchLastSection(True)
+        resource_header = self.resource_table.horizontalHeader()
+        resource_header.setStretchLastSection(False)
+        for column in (0, 1, 3):
+            resource_header.setSectionResizeMode(
+                column, QHeaderView.ResizeMode.Interactive
+            )
+        resource_header.setSectionResizeMode(
+            2, QHeaderView.ResizeMode.ResizeToContents
+        )
+        resource_header.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
+        resource_header.setSectionResizeMode(
+            5, QHeaderView.ResizeMode.ResizeToContents
+        )
+        self.resource_table.setColumnWidth(0, 270)
+        self.resource_table.setColumnWidth(1, 210)
+        self.resource_table.setColumnWidth(3, 190)
         advanced_layout.addWidget(self.resource_table)
         self.advanced_section = CollapsibleSection(expanded=False)
         self.advanced_section.BodyLayout_Set(advanced_layout)
@@ -406,6 +527,8 @@ class BoardHardwarePage(ScrollableLocalizedPage):
         self._prepared = False
         self._hardware_mode = "unselected"
         self._resources_valid = False
+        self._manual_check_available = False
+        self._assignment_confirmed = False
         self.Language_Apply(translator)
 
     def Boards_Set(
@@ -418,6 +541,8 @@ class BoardHardwarePage(ScrollableLocalizedPage):
         custom_ready: bool,
         prepared: bool = False,
         hardware_mode: str = "unselected",
+        manual_check_available: bool = False,
+        assignment_confirmed: bool = False,
     ) -> None:
         self._boards = tuple(boards)
         self._selected_board = selected
@@ -426,11 +551,10 @@ class BoardHardwarePage(ScrollableLocalizedPage):
         self._custom_ready = custom_ready
         self._prepared = prepared
         self._hardware_mode = hardware_mode
+        self._manual_check_available = manual_check_available
+        self._assignment_confirmed = assignment_confirmed
         self.board_combo.blockSignals(True)
         self.board_combo.clear()
-        self.board_combo.addItem(
-            self._translator.Text_Get("board.unselected"), "__unselected__"
-        )
         if custom_available:
             self.board_combo.addItem(
                 self._translator.Text_Get("board.custom_hardware"), "__custom__"
@@ -446,11 +570,10 @@ class BoardHardwarePage(ScrollableLocalizedPage):
         current_data = (
             "__custom__"
             if custom_selected
-            else selected if hardware_mode == "board_plugin" else "__unselected__"
+            else selected if hardware_mode == "board_plugin" else ""
         )
         index = self.board_combo.findData(current_data)
-        if index >= 0:
-            self.board_combo.setCurrentIndex(index)
+        self.board_combo.setCurrentIndex(index)
         self.board_combo.blockSignals(False)
         self.custom_widget.setVisible(custom_selected)
         self.export_button.setEnabled(custom_ready)
@@ -459,6 +582,19 @@ class BoardHardwarePage(ScrollableLocalizedPage):
         self.preparation_widget.setVisible(board_selected)
         self.prepare_button.setEnabled(board_selected)
         self.auto_button.setEnabled(hardware_mode != "unselected")
+        self.manual_validation_label.setVisible(manual_check_available)
+        self.manual_validation_widget.setVisible(manual_check_available)
+        self.manual_validation_button.setEnabled(
+            manual_check_available and hardware_mode != "unselected"
+        )
+        self.manual_validation_status.Status_Set(
+            self._translator.Text_Get(
+                "status.manual_assignment_confirmed"
+                if assignment_confirmed
+                else "status.manual_assignment_unconfirmed"
+            ),
+            "success" if assignment_confirmed else "info",
+        )
         self.prepare_button.setText(
             self._translator.Text_Get("action.prepare_hardware")
         )
@@ -504,7 +640,13 @@ class BoardHardwarePage(ScrollableLocalizedPage):
             )
             requirement_item.setToolTip(requirement.key)
             self.resource_table.setItem(row, 0, requirement_item)
-            self.resource_table.setItem(row, 1, QTableWidgetItem(requirement.kind))
+            contract_item = QTableWidgetItem(
+                requirement.contract_summary or requirement.kind
+            )
+            contract_item.setToolTip(
+                requirement.contract_summary or requirement.kind
+            )
+            self.resource_table.setItem(row, 1, contract_item)
             self.resource_table.setItem(
                 row,
                 2,
@@ -514,12 +656,21 @@ class BoardHardwarePage(ScrollableLocalizedPage):
                     )
                 ),
             )
-            if requirement.fixed and requirement.assignment:
+            if requirement.pending_hardware_confirmation:
+                pending_value = QLabel(
+                    self._translator.Text_Get(
+                        "resource.pending_hardware_confirmation"
+                    )
+                )
+                pending_value.setProperty("muted", True)
+                self.resource_table.setCellWidget(row, 3, pending_value)
+            elif requirement.fixed and requirement.assignment:
                 fixed_value = QLabel(requirement.assignment or "—")
                 fixed_value.setProperty("fixedResource", True)
                 self.resource_table.setCellWidget(row, 3, fixed_value)
             else:
                 combo = StandardComboBox()
+                combo.setMinimumWidth(180)
                 combo.addItem(self._translator.Text_Get("status.unassigned"), "")
                 for candidate in requirement.candidates:
                     combo.addItem(candidate, candidate)
@@ -532,27 +683,53 @@ class BoardHardwarePage(ScrollableLocalizedPage):
                     )
                 )
                 self.resource_table.setCellWidget(row, 3, combo)
-            self.resource_table.setItem(
-                row,
-                4,
-                QTableWidgetItem(requirement.recommended_assignment or "—"),
+            physical_item = QTableWidgetItem(
+                requirement.physical_details
+                or requirement.physical_resource
+                or "—"
             )
-            self.resource_table.setItem(
-                row,
-                5,
-                QTableWidgetItem(requirement.physical_details or requirement.physical_resource or "—"),
-            )
+            physical_item.setToolTip(physical_item.text())
+            self.resource_table.setItem(row, 4, physical_item)
+            if requirement.validation_error:
+                status_text = self._translator.Text_Get(
+                    "status.hardware_contract_error"
+                )
+            elif requirement.required and not requirement.assignment:
+                status_text = self._translator.Text_Get("status.unassigned")
+            else:
+                status_text = self._translator.Text_Get(
+                    "status.hardware_contract_valid"
+                )
+            status_item = QTableWidgetItem(status_text)
+            status_item.setToolTip(requirement.validation_error)
+            if requirement.validation_error:
+                error_color = QColor("#d32f2f")
+                for column in (0, 1, 2, 4):
+                    item = self.resource_table.item(row, column)
+                    if item is not None:
+                        item.setForeground(error_color)
+                        item.setToolTip(
+                            "\n".join(
+                                filter(
+                                    None,
+                                    (item.toolTip(), requirement.validation_error),
+                                )
+                            )
+                        )
+                status_item.setForeground(error_color)
+            self.resource_table.setItem(row, 5, status_item)
         self.resource_table.blockSignals(False)
         self.resource_table.setHorizontalHeaderLabels(
             [
                 self._translator.Text_Get("column.requirement"),
-                self._translator.Text_Get("column.resource_type"),
+                self._translator.Text_Get("column.resource_contract"),
+                self._translator.Text_Get("column.requiredness"),
+                self._translator.Text_Get("column.current_connection"),
+                self._translator.Text_Get("column.physical_configuration"),
                 self._translator.Text_Get("column.status"),
-                self._translator.Text_Get("column.assignment"),
-                self._translator.Text_Get("column.recommended_assignment"),
-                self._translator.Text_Get("column.physical_resource"),
             ]
         )
+        self.resource_table.resizeRowsToContents()
         pending_count = sum(
             1
             for requirement in self._resources
@@ -586,6 +763,8 @@ class BoardHardwarePage(ScrollableLocalizedPage):
             custom_ready=self._custom_ready,
             prepared=self._prepared,
             hardware_mode=self._hardware_mode,
+            manual_check_available=self._manual_check_available,
+            assignment_confirmed=self._assignment_confirmed,
         )
         self.Resources_Set(
             self._resources,
@@ -595,8 +774,6 @@ class BoardHardwarePage(ScrollableLocalizedPage):
 
     def _Board_Emit(self) -> None:
         value = str(self.board_combo.currentData() or "")
-        if value == "__unselected__":
-            return
         if value == "__custom__":
             self.customSelected.emit()
         elif value:
@@ -608,11 +785,18 @@ class FlightConfigurationPage(ScrollableLocalizedPage):
     modeChanged = Signal(str, object)
     capabilitySourceChanged = Signal(str, str)
     loggingChanged = Signal()
+    modeParameterChanged = Signal(str, str, str, object)
+    protocolProfileChanged = Signal(str, str)
 
     def __init__(self, translator: Translator) -> None:
         super().__init__(
             translator, "page.flight_configuration", "page.flight_configuration.description"
         )
+        self.protocol_form = QFormLayout()
+        self.protocol_group = self.Group_Create(
+            "group.communication_protocols", self.protocol_form
+        )
+        self.root_layout.addWidget(self.protocol_group)
         self.strategy_form = QFormLayout()
         self.strategy_group = self.Group_Create(
             "group.strategy_selection", self.strategy_form
@@ -626,15 +810,16 @@ class FlightConfigurationPage(ScrollableLocalizedPage):
         capability_notice.setWordWrap(True)
         self.Text_Register(capability_notice, "capability.flight_summary")
         capability_layout.addWidget(capability_notice)
-        self.capability_table = QTableWidget(0, 4)
+        self.capability_table = QTableWidget(0, 5)
         self.capability_table.setObjectName("engineeringTable")
         self.capability_table.setAlternatingRowColors(True)
         self.capability_table.verticalHeader().setVisible(False)
         capability_header = self.capability_table.horizontalHeader()
         capability_header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         capability_header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        capability_header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        capability_header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         capability_header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+        capability_header.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
         capability_layout.addWidget(self.capability_table)
         self.capability_group = self.Group_Create(
             "group.capability_data_sources", capability_layout
@@ -663,9 +848,20 @@ class FlightConfigurationPage(ScrollableLocalizedPage):
         self.root_layout.addStretch(1)
         self.strategy_combos: dict[str, StandardComboBox] = {}
         self.mode_checks: dict[str, list[StandardCheckBox]] = {}
+        self.mode_parameter_spins: dict[
+            tuple[str, str, str], QDoubleSpinBox | QSpinBox
+        ] = {}
+        self.protocol_combos: dict[str, StandardComboBox] = {}
         self._components: tuple[ComponentView, ...] = ()
         self._strategies: dict[str, str | None] = {}
         self._modes: dict[str, list[str]] = {}
+        self._mode_parameters: dict[
+            str, dict[str, dict[str, float | int]]
+        ] = {}
+        self._protocol_profiles: dict[
+            str, tuple[tuple[str, str], ...]
+        ] = {}
+        self._selected_protocol_profiles: dict[str, str] = {}
         self._streams: list[LoggingStreamView] = []
         self._capabilities: tuple[CapabilityUsageView, ...] = ()
         self._strategy_availability: dict[str, SelectionAvailability] = {}
@@ -677,12 +873,20 @@ class FlightConfigurationPage(ScrollableLocalizedPage):
         components: Iterable[ComponentView],
         strategies: dict[str, str | None],
         modes: dict[str, list[str]],
+        mode_parameters: dict[str, dict[str, dict[str, float | int]]] | None = None,
         strategy_availability: dict[str, SelectionAvailability] | None = None,
         mode_availability: dict[tuple[str, str], SelectionAvailability] | None = None,
     ) -> None:
         self._components = tuple(components)
         self._strategies = dict(strategies)
         self._modes = {key: list(value) for key, value in modes.items()}
+        self._mode_parameters = {
+            slot: {
+                option: dict(parameters)
+                for option, parameters in options.items()
+            }
+            for slot, options in (mode_parameters or {}).items()
+        }
         self._strategy_availability = dict(strategy_availability or {})
         self._mode_availability = dict(mode_availability or {})
         while self.strategy_form.rowCount():
@@ -693,6 +897,7 @@ class FlightConfigurationPage(ScrollableLocalizedPage):
                 item.widget().deleteLater()
         self.strategy_combos.clear()
         self.mode_checks.clear()
+        self.mode_parameter_spins.clear()
         strategy_slots: defaultdict[str, list[ComponentView]] = defaultdict(list)
         mode_owners: list[ComponentView] = []
         for component in self._components:
@@ -705,28 +910,28 @@ class FlightConfigurationPage(ScrollableLocalizedPage):
         ):
             combo = StandardComboBox()
             allow_none = any(candidate.allow_none for candidate in candidates)
-            combo.addItem(
-                self._translator.Text_Get(
-                    "strategy.none" if allow_none else "selection.choose_strategy"
-                ),
-                None,
-            )
-            placeholder = combo.model().item(0)
-            if placeholder is not None and not allow_none:
-                placeholder.setEnabled(False)
+            if allow_none:
+                combo.addItem(self._translator.Text_Get("strategy.none"), None)
             for candidate in sorted(candidates, key=lambda item: item.name):
-                combo.addItem(candidate.name, candidate.component_id)
                 availability = self._strategy_availability.get(
                     candidate.component_id, SelectionAvailability(True)
                 )
+                combo.addItem(candidate.name, candidate.component_id)
                 item = combo.model().item(combo.count() - 1)
                 if item is not None:
                     item.setEnabled(availability.available)
+                    if not availability.available:
+                        item.setForeground(
+                            combo.palette().color(
+                                QPalette.ColorGroup.Disabled,
+                                QPalette.ColorRole.Text,
+                            )
+                        )
                     item.setToolTip(
                         self._AvailabilityText_Get(availability, candidate.description)
                     )
             index = combo.findData(self._strategies.get(slot))
-            combo.setCurrentIndex(index if index >= 0 else 0)
+            combo.setCurrentIndex(index)
             combo.currentIndexChanged.connect(
                 lambda _index, selected_slot=slot, editor=combo: self.strategyChanged.emit(
                     selected_slot, editor.currentData()
@@ -739,30 +944,141 @@ class FlightConfigurationPage(ScrollableLocalizedPage):
         for owner in sorted(mode_owners, key=lambda item: item.ui_order):
             slot = owner.selection_slot
             section = QWidget()
-            section_layout = QHBoxLayout(section)
+            section_layout = QVBoxLayout(section)
             section_layout.setContentsMargins(0, 0, 0, 0)
             section_layout.addWidget(
                 QLabel(self._translator.Text_Get(f"mode.slot.{slot}"))
             )
             checks: list[StandardCheckBox] = []
             labels = owner.options.get("selection_labels", {})
+            parameter_definitions = owner.options.get(
+                "selection_parameters", {}
+            )
             for option in owner.selection_options:
-                check = StandardCheckBox(str(labels.get(option, option)))
-                check.setProperty("selectionOption", option)
-                check.setChecked(option in self._modes.get(slot, []))
                 availability = self._mode_availability.get(
                     (slot, option), SelectionAvailability(True)
                 )
+                label = str(labels.get(option, option))
+                option_widget = QWidget()
+                option_layout = QVBoxLayout(option_widget)
+                option_layout.setContentsMargins(18, 0, 0, 4)
+                check = StandardCheckBox(label)
+                check.setProperty("selectionOption", option)
+                with QSignalBlocker(check):
+                    check.setChecked(option in self._modes.get(slot, []))
                 check.setEnabled(availability.available)
                 check.setToolTip(self._AvailabilityText_Get(availability))
                 check.toggled.connect(
                     lambda _checked, selected_slot=slot: self._Mode_Emit(selected_slot)
                 )
-                section_layout.addWidget(check)
+                option_layout.addWidget(check)
+                parameter_form = QFormLayout()
+                parameter_form.setContentsMargins(24, 0, 0, 0)
+                for parameter in parameter_definitions.get(option, ()):
+                    parameter_id = str(parameter["id"])
+                    if parameter["type"] == "integer":
+                        spin = QSpinBox()
+                        spin.setRange(
+                            int(parameter["minimum"]),
+                            int(parameter["maximum"]),
+                        )
+                        spin.setSingleStep(1)
+                    else:
+                        spin = QDoubleSpinBox()
+                        spin.setDecimals(3)
+                        spin.setRange(
+                            float(parameter["minimum"]),
+                            float(parameter["maximum"]),
+                        )
+                        spin.setSingleStep(0.1)
+                    spin.setObjectName(
+                        f"modeParameter_{slot}_{option}_{parameter_id}"
+                    )
+                    spin.setSuffix(f" {parameter['unit']}")
+                    value = self._mode_parameters.get(slot, {}).get(
+                        option, {}
+                    ).get(parameter_id, parameter["default"])
+                    with QSignalBlocker(spin):
+                        spin.setValue(
+                            int(value)
+                            if parameter["type"] == "integer"
+                            else float(value)
+                        )
+                    spin.setToolTip(
+                        self._translator.Text_Get(
+                            "mode.parameter_range",
+                            minimum=parameter["minimum"],
+                            maximum=parameter["maximum"],
+                            unit=parameter["unit"],
+                        )
+                    )
+                    spin.setEnabled(
+                        availability.available
+                        and option in self._modes.get(slot, [])
+                    )
+                    spin.valueChanged.connect(
+                        lambda value, selected_slot=slot,
+                        selected_option=option,
+                        selected_parameter=parameter_id: self.modeParameterChanged.emit(
+                            selected_slot,
+                            selected_option,
+                            selected_parameter,
+                            value,
+                        )
+                    )
+                    parameter_form.addRow(
+                        QLabel(str(parameter["display_name"])), spin
+                    )
+                    self.mode_parameter_spins[
+                        (slot, option, parameter_id)
+                    ] = spin
+                if parameter_form.rowCount():
+                    option_layout.addLayout(parameter_form)
+                section_layout.addWidget(option_widget)
                 checks.append(check)
             section_layout.addStretch(1)
             self.mode_layout.addWidget(section)
             self.mode_checks[slot] = checks
+
+    def Protocols_Set(
+        self,
+        profiles: dict[str, tuple[tuple[str, str], ...]],
+        selected: dict[str, str],
+    ) -> None:
+        self._protocol_profiles = {
+            category: tuple(values) for category, values in profiles.items()
+        }
+        self._selected_protocol_profiles = dict(selected)
+        while self.protocol_form.rowCount():
+            self.protocol_form.removeRow(0)
+        self.protocol_combos.clear()
+        ordered_categories = ("telemetry", "maintenance", "logging")
+        for category in ordered_categories:
+            values = self._protocol_profiles.get(category, ())
+            if not values:
+                continue
+            combo = StandardComboBox()
+            combo.setObjectName(f"protocolProfile_{category}")
+            for profile_id, display_name in values:
+                combo.addItem(display_name, profile_id)
+            index = combo.findData(selected.get(category, ""))
+            combo.setCurrentIndex(max(0, index))
+            combo.setEnabled(len(values) > 1)
+            combo.currentIndexChanged.connect(
+                lambda _index, selected_category=category,
+                editor=combo: self.protocolProfileChanged.emit(
+                    selected_category, str(editor.currentData() or "")
+                )
+            )
+            self.protocol_form.addRow(
+                QLabel(
+                    self._translator.Text_Get(
+                        f"protocol.category.{category}"
+                    )
+                ),
+                combo,
+            )
+            self.protocol_combos[category] = combo
 
     def Capabilities_Set(
         self, capabilities: Iterable[CapabilityUsageView]
@@ -777,6 +1093,13 @@ class FlightConfigurationPage(ScrollableLocalizedPage):
             capability_item = QTableWidgetItem(capability_name)
             capability_item.setToolTip(capability.capability)
             self.capability_table.setItem(row, 0, capability_item)
+            self.capability_table.setItem(
+                row,
+                1,
+                QTableWidgetItem(
+                    self._translator.Text_Get(f"capability.kind.{capability.kind}")
+                ),
+            )
             if capability.missing:
                 status_key = "capability.status.missing"
             elif capability.ambiguous:
@@ -786,7 +1109,7 @@ class FlightConfigurationPage(ScrollableLocalizedPage):
             else:
                 status_key = "capability.status.unused"
             self.capability_table.setItem(
-                row, 1, QTableWidgetItem(self._translator.Text_Get(status_key))
+                row, 2, QTableWidgetItem(self._translator.Text_Get(status_key))
             )
             if capability.consumers and len(capability.providers) > 1:
                 source_combo = StandardComboBox()
@@ -802,10 +1125,10 @@ class FlightConfigurationPage(ScrollableLocalizedPage):
                         capability_id, str(editor.currentData() or "")
                     )
                 )
-                self.capability_table.setCellWidget(row, 2, source_combo)
+                self.capability_table.setCellWidget(row, 3, source_combo)
             else:
                 self.capability_table.setItem(
-                    row, 2, QTableWidgetItem(capability.source_name or "—")
+                    row, 3, QTableWidgetItem(capability.source_name or "—")
                 )
             purpose_text = ", ".join(
                 self._translator.Text_Get(f"capability.purpose.{purpose}")
@@ -813,62 +1136,103 @@ class FlightConfigurationPage(ScrollableLocalizedPage):
             )
             consumer_text = ", ".join(capability.consumers)
             details = " · ".join(value for value in (consumer_text, purpose_text) if value)
-            self.capability_table.setItem(row, 3, QTableWidgetItem(details or "—"))
+            self.capability_table.setItem(row, 4, QTableWidgetItem(details or "—"))
         self.capability_table.blockSignals(False)
         self._CapabilityHeaders_Apply()
 
     def Streams_Set(self, streams: Iterable[LoggingStreamView]) -> None:
-        self._streams = list(streams)
+        updated_streams = list(streams)
+        same_records = (
+            len(updated_streams) == len(self._streams)
+            and all(
+                current.stream_id == updated.stream_id
+                for current, updated in zip(self._streams, updated_streams)
+            )
+        )
         self.logging_table.blockSignals(True)
-        self.logging_table.setRowCount(len(self._streams))
-        for row, stream in enumerate(self._streams):
-            enabled_check = LockedCheckBox() if stream.required else StandardCheckBox()
-            enabled_check.setProperty("streamId", stream.stream_id)
-            enabled_check.setChecked(True if stream.required else stream.enabled)
-            if not stream.required:
-                enabled_check.setEnabled(stream.available)
-            tooltip = stream.availability_reason
-            if stream.required:
-                tooltip = self._translator.Text_Get("logging.required_tooltip")
-            enabled_check.setToolTip(tooltip)
-            enabled_check.toggled.connect(
-                lambda _checked: self.loggingChanged.emit()
+        if not same_records:
+            self.logging_table.setRowCount(len(updated_streams))
+        for row, stream in enumerate(updated_streams):
+            enabled_container = self.logging_table.cellWidget(row, 0)
+            enabled_check = (
+                enabled_container.findChild(StandardCheckBox)
+                if isinstance(enabled_container, QWidget)
+                else None
             )
-            enabled_container = QWidget()
-            enabled_layout = QHBoxLayout(enabled_container)
-            enabled_layout.setContentsMargins(8, 0, 0, 0)
-            enabled_layout.addWidget(enabled_check)
-            enabled_layout.addStretch(1)
-            self.logging_table.setCellWidget(row, 0, enabled_container)
-            name_item = QTableWidgetItem(stream.name)
+            decimation = self.logging_table.cellWidget(row, 3)
+            period = self.logging_table.cellWidget(row, 4)
+            if not same_records or enabled_check is None:
+                enabled_check = (
+                    LockedCheckBox() if stream.required else StandardCheckBox()
+                )
+                enabled_check.setProperty("streamId", stream.stream_id)
+                enabled_check.toggled.connect(
+                    lambda _checked: self.loggingChanged.emit()
+                )
+                enabled_container = QWidget()
+                enabled_layout = QHBoxLayout(enabled_container)
+                enabled_layout.setContentsMargins(8, 0, 0, 0)
+                enabled_layout.addWidget(enabled_check)
+                enabled_layout.addStretch(1)
+                self.logging_table.setCellWidget(row, 0, enabled_container)
+                decimation = QSpinBox()
+                decimation.setRange(1, 65535)
+                decimation.valueChanged.connect(
+                    lambda _value: self.loggingChanged.emit()
+                )
+                self.logging_table.setCellWidget(row, 3, decimation)
+                period = QSpinBox()
+                period.setRange(0, 2_147_483_647)
+                period.setSuffix(" us")
+                period.valueChanged.connect(
+                    lambda _value: self.loggingChanged.emit()
+                )
+                self.logging_table.setCellWidget(row, 4, period)
+            assert isinstance(enabled_check, StandardCheckBox)
+            assert isinstance(decimation, QSpinBox)
+            assert isinstance(period, QSpinBox)
+            with QSignalBlocker(enabled_check):
+                if isinstance(enabled_check, LockedCheckBox):
+                    enabled_check.LockedState_Set(True)
+                else:
+                    enabled_check.setChecked(stream.enabled)
+                    enabled_check.setEnabled(stream.available)
+            enabled_check.setToolTip(
+                self._translator.Text_Get("logging.required_tooltip")
+                if stream.required
+                else stream.availability_reason
+            )
+            with QSignalBlocker(decimation):
+                decimation.setValue(max(1, stream.decimation))
+                decimation.setEnabled(stream.available)
+            with QSignalBlocker(period):
+                period.setValue(stream.period_us)
+                period.setEnabled(
+                    stream.available and stream.policy == "PERIODIC"
+                )
+            name_item = self.logging_table.item(row, 1)
+            if name_item is None:
+                name_item = QTableWidgetItem()
+                self.logging_table.setItem(row, 1, name_item)
+            name_item.setText(stream.name)
             name_item.setToolTip(stream.name)
-            self.logging_table.setItem(row, 1, name_item)
-            self.logging_table.setItem(
-                row,
-                2,
-                QTableWidgetItem(
-                    self._translator.Text_Get(f"logging.level.{stream.level}")
-                ),
+            level_item = self.logging_table.item(row, 2)
+            if level_item is None:
+                level_item = QTableWidgetItem()
+                self.logging_table.setItem(row, 2, level_item)
+            level_item.setText(
+                self._translator.Text_Get(f"logging.level.{stream.level}")
             )
-            decimation = QSpinBox()
-            decimation.setRange(1, 65535)
-            decimation.setValue(max(1, stream.decimation))
-            decimation.setEnabled(stream.available)
-            decimation.valueChanged.connect(lambda _value: self.loggingChanged.emit())
-            self.logging_table.setCellWidget(row, 3, decimation)
-            period = QSpinBox()
-            period.setRange(0, 2_147_483_647)
-            period.setSuffix(" us")
-            period.setValue(stream.period_us)
-            period.setEnabled(stream.available and stream.policy == "PERIODIC")
-            period.valueChanged.connect(lambda _value: self.loggingChanged.emit())
-            self.logging_table.setCellWidget(row, 4, period)
             description = stream.description or "—"
             if not stream.available and stream.availability_reason:
                 description = stream.availability_reason
-            description_item = QTableWidgetItem(description)
+            description_item = self.logging_table.item(row, 5)
+            if description_item is None:
+                description_item = QTableWidgetItem()
+                self.logging_table.setItem(row, 5, description_item)
+            description_item.setText(description)
             description_item.setToolTip(description)
-            self.logging_table.setItem(row, 5, description_item)
+        self._streams = updated_streams
         self.logging_table.blockSignals(False)
         self._LoggingHeaders_Apply()
 
@@ -917,9 +1281,14 @@ class FlightConfigurationPage(ScrollableLocalizedPage):
                 self._components,
                 self._strategies,
                 self._modes,
-                self._strategy_availability,
-                self._mode_availability,
+                mode_parameters=self._mode_parameters,
+                strategy_availability=self._strategy_availability,
+                mode_availability=self._mode_availability,
             )
+        self.Protocols_Set(
+            self._protocol_profiles,
+            self._selected_protocol_profiles,
+        )
         self.Capabilities_Set(self._capabilities)
 
     def _Mode_Emit(self, slot: str) -> None:
@@ -928,6 +1297,15 @@ class FlightConfigurationPage(ScrollableLocalizedPage):
             for check in self.mode_checks.get(slot, [])
             if check.isChecked()
         ]
+        for (parameter_slot, option, _parameter_id), spin in (
+            self.mode_parameter_spins.items()
+        ):
+            if parameter_slot != slot:
+                continue
+            availability = self._mode_availability.get(
+                (slot, option), SelectionAvailability(True)
+            )
+            spin.setEnabled(availability.available and option in selected)
         self.modeChanged.emit(slot, selected)
 
     def _LoggingHeaders_Apply(self) -> None:
@@ -946,6 +1324,7 @@ class FlightConfigurationPage(ScrollableLocalizedPage):
         self.capability_table.setHorizontalHeaderLabels(
             [
                 self._translator.Text_Get("column.capability"),
+                self._translator.Text_Get("column.capability_kind"),
                 self._translator.Text_Get("column.status"),
                 self._translator.Text_Get("column.data_source"),
                 self._translator.Text_Get("column.consumers_purpose"),
@@ -959,15 +1338,23 @@ class FlightConfigurationPage(ScrollableLocalizedPage):
     ) -> str:
         parts = [description] if description else []
         if availability.missing_capabilities:
-            missing = ", ".join(
-                self._translator.Text_Get(f"capability.{capability}")
-                for capability in availability.missing_capabilities
-            )
-            parts.append(
-                self._translator.Text_Get(
-                    "selection.unavailable.capability", missing=missing
+            generic: list[str] = []
+            catalog_keys = self._translator.CatalogKeys_Get()
+            for capability in availability.missing_capabilities:
+                reason_key = f"capability.unavailable.{capability}"
+                if reason_key in catalog_keys:
+                    parts.append(self._translator.Text_Get(reason_key))
+                else:
+                    generic.append(
+                        self._translator.Text_Get(f"capability.{capability}")
+                    )
+            if generic:
+                parts.append(
+                    self._translator.Text_Get(
+                        "selection.unavailable.capability",
+                        missing=", ".join(generic),
+                    )
                 )
-            )
         if availability.missing_components:
             parts.append(
                 self._translator.Text_Get(

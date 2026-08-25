@@ -4,6 +4,7 @@ import json
 from copy import deepcopy
 from dataclasses import dataclass
 from collections import Counter
+from typing import Any
 
 from silverstar_fccg.hardware.inventory import CubeMxInventory_Parse, HardwareInventory
 from silverstar_fccg.plugins.catalog import PluginCatalog
@@ -51,6 +52,7 @@ class ResourceRequirementOption:
     plugin_id: str
     kind: str
     display_names: dict[str, str]
+    contract_summary: str
     required: bool
     mode: str
     assignment: str
@@ -161,24 +163,44 @@ def _RequirementConstraintsErrors_Get(
     provision: ResourceProvision,
 ) -> tuple[str, ...]:
     constraints = requirement.constraints
+    electrical = requirement.electrical_constraints
     metadata = provision.metadata
-    if constraints and "physical_resource" not in metadata:
+    if (constraints or electrical) and "physical_resource" not in metadata:
         # Legacy third-party Board manifests have no .ioc-backed inventory.
         # They remain loadable, but cannot make a deep physical validation claim.
         return ()
     errors: list[str] = []
-    if "baud_rate" in constraints and metadata.get("baud_rate") != constraints["baud_rate"]:
+
+    def mismatch(field_name: str, expected: Any, actual: Any) -> None:
         errors.append(
-            f"Resource contract mismatch for {key}: baud_rate requires "
-            f"{constraints['baud_rate']}, got {metadata.get('baud_rate')}"
+            f"Resource contract mismatch for {key}: {field_name} requires "
+            f"{expected}, got {actual}"
         )
+
+    def dma_present(direction: str = "") -> bool:
+        dma_values = metadata.get("dma", [])
+        return isinstance(dma_values, list) and any(
+            isinstance(item, dict)
+            and bool(item.get("instance"))
+            and (
+                not direction
+                or str(item.get("request", "")).upper().endswith(
+                    "_" + direction.upper()
+                )
+            )
+            for item in dma_values
+        )
+
+    def irq_enabled() -> bool:
+        irq = metadata.get("irq", {})
+        return isinstance(irq, dict) and irq.get("enabled") is True
+
+    if "baud_rate" in constraints and metadata.get("baud_rate") != constraints["baud_rate"]:
+        mismatch("baud_rate", constraints["baud_rate"], metadata.get("baud_rate"))
     if "mode" in constraints and str(metadata.get("mode", "")).casefold() != str(
         constraints["mode"]
     ).casefold():
-        errors.append(
-            f"Resource contract mismatch for {key}: mode requires "
-            f"{constraints['mode']}, got {metadata.get('mode')}"
-        )
+        mismatch("mode", constraints["mode"], metadata.get("mode"))
     expected_signals = constraints.get("signals", [])
     actual_signals = {
         str(signal).casefold() for signal in metadata.get("pins", {})
@@ -194,28 +216,184 @@ def _RequirementConstraintsErrors_Get(
                 f"Resource contract mismatch for {key}: missing signals "
                 + ", ".join(missing)
             )
-    dma = metadata.get("dma", [])
-    if not isinstance(dma, list):
-        dma = []
-    if constraints.get("dma_rx_required") and not any(
-        str(item.get("request", "")).upper().endswith("_RX")
-        and bool(item.get("instance"))
-        for item in dma
-        if isinstance(item, dict)
-    ):
+    if constraints.get("dma_rx_required") and not dma_present("rx"):
         errors.append(f"Resource contract mismatch for {key}: RX DMA is required")
-    if constraints.get("dma_tx_required") and not any(
-        str(item.get("request", "")).upper().endswith("_TX")
-        and bool(item.get("instance"))
-        for item in dma
-        if isinstance(item, dict)
-    ):
+    if constraints.get("dma_tx_required") and not dma_present("tx"):
         errors.append(f"Resource contract mismatch for {key}: TX DMA is required")
-    irq = metadata.get("irq", {})
-    if constraints.get("irq_required") and not (
-        isinstance(irq, dict) and irq.get("enabled") is True
-    ):
+    if constraints.get("irq_required") and not irq_enabled():
         errors.append(f"Resource contract mismatch for {key}: enabled IRQ is required")
+
+    uart = constraints.get("uart")
+    if isinstance(uart, dict):
+        actual_roles = {
+            str(role).casefold() for role in metadata.get("pins", {})
+        }
+        missing_roles = {"rx", "tx"} - actual_roles
+        if missing_roles:
+            errors.append(
+                f"Resource contract mismatch for {key}: UART is missing pin roles "
+                + ", ".join(sorted(missing_roles))
+            )
+        actual_baud = metadata.get("baud_rate")
+        baud = uart.get("baud", {})
+        if isinstance(baud, dict):
+            if "exact" in baud and actual_baud != baud["exact"]:
+                mismatch("uart.baud.exact", baud["exact"], actual_baud)
+            allowed = baud.get("allowed_values")
+            if isinstance(allowed, list) and actual_baud not in allowed:
+                mismatch("uart.baud.allowed_values", allowed, actual_baud)
+        for field_name in ("word_length", "parity", "stop_bits"):
+            if field_name in uart and str(metadata.get(field_name)).casefold() != str(
+                uart[field_name]
+            ).casefold():
+                mismatch(
+                    f"uart.{field_name}", uart[field_name], metadata.get(field_name)
+                )
+        if uart.get("rx_dma") and not dma_present("rx"):
+            errors.append(f"Resource contract mismatch for {key}: UART RX DMA is required")
+        if uart.get("tx_dma") and not dma_present("tx"):
+            errors.append(f"Resource contract mismatch for {key}: UART TX DMA is required")
+        if uart.get("irq") and not irq_enabled():
+            errors.append(f"Resource contract mismatch for {key}: UART IRQ is required")
+
+    spi = constraints.get("spi")
+    if isinstance(spi, dict):
+        actual_roles = {
+            str(role).casefold() for role in metadata.get("pins", {})
+        }
+        missing_roles = {"miso", "mosi", "sck"} - actual_roles
+        if missing_roles:
+            errors.append(
+                f"Resource contract mismatch for {key}: SPI is missing pin roles "
+                + ", ".join(sorted(missing_roles))
+            )
+        actual_clock = metadata.get("clock_hz", 0)
+        minimum_clock = spi.get("minimum_clock_hz")
+        maximum_clock = spi.get("maximum_clock_hz")
+        if isinstance(minimum_clock, int) and actual_clock < minimum_clock:
+            mismatch("spi.minimum_clock_hz", f">={minimum_clock}", actual_clock)
+        if isinstance(maximum_clock, int) and actual_clock > maximum_clock:
+            mismatch("spi.maximum_clock_hz", f"<={maximum_clock}", actual_clock)
+        for field_name in ("mode", "cpol", "cpha", "data_bits", "bit_order"):
+            if field_name in spi and str(metadata.get(field_name)).casefold() != str(
+                spi[field_name]
+            ).casefold():
+                mismatch(
+                    f"spi.{field_name}", spi[field_name], metadata.get(field_name)
+                )
+        if spi.get("dma") and not dma_present():
+            errors.append(f"Resource contract mismatch for {key}: SPI DMA is required")
+        if spi.get("irq") and not irq_enabled():
+            errors.append(f"Resource contract mismatch for {key}: SPI IRQ is required")
+
+    i2c = constraints.get("i2c")
+    if isinstance(i2c, dict):
+        actual_roles = {
+            str(role).casefold() for role in metadata.get("pins", {})
+        }
+        missing_roles = {"scl", "sda"} - actual_roles
+        if missing_roles:
+            errors.append(
+                f"Resource contract mismatch for {key}: I2C is missing pin roles "
+                + ", ".join(sorted(missing_roles))
+            )
+        actual_frequency = metadata.get("bus_frequency_hz", 0)
+        maximum_frequency = i2c.get("maximum_bus_frequency_hz")
+        if isinstance(maximum_frequency, int) and actual_frequency > maximum_frequency:
+            mismatch(
+                "i2c.maximum_bus_frequency_hz",
+                f"<={maximum_frequency}",
+                actual_frequency,
+            )
+        allowed_rates = i2c.get("allowed_rates_hz")
+        if isinstance(allowed_rates, list) and actual_frequency not in allowed_rates:
+            mismatch("i2c.allowed_rates_hz", allowed_rates, actual_frequency)
+        if "address_mode" in i2c and metadata.get("address_mode") != i2c["address_mode"]:
+            mismatch("i2c.address_mode", i2c["address_mode"], metadata.get("address_mode"))
+        pin_electrical = metadata.get("pin_electrical", {})
+        if i2c.get("required_pullup") and not (
+            isinstance(pin_electrical, dict)
+            and pin_electrical
+            and all(
+                isinstance(pin, dict)
+                and pin.get("pull") == "up"
+                and pin.get("output_type") in {"", "open_drain"}
+                for pin in pin_electrical.values()
+            )
+        ):
+            errors.append(
+                f"Resource contract mismatch for {key}: I2C open-drain pull-up is required"
+            )
+        if i2c.get("dma") and not dma_present():
+            errors.append(f"Resource contract mismatch for {key}: I2C DMA is required")
+        if i2c.get("irq") and not irq_enabled():
+            errors.append(f"Resource contract mismatch for {key}: I2C IRQ is required")
+
+    pwm = constraints.get("pwm")
+    if isinstance(pwm, dict):
+        actual_frequency = metadata.get("frequency_hz", 0)
+        actual_resolution = metadata.get("resolution_bits", 0)
+        if "minimum_frequency_hz" in pwm and actual_frequency < pwm["minimum_frequency_hz"]:
+            mismatch("pwm.minimum_frequency_hz", f">={pwm['minimum_frequency_hz']}", actual_frequency)
+        if "maximum_frequency_hz" in pwm and actual_frequency > pwm["maximum_frequency_hz"]:
+            mismatch("pwm.maximum_frequency_hz", f"<={pwm['maximum_frequency_hz']}", actual_frequency)
+        if "minimum_resolution_bits" in pwm and actual_resolution < pwm["minimum_resolution_bits"]:
+            mismatch("pwm.minimum_resolution_bits", f">={pwm['minimum_resolution_bits']}", actual_resolution)
+        for field_name in ("polarity", "channel"):
+            if field_name in pwm and metadata.get(field_name) != pwm[field_name]:
+                mismatch(f"pwm.{field_name}", pwm[field_name], metadata.get(field_name))
+
+    if electrical:
+        expected_mode = electrical.get("mode")
+        if expected_mode and provision.kind != expected_mode:
+            mismatch("electrical.mode", expected_mode, provision.kind)
+        for field_name in ("output_type", "pull", "speed", "exti_trigger"):
+            if field_name in electrical and metadata.get(field_name) != electrical[field_name]:
+                mismatch(
+                    f"electrical.{field_name}",
+                    electrical[field_name],
+                    metadata.get(field_name),
+                )
+        if "alternate_function" in electrical and str(
+            metadata.get("alternate_function", "")
+        ).casefold() != str(electrical["alternate_function"]).casefold():
+            mismatch(
+                "electrical.alternate_function",
+                electrical["alternate_function"],
+                metadata.get("alternate_function"),
+            )
+        active_polarity = electrical.get("active_polarity", "high")
+        safe_initial = electrical.get("safe_initial_level")
+        expected_level = safe_initial
+        if safe_initial == "inactive":
+            expected_level = "low" if active_polarity == "high" else "high"
+        elif safe_initial == "active":
+            expected_level = active_polarity
+        if expected_level and metadata.get("initial_level") != expected_level:
+            mismatch(
+                "electrical.safe_initial_level",
+                expected_level,
+                metadata.get("initial_level"),
+            )
+        if electrical.get("irq") and not irq_enabled():
+            errors.append(f"Resource contract mismatch for {key}: GPIO IRQ is required")
+        irq = metadata.get("irq", {})
+        maximum_priority = electrical.get("maximum_irq_priority")
+        if (
+            isinstance(maximum_priority, int)
+            and isinstance(irq, dict)
+            and isinstance(irq.get("preempt_priority"), int)
+            and irq["preempt_priority"] > maximum_priority
+        ):
+            mismatch(
+                "electrical.maximum_irq_priority",
+                f"<={maximum_priority}",
+                irq["preempt_priority"],
+            )
+        if electrical.get("startup_glitch_free") and not metadata.get("locked"):
+            errors.append(
+                f"Resource contract mismatch for {key}: startup-safe GPIO must be locked in IOC"
+            )
     return tuple(errors)
 
 
@@ -250,6 +428,43 @@ def _PhysicalDetails_Get(provision: ResourceProvision | None) -> str:
         parts.append(
             f"IRQ={irq.get('irq', '')}@{irq.get('preempt_priority', '?')}"
         )
+    return " · ".join(parts)
+
+
+def _RequirementContractSummary_Get(
+    requirement: ResourceRequirement,
+) -> str:
+    parts = [requirement.kind]
+    constraints = requirement.constraints
+    uart = constraints.get("uart")
+    if isinstance(uart, dict):
+        baud = uart.get("baud", {})
+        if isinstance(baud, dict) and "exact" in baud:
+            parts.append(f"{baud['exact']} baud")
+        if uart.get("rx_dma"):
+            parts.append("RX DMA")
+        if uart.get("tx_dma"):
+            parts.append("TX DMA")
+        if uart.get("irq"):
+            parts.append("IRQ")
+    spi = constraints.get("spi")
+    if isinstance(spi, dict):
+        if spi.get("mode"):
+            parts.append(str(spi["mode"]))
+        if spi.get("maximum_clock_hz"):
+            parts.append(f"≤ {spi['maximum_clock_hz']} Hz")
+    i2c = constraints.get("i2c")
+    if isinstance(i2c, dict):
+        if i2c.get("maximum_bus_frequency_hz"):
+            parts.append(f"≤ {i2c['maximum_bus_frequency_hz']} Hz")
+        if i2c.get("required_pullup"):
+            parts.append("open-drain + pull-up")
+    electrical = requirement.electrical_constraints
+    for field_name in ("output_type", "pull", "exti_trigger"):
+        if electrical.get(field_name):
+            parts.append(str(electrical[field_name]))
+    if electrical.get("safe_initial_level"):
+        parts.append(f"safe={electrical['safe_initial_level']}")
     return " · ".join(parts)
 
 
@@ -381,6 +596,7 @@ def ResourceAssignments_Resolve(
             )
 
     claimed: dict[str, str] = {}
+    physical_claimed: dict[str, str] = {}
     assignments: list[AssignedResource] = []
     errors: list[str] = []
     for owner_id, plugin_id, manifest in _RequirementOwners_Get(model, catalog):
@@ -442,8 +658,23 @@ def ResourceAssignments_Resolve(
                     f"{claimed[selected]} and {key}"
                 )
                 continue
+            physical_resource = str(
+                provision.metadata.get("physical_resource", "")
+            )
+            if (
+                requirement.mode == ResourceMode.EXCLUSIVE
+                and physical_resource
+                and physical_resource in physical_claimed
+            ):
+                errors.append(
+                    f"Physical resource conflict: {physical_resource} is assigned to "
+                    f"{physical_claimed[physical_resource]} and {key}"
+                )
+                continue
             if requirement.mode == ResourceMode.EXCLUSIVE:
                 claimed[selected] = key
+                if physical_resource:
+                    physical_claimed[physical_resource] = key
             errors.extend(
                 _RequirementConstraintsErrors_Get(key, requirement, provision)
             )
@@ -563,6 +794,7 @@ def ResourceRequirementOptions_Get(
                     plugin_id=plugin_id,
                     kind=requirement.kind,
                     display_names=dict(requirement.display_names),
+                    contract_summary=_RequirementContractSummary_Get(requirement),
                     required=requirement.required,
                     mode=requirement.mode.value,
                     assignment=model.resource_assignments.get(key, ""),

@@ -27,7 +27,6 @@
       "APP/Src/app_tasks.c",
       "APP/Src/estimator_barometer_pending.c",
       "APP/Src/estimator_bus.c",
-      "APP/Src/estimator_task.c",
       "APP/Src/flight_task.c",
       "APP/Src/imu_sample_bus.c",
       "APP/Src/ins_task.c",
@@ -62,6 +61,12 @@
       "System/Inertial/Src/system_inertial.c",
       "System/User/system_user_inertial_config.c"
     ],
+    "strategy_sources": {
+      "estimator": {
+        "selected": ["APP/Src/estimator_task.c"],
+        "none": ["APP/Src/estimator_task_none.c"]
+      }
+    },
     "asm_sources": [],
     "include_dirs": [
       "APP/Inc",
@@ -93,20 +98,16 @@
   "metadata": {
     "reference": {
       "path": "C:\\Users\\chdxm\\Desktop\\stm32-1\\Flight_Controller0.5",
-      "commit": "b8c90e997c3113dd23074302682c5560dae18926",
-      "branch": "codex/refactor-silverstar-0.0.9-platform",
+      "commit": "e67529ef67f53049fa8d7a1d3eed314e11043d1a",
+      "branch": "main",
       "working_tree": "clean",
       "status": [],
-      "snapshot_digest": "67e89c36cf11bbe3538469a1461c48a87967691ffd556995c8b5fc6c4b1c4d54",
-      "recorded_at_utc": "2026-08-23T14:50:21+00:00"
+      "snapshot_digest": "0f2388a98e33076b9a6454a8d370190dd339556527071b683a1bc10a2add2686",
+      "recorded_at_utc": "2026-08-25T11:31:56+00:00"
     },
     "display_names": {
-      "zh_CN": "SilverStar核心 0.0.9",
+      "zh_CN": "SilverStar 核心 0.0.9",
       "en_US": "SilverStar Core 0.0.9"
-    },
-    "descriptions": {
-      "zh_CN": "与MCU无关的SilverStar应用、系统、接口和主机验证源码。",
-      "en_US": "MCU-independent SilverStar application, system, interfaces, and host validation sources."
     },
     "device_descriptors": [
       {

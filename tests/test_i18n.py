@@ -52,8 +52,13 @@ def test_every_literal_ui_key_is_translated() -> None:
 def test_language_fallback_and_formatting() -> None:
     translator = Translator("zh_CN")
     assert translator.Text_Get("status.project_draft_created", name="Demo").endswith("Demo")
+    assert translator.Text_Get("strategy.none") == "不融合"
+    assert translator.Text_Get(
+        "capability.actuator.mission_action.launch_ignition"
+    ) == "起飞点火功率输出"
     translator.Language_Set("en_US")
     assert translator.Text_Get("page.board_hardware") == "Hardware Connection"
+    assert translator.Text_Get("strategy.none") == "No Fusion"
     assert translator.Text_Get("unknown.stable.code") == "unknown.stable.code"
 
 
@@ -70,18 +75,25 @@ def test_builtin_algorithm_names_and_descriptions_are_localized(
     builtin_catalog: PluginCatalog,
 ) -> None:
     expected_names = {
-        "silverstar.algorithm.ins.coning2_sculling2": "二阶圆锥补偿 / 二阶划桨补偿",
-        "silverstar.algorithm.alignment.gravity_known_yaw": "重力 + 已知航向角对准",
-        "silverstar.algorithm.alignment.gravity_mag_triad": "重力/磁场双矢量对准",
+        "silverstar.algorithm.ins.coning2_sculling2": (
+            "二阶锥运动补偿+二阶划桨效应补偿"
+        ),
+        "silverstar.algorithm.alignment.gravity_known_yaw": "重力 + 已知航向角",
+        "silverstar.algorithm.alignment.gravity_mag_triad": "重力磁场双矢量对准",
         "silverstar.algorithm.alignment.hardware_quat_6axis_known_yaw": (
-            "六轴硬件四元数 + 已知航向角对准"
+            "六轴硬件四元数 + 已知航向角"
         ),
         "silverstar.algorithm.alignment.hardware_quat_9axis": (
-            "九轴硬件四元数取样对准"
+            "九轴硬件四元数静态取样"
         ),
-        "silverstar.algorithm.estimator.kf6": "六状态卡尔曼滤波（KF6）",
-        "silverstar.flight_logic.landing.baro_imu_window": (
-            "气压计 + IMU窗口着陆判定"
+        "silverstar.algorithm.estimator.kf6": "KF6 融合估计",
+        "silverstar.flight_logic.landing.baro_imu_window": "着陆判定公共实现",
+        "silverstar.flight_logic.landing.baro_imu_window_strategy": (
+            "气压计 + IMU窗口着陆判断"
+        ),
+        "silverstar.flight_logic.landing.stillness": "静止着陆判断",
+        "silverstar.flight_logic.landing.impact_then_stillness": (
+            "冲击后静止着陆判断"
         ),
     }
     for component_id, expected_name in expected_names.items():

@@ -122,10 +122,10 @@ RECOVERY + landing condition confirmed（可选）
 
 收到START命令不等于START提交，拒绝、BUSY或回滚均不得执行Mission Start Action。开伞动作失败时不进入RECOVERY、不伪造成功事件，且one-shot锁存阻止2 ms循环重复脉冲；失败结果保存在FlightRecovery快照供Console诊断。Deploy不再使用组合枚举，而由`SYSTEM_FLIGHT_DEPLOY_TRIGGER_MASK`按位组合`TILT/APOGEE_VZ/DELAY`；mask=0关闭自动触发，多个bit天然为OR，同周期成立时保留完整matched mask但动作只执行一次。当前默认仍为APOGEE_VZ only；TILT默认相对START冻结的initial rocket axis；DELAY从START成功后的mission time 0计时，不代表physical launch-relative延时。
 
-进入RECOVERY后才允许着陆判定。默认`BARO_IMU_WINDOW`只使用直接`EstimatorPressureSnapshot.altitude_m`和corrected body gyro/accel：短Baro回归窗口满足低高度变化率后打开candidate，Baro与IMU在同一个`[t0,t1]`内同时满足样本数、覆盖率、freshness、回归斜率、高度span、gyro norm和`abs(|a|-local_g)`才进入LANDED。KF高度/vz、INS position和GNSS高度不参与判据；Baro不可用时保持RECOVERY且不fallback。`STILLNESS`和`IMPACT_THEN_STILLNESS`保留，但impact模式仅在selected IMU显式声明可靠冲击采样能力时可编译；当前JY901B capability为0。Impact事件不等于LANDED。
+进入RECOVERY后才允许着陆判定。默认`BARO_IMU_WINDOW`只使用直接`EstimatorPressureSnapshot.altitude_m`和corrected body gyro/accel：短Baro回归窗口满足低高度变化率后打开candidate，Baro与IMU在同一个`[t0,t1]`内同时满足样本数、覆盖率、freshness、回归斜率、高度span、gyro norm和`abs(|a|-local_g)`才进入LANDED。KF高度/vz、INS position和GNSS高度不参与判据；Baro不可用时保持RECOVERY且不fallback。`STILLNESS`和`BARO_IMU_WINDOW`都要求selected IMU显式具备静止判定资格，当前JY901B该资格为1。`IMPACT_THEN_STILLNESS`还要求可靠冲击采样资格，当前JY901B impact资格为0，因此继续编译期拒绝。Impact事件不等于LANDED。
 
 维护串口`SYSTEM FLIGHT`只读显示deploy配置/命中mask、TILT/vz/DELAY值，以及Landing mode/state、Baro年龄/回归、candidate覆盖样本、IMU统计和impact capability；查询不推进状态机，也不逐样本输出。
 
-上述运行期逻辑之前还存在集中构建资格门：TILT要求selected gyro和软件姿态传播资格，APOGEE_VZ要求导航垂直速度，DELAY要求mission monotonic time；非零deploy mask要求Board Mission Action Service支持PARACHUTE_DEPLOY，当前profile始终要求START action。Landing的STILLNESS、IMPACT和BARO_IMU_WINDOW分别校验所需IMU、impact资格与qualified direct Barometer。任何不满足的组合必须构建失败，不在运行期fallback。
+上述运行期逻辑之前还存在集中构建资格门：TILT要求selected gyro和软件姿态传播资格，APOGEE_VZ要求导航垂直速度，DELAY要求mission monotonic time；非零deploy mask要求Board Mission Action Service支持PARACHUTE_DEPLOY，当前profile始终要求START action。Landing的三种模式都校验所需IMU静止资格；IMPACT额外校验impact资格，BARO_IMU_WINDOW额外校验qualified direct Barometer。任何不满足的组合必须构建失败，不在运行期fallback。
 
 Lifecycle不拥有执行器、GPIO、Telemetry或日志。FlightRecovery通过`SystemMissionAction_Execute()`直接接口请求动作，通过只读sequence快照发布事件；Telemetry、Logger与Console交付失败均不改变Lifecycle或动作锁存。

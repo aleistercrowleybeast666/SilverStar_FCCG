@@ -20,6 +20,9 @@
       {"id": "USART2", "kind": "uart", "metadata": {"c_id": "PLATFORM_UART_2", "header": "platform_uart.h"}},
       {"id": "GNSS_RESET_A", "kind": "gpio_output", "metadata": {"c_id": "PLATFORM_GPIO_0", "header": "platform_gpio.h"}},
       {"id": "GNSS_TIMEPULSE_A", "kind": "gpio_interrupt", "metadata": {"c_id": "PLATFORM_GPIO_1", "header": "platform_gpio.h"}},
+      {"id": "INPUT_VOLTAGE_A", "kind": "adc", "metadata": {"c_id": "PLATFORM_ADC_1", "header": "platform_adc.h"}},
+      {"id": "LAUNCH_IGNITION_A", "kind": "gpio_output", "metadata": {"c_id": "PLATFORM_GPIO_2", "header": "platform_gpio.h"}},
+      {"id": "PARACHUTE_PYRO_A", "kind": "gpio_output", "metadata": {"c_id": "PLATFORM_GPIO_3", "header": "platform_gpio.h"}},
       {"id": "SYSTEM_TIME", "kind": "time", "metadata": {}}
     ],
     "roles": [
@@ -28,7 +31,10 @@
       {"key": "gnss:data", "kind": "uart", "default": "USART2", "candidates": ["USART2"], "fixed": true},
       {"key": "gnss:reset", "kind": "gpio_output", "default": "GNSS_RESET_A", "candidates": ["GNSS_RESET_A"], "fixed": true},
       {"key": "gnss:timepulse", "kind": "gpio_interrupt", "default": "GNSS_TIMEPULSE_A", "candidates": ["GNSS_TIMEPULSE_A"], "fixed": true},
-      {"key": "gnss:time", "kind": "time", "default": "SYSTEM_TIME", "candidates": ["SYSTEM_TIME"], "fixed": true}
+      {"key": "gnss:time", "kind": "time", "default": "SYSTEM_TIME", "candidates": ["SYSTEM_TIME"], "fixed": true},
+      {"key": "silverstar.device.sensor.input_voltage:input_voltage", "kind": "adc", "default": "INPUT_VOLTAGE_A", "candidates": ["INPUT_VOLTAGE_A"], "fixed": true},
+      {"key": "silverstar.device.actuator.launch_ignition:output", "kind": "gpio_output", "default": "LAUNCH_IGNITION_A", "candidates": ["LAUNCH_IGNITION_A"], "fixed": true},
+      {"key": "silverstar.device.actuator.parachute_pyro:output", "kind": "gpio_output", "default": "PARACHUTE_PYRO_A", "candidates": ["PARACHUTE_PYRO_A"], "fixed": true}
     ],
     "conflicts": []
   },
@@ -48,10 +54,12 @@
         {"id": "USART2", "handle": "huart2"}
       ],
       "spis": [],
-      "adcs": [],
+      "adcs": [{"id": "INPUT_VOLTAGE_A", "handle": "hadc1"}],
       "gpios": [
         {"id": "GNSS_RESET_A", "port": "GNSS_RESET_A_GPIO_Port", "pin": "GNSS_RESET_A_Pin"},
-        {"id": "GNSS_TIMEPULSE_A", "port": "GNSS_TIMEPULSE_A_GPIO_Port", "pin": "GNSS_TIMEPULSE_A_Pin", "active_high": 1}
+        {"id": "GNSS_TIMEPULSE_A", "port": "GNSS_TIMEPULSE_A_GPIO_Port", "pin": "GNSS_TIMEPULSE_A_Pin", "active_high": 1},
+        {"id": "LAUNCH_IGNITION_A", "port": "LAUNCH_IGNITION_A_GPIO_Port", "pin": "LAUNCH_IGNITION_A_Pin"},
+        {"id": "PARACHUTE_PYRO_A", "port": "PARACHUTE_PYRO_A_GPIO_Port", "pin": "PARACHUTE_PYRO_A_Pin"}
       ]
     }
   },

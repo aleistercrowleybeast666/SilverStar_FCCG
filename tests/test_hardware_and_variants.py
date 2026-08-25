@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import shutil
 import zipfile
 from pathlib import Path, PurePosixPath
@@ -52,12 +53,17 @@ def test_estimator_none_is_absent_from_make_and_eide(
     model = ReferenceProject_Create("NoEstimator")
     model.strategies["estimator"] = None
     model = ProjectConfiguration_Reconcile(model, builtin_catalog).model
-    assert "ApogeeVerticalVelocity" not in model.modes["deployment"]
+    # The selected INS implementation itself provides qualified vertical velocity,
+    # so deployment availability is independent of whether KF6 is selected.
+    assert "ApogeeVerticalVelocity" in model.modes["deployment"]
     validation = Project_Validate(model, builtin_catalog)
     assert validation.valid
 
     graph = SourceGraph_Resolve(model, builtin_catalog)
     assert not any("Algorithm/Estimator/KF6" in source for source in graph.sources)
+    assert "APP/Src/estimator_task_none.c" in graph.sources
+    assert "APP/Src/estimator_task.c" not in graph.sources
+    assert "APP/Src/estimator_task.c" in graph.exclude_sources
     assert "SYSTEM_BUILD_FUSION_ALGORITHM=SYSTEM_FUSION_NONE" in graph.defines
     assert "SYSTEM_BUILD_ESTIMATOR_ENABLED=0U" in graph.defines
 
@@ -70,12 +76,26 @@ def test_estimator_none_is_absent_from_make_and_eide(
     assert "SYSTEM_FUSION_NONE" in make_graph
     assert "SYSTEM_FUSION_NONE" in eide
 
+    core = builtin_catalog.Component_Get("silverstar.core.0_0_9")
+    estimator_header = (
+        core.payload_root / "APP" / "Inc" / "estimator_task.h"
+    ).read_text(encoding="utf-8")
+    estimator_source = (
+        core.payload_root / "APP" / "Src" / "estimator_task_none.c"
+    ).read_text(encoding="utf-8")
+    assert "#if SYSTEM_BUILD_ESTIMATOR_ENABLED != 0U" in estimator_header
+    assert "EstimatorNoFusion_OutputRefresh" in estimator_source
+    assert "#if SYSTEM_BUILD_ESTIMATOR_ENABLED" not in estimator_source
+
 
 def test_environment_plugin_renders_one_resolved_source_graph(
     builtin_catalog: PluginCatalog,
 ) -> None:
     model = ReferenceProject_Create("EnvironmentTruth")
     graph = SourceGraph_Resolve(model, builtin_catalog)
+    assert "APP/Src/estimator_task.c" in graph.sources
+    assert "APP/Src/estimator_task_none.c" not in graph.sources
+    assert "APP/Src/estimator_task_none.c" in graph.exclude_sources
     metadata = MetadataFiles_Render(model, builtin_catalog, graph)
     expected_outputs = {
         "EnvironmentTruth.code-workspace",
@@ -83,6 +103,7 @@ def test_environment_plugin_renders_one_resolved_source_graph(
         ".vscode/settings.json",
         ".vscode/extensions.json",
         ".eide/eide.yml",
+        ".eide/files.options.yml",
         "Makefile",
         "Targets/SilverStar_F407/target.mk",
     }
@@ -100,10 +121,26 @@ def test_environment_plugin_renders_one_resolved_source_graph(
     assert actual_source_dirs == expected_source_dirs
     assert "srcDirs: []" not in eide
     assert "outDir: build\\EIDE\\SilverStar_F407" in eide
-    assert "uploadConfigMap" not in eide
-    assert "uploader:" not in eide
-    assert "OpenOCD" not in eide
-    assert "STLink" not in eide
+    assert "uploadConfigMap" in eide
+    assert "uploader: OpenOCD" in eide
+    assert "uploader: JLink" not in eide
+    assert "OpenOCD" in eide
+    assert "STLink" in eide
+    assert "deviceName: null" in eide
+    assert "packDir: null" in eide
+    for include_dir in graph.include_dirs:
+        assert include_dir in eide
+    for define in graph.defines:
+        assert define in eide
+    assert graph.linker_script in eide
+    workspace = json.loads(
+        metadata["EnvironmentTruth.code-workspace"].decode("utf-8")
+    )
+    assert set(workspace) == {"folders", "settings", "extensions"}
+    assert workspace["folders"] == [
+        {"name": "EnvironmentTruth", "path": "."}
+    ]
+    assert workspace["extensions"]["recommendations"]
     assert "mingw32-make" in metadata[".vscode/tasks.json"].decode("utf-8")
     for source in graph.sources:
         assert source in graph.MakeFragment_Render()
@@ -127,6 +164,17 @@ def test_same_mcu_supports_two_board_resource_maps(workspace_root: Path) -> None
         model.device_instances = [
             DeviceInstance("imu0", "silverstar.device.imu.jy901b"),
             DeviceInstance("gnss0", "silverstar.device.gnss.neo_m9n"),
+            DeviceInstance(
+                "voltage_monitor0", "silverstar.device.sensor.input_voltage"
+            ),
+            DeviceInstance(
+                "launch_ignition0",
+                "silverstar.device.actuator.launch_ignition",
+            ),
+            DeviceInstance(
+                "parachute_pyro0",
+                "silverstar.device.actuator.parachute_pyro",
+            ),
         ]
         model.board = board_id
         model.hardware = HardwareConfiguration(
@@ -159,6 +207,48 @@ def test_same_mcu_supports_two_board_resource_maps(workspace_root: Path) -> None
     ) == mcu_provenance
 
 
+def test_optional_logical_devices_render_safe_disabled_resource_bindings(
+    builtin_catalog: PluginCatalog,
+) -> None:
+    model = ReferenceProject_Create("OptionalLogicalDevicesOff")
+    model.modes["deployment"] = []
+    model.device_instances = [
+        instance
+        for instance in model.device_instances
+        if instance.plugin
+        not in {
+            "silverstar.device.sensor.input_voltage",
+            "silverstar.device.actuator.parachute_pyro",
+        }
+    ]
+
+    reconciled = ProjectConfiguration_Reconcile(model, builtin_catalog).model
+    assert "silverstar.device.sensor.input_voltage" not in (
+        reconciled.DevicePluginIds_Get()
+    )
+    assert "silverstar.device.actuator.parachute_pyro" not in (
+        reconciled.DevicePluginIds_Get()
+    )
+    assert Project_Validate(reconciled, builtin_catalog).valid
+
+    graph = SourceGraph_Resolve(reconciled, builtin_catalog)
+    header = GeneratedFiles_Render(reconciled, builtin_catalog, graph)[
+        "Generated/Inc/project_resources.h"
+    ].decode("utf-8")
+    defines = {
+        parts[1]: parts[2]
+        for line in header.splitlines()
+        if len(parts := line.split()) == 3 and parts[0] == "#define"
+    }
+    assert defines["PROJECT_RESOURCE_INPUT_VOLTAGE_ADC"] == "PLATFORM_ADC_COUNT"
+    assert (
+        defines["PROJECT_RESOURCE_PARACHUTE_PYRO_OUTPUT"]
+        == "PLATFORM_GPIO_COUNT"
+    )
+    assert defines["PROJECT_FEATURE_INPUT_VOLTAGE_MONITOR"] == "0U"
+    assert defines["PROJECT_FEATURE_PARACHUTE_PYRO_OUTPUT"] == "0U"
+
+
 def test_cubemx_import_generate_export_install_and_reuse(
     tmp_path: Path, workspace_root: Path
 ) -> None:
@@ -180,7 +270,7 @@ def test_cubemx_import_generate_export_install_and_reuse(
     resources = ResourceAssignments_Resolve(model, catalog, auto_assign=True)
     assert resources.valid
     LoggingProfile_Reconcile(model, catalog)
-    assert len(resources.assignments) == 13
+    assert len(resources.assignments) == 16
     assert imported.snapshot_root.is_relative_to(tmp_path)
     assert imported.hardware.provider == "silverstar.hardware_provider.stm32_cubemx"
     assert imported.hardware.build_sources == (

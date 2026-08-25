@@ -33,7 +33,9 @@ cache_dir = "tests/.pytest-cache"
 norecursedirs = [
     ".pytest-cache",
     ".pytest-work",
+    ".w-*",
     ".tmp",
+    "acceptance_*",
     "acceptance_current",
     "acceptance_smoke",
     "generated_projects",

@@ -47,6 +47,24 @@ environment, or any other repository. Project-local settings and logs belong bel
   require capabilities with a purpose, and the resolver stores a source override only when two or
   more physical instances can satisfy the same capability. Usage lifecycle stays in the consuming
   implementation; do not add a general PRE_START/ASCENT/RECOVERY phase policy.
+- Raw/Data capabilities only assert that data exists. Qualified capabilities ending in
+  `_qualified` assert suitability for a specific implementation contract. A Strategy must require
+  every qualification it needs; never infer qualification from a device model or related raw data.
+- Static preflight-alignment qualification is distinct from authoritative runtime-attitude
+  qualification. Hardware-quaternion alignment selectors must require the former when they only
+  sample attitude during initialization.
+- User-facing sensors and actuators are declarative Device instances. ADC/GPIO resources remain
+  Hardware Connection details; the input-voltage monitor and mission-action actuators bind to
+  those resources without presenting the raw resources as devices.
+- Protocol log availability uses Device-declared Recordable outputs independently from whether an
+  Algorithm currently Consumes the same capability. Required streams remain forced on.
+- Mission-action dependencies are one-way. A Mode may require the parachute output, but removing
+  an actuator must never auto-add it again. Launch-output absence means external ignition; removing
+  parachute output clears dependent deployment Modes.
+- Mode parameters and telemetry/maintenance/logging profiles are manifest-owned generic data.
+  Generated constants, summaries, and decoder profiles must all use the same project values.
+- Board/imported `.ioc` facts must satisfy typed bus and GPIO electrical/safe-start constraints.
+  Manual assignment confirmation is a fingerprint and must clear when a validity input changes.
 - Strategy and Mode slots are generic manifest-declared dictionaries. Do not add hard-coded future
   Guidance/Control/Actuator choices without real plugins and source.
 - Imported vendor configuration remains below `HardwareGenerated/STM32CubeMX/`. It is neither
@@ -54,6 +72,10 @@ environment, or any other repository. Project-local settings and logs belong bel
   plan confirmation.
 - Make and native EIDE must be rendered from the same resolved source graph. VS Code tasks call the
   generated Make project; no environment renderer may independently discover sources.
+- FCCG is generation-first: Generate/Apply materializes files without compiling or running quality
+  gates, then the user opens the generated VS Code/EIDE project. Release is the default generated
+  configuration while Debug remains selectable. Normal Apply preserves unchanged managed-file
+  timestamps and build dependency files.
 - GUI display functions are read-only. Configuration changes apply to a candidate model, run the
   shared reconcile pipeline, and replace the live model only after reconciliation succeeds.
 

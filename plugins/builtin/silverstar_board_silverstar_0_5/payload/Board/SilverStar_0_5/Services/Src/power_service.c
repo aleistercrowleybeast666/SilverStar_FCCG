@@ -225,6 +225,10 @@ static void SilverStarPowerService_Process(void)
     }
     s_last_attempt_us = now_us;
 
+    if (PROJECT_FEATURE_INPUT_VOLTAGE_MONITOR == 0U)
+    {
+        return;
+    }
     platform_result = PlatformAdc_Read(PROJECT_RESOURCE_INPUT_VOLTAGE_ADC,
                                        ADC_POWER_POLL_TIMEOUT_MS,
                                        &adc_count);
@@ -252,7 +256,7 @@ static SystemDeviceResult SilverStarPowerService_GetInfo(SystemDeviceInfo *info)
 {
     if (info == NULL) { return SYSTEM_DEVICE_INVALID_ARGUMENT; }
     info->device_name = "SilverStar Power Service";
-    info->model_name = "SilverStar 0.5 Voltage Input";
+    info->model_name = "SS0.5 Voltage Input";
     info->driver_version = SILVERSTAR_PRODUCT_STRING;
     info->capability_mask = SYSTEM_POWER_VALID_VOLTAGE;
     info->configuration_mask = SYSTEM_POWER_CFG_VOLTAGE_SCALE |

@@ -66,6 +66,71 @@ def HardwarePreparationFingerprint_Get(
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
+def HardwareAssignmentFingerprint_Get(
+    model: ProjectModel, catalog: PluginCatalog
+) -> str:
+    """Fingerprint every declarative input that can change resource validity."""
+    requirements: list[dict[str, Any]] = []
+    device_plugins = set(model.DevicePluginIds_Get())
+    for component_id in model.ComponentIds_Get():
+        manifest = catalog.Component_Get(component_id)
+        owner_ids = (
+            tuple(
+                instance.instance_id
+                for instance in model.device_instances
+                if instance.plugin == component_id
+            )
+            if component_id in device_plugins
+            else (component_id,)
+        )
+        for owner_id in owner_ids:
+            for requirement in manifest.resource_requirements:
+                requirements.append(
+                    {
+                        "owner": owner_id,
+                        "plugin": component_id,
+                        "name": requirement.name,
+                        "kind": requirement.kind,
+                        "required": requirement.required,
+                        "mode": requirement.mode.value,
+                        "candidates": list(requirement.candidates),
+                        "constraints": requirement.constraints,
+                        "electrical_constraints": (
+                            requirement.electrical_constraints
+                        ),
+                    }
+                )
+    value = {
+        "mcu": model.mcu,
+        "board": model.board,
+        "hardware": {
+            "mode": model.hardware.mode,
+            "provider": model.hardware.provider,
+            "snapshot_id": model.hardware.snapshot_id,
+            "source_digest": model.hardware.source_digest,
+            "ioc_file": model.hardware.ioc_file,
+        },
+        "components": list(model.ComponentIds_Get()),
+        "devices": [
+            {"instance_id": instance.instance_id, "plugin": instance.plugin}
+            for instance in model.device_instances
+        ],
+        "strategies": dict(sorted(model.strategies.items())),
+        "modes": {
+            slot: list(values) for slot, values in sorted(model.modes.items())
+        },
+        "requirements": requirements,
+        "assignments": dict(sorted(model.resource_assignments.items())),
+        "hardware_preparation": HardwarePreparationFingerprint_Get(
+            model, catalog
+        ),
+    }
+    canonical = json.dumps(
+        value, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
 def HardwarePreparationMetadata_Render(
     model: ProjectModel, catalog: PluginCatalog
 ) -> str:

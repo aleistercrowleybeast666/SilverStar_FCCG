@@ -1,18 +1,23 @@
 from __future__ import annotations
 
+import threading
 import time
 from pathlib import Path
 
 from PySide6.QtCore import QPoint, Qt
+from PySide6.QtGui import QColor, QPalette
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QDialog, QDialogButtonBox, QLabel
 
+import silverstar_fccg.ui.main_window as main_window_module
 from silverstar_fccg.app.service import FccgService
 from silverstar_fccg.app.version import PRODUCT_NAME, __version__
 from silverstar_fccg.core.settings import SettingsStore
+from silverstar_fccg.generator.assembler import ApplyResult, GenerationPlan
+from silverstar_fccg.project.validation import ProjectValidationResult
 from silverstar_fccg.ui.dialogs import NewProjectWizard
 from silverstar_fccg.ui.main_window import MainWindow
-from silverstar_fccg.ui.widgets import LockedCheckBox
+from silverstar_fccg.ui.widgets import LockedCheckBox, StandardCheckBox
 
 
 def _Window_Create(tmp_path: Path, qapp) -> MainWindow:
@@ -20,6 +25,179 @@ def _Window_Create(tmp_path: Path, qapp) -> MainWindow:
     window.show()
     qapp.processEvents()
     return window
+
+
+def test_build_log_and_internal_build_actions_are_advanced_only(
+    tmp_path: Path, qapp
+) -> None:
+    window = _Window_Create(tmp_path, qapp)
+    try:
+        advanced = window.build_page.advanced_section
+        assert not advanced.Expanded_Is()
+        assert advanced.body.isAncestorOf(window.build_page.build_log)
+        assert advanced.body.isHidden()
+        assert "build" in window.build_page.action_buttons
+        assert "build_release" not in window.build_page.action_buttons
+        assert "flash" not in window.build_page.action_buttons
+    finally:
+        window.close()
+        qapp.processEvents()
+
+
+def test_actuators_are_optional_and_parachute_removal_clears_modes(
+    tmp_path: Path, qapp
+) -> None:
+    window = _Window_Create(tmp_path, qapp)
+    try:
+        launch_id = "silverstar.device.actuator.launch_ignition"
+        parachute_id = "silverstar.device.actuator.parachute_pyro"
+        launch = window.devices_page.device_checks[launch_id]
+        parachute = window.devices_page.device_checks[parachute_id]
+        assert isinstance(launch, StandardCheckBox)
+        assert not isinstance(launch, LockedCheckBox)
+        assert isinstance(parachute, StandardCheckBox)
+        assert not isinstance(parachute, LockedCheckBox)
+        assert window.devices_page.device_checks[launch_id].text() == (
+            "起飞点火功率输出"
+        )
+        assert window.devices_page.device_checks[parachute_id].text() == (
+            "火工开伞功率输出"
+        )
+        actuator_texts = [
+            window.devices_page.actuator_checks_layout.itemAt(index).widget().text()
+            for index in range(
+                window.devices_page.actuator_checks_layout.count()
+            )
+        ]
+        assert actuator_texts[:2] == ["起飞点火功率输出", "火工开伞功率输出"]
+        assert not window.devices_page.install_button.isVisible()
+
+        launch.click()
+        qapp.processEvents()
+        assert launch_id not in window._model.DevicePluginIds_Get()
+        assert "launch_ignition0:output" not in window._model.resource_assignments
+        assert window._model.modes["deployment"]
+
+        parachute = window.devices_page.device_checks[parachute_id]
+        parachute.click()
+        qapp.processEvents()
+        assert parachute_id not in window._model.DevicePluginIds_Get()
+        assert "parachute_pyro0:output" not in window._model.resource_assignments
+        assert window._model.modes["deployment"] == []
+
+        window._OtherDevice_Toggle(parachute_id, True)
+        qapp.processEvents()
+        assert window._model.DeviceInstance_Get("parachute_pyro0") is not None
+        assert window._model.modes["deployment"] == [
+            "ApogeeVerticalVelocity",
+            "Tilt",
+        ]
+    finally:
+        window.close()
+        qapp.processEvents()
+
+
+def test_vscode_workspace_launcher_prefers_executable_and_opens_new_window(
+    tmp_path: Path, qapp, monkeypatch
+) -> None:
+    window = _Window_Create(tmp_path, qapp)
+    install_root = tmp_path / "Microsoft VS Code"
+    launcher = install_root / "bin" / "code.cmd"
+    executable = install_root / "Code.exe"
+    workspace = tmp_path / "LaunchTest.code-workspace"
+    launcher.parent.mkdir(parents=True)
+    launcher.write_text("@echo off\n", encoding="utf-8")
+    executable.write_bytes(b"")
+    workspace.write_text('{"folders": [{"path": "."}]}\n', encoding="utf-8")
+    calls: list[tuple[list[str], dict[str, object]]] = []
+
+    class ProcessFixture:
+        @staticmethod
+        def poll() -> None:
+            return None
+
+    def launch(command: list[str], **kwargs: object) -> ProcessFixture:
+        calls.append((command, kwargs))
+        return ProcessFixture()
+
+    monkeypatch.setattr(
+        main_window_module.shutil,
+        "which",
+        lambda command: str(launcher) if command == "code.cmd" else None,
+    )
+    monkeypatch.setattr(main_window_module.subprocess, "Popen", launch)
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "missing-local"))
+    monkeypatch.setenv("ProgramFiles", str(tmp_path / "missing-program-files"))
+    monkeypatch.setenv("ProgramFiles(x86)", str(tmp_path / "missing-program-files-x86"))
+    try:
+        result = window._VsCodeWorkspace_Launch(workspace)
+        assert result.succeeded
+        command, arguments = calls[0]
+        assert command == [
+            str(executable.resolve()),
+            "--new-window",
+            str(workspace.resolve()),
+        ]
+        assert arguments["cwd"] == str(tmp_path.resolve())
+        assert arguments["creationflags"] == 0
+    finally:
+        window.close()
+        qapp.processEvents()
+
+
+def test_vscode_workspace_open_failure_shows_exact_reason(
+    tmp_path: Path, qapp, monkeypatch
+) -> None:
+    window = _Window_Create(tmp_path, qapp)
+    workspace = tmp_path / f"{window._model.identity.name}.code-workspace"
+    workspace.write_text('{"folders": [{"path": "."}]}\n', encoding="utf-8")
+    window._project_root = tmp_path
+    errors: list[str] = []
+    monkeypatch.setattr(
+        window,
+        "_VsCodeWorkspace_Launch",
+        lambda _workspace: main_window_module._WorkspaceLaunchResult(
+            False, "fixture launcher failure"
+        ),
+    )
+    monkeypatch.setattr(window, "_Error_Show", errors.append)
+    try:
+        window._GeneratedProject_Open("open_vscode")
+        assert len(errors) == 1
+        assert str(workspace.resolve()) in errors[0]
+        assert "fixture launcher failure" in errors[0]
+    finally:
+        window.close()
+        qapp.processEvents()
+
+
+def test_vscode_workspace_launcher_reports_missing_installation_and_association(
+    tmp_path: Path, qapp, monkeypatch
+) -> None:
+    window = _Window_Create(tmp_path, qapp)
+    workspace = tmp_path / "MissingLauncher.code-workspace"
+    workspace.write_text('{"folders": [{"path": "."}]}\n', encoding="utf-8")
+
+    class DesktopServicesFixture:
+        @staticmethod
+        def openUrl(_url) -> bool:
+            return False
+
+    monkeypatch.setattr(main_window_module.shutil, "which", lambda _command: None)
+    monkeypatch.setattr(
+        main_window_module, "QDesktopServices", DesktopServicesFixture
+    )
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "missing-local"))
+    monkeypatch.setenv("ProgramFiles", str(tmp_path / "missing-program-files"))
+    monkeypatch.setenv("ProgramFiles(x86)", str(tmp_path / "missing-program-files-x86"))
+    try:
+        result = window._VsCodeWorkspace_Launch(workspace)
+        assert not result.succeeded
+        assert "Code.exe" in result.reason
+        assert ".code-workspace" in result.reason
+    finally:
+        window.close()
+        qapp.processEvents()
 
 
 def test_main_window_shell_navigation_theme_and_language(tmp_path: Path, qapp) -> None:
@@ -34,21 +212,30 @@ def test_main_window_shell_navigation_theme_and_language(tmp_path: Path, qapp) -
         assert [
             window.navigation_list.item(index).text()
             for index in range(window.navigation_list.count())
-        ] == ["设备", "飞控配置", "硬件连接", "构建"]
+        ] == ["设备", "飞控配置", "硬件连接", "代码生成与构建"]
         assert not hasattr(window.build_page, "configuration_combo")
         assert set(window.build_page.action_buttons) == {
+            "generate_apply",
+            "open_vscode",
+            "open_folder",
+            "open_firmware_output",
             "build",
             "clean",
-            "build_release",
             "host_tests",
             "architecture_check",
             "power10_check",
             "static_analysis",
             "artifact_check",
         }
+        assert not window.build_page.action_buttons["open_vscode"].isEnabled()
+        assert not window.build_page.action_buttons["open_folder"].isEnabled()
+        assert not window.build_page.action_buttons[
+            "open_firmware_output"
+        ].isEnabled()
+        assert "build_release" not in window.build_page.action_buttons
         assert "flash" not in window.build_page.action_buttons
         assert window.save_as_action.shortcut().toString() == "Ctrl+Shift+S"
-        assert window.plugin_manager_dialog.panel.plugin_table.rowCount() == 23
+        assert window.plugin_manager_dialog.panel.plugin_table.rowCount() == 29
         for index in range(window.pages.count()):
             window.navigation_list.setCurrentRow(index)
             assert window.pages.currentIndex() == index
@@ -59,13 +246,15 @@ def test_main_window_shell_navigation_theme_and_language(tmp_path: Path, qapp) -
             window.navigation_list.item(index).text()
             for index in range(window.navigation_list.count())
         ] == [
-            "Devices",
-            "Flight Configuration",
-            "Hardware Connection",
-            "Build",
-        ]
-        assert window.build_page.action_buttons["build_release"].text() == (
-            "Build Release"
+                "Devices",
+                "Flight Configuration",
+                "Hardware Connection",
+                "Code Generation & Build",
+            ]
+        assert window.build_page.action_buttons["build"].text() == "Build Firmware in FCCG"
+        assert all(
+            "Build Release" not in button.text()
+            for button in window.build_page.action_buttons.values()
         )
         window.Theme_Apply("dark")
         assert window._theme == "dark"
@@ -156,12 +345,34 @@ def test_devices_page_is_physical_and_capabilities_are_on_flight_page(
         )
         assert not hasattr(window.devices_page, "capability_table")
         assert not hasattr(window.devices_page, "capability_source_combos")
-        assert window._model.hardware.mode == "unselected"
+        assert window._model.hardware.mode == "custom"
+        assert window._model.hardware.provider == (
+            "silverstar.hardware_provider.stm32_cubemx"
+        )
         assert window.board_hardware_page.board_combo.currentIndex() == 0
-        assert window.board_hardware_page.board_combo.currentData() == "__unselected__"
+        assert window.board_hardware_page.board_combo.currentData() == "__custom__"
+        assert window.board_hardware_page.board_combo.findData("__unselected__") == -1
+        board_labels = {
+            window.board_hardware_page.board_combo.itemText(index)
+            for index in range(window.board_hardware_page.board_combo.count())
+        }
+        assert "SS0.5（已验证）" in board_labels
+        assert all("SilverStar 0.5" not in label for label in board_labels)
         assert not window.board_hardware_page.preparation_widget.isVisible()
+        assert not window.board_hardware_page.prepare_button.isVisible()
         assert window.devices_page.other_group.isVisible()
-        assert window.devices_page.other_empty_label.isVisible()
+        assert not window.devices_page.other_empty_label.isVisible()
+        assert window.devices_page.device_checks[
+            "silverstar.device.sensor.input_voltage"
+        ].isChecked()
+        assert window.devices_page.actuator_group.isVisible()
+        for actuator_id in (
+            "silverstar.device.actuator.launch_ignition",
+            "silverstar.device.actuator.parachute_pyro",
+        ):
+            actuator = window.devices_page.device_checks[actuator_id]
+            assert isinstance(actuator, StandardCheckBox)
+            assert not isinstance(actuator, LockedCheckBox)
         assert not hasattr(window.devices_page, "requirement_table")
         assert not window.devices_page.add_buttons
         assert any(
@@ -177,20 +388,71 @@ def test_devices_page_is_physical_and_capabilities_are_on_flight_page(
         )
         assert jy901b_summary is not None
         assert "加速度" in jy901b_summary.text()
+        assert "不具备用途资格" in jy901b_summary.text()
+        assert "磁场绝对矢量资格" in jy901b_summary.text()
 
         capability_table = window.flight_configuration_page.capability_table
-        assert capability_table.rowCount() == 7
+        assert capability_table.rowCount() == 18
         assert all(
-            capability_table.cellWidget(row, 2) is None
+            capability_table.cellWidget(row, 3) is None
             for row in range(capability_table.rowCount())
         )
         statuses = {
+            capability_table.item(row, 0).toolTip(): capability_table.item(row, 2).text()
+            for row in range(capability_table.rowCount())
+        }
+        kinds = {
             capability_table.item(row, 0).toolTip(): capability_table.item(row, 1).text()
             for row in range(capability_table.rowCount())
         }
         assert statuses["imu.acceleration"] == "使用"
         assert statuses["magnetometer.field"] == "未使用"
         assert statuses["attitude.external"] == "未使用"
+        assert kinds["imu.acceleration"] == "原始数据"
+        assert kinds["imu.software_alignment_qualified"] == "合格能力"
+
+        alignment_combo = window.flight_configuration_page.strategy_combos[
+            "alignment"
+        ]
+        for required_slot in ("alignment", "ins", "landing"):
+            required_combo = window.flight_configuration_page.strategy_combos[
+                required_slot
+            ]
+            assert required_combo.findData(None) == -1
+            assert all(
+                "请选择策略" not in required_combo.itemText(index)
+                for index in range(required_combo.count())
+            )
+        assert (
+            window.flight_configuration_page.strategy_combos["estimator"].findData(
+                None
+            )
+            >= 0
+        )
+        triad_item = alignment_combo.model().item(
+            alignment_combo.findData(
+                "silverstar.algorithm.alignment.gravity_mag_triad"
+            )
+        )
+        assert triad_item is not None and not triad_item.isEnabled()
+        assert qapp.palette().color(
+            QPalette.ColorGroup.Disabled, QPalette.ColorRole.Text
+        ) == QColor("#64748B")
+        assert "QComboBox QAbstractItemView::item:disabled { color: #64748B; }" in (
+            qapp.styleSheet()
+        )
+        assert "不具备绝对矢量初始对准资格" in triad_item.toolTip()
+        landing_combo = window.flight_configuration_page.strategy_combos["landing"]
+        impact_item = landing_combo.model().item(
+            landing_combo.findData(
+                "silverstar.flight_logic.landing.impact_then_stillness"
+            )
+        )
+        assert impact_item is not None and not impact_item.isEnabled()
+        assert "不具备着陆冲击检测资格" in impact_item.toolTip()
+        assert landing_combo.model().item(
+            landing_combo.findData("silverstar.flight_logic.landing.stillness")
+        ).isEnabled()
 
         logging_table = window.flight_configuration_page.logging_table
         assert logging_table.horizontalHeaderItem(1).text() == "日志记录 / 日志流"
@@ -226,6 +488,7 @@ def test_background_worker_updates_shared_progress(tmp_path: Path, qapp) -> None
         assert results == [42]
         QTest.qWait(400)
         qapp.processEvents()
+        assert window._retired_workers == []
         assert not window.progress_bar.isVisible()
     finally:
         window.close()
@@ -258,20 +521,98 @@ def test_save_prepare_build_and_advanced_actions_use_shared_worker(
     try:
         window._Project_Open(project_root)
         monkeypatch.setattr(window, "Task_Run", task_run)
-        window._Project_Save()
+        window._Build_Request("generate_apply")
+        plan_calls: list[tuple[object, Path]] = []
+        original_plan_create = service.GenerationPlan_Create
+
+        def plan_create(model, root):
+            plan_calls.append((model, root))
+            return original_plan_create(model, root)
+
+        monkeypatch.setattr(service, "GenerationPlan_Create", plan_create)
         window._HardwarePrepare_Request()
+        assert plan_calls == []
+        assert window.build_page.action_buttons["open_vscode"].isEnabled()
+        assert window.build_page.action_buttons["open_folder"].isEnabled()
+        descriptor_before_validation = window._model.Dictionary_Get()
         window._Build_Request("build")
-        descriptor_before_release = window._model.Dictionary_Get()
-        window._Build_Request("build_release")
-        assert window._model.Dictionary_Get() == descriptor_before_release
+        assert window._model.Dictionary_Get() == descriptor_before_validation
         window._Build_Request("architecture_check")
     finally:
         window.close()
 
     assert invocations == [
         ("save", False),
-        ("prepare", False),
-        ("build", False),
+        ("prepare_plan", False),
         ("build", False),
         ("build", False),
     ]
+
+
+def test_hardware_prepare_plans_off_ui_thread_and_completes_safely(
+    tmp_path: Path, workspace_root: Path, qapp, monkeypatch
+) -> None:
+    service = FccgService(workspace_root)
+    window = MainWindow(
+        SettingsStore(tmp_path / "hardware-async.ini"),
+        service=service,
+    )
+    project_root = tmp_path / "HardwareAsync"
+    window._model = service.ReferenceProject_Create("HardwareAsync")
+    window._project_root = project_root
+    window._Project_Refresh()
+    plan_entered = threading.Event()
+    plan_release = threading.Event()
+    plan_threads: list[int] = []
+    prepare_threads: list[int] = []
+    errors: list[object] = []
+
+    def plan_create(model, root):
+        plan_threads.append(threading.get_ident())
+        plan_entered.set()
+        assert plan_release.wait(5.0)
+        return GenerationPlan(
+            project_root=Path(root).resolve(strict=False),
+            operations=(),
+            validation=ProjectValidationResult(()),
+            new_project=True,
+        )
+
+    def hardware_prepare(model, root, *, confirm_dangerous=False):
+        prepare_threads.append(threading.get_ident())
+        return ApplyResult(
+            project_root=Path(root),
+            files_added=1,
+            files_modified=0,
+            component_files_preserved=0,
+        )
+
+    monkeypatch.setattr(service, "GenerationPlan_Create", plan_create)
+    monkeypatch.setattr(service, "Project_HardwarePrepare", hardware_prepare)
+    monkeypatch.setattr(
+        window, "_Error_Show", lambda error, *_args: errors.append(error)
+    )
+    main_thread = threading.get_ident()
+    try:
+        window._HardwarePrepare_Request()
+        assert window._active_worker is not None
+        assert plan_entered.wait(2.0)
+        assert plan_threads[0] != main_thread
+        assert not (project_root / "SilverStar.ssproject").exists()
+        plan_release.set()
+
+        deadline = time.monotonic() + 10.0
+        while window._active_worker is not None and time.monotonic() < deadline:
+            qapp.processEvents()
+            QTest.qWait(10)
+        qapp.processEvents()
+        QTest.qWait(10)
+
+        assert errors == []
+        assert window._active_worker is None
+        assert prepare_threads and prepare_threads[0] != main_thread
+        assert window._model.hardware.mode == "board_plugin"
+        assert window._retired_workers == []
+    finally:
+        plan_release.set()
+        window.close()

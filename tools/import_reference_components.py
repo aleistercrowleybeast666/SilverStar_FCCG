@@ -302,10 +302,22 @@ def _BoardRoles_Get() -> list[dict[str, Any]]:
         ("telemetry:radio_dio1", "gpio_interrupt", "PLATFORM_GPIO_3"),
         ("telemetry:time", "time", "PLATFORM_TIME_1"),
         ("console:console", "uart", "PLATFORM_UART_3"),
-        ("flight_controller_board:power_output_1", "gpio_output", "PLATFORM_GPIO_4"),
-        ("flight_controller_board:power_output_2", "gpio_output", "PLATFORM_GPIO_5"),
+        (
+            "silverstar.device.actuator.launch_ignition:output",
+            "gpio_output",
+            "PLATFORM_GPIO_4",
+        ),
+        (
+            "silverstar.device.actuator.parachute_pyro:output",
+            "gpio_output",
+            "PLATFORM_GPIO_5",
+        ),
         ("flight_controller_board:system_indicator", "gpio_output", "PLATFORM_GPIO_6"),
-        ("flight_controller_board:input_voltage", "adc", "PLATFORM_ADC_1"),
+        (
+            "silverstar.device.sensor.input_voltage:input_voltage",
+            "adc",
+            "PLATFORM_ADC_1",
+        ),
         ("flight_controller_board:storage", "sdio", "PLATFORM_SDIO_1"),
     )
     return [
@@ -330,8 +342,8 @@ def _BoardConnections_Get() -> dict[str, Any]:
         ("PLATFORM_GPIO_1", "RADIO_RST", "telemetry.reset"),
         ("PLATFORM_GPIO_2", "RADIO_BUSY", "telemetry.busy"),
         ("PLATFORM_GPIO_3", "RADIO_DIO1", "telemetry.dio1"),
-        ("PLATFORM_GPIO_4", "P_CONTROL1", "power.output_1"),
-        ("PLATFORM_GPIO_5", "P_CONTROL2", "power.output_2"),
+        ("PLATFORM_GPIO_4", "P_CONTROL1", "actuator.launch_ignition"),
+        ("PLATFORM_GPIO_5", "P_CONTROL2", "actuator.parachute_pyro"),
         ("PLATFORM_GPIO_6", "IMU_CAL_LED", "system.indicator"),
         ("PLATFORM_GPIO_7", "GNSS_RST", "gnss.reset"),
         ("PLATFORM_GPIO_8", "GNSS_TIMEPULSE", "gnss.timepulse"),
@@ -393,7 +405,15 @@ def _Components_Get(
                 "display_names": {"zh_CN": "SilverStar 核心 0.0.9", "en_US": "SilverStar Core 0.0.9"},
                 "device_descriptors": [{"order": 12, "class": "SYSTEM_DEVICE_CLASS_TIME", "instance": 0, "driver_id": 1, "flags": primary_flags, "capability": "0U", "rate": "1000000UL", "driver_hash": "0x162F2C94UL", "name_hash": "0xADE08D82UL"}],
             },
-            docs=["docs/SilverStar_0_0_9.md", "docs/details/ARCHITECTURE.md", "docs/details/SYSTEM_LIFECYCLE.md", "docs/details/FCCG_COMPONENT_BOUNDARIES.md"],
+            docs=[
+                "docs/SilverStar_0_0_9.md",
+                "docs/details/ARCHITECTURE.md",
+                "docs/details/SYSTEM_LIFECYCLE.md",
+                "docs/details/SYSTEM_PROFILE.md",
+                "docs/details/FCCG_COMPONENT_BOUNDARIES.md",
+                "docs/details/VALIDATION_REQUIREMENTS.md",
+                "VALIDATION.md",
+            ],
         )
     )
     components.append(
@@ -420,33 +440,52 @@ def _Components_Get(
     components.append(
         _Component(
             board_id,
-            "SilverStar 0.5",
+            "SS0.5",
             "board",
             "flight_controller_board",
             ["Board/SilverStar_0_5", "Core", "FATFS", "Middlewares/Third_Party/FatFs", "BuildSystem/fatfs.mk", "Flight_Controller0.5.ioc", ".mxproject"],
-            description="Verified SilverStar 0.5 PCB, CubeMX hardware source, fixed services and resource mapping.",
+            description="Verified SS0.5 PCB, CubeMX hardware source, fixed services and resource mapping.",
             provenance=provenance,
             sources=board_sources,
             includes=["Core/Inc", "Board/SilverStar_0_5/Services/Inc", "FATFS/Target", "FATFS/App", "Middlewares/Third_Party/FatFs/src"],
             dependencies=[core_id, mcu_id],
             resources_required=[
-                {"name": "power_output_1", "kind": "gpio_output", "binding_macro": "PROJECT_RESOURCE_POWER_OUTPUT_1"},
-                {"name": "power_output_2", "kind": "gpio_output", "binding_macro": "PROJECT_RESOURCE_POWER_OUTPUT_2"},
                 {"name": "system_indicator", "kind": "gpio_output", "binding_macro": "PROJECT_RESOURCE_SYSTEM_INDICATOR"},
-                {"name": "input_voltage", "kind": "adc", "binding_macro": "PROJECT_RESOURCE_INPUT_VOLTAGE_ADC"},
                 {"name": "storage", "kind": "sdio"},
             ],
             resources_provided=provisions,
             resource_roles=_BoardRoles_Get(),
             provides=["board.silverstar_0_5", "hardware.stm32.generated", "service.output", "service.storage", "service.log_sink"],
             metadata={
-                "display_names": {"zh_CN": "SilverStar 0.5（已验证）", "en_US": "SilverStar 0.5 (Verified)"},
+                "build_symbol": "SILVERSTAR_0_5",
+                "display_names": {"zh_CN": "SS0.5（已验证）", "en_US": "SS0.5 (Validated)"},
+                "descriptions": {
+                    "zh_CN": "已验证的SS0.5板卡、CubeMX硬件源、固定服务与资源映射。",
+                    "en_US": "Verified SS0.5 PCB, CubeMX hardware source, fixed services, and resource mapping.",
+                },
+                "optional_resource_bindings": [
+                    {
+                        "binding_macro": "PROJECT_RESOURCE_INPUT_VOLTAGE_ADC",
+                        "enabled_macro": "PROJECT_FEATURE_INPUT_VOLTAGE_MONITOR",
+                        "fallback": "PLATFORM_ADC_COUNT",
+                        "header": "platform_adc.h",
+                    },
+                    {
+                        "binding_macro": "PROJECT_RESOURCE_LAUNCH_IGNITION_OUTPUT",
+                        "enabled_macro": "PROJECT_FEATURE_LAUNCH_IGNITION_OUTPUT",
+                        "fallback": "PLATFORM_GPIO_COUNT",
+                        "header": "platform_gpio.h",
+                    },
+                    {
+                        "binding_macro": "PROJECT_RESOURCE_PARACHUTE_PYRO_OUTPUT",
+                        "enabled_macro": "PROJECT_FEATURE_PARACHUTE_PYRO_OUTPUT",
+                        "fallback": "PLATFORM_GPIO_COUNT",
+                        "header": "platform_gpio.h",
+                    },
+                ],
                 "device_descriptors": [
-                    {"order": 7, "class": "SYSTEM_DEVICE_CLASS_POWER", "flags": device_flags, "capability": "SYSTEM_CAPABILITY_POWER", "rate": "(uint32_t)(1000000ULL / SYSTEM_POWER_SAMPLE_PERIOD_US)", "driver_hash": "0x7C755741UL", "name_hash": "0xEF288B50UL"},
                     {"order": 8, "class": "SYSTEM_DEVICE_CLASS_STORAGE", "flags": device_flags, "capability": "SYSTEM_CAPABILITY_STORAGE", "rate": "0U", "driver_hash": "0xF02E45D5UL", "name_hash": "0x3A7B5375UL"},
                     {"order": 9, "class": "SYSTEM_DEVICE_CLASS_LOG_SINK", "flags": device_flags, "capability": "SYSTEM_CAPABILITY_STORAGE", "rate": "0U", "driver_hash": "0x6DB00410UL", "name_hash": "0xCD7C84A3UL"},
-                    {"order": 10, "class": "SYSTEM_DEVICE_CLASS_OUTPUT", "flags": f"{device_flags} | SYSTEM_DESCRIPTOR_FLAG_REQUIRED", "capability": "SYSTEM_CAPABILITY_OUTPUT", "rate": "0U", "driver_hash": "0xA03101D4UL", "name_hash": "0x30FDFAB9UL"},
-                    {"order": 11, "class": "SYSTEM_DEVICE_CLASS_MISSION_ACTION", "flags": device_flags, "capability": "SYSTEM_CAPABILITY_OUTPUT", "rate": "0U", "driver_hash": "0x8BC9C34EUL", "name_hash": "0x3870C351UL"},
                 ],
             },
             build_extra={"exclude_sources": ["Core/Src/sysmem.c"]},
@@ -457,28 +496,42 @@ def _Components_Get(
 
     device_specs = (
         ("silverstar.device.imu.jy901b", "JY901B", "imu", "Devices/IMU/JY901B/module.mk", ["Devices/IMU/JY901B"], ["Devices/IMU/JY901B/Inc", "Devices/IMU/JY901B/Adapter/Inc"], [
-            {"name": "data", "kind": "uart", "binding_macro": "PROJECT_RESOURCE_IMU_UART", "constraints": {"baud_rate": 230400, "signals": ["rx", "tx"], "dma_rx_required": True, "irq_required": True}},
+            {"name": "data", "kind": "uart", "binding_macro": "PROJECT_RESOURCE_IMU_UART", "constraints": {"uart": {"baud": {"exact": 230400, "configurable": False}, "word_length": 8, "parity": "none", "stop_bits": 1.0, "rx_dma": True, "tx_dma": False, "irq": True}}},
             {"name": "time", "kind": "time", "mode": "shared"},
-        ], ["device.imu", "imu.acceleration", "imu.angular_rate", "attitude.external", "magnetometer.field", "barometer.altitude"], [
+        ], [
+            "device.imu",
+            "imu.acceleration",
+            "imu.angular_rate",
+            "attitude.external",
+            "magnetometer.field",
+            "barometer.altitude",
+            "attitude.external.preflight_alignment_6axis_qualified",
+            "attitude.external.preflight_alignment_9axis_qualified",
+            "attitude.external.preflight_fallback_qualified",
+            "imu.software_alignment_qualified",
+            "imu.software_propagation_qualified",
+            "imu.landing_stillness_qualified",
+            "barometer.landing_window_qualified",
+        ], [
             {"order": 1, "class": "SYSTEM_DEVICE_CLASS_IMU", "flags": f"{device_flags} | SYSTEM_DESCRIPTOR_FLAG_REQUIRED | SYSTEM_DESCRIPTOR_FLAG_PRIMARY", "capability": "SYSTEM_CAPABILITY_IMU", "rate": "SYSTEM_IMU_OUTPUT_RATE_HZ", "driver_hash": "0xADF02482UL", "name_hash": "0x53692179UL"},
             {"order": 3, "class": "SYSTEM_DEVICE_CLASS_BAROMETER", "flags": f"{device_flags} | SYSTEM_DESCRIPTOR_FLAG_SHARED_PHYSICAL", "capability": "SYSTEM_CAPABILITY_BAROMETER", "rate": "SYSTEM_BAROMETER_OUTPUT_RATE_HZ", "driver_hash": "0xADF02482UL", "name_hash": "0x53692179UL"},
             {"order": 4, "class": "SYSTEM_DEVICE_CLASS_HARDWARE_QUATERNION", "flags": f"{device_flags} | SYSTEM_DESCRIPTOR_FLAG_SHARED_PHYSICAL", "capability": "SYSTEM_CAPABILITY_HARDWARE_QUATERNION", "rate": "SYSTEM_HARDWARE_QUATERNION_OUTPUT_RATE_HZ", "driver_hash": "0xADF02482UL", "name_hash": "0x53692179UL"},
         ], ["docs/details/IMU_JY901B.md", "docs/details/DEVICE_INTERFACE.md"]),
         ("silverstar.device.gnss.neo_m9n", "NEO-M9N", "gnss", "Devices/GNSS/NEO_M9N/module.mk", ["Devices/GNSS/NEO_M9N"], ["Devices/GNSS/NEO_M9N/Inc"], [
-            {"name": "data", "kind": "uart", "binding_macro": "PROJECT_RESOURCE_GNSS_UART", "constraints": {"baud_rate": 921600, "signals": ["rx", "tx"], "dma_rx_required": True, "irq_required": True}},
-            {"name": "reset", "kind": "gpio_output", "binding_macro": "PROJECT_RESOURCE_GNSS_RESET"},
-            {"name": "timepulse", "kind": "gpio_interrupt", "binding_macro": "PROJECT_RESOURCE_GNSS_TIMEPULSE"},
+            {"name": "data", "kind": "uart", "binding_macro": "PROJECT_RESOURCE_GNSS_UART", "constraints": {"uart": {"baud": {"exact": 921600, "configurable": False}, "word_length": 8, "parity": "none", "stop_bits": 1.0, "rx_dma": True, "tx_dma": False, "irq": True}}},
+            {"name": "reset", "kind": "gpio_output", "binding_macro": "PROJECT_RESOURCE_GNSS_RESET", "electrical_constraints": {"mode": "gpio_output", "output_type": "push_pull", "pull": "none", "speed": "low", "safe_initial_level": "inactive", "active_polarity": "low", "startup_glitch_free": True}},
+            {"name": "timepulse", "kind": "gpio_interrupt", "binding_macro": "PROJECT_RESOURCE_GNSS_TIMEPULSE", "electrical_constraints": {"mode": "gpio_interrupt", "pull": "none", "exti_trigger": "rising", "irq": True, "maximum_irq_priority": 5}},
             {"name": "time", "kind": "time", "mode": "shared"},
         ], ["device.gnss", "gnss.position", "gnss.velocity"], [{"order": 2, "class": "SYSTEM_DEVICE_CLASS_GNSS", "flags": primary_flags, "capability": "SYSTEM_CAPABILITY_GNSS", "rate": "SYSTEM_GNSS_NAVIGATION_RATE_HZ", "driver_hash": "0xC751E890UL", "name_hash": "0xA8E98337UL"}], ["docs/details/GNSS_NEO_M9N.md", "docs/details/GNSS_UBX.md"]),
         ("silverstar.device.telemetry.sx1281", "E28-2G4M12SX (SX1281)", "telemetry", "Devices/Telemetry/SX1281/module.mk", ["Devices/Telemetry/SX1281", "Middlewares/Third_Party/SX1280lib"], ["Devices/Telemetry/SX1281/Inc", "Middlewares/Third_Party/SX1280lib"], [
-            {"name": "radio_bus", "kind": "spi", "binding_macro": "PROJECT_RESOURCE_RADIO_SPI", "constraints": {"mode": "master", "signals": ["miso", "mosi", "sck"]}},
-            {"name": "radio_nss", "kind": "gpio_output", "binding_macro": "PROJECT_RESOURCE_RADIO_NSS"},
-            {"name": "radio_reset", "kind": "gpio_output", "binding_macro": "PROJECT_RESOURCE_RADIO_RESET"},
-            {"name": "radio_busy", "kind": "gpio_input", "binding_macro": "PROJECT_RESOURCE_RADIO_BUSY"},
-            {"name": "radio_dio1", "kind": "gpio_interrupt", "binding_macro": "PROJECT_RESOURCE_RADIO_DIO1"},
+            {"name": "radio_bus", "kind": "spi", "binding_macro": "PROJECT_RESOURCE_RADIO_SPI", "constraints": {"spi": {"mode": "master", "cpol": "low", "cpha": "1edge", "data_bits": 8, "bit_order": "msb", "minimum_clock_hz": 100000, "maximum_clock_hz": 18000000, "dma": False, "irq": False}}},
+            {"name": "radio_nss", "kind": "gpio_output", "binding_macro": "PROJECT_RESOURCE_RADIO_NSS", "electrical_constraints": {"mode": "gpio_output", "output_type": "push_pull", "pull": "none", "speed": "low", "safe_initial_level": "inactive", "active_polarity": "low", "startup_glitch_free": True}},
+            {"name": "radio_reset", "kind": "gpio_output", "binding_macro": "PROJECT_RESOURCE_RADIO_RESET", "electrical_constraints": {"mode": "gpio_output", "output_type": "push_pull", "pull": "none", "speed": "low", "safe_initial_level": "inactive", "active_polarity": "low", "startup_glitch_free": True}},
+            {"name": "radio_busy", "kind": "gpio_input", "binding_macro": "PROJECT_RESOURCE_RADIO_BUSY", "electrical_constraints": {"mode": "gpio_input", "pull": "none"}},
+            {"name": "radio_dio1", "kind": "gpio_interrupt", "binding_macro": "PROJECT_RESOURCE_RADIO_DIO1", "electrical_constraints": {"mode": "gpio_interrupt", "pull": "none", "exti_trigger": "rising", "irq": True, "maximum_irq_priority": 5}},
             {"name": "time", "kind": "time", "mode": "shared"},
         ], ["device.telemetry", "transport.lora", "transport.integrity.hardware_crc"], [{"order": 5, "class": "SYSTEM_DEVICE_CLASS_TELEMETRY", "flags": device_flags, "capability": "SYSTEM_CAPABILITY_TELEMETRY", "rate": "0U", "driver_hash": "0x3C6CF5BAUL", "name_hash": "0xC4A6E024UL"}], ["docs/details/SX1281_TRANSPORT.md"]),
-        ("silverstar.device.console.uart", "Serial Maintenance Protocol 0.0", "console", "Devices/Console/UART/module.mk", ["Devices/Console/UART"], ["Devices/Console/UART/Inc"], [{"name": "console", "kind": "uart", "binding_macro": "PROJECT_RESOURCE_CONSOLE_UART", "constraints": {"baud_rate": 230400, "signals": ["rx", "tx"], "irq_required": True}}], ["device.console", "maintenance.console"], [{"order": 6, "class": "SYSTEM_DEVICE_CLASS_CONSOLE", "flags": device_flags, "capability": "SYSTEM_CAPABILITY_CONSOLE", "rate": "0U", "driver_hash": "0x92850855UL", "name_hash": "0xC8A9F404UL"}], ["docs/details/MAINTENANCE_PROTOCOL.md"]),
+        ("silverstar.device.console.uart", "Serial Maintenance Protocol 0.0", "console", "Devices/Console/UART/module.mk", ["Devices/Console/UART"], ["Devices/Console/UART/Inc"], [{"name": "console", "kind": "uart", "binding_macro": "PROJECT_RESOURCE_CONSOLE_UART", "constraints": {"uart": {"baud": {"exact": 230400, "configurable": False}, "word_length": 8, "parity": "none", "stop_bits": 1.0, "rx_dma": False, "tx_dma": False, "irq": True}}}], ["device.console", "maintenance.console"], [{"order": 6, "class": "SYSTEM_DEVICE_CLASS_CONSOLE", "flags": device_flags, "capability": "SYSTEM_CAPABILITY_CONSOLE", "rate": "0U", "driver_hash": "0x92850855UL", "name_hash": "0xC8A9F404UL"}], ["docs/details/MAINTENANCE_PROTOCOL.md"]),
     )
     device_details = {
         "silverstar.device.imu.jy901b": {
@@ -504,6 +557,59 @@ def _Components_Get(
     }
     for component_id, name, component_class, module, roots, includes, requirements, provides, descriptors, docs in device_specs:
         details = device_details[component_id]
+        device_metadata: dict[str, Any] = {
+            "display_names": details["display_names"],
+            "device_descriptors": descriptors,
+        }
+        if component_id == "silverstar.device.imu.jy901b":
+            device_metadata.update(
+                {
+                    "capability_qualifications": {
+                        "attitude.external.preflight_alignment_6axis_qualified": {
+                            "evidence": "JY901B_QUATERNION_BUILD_PREFLIGHT_ALIGNMENT_6AXIS_QUALIFIED=1U"
+                        },
+                        "attitude.external.preflight_alignment_9axis_qualified": {
+                            "evidence": "JY901B_QUATERNION_BUILD_PREFLIGHT_ALIGNMENT_9AXIS_QUALIFIED=1U"
+                        },
+                        "attitude.external.preflight_fallback_qualified": {
+                            "evidence": "JY901B_QUATERNION_BUILD_PREFLIGHT_FALLBACK_QUALIFIED=1U"
+                        },
+                        "imu.software_alignment_qualified": {
+                            "evidence": "JY901B_IMU_BUILD_SOFTWARE_ALIGNMENT_QUALIFIED=1U"
+                        },
+                        "imu.software_propagation_qualified": {
+                            "evidence": "JY901B_IMU_BUILD_SOFTWARE_PROPAGATION_QUALIFIED=1U"
+                        },
+                        "imu.landing_stillness_qualified": {
+                            "evidence": "Derived from the reference Stillness gate requiring selected acceleration and angular-rate data"
+                        },
+                        "barometer.landing_window_qualified": {
+                            "evidence": "JY901B_BAROMETER_BUILD_LANDING_WINDOW_QUALIFIED=1U"
+                        },
+                    },
+                    "unqualified_capabilities": {
+                        "magnetometer.absolute_vector_qualified": "JY901B_MAGNETOMETER_BUILD_ABSOLUTE_VECTOR_QUALIFIED=0U",
+                        "attitude.external.authoritative_6axis_qualified": "JY901B_QUATERNION_BUILD_AUTHORITATIVE_6AXIS_QUALIFIED=0U",
+                        "attitude.external.authoritative_9axis_qualified": "JY901B_QUATERNION_BUILD_AUTHORITATIVE_9AXIS_QUALIFIED=0U",
+                        "imu.landing_impact_qualified": "JY901B_IMU_BUILD_LANDING_IMPACT_QUALIFIED=0U",
+                    },
+                    "recordable_outputs": {
+                        "imu.acceleration": {"enabled": True},
+                        "imu.angular_rate": {"enabled": True},
+                        "attitude.external": {"enabled": True},
+                        "barometer.altitude": {"enabled": True},
+                        "magnetometer.field": {
+                            "enabled": False,
+                            "reason_code": "logging.unavailable.magnetometer_output_disabled",
+                        },
+                    },
+                }
+            )
+        elif component_id == "silverstar.device.gnss.neo_m9n":
+            device_metadata["recordable_outputs"] = {
+                "gnss.position": {"enabled": True},
+                "gnss.velocity": {"enabled": True},
+            }
         components.append(
             _Component(
                 component_id,
@@ -524,8 +630,198 @@ def _Components_Get(
                     "multi_instance_ready": False,
                 },
                 physical_device=details["physical_device"],
-                metadata={"display_names": details["display_names"], "device_descriptors": descriptors},
-                docs=docs,
+                metadata=device_metadata,
+                docs=(
+                    docs
+                    + [
+                        "docs/details/IMU_INTERFACE.md",
+                        "docs/details/HARDWARE_QUATERNION_INTERFACE.md",
+                    ]
+                    if component_id == "silverstar.device.imu.jy901b"
+                    else docs
+                ),
+            )
+        )
+
+    logical_device_specs = (
+        (
+            "silverstar.device.sensor.input_voltage",
+            "Input Voltage Monitor",
+            "输入电压监测",
+            "other_sensor",
+            [
+                {
+                    "name": "input_voltage",
+                    "kind": "adc",
+                    "binding_macro": "PROJECT_RESOURCE_INPUT_VOLTAGE_ADC",
+                    "display_names": {
+                        "zh_CN": "输入电压监测",
+                        "en_US": "Input Voltage Monitor",
+                    },
+                }
+            ],
+            ["power.voltage", "power.monitor"],
+            {
+                "device_category": "sensor",
+                "default_instance_id": "voltage_monitor0",
+                "recordable_outputs": {"power.voltage": {"enabled": True}},
+                "device_descriptors": [
+                    {
+                        "order": 7,
+                        "class": "SYSTEM_DEVICE_CLASS_POWER",
+                        "flags": device_flags,
+                        "capability": "SYSTEM_CAPABILITY_POWER",
+                        "rate": "(uint32_t)(1000000ULL / SYSTEM_POWER_SAMPLE_PERIOD_US)",
+                        "driver_hash": "0x7C755741UL",
+                        "name_hash": "0xEF288B50UL",
+                    }
+                ],
+            },
+        ),
+        (
+            "silverstar.device.actuator.launch_ignition",
+            "Launch Ignition Power Output",
+            "起飞点火功率输出",
+            "mission_action_actuator",
+            [
+                {
+                    "name": "output",
+                    "kind": "gpio_output",
+                    "binding_macro": "PROJECT_RESOURCE_LAUNCH_IGNITION_OUTPUT",
+                    "electrical_constraints": {
+                        "mode": "gpio_output",
+                        "output_type": "push_pull",
+                        "pull": "none",
+                        "speed": "low",
+                        "safe_initial_level": "inactive",
+                        "active_polarity": "high",
+                        "startup_glitch_free": True,
+                    },
+                    "display_names": {
+                        "zh_CN": "起飞点火功率输出",
+                        "en_US": "Launch Ignition Power Output",
+                    },
+                }
+            ],
+            ["actuator.mission_action.launch_ignition"],
+            {
+                "device_category": "mission_action_actuator",
+                "independent_class_member": True,
+                "default_instance_id": "launch_ignition0",
+                "auto_select_when_required": False,
+                "device_descriptors": [
+                    {
+                        "order": 10,
+                        "class": "SYSTEM_DEVICE_CLASS_OUTPUT",
+                        "flags": f"{device_flags} | SYSTEM_DESCRIPTOR_FLAG_REQUIRED",
+                        "capability": "SYSTEM_CAPABILITY_OUTPUT",
+                        "rate": "0U",
+                        "driver_hash": "0xA03101D4UL",
+                        "name_hash": "0x30FDFAB9UL",
+                    }
+                ],
+            },
+        ),
+        (
+            "silverstar.device.actuator.parachute_pyro",
+            "Parachute Pyro Power Output",
+            "火工开伞功率输出",
+            "mission_action_actuator",
+            [
+                {
+                    "name": "output",
+                    "kind": "gpio_output",
+                    "binding_macro": "PROJECT_RESOURCE_PARACHUTE_PYRO_OUTPUT",
+                    "electrical_constraints": {
+                        "mode": "gpio_output",
+                        "output_type": "push_pull",
+                        "pull": "none",
+                        "speed": "low",
+                        "safe_initial_level": "inactive",
+                        "active_polarity": "high",
+                        "startup_glitch_free": True,
+                    },
+                    "display_names": {
+                        "zh_CN": "火工开伞功率输出",
+                        "en_US": "Parachute Pyro Power Output",
+                    },
+                }
+            ],
+            ["actuator.mission_action.parachute_deploy"],
+            {
+                "device_category": "mission_action_actuator",
+                "independent_class_member": True,
+                "default_instance_id": "parachute_pyro0",
+                "auto_select_when_required": False,
+                "device_descriptors": [
+                    {
+                        "order": 11,
+                        "class": "SYSTEM_DEVICE_CLASS_MISSION_ACTION",
+                        "flags": device_flags,
+                        "capability": "SYSTEM_CAPABILITY_OUTPUT",
+                        "rate": "0U",
+                        "driver_hash": "0x8BC9C34EUL",
+                        "name_hash": "0x3870C351UL",
+                    }
+                ],
+            },
+        ),
+    )
+    for (
+        component_id,
+        name,
+        chinese_name,
+        component_class,
+        resources,
+        provides,
+        logical_metadata,
+    ) in logical_device_specs:
+        physical_devices = {
+            "silverstar.device.sensor.input_voltage": {
+                "vendor": "SilverStar",
+                "model": "SS0.5 Input Voltage Monitor",
+                "chipset": "SS0.5 ADC Input",
+                "driver": "power_service",
+            },
+            "silverstar.device.actuator.launch_ignition": {
+                "vendor": "SilverStar",
+                "model": "SS0.5 P_CONTROL1",
+                "chipset": "SS0.5 GPIO Output",
+                "driver": "output_service",
+            },
+            "silverstar.device.actuator.parachute_pyro": {
+                "vendor": "SilverStar",
+                "model": "SS0.5 P_CONTROL2",
+                "chipset": "SS0.5 GPIO Output",
+                "driver": "output_service",
+            },
+        }
+        components.append(
+            _Component(
+                component_id,
+                name,
+                "device",
+                component_class,
+                [],
+                description=(
+                    "Declarative logical device backed by the selected Board service; "
+                    "it owns capability and physical-resource selection, not Board source."
+                ),
+                provenance=provenance,
+                resources_required=resources,
+                provides=provides,
+                instance_policy={
+                    "project_max": 1,
+                    "same_plugin_multiple": False,
+                    "multi_instance_ready": False,
+                },
+                physical_device=physical_devices[component_id],
+                metadata={
+                    "declarative": True,
+                    "logical_device": True,
+                    "display_names": {"zh_CN": chinese_name, "en_US": name},
+                    **logical_metadata,
+                },
             )
         )
 
@@ -561,7 +857,7 @@ def _Components_Get(
                 {"capability": "imu.acceleration", "purpose": "calibration"},
                 {"capability": "imu.angular_rate", "purpose": "calibration"},
             ],
-            selection={"kind": "mode", "slot": "calibration", "required": True, "allow_none": False, "allow_multiple": False, "ui_order": 10, "options": ["Existing", "OneFace", "SixFace"], "default": "Existing", "labels": {"zh_CN": {"Existing": "使用现有校准", "OneFace": "单面校准", "SixFace": "六面校准"}, "en_US": {"Existing": "Use existing calibration", "OneFace": "One-face", "SixFace": "Six-face"}}},
+            selection={"kind": "mode", "slot": "calibration", "required": True, "allow_none": False, "allow_multiple": True, "ui_order": 10, "options": ["Existing", "OneFace", "SixFace"], "default": ["Existing", "OneFace", "SixFace"], "labels": {"zh_CN": {"Existing": "使用现有校准", "OneFace": "单面校准", "SixFace": "六面校准"}, "en_US": {"Existing": "Use existing calibration", "OneFace": "One-face", "SixFace": "Six-face"}}},
             metadata={"display_names": {"zh_CN": "IMU 校准", "en_US": "IMU Calibration"}},
             docs=["docs/details/CALIBRATION.md"],
         )
@@ -585,30 +881,31 @@ def _Components_Get(
         )
     )
     alignment_specs = (
-        ("gravity_known_yaw", "Gravity + Known Yaw", "GravityKnownYaw", ["SYSTEM_ALIGNMENT_BUILD_ALGORITHM=SYSTEM_ALIGNMENT_GRAVITY_KNOWN_YAW", "SYSTEM_ALIGNMENT_BUILD_SOURCE=SYSTEM_ALIGNMENT_ATTITUDE_SOURCE_GRAVITY_KNOWN_YAW", "SYSTEM_ALIGNMENT_BUILD_CAPABILITY_IMU=1U", "SYSTEM_ALIGNMENT_BUILD_CAPABILITY_MAGNETOMETER=0U", "SYSTEM_ALIGNMENT_BUILD_CAPABILITY_HARDWARE_QUATERNION=0U", "SYSTEM_ALIGNMENT_BUILD_GUARD_HARDWARE_QUATERNION=0U"], "重力 + 已知航向"),
-        ("gravity_mag_triad", "Gravity + Magnetometer TRIAD", "GravityMagTriad", ["SYSTEM_ALIGNMENT_BUILD_ALGORITHM=SYSTEM_ALIGNMENT_GRAVITY_MAG_TRIAD", "SYSTEM_ALIGNMENT_BUILD_SOURCE=SYSTEM_ALIGNMENT_ATTITUDE_SOURCE_GRAVITY_MAG_TRIAD", "SYSTEM_ALIGNMENT_BUILD_CAPABILITY_IMU=1U", "SYSTEM_ALIGNMENT_BUILD_CAPABILITY_MAGNETOMETER=1U", "SYSTEM_ALIGNMENT_BUILD_CAPABILITY_HARDWARE_QUATERNION=0U", "SYSTEM_ALIGNMENT_BUILD_GUARD_HARDWARE_QUATERNION=0U"], "重力 + 磁力计 TRIAD"),
-        ("hardware_quat_6axis_known_yaw", "Hardware Quaternion 6-Axis + Known Yaw", "HardwareQuat6AxisKnownYaw", ["SYSTEM_ALIGNMENT_BUILD_ALGORITHM=SYSTEM_ALIGNMENT_HW_QUAT_6AXIS_KNOWN_YAW", "SYSTEM_ALIGNMENT_BUILD_SOURCE=SYSTEM_ALIGNMENT_ATTITUDE_SOURCE_HARDWARE_QUATERNION", "SYSTEM_ALIGNMENT_BUILD_CAPABILITY_IMU=0U", "SYSTEM_ALIGNMENT_BUILD_CAPABILITY_MAGNETOMETER=0U", "SYSTEM_ALIGNMENT_BUILD_CAPABILITY_HARDWARE_QUATERNION=1U", "SYSTEM_ALIGNMENT_BUILD_GUARD_HARDWARE_QUATERNION=1U"], "硬件四元数六轴 + 已知航向"),
-        ("hardware_quat_9axis", "Hardware Quaternion 9-Axis", "HardwareQuat9Axis", ["SYSTEM_ALIGNMENT_BUILD_ALGORITHM=SYSTEM_ALIGNMENT_HW_QUAT_9AXIS", "SYSTEM_ALIGNMENT_BUILD_SOURCE=SYSTEM_ALIGNMENT_ATTITUDE_SOURCE_HARDWARE_QUATERNION", "SYSTEM_ALIGNMENT_BUILD_CAPABILITY_IMU=0U", "SYSTEM_ALIGNMENT_BUILD_CAPABILITY_MAGNETOMETER=0U", "SYSTEM_ALIGNMENT_BUILD_CAPABILITY_HARDWARE_QUATERNION=1U", "SYSTEM_ALIGNMENT_BUILD_GUARD_HARDWARE_QUATERNION=1U"], "硬件四元数九轴"),
+        ("gravity_known_yaw", "Gravity + Known Yaw", "GravityKnownYaw", ["SYSTEM_ALIGNMENT_BUILD_ALGORITHM=SYSTEM_ALIGNMENT_GRAVITY_KNOWN_YAW", "SYSTEM_ALIGNMENT_BUILD_SOURCE=SYSTEM_ALIGNMENT_ATTITUDE_SOURCE_GRAVITY_KNOWN_YAW", "SYSTEM_ALIGNMENT_BUILD_CAPABILITY_IMU=1U", "SYSTEM_ALIGNMENT_BUILD_CAPABILITY_MAGNETOMETER=0U", "SYSTEM_ALIGNMENT_BUILD_CAPABILITY_HARDWARE_QUATERNION=0U", "SYSTEM_ALIGNMENT_BUILD_GUARD_HARDWARE_QUATERNION=0U"], "重力 + 已知航向角"),
+        ("gravity_mag_triad", "Gravity + Magnetic-Field Two-Vector Alignment", "GravityMagTriad", ["SYSTEM_ALIGNMENT_BUILD_ALGORITHM=SYSTEM_ALIGNMENT_GRAVITY_MAG_TRIAD", "SYSTEM_ALIGNMENT_BUILD_SOURCE=SYSTEM_ALIGNMENT_ATTITUDE_SOURCE_GRAVITY_MAG_TRIAD", "SYSTEM_ALIGNMENT_BUILD_CAPABILITY_IMU=1U", "SYSTEM_ALIGNMENT_BUILD_CAPABILITY_MAGNETOMETER=1U", "SYSTEM_ALIGNMENT_BUILD_CAPABILITY_HARDWARE_QUATERNION=0U", "SYSTEM_ALIGNMENT_BUILD_GUARD_HARDWARE_QUATERNION=0U"], "重力磁场双矢量对准"),
+        ("hardware_quat_6axis_known_yaw", "6-Axis Hardware Quaternion + Known Yaw", "HardwareQuat6AxisKnownYaw", ["SYSTEM_ALIGNMENT_BUILD_ALGORITHM=SYSTEM_ALIGNMENT_HW_QUAT_6AXIS_KNOWN_YAW", "SYSTEM_ALIGNMENT_BUILD_SOURCE=SYSTEM_ALIGNMENT_ATTITUDE_SOURCE_HARDWARE_QUATERNION", "SYSTEM_ALIGNMENT_BUILD_CAPABILITY_IMU=0U", "SYSTEM_ALIGNMENT_BUILD_CAPABILITY_MAGNETOMETER=0U", "SYSTEM_ALIGNMENT_BUILD_CAPABILITY_HARDWARE_QUATERNION=1U", "SYSTEM_ALIGNMENT_BUILD_GUARD_HARDWARE_QUATERNION=1U"], "六轴硬件四元数 + 已知航向角"),
+        ("hardware_quat_9axis", "9-Axis Hardware Quaternion Static Sampling", "HardwareQuat9Axis", ["SYSTEM_ALIGNMENT_BUILD_ALGORITHM=SYSTEM_ALIGNMENT_HW_QUAT_9AXIS", "SYSTEM_ALIGNMENT_BUILD_SOURCE=SYSTEM_ALIGNMENT_ATTITUDE_SOURCE_HARDWARE_QUATERNION", "SYSTEM_ALIGNMENT_BUILD_CAPABILITY_IMU=0U", "SYSTEM_ALIGNMENT_BUILD_CAPABILITY_MAGNETOMETER=0U", "SYSTEM_ALIGNMENT_BUILD_CAPABILITY_HARDWARE_QUATERNION=1U", "SYSTEM_ALIGNMENT_BUILD_GUARD_HARDWARE_QUATERNION=1U"], "九轴硬件四元数静态取样"),
     )
     alignment_capabilities = {
         "gravity_known_yaw": [
             {"capability": "imu.acceleration", "purpose": "initialization"},
             {"capability": "imu.angular_rate", "purpose": "initialization"},
+            {"capability": "imu.software_alignment_qualified", "purpose": "initialization"},
         ],
         "gravity_mag_triad": [
             {"capability": "imu.acceleration", "purpose": "initialization"},
             {"capability": "imu.angular_rate", "purpose": "initialization"},
+            {"capability": "imu.software_alignment_qualified", "purpose": "initialization"},
             {"capability": "magnetometer.field", "purpose": "initialization"},
+            {"capability": "magnetometer.absolute_vector_qualified", "purpose": "initialization"},
         ],
         "hardware_quat_6axis_known_yaw": [
-            {"capability": "imu.acceleration", "purpose": "initialization"},
-            {"capability": "imu.angular_rate", "purpose": "initialization"},
             {"capability": "attitude.external", "purpose": "initialization"},
+            {"capability": "attitude.external.preflight_alignment_6axis_qualified", "purpose": "initialization"},
         ],
         "hardware_quat_9axis": [
-            {"capability": "imu.acceleration", "purpose": "initialization"},
-            {"capability": "imu.angular_rate", "purpose": "initialization"},
             {"capability": "attitude.external", "purpose": "initialization"},
+            {"capability": "attitude.external.preflight_alignment_9axis_qualified", "purpose": "initialization"},
         ],
     }
     for suffix, name, directory, defines, chinese_name in alignment_specs:
@@ -628,19 +925,23 @@ def _Components_Get(
                 provides=["algorithm.alignment"],
                 capabilities_required=alignment_capabilities[suffix],
                 selection={"kind": "strategy", "slot": "alignment", "required": True, "allow_none": False, "ui_order": 10},
-                metadata={"display_names": {"zh_CN": chinese_name, "en_US": name}, "algorithm_descriptors": [{"order": 1, "class": "SYSTEM_ALGORITHM_CLASS_ALIGNMENT", "algorithm": "SYSTEM_ALIGNMENT_ALGORITHM", "flags": primary_flags, "name_hash": "0x4B7BE479UL"}, {"order": 2, "class": "SYSTEM_ALGORITHM_CLASS_ATTITUDE", "algorithm": "SYSTEM_ATTITUDE_POLICY", "flags": primary_flags, "name_hash": "0xB6F9F6C7UL"}]},
-                docs=["docs/details/NAVIGATION_AND_ESTIMATION.md"],
+                metadata={"display_names": {"zh_CN": chinese_name, "en_US": name}, "descriptions": {"zh_CN": f"构建时选择的{chinese_name}初始对准策略。", "en_US": f"Build-selected {name} alignment strategy."}, "algorithm_descriptors": [{"order": 1, "class": "SYSTEM_ALGORITHM_CLASS_ALIGNMENT", "algorithm": "SYSTEM_ALIGNMENT_ALGORITHM", "flags": primary_flags, "name_hash": "0x4B7BE479UL"}, {"order": 2, "class": "SYSTEM_ALGORITHM_CLASS_ATTITUDE", "algorithm": "SYSTEM_ATTITUDE_POLICY", "flags": primary_flags, "name_hash": "0xB6F9F6C7UL"}]},
+                docs=[
+                    "docs/details/NAVIGATION_AND_ESTIMATION.md",
+                    "docs/details/CALIBRATION_AND_ALIGNMENT.md",
+                    "docs/details/HARDWARE_QUATERNION_INTERFACE.md",
+                ],
             )
         )
     components.append(
         _Component(
-            "silverstar.algorithm.ins.coning2_sculling2", "Coning2 / Sculling2 INS", "algorithm", "ins", ["Algorithm/INS/Coning2Sculling2"],
-            description="Build-selected Coning2/Sculling2 inertial mechanization strategy.", provenance=provenance,
+            "silverstar.algorithm.ins.coning2_sculling2", "Coning2 + Sculling2 INS", "algorithm", "ins", ["Algorithm/INS/Coning2Sculling2"],
+            description="Build-selected Coning2 + Sculling2 inertial mechanization strategy.", provenance=provenance,
             sources=_ManifestValues_Get(reference, "Algorithm/INS/Coning2Sculling2/module.mk", "C_SOURCES"), includes=["Algorithm/INS/Coning2Sculling2/Inc"],
-            defines=["SYSTEM_BUILD_MECHANIZATION_ALGORITHM=SYSTEM_MECHANIZATION_CONING2_SCULLING2"], dependencies=["silverstar.algorithm.common"], provides=["algorithm.mechanization"],
+            defines=["SYSTEM_BUILD_MECHANIZATION_ALGORITHM=SYSTEM_MECHANIZATION_CONING2_SCULLING2"], dependencies=["silverstar.algorithm.common"], provides=["algorithm.mechanization", "attitude.estimated", "navigation.vertical_velocity"],
             capabilities_required=[{"capability": "imu.acceleration", "purpose": "runtime"}, {"capability": "imu.angular_rate", "purpose": "runtime"}],
             selection={"kind": "strategy", "slot": "ins", "required": True, "allow_none": False, "ui_order": 20},
-            metadata={"display_names": {"zh_CN": "Coning2 / Sculling2 惯导", "en_US": "Coning2 / Sculling2 INS"}, "algorithm_descriptors": [{"order": 3, "class": "SYSTEM_ALGORITHM_CLASS_MECHANIZATION", "algorithm": "SYSTEM_MECHANIZATION_ALGORITHM", "flags": primary_flags, "name_hash": "0x982C9707UL"}]}, docs=["docs/details/NAVIGATION_AND_ESTIMATION.md"],
+            metadata={"display_names": {"zh_CN": "二阶锥运动补偿+二阶划桨效应补偿", "en_US": "Coning2 + Sculling2 INS"}, "descriptions": {"zh_CN": "构建时选择的二阶锥运动补偿+二阶划桨效应补偿惯性导航解算策略。", "en_US": "Build-selected Coning2 + Sculling2 inertial mechanization strategy."}, "algorithm_descriptors": [{"order": 3, "class": "SYSTEM_ALGORITHM_CLASS_MECHANIZATION", "algorithm": "SYSTEM_MECHANIZATION_ALGORITHM", "flags": primary_flags, "name_hash": "0x982C9707UL"}]}, docs=["docs/details/NAVIGATION_AND_ESTIMATION.md"],
         )
     )
     components.append(
@@ -651,7 +952,7 @@ def _Components_Get(
             defines=["SYSTEM_BUILD_FUSION_ALGORITHM=SYSTEM_FUSION_KF6", "SYSTEM_BUILD_ESTIMATOR_ENABLED=1U"], dependencies=["silverstar.algorithm.common"], provides=["algorithm.estimator"],
             capabilities_required=[{"capability": "gnss.position", "purpose": "measurement_update"}, {"capability": "gnss.velocity", "purpose": "measurement_update"}, {"capability": "barometer.altitude", "purpose": "measurement_update"}],
             selection={"kind": "strategy", "slot": "estimator", "required": False, "allow_none": True, "ui_order": 30, "none_defines": ["SYSTEM_BUILD_FUSION_ALGORITHM=SYSTEM_FUSION_NONE", "SYSTEM_BUILD_ESTIMATOR_ENABLED=0U"]},
-            metadata={"display_names": {"zh_CN": "KF6 融合估计", "en_US": "KF6 Navigation Estimator"}, "algorithm_descriptors": [{"order": 4, "class": "SYSTEM_ALGORITHM_CLASS_FUSION", "algorithm": "SYSTEM_FUSION_ALGORITHM", "flags": primary_flags, "name_hash": "0x81C3E556UL"}]}, docs=["docs/details/NAVIGATION_AND_ESTIMATION.md"],
+            metadata={"display_names": {"zh_CN": "KF6 融合估计", "en_US": "KF6 Navigation Estimator"}, "descriptions": {"zh_CN": "可选的构建时 KF6 融合估计策略。", "en_US": "Optional build-selected KF6 fusion estimator."}, "algorithm_descriptors": [{"order": 4, "class": "SYSTEM_ALGORITHM_CLASS_FUSION", "algorithm": "SYSTEM_FUSION_ALGORITHM", "flags": primary_flags, "name_hash": "0x81C3E556UL"}]}, docs=["docs/details/NAVIGATION_AND_ESTIMATION.md"],
         )
     )
 
@@ -668,19 +969,85 @@ def _Components_Get(
             "silverstar.flight_logic.deployment.multi_trigger", "Multi-Trigger Deployment", "flight_logic", "deployment", ["FlightLogic/Deployment/MultiTrigger"],
             description="Deployment component with independently selectable apogee, tilt and delay modes.", provenance=provenance,
             sources=_ManifestValues_Get(reference, "FlightLogic/Deployment/MultiTrigger/module.mk", "C_SOURCES"), includes=["FlightLogic/Deployment/MultiTrigger/Inc"], dependencies=[core_id], provides=["flight_logic.deployment"],
-            selection={"kind": "mode", "slot": "deployment", "required": False, "allow_none": True, "allow_multiple": True, "ui_order": 20, "options": ["ApogeeVerticalVelocity", "Tilt", "Delay"], "default": ["ApogeeVerticalVelocity"], "labels": {"zh_CN": {"ApogeeVerticalVelocity": "越过最高点 / 垂直速度", "Tilt": "姿态倾斜", "Delay": "延时"}, "en_US": {"ApogeeVerticalVelocity": "Apogee / vertical velocity", "Tilt": "Tilt", "Delay": "Delay"}}},
+            selection={"kind": "mode", "slot": "deployment", "required": False, "allow_none": True, "allow_multiple": True, "ui_order": 20, "options": ["ApogeeVerticalVelocity", "Tilt", "Delay"], "default": ["ApogeeVerticalVelocity", "Tilt"], "option_requirements": {"ApogeeVerticalVelocity": {"capabilities": ["navigation.vertical_velocity", "actuator.mission_action.parachute_deploy"]}, "Tilt": {"capabilities": ["attitude.estimated", "imu.angular_rate", "imu.software_propagation_qualified", "actuator.mission_action.parachute_deploy"]}, "Delay": {"capabilities": ["actuator.mission_action.parachute_deploy"]}}, "parameters": {"ApogeeVerticalVelocity": [{"id": "vertical_velocity_threshold", "type": "float", "default": -2.0, "minimum": -100.0, "maximum": -0.01, "unit": "m/s", "generated_symbol": "SYSTEM_FLIGHT_APOGEE_VZ_THRESHOLD_MPS", "display_names": {"zh_CN": "垂直速度阈值", "en_US": "Vertical velocity threshold"}}], "Tilt": [{"id": "tilt_threshold", "type": "float", "default": 45.0, "minimum": 0.01, "maximum": 180.0, "unit": "°", "generated_symbol": "SYSTEM_FLIGHT_TILT_THRESHOLD_DEG", "display_names": {"zh_CN": "倾斜角阈值", "en_US": "Tilt angle threshold"}}], "Delay": [{"id": "delay", "type": "float", "default": 60.0, "minimum": 0.0, "maximum": 4294967.0, "unit": "s", "generated_symbol": "SYSTEM_FLIGHT_DEPLOY_DELAY_MS", "generated_scale": 1000.0, "display_names": {"zh_CN": "延时时间", "en_US": "Delay"}}]}, "option_symbols": {"ApogeeVerticalVelocity": "SYSTEM_DEPLOY_TRIGGER_APOGEE_VZ", "Tilt": "SYSTEM_DEPLOY_TRIGGER_TILT", "Delay": "SYSTEM_DEPLOY_TRIGGER_DELAY"}, "aggregate_symbol": "SYSTEM_FLIGHT_DEPLOY_TRIGGER_MASK", "labels": {"zh_CN": {"ApogeeVerticalVelocity": "越过最高点 / 垂直速度", "Tilt": "姿态倾斜", "Delay": "延时"}, "en_US": {"ApogeeVerticalVelocity": "Apogee / vertical velocity", "Tilt": "Tilt", "Delay": "Delay"}}},
             metadata={"display_names": {"zh_CN": "多条件开伞", "en_US": "Multi-Trigger Deployment"}}, docs=["docs/details/SYSTEM_LIFECYCLE.md"],
         )
     )
     components.append(
         _Component(
-            "silverstar.flight_logic.landing.baro_imu_window", "Barometer + IMU Window Landing", "flight_logic", "landing", ["FlightLogic/Landing/BarometerImuWindow"],
-            description="Build-selected barometer and IMU window landing strategy.", provenance=provenance,
-            sources=_ManifestValues_Get(reference, "FlightLogic/Landing/BarometerImuWindow/module.mk", "C_SOURCES"), includes=["FlightLogic/Landing/BarometerImuWindow/Inc"], defines=["SYSTEM_BUILD_LANDING_MODE=SYSTEM_LANDING_MODE_BARO_IMU_WINDOW"], dependencies=[core_id], provides=["flight_logic.landing"],
-            capabilities_required=[{"capability": "barometer.altitude", "purpose": "landing_detection"}, {"capability": "imu.acceleration", "purpose": "landing_detection"}, {"capability": "imu.angular_rate", "purpose": "landing_detection"}],
-            selection={"kind": "strategy", "slot": "landing", "required": True, "allow_none": False, "ui_order": 40}, metadata={"display_names": {"zh_CN": "气压计 + IMU 窗口着陆判断", "en_US": "Barometer + IMU Window Landing"}}, docs=["docs/details/SYSTEM_LIFECYCLE.md"],
+            "silverstar.flight_logic.landing.baro_imu_window", "Landing Detection Common", "flight_logic", "landing_common", ["FlightLogic/Landing/BarometerImuWindow"],
+            description="Shared landing metrics, windows, and regression primitives used by build-selected landing strategies.", provenance=provenance,
+            sources=_ManifestValues_Get(reference, "FlightLogic/Landing/BarometerImuWindow/module.mk", "C_SOURCES"), includes=["FlightLogic/Landing/BarometerImuWindow/Inc"], dependencies=[core_id], provides=["flight_logic.landing.common"],
+            metadata={"display_names": {"zh_CN": "着陆判定公共实现", "en_US": "Landing Detection Common"}, "descriptions": {"zh_CN": "三种着陆策略共享的采样新鲜度、静止指标、冲击指标与气压回归实现。", "en_US": "Shared sample-freshness, stillness, impact, and barometer-regression primitives for all landing strategies."}}, docs=["docs/details/SYSTEM_LIFECYCLE.md"],
         )
     )
+    landing_common_id = "silverstar.flight_logic.landing.baro_imu_window"
+    landing_specs = (
+        (
+            "silverstar.flight_logic.landing.stillness",
+            "Stillness Landing",
+            "静止着陆判断",
+            "Uses qualified acceleration and angular-rate stillness data for landing detection.",
+            "使用具备静止着陆资格的加速度与角速度数据判断着陆。",
+            "SYSTEM_BUILD_LANDING_MODE=SYSTEM_LANDING_MODE_STILLNESS",
+            [
+                {"capability": "imu.acceleration", "purpose": "landing_detection"},
+                {"capability": "imu.angular_rate", "purpose": "landing_detection"},
+                {"capability": "imu.landing_stillness_qualified", "purpose": "landing_detection"},
+            ],
+        ),
+        (
+            "silverstar.flight_logic.landing.impact_then_stillness",
+            "Impact Then Stillness Landing",
+            "冲击后静止着陆判断",
+            "Detects a qualified landing impact and then confirms landing with a stillness window.",
+            "先检测具备资格的着陆冲击，再以静止窗口确认着陆。",
+            "SYSTEM_BUILD_LANDING_MODE=SYSTEM_LANDING_MODE_IMPACT_THEN_STILLNESS",
+            [
+                {"capability": "imu.acceleration", "purpose": "landing_detection"},
+                {"capability": "imu.angular_rate", "purpose": "landing_detection"},
+                {"capability": "imu.landing_stillness_qualified", "purpose": "landing_detection"},
+                {"capability": "imu.landing_impact_qualified", "purpose": "landing_detection"},
+            ],
+        ),
+        (
+            "silverstar.flight_logic.landing.baro_imu_window_strategy",
+            "Barometer + IMU Window Landing",
+            "气压计 + IMU窗口着陆判断",
+            "Uses qualified barometric-window and IMU-stillness data for landing detection.",
+            "使用具备窗口判定资格的气压高度与IMU静止指标判断着陆。",
+            "SYSTEM_BUILD_LANDING_MODE=SYSTEM_LANDING_MODE_BARO_IMU_WINDOW",
+            [
+                {"capability": "imu.acceleration", "purpose": "landing_detection"},
+                {"capability": "imu.angular_rate", "purpose": "landing_detection"},
+                {"capability": "imu.landing_stillness_qualified", "purpose": "landing_detection"},
+                {"capability": "barometer.altitude", "purpose": "landing_detection"},
+                {"capability": "barometer.landing_window_qualified", "purpose": "landing_detection"},
+            ],
+        ),
+    )
+    for component_id, name, chinese_name, description, chinese_description, define, requirements in landing_specs:
+        components.append(
+            _Component(
+                component_id,
+                name,
+                "flight_logic",
+                "landing",
+                [],
+                description=description,
+                provenance=provenance,
+                defines=[define],
+                dependencies=[landing_common_id],
+                provides=["flight_logic.landing"],
+                capabilities_required=requirements,
+                selection={"kind": "strategy", "slot": "landing", "required": True, "allow_none": False, "ui_order": 40},
+                metadata={
+                    "display_names": {"zh_CN": chinese_name, "en_US": name},
+                    "descriptions": {"zh_CN": chinese_description, "en_US": description},
+                    "implementation": "Compile-time selector for the shared reference recovery state machine; no duplicated strategy payload.",
+                },
+            )
+        )
     components.append(
         _Component(
             "silverstar.os.freertos_11_3_0", "FreeRTOS Kernel 11.3.0", "os", "rtos", ["OS/FreeRTOS", "ThirdParty/FreeRTOS-Kernel/list.c", "ThirdParty/FreeRTOS-Kernel/queue.c", "ThirdParty/FreeRTOS-Kernel/tasks.c", "ThirdParty/FreeRTOS-Kernel/include", "ThirdParty/FreeRTOS-Kernel/portable/GCC/ARM_CM4F", "ThirdParty/FreeRTOS-Kernel/LICENSE.md", "ThirdParty/FreeRTOS-Kernel/README.md", "ThirdParty/FreeRTOS-Kernel/FreeRTOS-Kernel-V11.3.0-repository-SPDX2.3.spdx", "BuildSystem/freertos.mk", "Targets/SilverStar_F407/Inc/freertos_target_config.h", "Targets/SilverStar_F407/Src/freertos_target_irq.c"],
@@ -694,7 +1061,7 @@ def _Components_Get(
             "silverstar.protocol.reference_v0", "SilverStar AIR V0 + SSLOG0", "protocol_bundle", "reference_protocols", ["Protocol"],
             description="Complete AIR, SSLOG, Maintenance protocol sources and documentation.", provenance=provenance,
             sources=protocol_sources, includes=["Protocol/Inc", "Protocol/SSLOG/Inc"], provides=["protocol.air", "protocol.sslog", "protocol.maintenance"], metadata={"display_names": {"zh_CN": "SilverStar AIR V0 + SSLOG0 协议包", "en_US": "SilverStar AIR V0 + SSLOG0"}}, docs=["docs/details/AIR_PROTOCOL.md", "docs/details/STORAGE_AND_FLIGHT_LOG.md", "docs/details/MAINTENANCE_PROTOCOL.md"],
-            protocol={"logging_metadata": "Protocol/SSLOG/schema/sslog_parser_metadata.json", "maintenance_protocol_version": "0.0", "firmware_version": "0.0.9", "documentation_version": "0.0.9"},
+            protocol={"logging_metadata": "Protocol/SSLOG/schema/sslog_parser_metadata.json", "maintenance_protocol_version": "0.0", "firmware_version": "0.0.9", "documentation_version": "0.0.9", "profiles": {"telemetry": [{"id": "air.compact.v0", "version": "0.0", "display_names": {"zh_CN": "AIR紧凑协议 V0", "en_US": "AIR Compact Protocol V0"}}], "maintenance": [{"id": "maintenance.v0_0", "version": "0.0", "display_names": {"zh_CN": "SilverStar维护协议 0.0", "en_US": "SilverStar Maintenance Protocol 0.0"}}], "logging": [{"id": "sslog0", "version": "0.0", "display_names": {"zh_CN": "SSLOG0", "en_US": "SSLOG0"}}]}},
         )
     )
     components.append(
@@ -709,7 +1076,7 @@ def _Components_Get(
             "silverstar.environment.vscode_eide_gcc", "VS Code + EIDE + Arm GNU Toolchain", "development_environment", "vscode_eide_gcc", [],
             description="Native Make, VS Code and EIDE project environment resolved from one source graph.", provenance=provenance,
             provides=["environment.vscode", "environment.eide", "toolchain.arm_gnu"], metadata={"display_names": {"zh_CN": "VS Code + EIDE + Arm GNU 工具链", "en_US": "VS Code + EIDE + Arm GNU Toolchain"}},
-            environment={"renderer": "vscode_eide_gcc", "toolchain": "arm-none-eabi-gcc", "outputs": ["Makefile", ".vscode/tasks.json", ".vscode/settings.json", ".vscode/extensions.json", ".eide/eide.yml", ".eide/files.options.yml", "SilverStar.code-workspace"], "tasks": ["build", "clean", "flash", "host_tests", "architecture_check", "power10_check", "static_analysis", "artifact_check"], "eide_native": True}, docs=["docs/details/BUILD_AND_TARGETS.md"],
+            environment={"renderer": "vscode_eide_gcc", "toolchain": "arm-none-eabi-gcc", "outputs": ["Makefile", ".vscode/tasks.json", ".vscode/settings.json", ".vscode/extensions.json", ".eide/eide.yml", ".eide/files.options.yml", "SilverStar.code-workspace"], "tasks": ["build", "clean", "host_tests", "architecture_check", "power10_check", "static_analysis", "artifact_check"], "eide_native": True}, docs=["docs/details/BUILD_AND_TARGETS.md"],
         )
     )
     return components
@@ -736,6 +1103,7 @@ def _ArchitectureChecker_Adapt(path: Path, policy: WorkspacePolicy) -> None:
     required_generated_files = (
         "Generated\\Inc\\project_capability_routes.h",
         "Generated\\Src\\project_capability_routes.c",
+        "Generated\\Inc\\project_flight_config.h",
         "Generated\\project_sources.mk",
     )
     missing_generated_files = tuple(
@@ -778,6 +1146,70 @@ def _ArchitectureChecker_Adapt(path: Path, policy: WorkspacePolicy) -> None:
             "    }\n\n"
         )
         text = text[:start_index] + replacement + text[selected_index:]
+        changed = True
+
+    estimator_source_marker = "$selectedEstimatorTaskSources"
+    if estimator_source_marker not in text:
+        kf_requirement = (
+            "        'Algorithm/Estimator/KF6/Src/navigation_kf.c',\n"
+        )
+        missing_sources_start = (
+            "    $missingStrategySources = @($requiredStrategySources | Where-Object {"
+        )
+        if kf_requirement not in text or missing_sources_start not in text:
+            raise RuntimeError(
+                "Reference architecture checker estimator source check changed"
+            )
+        estimator_check = (
+            "    $selectedEstimatorTaskSources = @($uniqueSources | Where-Object {\n"
+            "        ($_ -eq 'APP/Src/estimator_task.c') -or\n"
+            "        ($_ -eq 'APP/Src/estimator_task_none.c')\n"
+            "    })\n"
+            "    Assert-ArchitectureCondition `\n"
+            "        -Condition ($selectedEstimatorTaskSources.Count -eq 1) `\n"
+            "        -Message (\"Expected exactly one estimator task implementation: \" +\n"
+            "            ($selectedEstimatorTaskSources -join ', '))\n"
+            "    if ($uniqueSources -contains 'APP/Src/estimator_task.c') {\n"
+            "        $requiredStrategySources += "
+            "'Algorithm/Estimator/KF6/Src/navigation_kf.c'\n"
+            "    }\n"
+            "    if ($uniqueSources -contains 'APP/Src/estimator_task_none.c') {\n"
+            "        $noneKfSources = @($uniqueSources | Where-Object {\n"
+            "            $_ -like 'Algorithm/Estimator/KF6/*'\n"
+            "        })\n"
+            "        Assert-ArchitectureCondition `\n"
+            "            -Condition ($noneKfSources.Count -eq 0) `\n"
+            "            -Message (\"No-fusion estimator task still selects KF6 sources: \" +\n"
+            "                ($noneKfSources -join ', '))\n"
+            "    }\n"
+        )
+        text = text.replace(kf_requirement, "", 1)
+        text = text.replace(
+            missing_sources_start,
+            estimator_check + missing_sources_start,
+            1,
+        )
+        changed = True
+
+    legacy_eide_flags = (
+        "(?m)^\\s+C_FLAGS:\\s*-include "
+        "Targets/SilverStar_F407/Inc/platform_memory_target\\.h\\s*$"
+    )
+    flight_eide_flags = (
+        "(?m)^\\s+C_FLAGS:\\s*-include "
+        "Targets/SilverStar_F407/Inc/platform_memory_target\\.h "
+        "-include Generated/Inc/project_flight_config\\.h\\s*$"
+    )
+    if flight_eide_flags not in text:
+        if legacy_eide_flags not in text:
+            raise RuntimeError("Reference architecture checker EIDE flags changed")
+        text = text.replace(legacy_eide_flags, flight_eide_flags, 1)
+        text = text.replace(
+            "EIDE does not force-include the target memory policy.",
+            "EIDE does not force-include the target memory and flight "
+            "configuration policies.",
+            1,
+        )
         changed = True
 
     if changed:
@@ -848,6 +1280,261 @@ def _ProtocolMetadata_Adapt(
     )
 
 
+def _BoardUserVisibleNames_Adapt(
+    staged_builtin: Path, policy: WorkspacePolicy
+) -> None:
+    replacements = (
+        (
+            staged_builtin
+            / "silverstar_board_silverstar_0_5"
+            / "payload"
+            / "Board"
+            / "SilverStar_0_5"
+            / "Services"
+            / "Src"
+            / "power_service.c",
+            '"SilverStar 0.5 Voltage Input"',
+            '"SS0.5 Voltage Input"',
+        ),
+        (
+            staged_builtin
+            / "silverstar_mcu_stm32f407vet6"
+            / "payload"
+            / "Targets"
+            / "SilverStar_F407"
+            / "Inc"
+            / "target_system_config.h",
+            "Adapters and SilverStar 0.5 Board services",
+            "Adapters and SS0.5 Board services",
+        ),
+    )
+    for path, legacy_text, current_text in replacements:
+        content = path.read_text(encoding="utf-8")
+        if legacy_text not in content and current_text not in content:
+            raise RuntimeError(
+                f"Reference Board naming contract changed unexpectedly: {path}"
+            )
+        policy.Text_AtomicWrite(
+            path, content.replace(legacy_text, current_text)
+        )
+
+
+def _BoardLogicalDevices_Adapt(
+    staged_builtin: Path, policy: WorkspacePolicy
+) -> None:
+    service_root = (
+        staged_builtin
+        / "silverstar_board_silverstar_0_5"
+        / "payload"
+        / "Board"
+        / "SilverStar_0_5"
+        / "Services"
+        / "Src"
+    )
+    output_path = service_root / "output_service.c"
+    output_text = output_path.read_text(encoding="utf-8")
+    output_text = output_text.replace(
+        "PROJECT_RESOURCE_POWER_OUTPUT_1",
+        "PROJECT_RESOURCE_LAUNCH_IGNITION_OUTPUT",
+    ).replace(
+        "PROJECT_RESOURCE_POWER_OUTPUT_2",
+        "PROJECT_RESOURCE_PARACHUTE_PYRO_OUTPUT",
+    )
+    output_text = output_text.replace(
+        '#include "project_resources.h"\n',
+        '#include "project_resources.h"\n'
+        '#include "mission_action_output_config.h"\n',
+        1,
+    )
+    output_text = output_text.replace(
+        "#define OUTPUT_CHANNEL_COUNT 2U",
+        "#define OUTPUT_CHANNEL_CAPACITY 2U",
+        1,
+    )
+    channel_storage = "static GpioOutputChannel s_channels[OUTPUT_CHANNEL_COUNT];"
+    channel_storage_configured = (
+        "static GpioOutputChannel s_channels[OUTPUT_CHANNEL_CAPACITY];"
+    )
+    if channel_storage not in output_text:
+        raise RuntimeError("Reference output service storage contract changed")
+    output_text = output_text.replace(
+        channel_storage, channel_storage_configured, 1
+    )
+    availability_function = (
+        "static uint8_t SilverStarOutputService_ChannelAvailable(uint8_t channel)\n"
+        "{\n"
+        "    if (channel == MISSION_ACTION_START_OUTPUT_CHANNEL)\n"
+        "    {\n"
+        "        return PROJECT_FEATURE_LAUNCH_IGNITION_OUTPUT;\n"
+        "    }\n"
+        "    if (channel == MISSION_ACTION_DEPLOY_OUTPUT_CHANNEL)\n"
+        "    {\n"
+        "        return PROJECT_FEATURE_PARACHUTE_PYRO_OUTPUT;\n"
+        "    }\n"
+        "    return 0U;\n"
+        "}\n\n"
+    )
+    irq_lock = "static uint32_t SilverStarOutputService_IrqLock(void)\n"
+    if irq_lock not in output_text:
+        raise RuntimeError("Reference output service IRQ contract changed")
+    output_text = output_text.replace(
+        irq_lock, availability_function + irq_lock, 1
+    )
+    channel_guard = (
+        "if ((channel == 0U) || (channel > OUTPUT_CHANNEL_COUNT))"
+    )
+    channel_guard_configured = (
+        "if ((channel == 0U) || (channel > OUTPUT_CHANNEL_CAPACITY) ||\n"
+        "        (SilverStarOutputService_ChannelAvailable(channel) == 0U))"
+    )
+    if channel_guard not in output_text:
+        raise RuntimeError("Reference output service channel guard changed")
+    output_text = output_text.replace(
+        channel_guard, channel_guard_configured, 1
+    )
+    safe_initialization = (
+        "    SilverStarOutputService_ChannelSafe(&s_channels[0]);\n"
+        "    SilverStarOutputService_ChannelSafe(&s_channels[1]);"
+    )
+    safe_initialization_configured = (
+        "    if (PROJECT_FEATURE_LAUNCH_IGNITION_OUTPUT != 0U)\n"
+        "    {\n"
+        "        SilverStarOutputService_ChannelSafe(&s_channels[0]);\n"
+        "    }\n"
+        "    if (PROJECT_FEATURE_PARACHUTE_PYRO_OUTPUT != 0U)\n"
+        "    {\n"
+        "        SilverStarOutputService_ChannelSafe(&s_channels[1]);\n"
+        "    }"
+    )
+    if safe_initialization not in output_text:
+        raise RuntimeError("Reference output service channel initialization changed")
+    output_text = output_text.replace(
+        safe_initialization, safe_initialization_configured, 1
+    )
+    init_preamble = (
+        "static SystemDeviceResult SilverStarOutputService_Init(void)\n"
+        "{\n"
+        "    uint32_t primask;\n\n"
+    )
+    init_preamble_configured = (
+        f"{init_preamble}"
+        "    SILVERSTAR_ASSERT(PROJECT_FEATURE_LAUNCH_IGNITION_OUTPUT <= 1U,\n"
+        "                      SILVERSTAR_ASSERT_MODULE_BOARD,\n"
+        "                      SILVERSTAR_ASSERT_REASON_STATE_INVARIANT);\n"
+        "    SILVERSTAR_ASSERT(PROJECT_FEATURE_PARACHUTE_PYRO_OUTPUT <= 1U,\n"
+        "                      SILVERSTAR_ASSERT_MODULE_BOARD,\n"
+        "                      SILVERSTAR_ASSERT_REASON_STATE_INVARIANT);\n"
+    )
+    if init_preamble not in output_text:
+        raise RuntimeError("Reference output service initialization contract changed")
+    output_text = output_text.replace(
+        init_preamble, init_preamble_configured, 1
+    )
+    output_text = output_text.replace(
+        "index < OUTPUT_CHANNEL_COUNT", "index < OUTPUT_CHANNEL_CAPACITY"
+    )
+    set_safe_call = "        SilverStarOutputService_ChannelSafe(&s_channels[index]);"
+    set_safe_call_configured = (
+        "        if (SilverStarOutputService_ChannelAvailable(index + 1U) != 0U)\n"
+        "        {\n"
+        "            SilverStarOutputService_ChannelSafe(&s_channels[index]);\n"
+        "        }"
+    )
+    if set_safe_call not in output_text:
+        raise RuntimeError("Reference output service safe loop changed")
+    output_text = output_text.replace(
+        set_safe_call, set_safe_call_configured, 1
+    )
+    process_condition = (
+        "if ((s_channels[index].status.state == SYSTEM_OUTPUT_ACTIVE) &&"
+    )
+    process_condition_configured = (
+        "if ((SilverStarOutputService_ChannelAvailable(index + 1U) != 0U) &&\n"
+        "            (s_channels[index].status.state == SYSTEM_OUTPUT_ACTIVE) &&"
+    )
+    if process_condition not in output_text:
+        raise RuntimeError("Reference output service process loop changed")
+    output_text = output_text.replace(
+        process_condition, process_condition_configured, 1
+    )
+    policy.Text_AtomicWrite(output_path, output_text)
+
+    power_path = service_root / "power_service.c"
+    power_text = power_path.read_text(encoding="utf-8")
+    adc_read = (
+        "    platform_result = PlatformAdc_Read(PROJECT_RESOURCE_INPUT_VOLTAGE_ADC,\n"
+        "                                       ADC_POWER_POLL_TIMEOUT_MS,\n"
+        "                                       &adc_count);\n"
+        "    if (platform_result != PLATFORM_OK)\n"
+        "    {\n"
+        "        SilverStarPowerService_ErrorRecord((platform_result == PLATFORM_TIMEOUT) ?\n"
+        "            SYSTEM_DEVICE_TIMEOUT : SYSTEM_DEVICE_IO_ERROR);\n"
+        "        return;\n"
+        "    }"
+    )
+    adc_read_optional = (
+        "    if (PROJECT_FEATURE_INPUT_VOLTAGE_MONITOR == 0U)\n"
+        "    {\n"
+        "        return;\n"
+        "    }\n"
+        f"{adc_read}"
+    )
+    if adc_read not in power_text:
+        raise RuntimeError("Reference power service ADC sampling contract changed")
+    power_text = power_text.replace(
+        adc_read, adc_read_optional, 1
+    )
+    policy.Text_AtomicWrite(power_path, power_text)
+
+
+def _EnvironmentTemplates_Copy(
+    reference: Path, staged_builtin: Path, policy: WorkspacePolicy
+) -> None:
+    template_root = (
+        staged_builtin
+        / "silverstar_environment_vscode_eide_gcc"
+        / "templates"
+        / "reference"
+    )
+    relative_templates = (
+        Path(".eide/eide.yml"),
+        Path(".eide/files.options.yml"),
+        Path("Flight_Controller0.5.code-workspace"),
+        Path(".vscode/tasks.json"),
+        Path(".vscode/extensions.json"),
+        Path(".vscode/settings.json"),
+    )
+    copied: list[str] = []
+    missing: list[str] = []
+    for relative in relative_templates:
+        source = reference / relative
+        if source.is_file():
+            policy.File_Copy(source, template_root / relative)
+            copied.append(relative.as_posix())
+        else:
+            missing.append(relative.as_posix())
+    required = {
+        ".eide/eide.yml",
+        ".eide/files.options.yml",
+        "Flight_Controller0.5.code-workspace",
+        ".vscode/tasks.json",
+    }
+    if not required.issubset(copied):
+        raise RuntimeError(
+            "Reference development-environment templates are incomplete: "
+            + ", ".join(sorted(required.difference(copied)))
+        )
+    policy.Text_AtomicWrite(
+        template_root / "inventory.json",
+        json.dumps(
+            {"copied": copied, "missing_in_reference": missing},
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+    )
+
+
 def Components_Import(reference: Path, *, force: bool = False) -> dict[str, Any]:
     reference = reference.resolve()
     provenance = ReferenceProvenance_Get(reference)
@@ -901,6 +1588,9 @@ def Components_Import(reference: Path, *, force: bool = False) -> dict[str, Any]
             / "run_tests.ps1",
             policy,
         )
+        _BoardUserVisibleNames_Adapt(staged_builtin, policy)
+        _BoardLogicalDevices_Adapt(staged_builtin, policy)
+        _EnvironmentTemplates_Copy(reference, staged_builtin, policy)
         _ProtocolMetadata_Adapt(
             staged_builtin
             / "silverstar_protocol_reference_v0"

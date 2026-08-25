@@ -35,6 +35,7 @@ class LogRecordDefinition:
     default_stream: LogStreamConfig
     level: LogPolicyLevel
     capabilities_required: tuple[str, ...] = ()
+    recordable_capabilities_required: tuple[str, ...] = ()
     components_required: tuple[str, ...] = ()
     strategy_slots_required: tuple[str, ...] = ()
     display_names: dict[str, str] = field(default_factory=dict)
@@ -145,6 +146,7 @@ def ProtocolLogDefinitions_Load(path: Path) -> tuple[LogRecordDefinition, ...]:
         requirements = policy_data.get("requires", {})
         if not isinstance(requirements, dict) or set(requirements) - {
             "capabilities",
+            "recordable_capabilities",
             "components",
             "strategy_slots",
         }:
@@ -175,6 +177,10 @@ def ProtocolLogDefinitions_Load(path: Path) -> tuple[LogRecordDefinition, ...]:
                 capabilities_required=_StringTuple_Get(
                     requirements.get("capabilities"),
                     f"{record}.requires.capabilities",
+                ),
+                recordable_capabilities_required=_StringTuple_Get(
+                    requirements.get("recordable_capabilities"),
+                    f"{record}.requires.recordable_capabilities",
                 ),
                 components_required=_StringTuple_Get(
                     requirements.get("components"),
@@ -224,6 +230,30 @@ def ProjectCapabilities_Get(model: ProjectModel, catalog: PluginCatalog) -> set[
     return capabilities
 
 
+def ProjectRecordableOutputs_Get(
+    model: ProjectModel, catalog: PluginCatalog
+) -> tuple[set[str], dict[str, str]]:
+    """Return enabled raw outputs and explicit device-output disable reasons."""
+    enabled: set[str] = set()
+    disabled_reasons: dict[str, str] = {}
+    for instance in model.device_instances:
+        manifest = catalog.Component_Get(instance.plugin)
+        values = manifest.metadata.get("recordable_outputs", {})
+        if not isinstance(values, dict):
+            continue
+        for capability, configuration in values.items():
+            if not isinstance(capability, str) or not isinstance(configuration, dict):
+                continue
+            if configuration.get("enabled") is True:
+                enabled.add(capability)
+                disabled_reasons.pop(capability, None)
+            elif capability not in enabled:
+                reason_code = configuration.get("reason_code", "")
+                if isinstance(reason_code, str) and reason_code:
+                    disabled_reasons[capability] = reason_code
+    return enabled, disabled_reasons
+
+
 def LogAvailability_Get(
     definition: LogRecordDefinition,
     model: ProjectModel,
@@ -231,12 +261,35 @@ def LogAvailability_Get(
 ) -> LogAvailability:
     selected = set(model.ComponentIds_Get())
     capabilities = ProjectCapabilities_Get(model, catalog)
+    recordable, disabled_recordable = ProjectRecordableOutputs_Get(model, catalog)
     missing_capabilities = tuple(
         value for value in definition.capabilities_required if value not in capabilities
     )
     if missing_capabilities:
         return LogAvailability(
             False, "logging.unavailable.capability", missing_capabilities
+        )
+    missing_recordable = tuple(
+        value
+        for value in definition.recordable_capabilities_required
+        if value not in recordable
+    )
+    if missing_recordable:
+        reason_codes = tuple(
+            dict.fromkeys(
+                disabled_recordable.get(value, "")
+                for value in missing_recordable
+                if disabled_recordable.get(value, "")
+            )
+        )
+        return LogAvailability(
+            False,
+            (
+                reason_codes[0]
+                if len(reason_codes) == 1
+                else "logging.unavailable.recordable"
+            ),
+            missing_recordable,
         )
     missing_components = tuple(
         value for value in definition.components_required if value not in selected

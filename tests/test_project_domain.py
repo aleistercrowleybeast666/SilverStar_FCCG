@@ -7,7 +7,10 @@ import pytest
 
 from silverstar_fccg.core.workspace import WorkspacePolicy
 from silverstar_fccg.build.runner import BuildAction, BuildRunner
-from silverstar_fccg.build.toolchain import ToolchainDetector
+from silverstar_fccg.build.toolchain import (
+    ArmGnuSubtoolPaths_Derive,
+    ToolchainDetector,
+)
 from silverstar_fccg.generator.render import ProjectDigest_Get
 from silverstar_fccg.generator.source_graph import SourceGraph_Resolve
 from silverstar_fccg.project.model import (
@@ -60,6 +63,28 @@ def test_manual_tool_paths_drive_detection_and_make_arguments(tmp_path: Path) ->
     )
 
 
+def test_arm_gnu_subtools_are_derived_from_the_compiler_directory(
+    tmp_path: Path,
+) -> None:
+    bin_root = tmp_path / "Arm GNU" / "bin"
+    bin_root.mkdir(parents=True)
+    compiler = bin_root / "arm-none-eabi-gcc.exe"
+    objcopy = bin_root / "arm-none-eabi-objcopy.exe"
+    size = bin_root / "arm-none-eabi-size.exe"
+    for path in (compiler, objcopy, size):
+        path.write_bytes(b"fixture")
+
+    assert ArmGnuSubtoolPaths_Derive(str(compiler)) == {
+        "objcopy": str(objcopy.resolve()),
+        "size": str(size.resolve()),
+    }
+    assert set(ToolchainDetector.TOOL_COMMANDS) == {
+        "compiler",
+        "make",
+        "host_gcc",
+    }
+
+
 def test_project_loader_is_strict(tmp_path: Path) -> None:
     path = tmp_path / "bad.ssproject"
     path.write_text('{"format_version": 7}', encoding="utf-8")
@@ -107,8 +132,12 @@ def test_source_graph_is_complete_and_has_one_truth(builtin_catalog) -> None:
     assert "SYSTEM_BUILD_FUSION_ALGORITHM=SYSTEM_FUSION_KF6" in graph.defines
     assert graph.forced_includes == (
         "Targets/SilverStar_F407/Inc/platform_memory_target.h",
+        "Generated/Inc/project_flight_config.h",
     )
-    assert graph.exclude_sources == ("Core/Src/sysmem.c",)
+    assert graph.exclude_sources == (
+        "APP/Src/estimator_task_none.c",
+        "Core/Src/sysmem.c",
+    )
     assert graph.linker_script == "STM32F407XX_FLASH.ld"
     fragment = graph.MakeFragment_Render()
     assert "wildcard" not in fragment

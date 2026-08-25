@@ -8,6 +8,7 @@
 /* Algorithm qualification is deliberately separate from runtime health. */
 #define JY901B_IMU_BUILD_SOFTWARE_PROPAGATION_QUALIFIED          1U
 #define JY901B_IMU_BUILD_SOFTWARE_ALIGNMENT_QUALIFIED            1U
+#define JY901B_IMU_BUILD_LANDING_STILLNESS_QUALIFIED             1U
 #define JY901B_IMU_BUILD_LANDING_IMPACT_QUALIFIED                0U
 
 /* Package-owned static estimator recommendation. */

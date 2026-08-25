@@ -1,17 +1,19 @@
 # SilverStar.ssproject format
 
-`SilverStar.ssproject` is strict JSON with `format_version: 5`; the formal shape is `schemas/project.schema.json`. Formats 0 and 1 migrate through the Strategy/Mode and Hardware Inventory changes; format 2 string Device selections migrate to physical Device instances and instance-owned resource keys; legacy format 4 capability selections and build configuration are discarded because both are now derived actions rather than project state. All supported older files are saved as format 5.
+`SilverStar.ssproject` is strict JSON with `format_version: 6`; the formal shape is `schemas/project.schema.json`. Formats 0–5 migrate through the Strategy/Mode, Hardware Inventory, Device-instance, derived-capability, Mode-parameter, protocol-profile, and manual-assignment-confirmation changes. All supported older files are saved as format 6.
 
 ## Sections
 
 - `project`: name, firmware version, and embedded build target.
 - `components`: exactly one Core, MCU, OS, and DevelopmentEnvironment; an optional Board while custom hardware is active; ordered `devices: [{instance_id, plugin}]`, base components/Protocol Bundles; and generic `strategies: {slot: component-id | null}`.
 - `modes`: generic `{slot: [option, ...]}` selections. Slot rules and labels come from manifests.
-- `hardware`: `unselected`, `board_plugin`, or `custom`, plus source kind/provider, immutable import snapshot/provenance, detected MCU/capabilities/resources, persisted `inventory`, trusted build contributions, and first-import risk acknowledgement. `unselected` is valid while editing but not for Save/Build.
+- `mode_parameters`: generic `{slot: {option: {parameter: number}}}` values. Types, units, ranges, defaults, generated symbols, and scaling come from the owning Mode manifest.
+- `protocol_profiles`: independent protocol-category selections; the reference uses telemetry `air.compact.v0`, maintenance `maintenance.v0_0`, and logging `sslog0`.
+- `hardware`: `unselected`, `board_plugin`, or `custom`, plus source kind/provider, immutable import snapshot/provenance, detected MCU/capabilities/resources, persisted `inventory`, trusted build contributions, first-import risk acknowledgement, and `assignment_fingerprint`. The fingerprint is retained only while all resource-validity inputs are unchanged.
 - `resources`: `device-instance-id:requirement-name` (or non-Device component ID) to provided physical/logical resource ID.
 - `capability_sources`: only user decisions needed to resolve an ambiguous required capability, mapping capability to the selected Device instance.
 - `logging.streams`: the selected Protocol metadata order plus enable state, policy, decimation, and period. Record definitions and Required/Recommended/Optional levels do not live in the project file.
-- `build`: target, Make/toolchain preferences, native EIDE mode, and project-local tool-path overrides. Debug/Release is an invocation choice and is not persisted. `flash_command` is currently an empty reserved field; it creates no GUI, Make, VS Code, or EIDE upload action without a future validated capability contract.
+- `build`: target, Make/toolchain preferences, native EIDE mode, and project-local tool-path overrides. Release is the generated default and Debug remains an invocation choice; neither is persisted as mutable project configuration. `flash_command` is currently an empty reserved field; it creates no GUI, Make, VS Code, or EIDE upload action without a future validated capability contract.
 - `generated_glue`: the reviewed FCCG-owned glue set.
 - `component_provenance` and `reference_provenance`: audit information only.
 
@@ -33,7 +35,11 @@ Unknown/missing fields, wrong types, duplicate instance IDs/selections/records, 
 }
 ```
 
-The selected components derive that the reference consumes JY901B acceleration, angular rate, and barometric altitude while external attitude and magnetic field remain unused. If a future BMP280 and JY901B both provide required `barometer.altitude`, the only additional persisted decision is `"barometer.altitude": "barometer0"`. Requirement purposes and lifecycle remain in Algorithm/Strategy manifests and implementations; no flight-phase policy is stored.
+Raw/Data capabilities state that a provider emits data. Qualified capabilities ending in `_qualified` state that the data meets a named implementation contract. The selected components derive that the reference consumes JY901B acceleration, angular rate, software-alignment qualification, IMU-stillness qualification, barometric altitude, and barometer-window qualification while external attitude and magnetic field remain unused. If a future BMP280 and JY901B both provide required `barometer.altitude`, the only additional persisted decision is `"barometer.altitude": "barometer0"`. Requirement purposes and lifecycle remain in Algorithm/Strategy manifests and implementations; no flight-phase policy is stored.
+
+Device instances also include source-less logical sensors/actuators. The reference uses stable IDs `voltage_monitor0`, `launch_ignition0`, and `parachute_pyro0`; their resource keys bind to ADC/P_CONTROL1/P_CONTROL2 through the Board. They are ordinary independent singleton Device plugins, not multiple instances of one unverified generic driver.
+
+Logging does not persist a second capability database. Protocol metadata names Recordable requirements, Device metadata states which raw outputs are enabled, and the saved stream retains only the user's stream settings. Existing project choices are preserved; defaults are applied only when a record is first introduced, while Required records are always forced enabled.
 
 ## Generic selection examples
 
@@ -44,12 +50,24 @@ The selected components derive that the reference consumes JY901B acceleration, 
       "alignment": "silverstar.algorithm.alignment.gravity_known_yaw",
       "estimator": null,
       "ins": "silverstar.algorithm.ins.coning2_sculling2",
-      "landing": "silverstar.flight_logic.landing.baro_imu_window"
+      "landing": "silverstar.flight_logic.landing.baro_imu_window_strategy"
     }
   },
   "modes": {
     "calibration": ["Existing", "OneFace", "SixFace"],
-    "deployment": ["ApogeeVerticalVelocity", "Tilt", "Delay"]
+    "deployment": ["ApogeeVerticalVelocity", "Tilt"]
+  },
+  "mode_parameters": {
+    "deployment": {
+      "ApogeeVerticalVelocity": {"vertical_velocity_threshold": -2.0},
+      "Tilt": {"tilt_threshold": 45.0},
+      "Delay": {"delay": 60.0}
+    }
+  },
+  "protocol_profiles": {
+    "telemetry": "air.compact.v0",
+    "maintenance": "maintenance.v0_0",
+    "logging": "sslog0"
   }
 }
 ```
@@ -66,4 +84,4 @@ After export/install as a Board plugin, a second project returns to `hardware.mo
 
 FCCG resolves intended files and `.fccg/ownership.json` into operations: `ADD`, `MODIFY`, `UNCHANGED`, `PRESERVE`, `DEACTIVATE`, `REPLACE_TREE`, or `CONFLICT`. Validation errors and conflicts prevent Save from applying the plan. Dangerous operations require explicit confirmation. A missing or edited project-owned component file is never silently restored.
 
-The JSON is machine state. `SilverStar_Configuration.md` is its generated human-readable review record, including MCU, Devices, Board/hardware source, mappings, Strategies, Modes, OS, environment/toolchain, and provenance.
+The JSON is machine state. `SilverStar_Configuration.md` is its generated human-readable review record, including MCU, Devices, Board/hardware source, mappings, Strategies, Modes, active/inactive retained Mode parameters, protocol profiles, OS, environment/toolchain, and provenance.

@@ -48,7 +48,7 @@ System/User只在任务确实要改变算法或速率时修改，不因型号变
 - Output：2个逻辑通道；Mission Action逻辑口0/1分别映射通道1/2；
 - 当前启动策略为：GNSS不写配置、执行真实验证；JY901B按既有策略应用配置并由唯一IMU owner保存一次；Telemetry应用易失配置。修改这些开关前必须复核ACK、持久化和恢复方案。
 
-当前JY901B不具备absolute magnetic vector、hardware quaternion权威Alignment或可靠impact landing的构建资格。启用这些组合会作为编译错误拒绝，不运行期fallback。
+当前JY901B的hardware quaternion六轴known-yaw与九轴静态Initial Alignment资格均为1，但两种任务期authoritative资格均为0；absolute magnetic vector和impact资格也为0。因而两种hardware quaternion预飞静态对准可编译，TRIAD、飞行全程hardware姿态权威和IMPACT_THEN_STILLNESS组合必须编译期拒绝，不运行期fallback。JY901B stillness资格为1，STILLNESS与BARO_IMU_WINDOW可编译。
 
 ## Estimator噪声
 

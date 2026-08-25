@@ -1,11 +1,11 @@
 {
   "schema_version": 0,
   "id": "silverstar.flight_logic.landing.baro_imu_window",
-  "name": "Barometer + IMU Window Landing",
+  "name": "Landing Detection Common",
   "type": "flight_logic",
-  "class": "landing",
+  "class": "landing_common",
   "version": "0.0.9",
-  "description": "Build-selected barometer and IMU window landing strategy.",
+  "description": "Shared landing metrics, windows, and regression primitives used by build-selected landing strategies.",
   "requires": {
     "components": [
       {
@@ -14,11 +14,7 @@
       }
     ],
     "resources": [],
-    "capabilities": [
-      {"capability": "barometer.altitude", "purpose": "landing_detection"},
-      {"capability": "imu.acceleration", "purpose": "landing_detection"},
-      {"capability": "imu.angular_rate", "purpose": "landing_detection"}
-    ]
+    "capabilities": []
   },
   "resources": {
     "provides": [],
@@ -26,7 +22,7 @@
     "conflicts": []
   },
   "provides": [
-    "flight_logic.landing"
+    "flight_logic.landing.common"
   ],
   "build": {
     "sources": [
@@ -36,9 +32,7 @@
     "include_dirs": [
       "FlightLogic/Landing/BarometerImuWindow/Inc"
     ],
-    "defines": [
-      "SYSTEM_BUILD_LANDING_MODE=SYSTEM_LANDING_MODE_BARO_IMU_WINDOW"
-    ]
+    "defines": []
   },
   "payload": {
     "roots": [
@@ -48,27 +42,20 @@
   "metadata": {
     "reference": {
       "path": "C:\\Users\\chdxm\\Desktop\\stm32-1\\Flight_Controller0.5",
-      "commit": "b8c90e997c3113dd23074302682c5560dae18926",
-      "branch": "codex/refactor-silverstar-0.0.9-platform",
+      "commit": "e67529ef67f53049fa8d7a1d3eed314e11043d1a",
+      "branch": "main",
       "working_tree": "clean",
       "status": [],
-      "snapshot_digest": "67e89c36cf11bbe3538469a1461c48a87967691ffd556995c8b5fc6c4b1c4d54",
-      "recorded_at_utc": "2026-08-23T14:50:21+00:00"
+      "snapshot_digest": "0f2388a98e33076b9a6454a8d370190dd339556527071b683a1bc10a2add2686",
+      "recorded_at_utc": "2026-08-25T11:31:56+00:00"
     },
     "display_names": {
-      "zh_CN": "气压计 + IMU窗口着陆判定",
-      "en_US": "Barometer + IMU Window Landing"
+      "zh_CN": "着陆判定公共实现",
+      "en_US": "Landing Detection Common"
     },
     "descriptions": {
-      "zh_CN": "使用气压高度与IMU窗口判断着陆状态。",
-      "en_US": "Build-selected barometer and IMU window landing strategy."
+      "zh_CN": "三种着陆策略共享的采样新鲜度、静止指标、冲击指标与气压回归实现。",
+      "en_US": "Shared sample-freshness, stillness, impact, and barometer-regression primitives for all landing strategies."
     }
-  },
-  "selection": {
-    "kind": "strategy",
-    "slot": "landing",
-    "required": true,
-    "allow_none": false,
-    "ui_order": 40
   }
 }

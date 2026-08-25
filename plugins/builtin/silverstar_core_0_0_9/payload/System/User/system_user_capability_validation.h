@@ -88,15 +88,15 @@ _Static_assert((SYSTEM_ALIGNMENT_ALGORITHM !=
                 SYSTEM_ALIGNMENT_HW_QUAT_6AXIS_KNOWN_YAW) ||
                ((SYSTEM_USER_HARDWARE_QUATERNION_ENABLE != 0U) &&
                 (SYSTEM_SELECTED_HARDWARE_QUATERNION_OUTPUT_AVAILABLE != 0U) &&
-                (SYSTEM_SELECTED_HARDWARE_QUATERNION_AUTHORITATIVE_6AXIS_QUALIFIED != 0U)),
-               "HW 6-axis alignment requires an authoritative qualified source");
+                (SYSTEM_SELECTED_HARDWARE_QUATERNION_PREFLIGHT_ALIGNMENT_6AXIS_QUALIFIED != 0U)),
+               "HW 6-axis alignment requires a qualified preflight source");
 
 _Static_assert((SYSTEM_ALIGNMENT_ALGORITHM !=
                 SYSTEM_ALIGNMENT_HW_QUAT_9AXIS) ||
                ((SYSTEM_USER_HARDWARE_QUATERNION_ENABLE != 0U) &&
                 (SYSTEM_SELECTED_HARDWARE_QUATERNION_OUTPUT_AVAILABLE != 0U) &&
-                (SYSTEM_SELECTED_HARDWARE_QUATERNION_AUTHORITATIVE_9AXIS_QUALIFIED != 0U)),
-               "HW 9-axis alignment requires an authoritative qualified source");
+                (SYSTEM_SELECTED_HARDWARE_QUATERNION_PREFLIGHT_ALIGNMENT_9AXIS_QUALIFIED != 0U)),
+               "HW 9-axis alignment requires a qualified preflight source");
 
 _Static_assert(((SYSTEM_USER_ALIGNMENT_REQUIRED_MASK &
                  SYSTEM_ALIGNMENT_SOURCE_MASK_BARO_ORIGIN) == 0U) ||
@@ -114,22 +114,25 @@ _Static_assert(((SYSTEM_USER_ALIGNMENT_REQUIRED_MASK &
 _Static_assert((SYSTEM_FLIGHT_LANDING_DETECTION_ENABLE == 0U) ||
                (SYSTEM_FLIGHT_LANDING_MODE != SYSTEM_LANDING_MODE_STILLNESS) ||
                ((SYSTEM_SELECTED_IMU_ACCEL_AVAILABLE != 0U) &&
-                (SYSTEM_SELECTED_IMU_GYRO_AVAILABLE != 0U)),
-               "Stillness landing requires selected accel and gyro data");
+                (SYSTEM_SELECTED_IMU_GYRO_AVAILABLE != 0U) &&
+                (SYSTEM_SELECTED_IMU_LANDING_STILLNESS_QUALIFIED != 0U)),
+               "Stillness landing requires a stillness-qualified IMU");
 
 _Static_assert((SYSTEM_FLIGHT_LANDING_DETECTION_ENABLE == 0U) ||
                (SYSTEM_FLIGHT_LANDING_MODE !=
                 SYSTEM_LANDING_MODE_IMPACT_THEN_STILLNESS) ||
                ((SYSTEM_SELECTED_IMU_ACCEL_AVAILABLE != 0U) &&
                 (SYSTEM_SELECTED_IMU_GYRO_AVAILABLE != 0U) &&
+                (SYSTEM_SELECTED_IMU_LANDING_STILLNESS_QUALIFIED != 0U) &&
                 (SYSTEM_SELECTED_IMU_LANDING_IMPACT_QUALIFIED != 0U)),
-               "Impact landing requires an impact-qualified IMU");
+               "Impact landing requires stillness- and impact-qualified IMU data");
 
 _Static_assert((SYSTEM_FLIGHT_LANDING_DETECTION_ENABLE == 0U) ||
                (SYSTEM_FLIGHT_LANDING_MODE !=
                 SYSTEM_LANDING_MODE_BARO_IMU_WINDOW) ||
                ((SYSTEM_SELECTED_IMU_ACCEL_AVAILABLE != 0U) &&
                 (SYSTEM_SELECTED_IMU_GYRO_AVAILABLE != 0U) &&
+                (SYSTEM_SELECTED_IMU_LANDING_STILLNESS_QUALIFIED != 0U) &&
                 (SYSTEM_USER_BAROMETER_ENABLE != 0U) &&
                 (SYSTEM_SELECTED_BAROMETER_DIRECT_ALTITUDE_AVAILABLE != 0U) &&
                 (SYSTEM_SELECTED_BAROMETER_LANDING_WINDOW_QUALIFIED != 0U)),

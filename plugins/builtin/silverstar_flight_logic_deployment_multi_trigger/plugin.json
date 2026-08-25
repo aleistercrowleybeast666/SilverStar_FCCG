@@ -42,20 +42,16 @@
   "metadata": {
     "reference": {
       "path": "C:\\Users\\chdxm\\Desktop\\stm32-1\\Flight_Controller0.5",
-      "commit": "b8c90e997c3113dd23074302682c5560dae18926",
-      "branch": "codex/refactor-silverstar-0.0.9-platform",
+      "commit": "e67529ef67f53049fa8d7a1d3eed314e11043d1a",
+      "branch": "main",
       "working_tree": "clean",
       "status": [],
-      "snapshot_digest": "67e89c36cf11bbe3538469a1461c48a87967691ffd556995c8b5fc6c4b1c4d54",
-      "recorded_at_utc": "2026-08-23T14:50:21+00:00"
+      "snapshot_digest": "0f2388a98e33076b9a6454a8d370190dd339556527071b683a1bc10a2add2686",
+      "recorded_at_utc": "2026-08-25T11:31:56+00:00"
     },
     "display_names": {
-      "zh_CN": "多触发条件开伞",
+      "zh_CN": "多条件开伞",
       "en_US": "Multi-Trigger Deployment"
-    },
-    "descriptions": {
-      "zh_CN": "提供最高点、姿态倾斜和延时三种可独立选择的开伞触发条件。",
-      "en_US": "Deployment component with independently selectable apogee, tilt, and delay modes."
     }
   },
   "selection": {
@@ -72,20 +68,83 @@
     ],
     "default": [
       "ApogeeVerticalVelocity",
-      "Tilt",
-      "Delay"
+      "Tilt"
     ],
     "option_requirements": {
       "ApogeeVerticalVelocity": {
-        "capabilities": ["navigation.vertical_velocity"]
+        "capabilities": [
+          "navigation.vertical_velocity",
+          "actuator.mission_action.parachute_deploy"
+        ]
       },
       "Tilt": {
-        "capabilities": ["attitude.estimated"]
+        "capabilities": [
+          "attitude.estimated",
+          "imu.angular_rate",
+          "imu.software_propagation_qualified",
+          "actuator.mission_action.parachute_deploy"
+        ]
       },
       "Delay": {
-        "capabilities": []
+        "capabilities": [
+          "actuator.mission_action.parachute_deploy"
+        ]
       }
     },
+    "parameters": {
+      "ApogeeVerticalVelocity": [
+        {
+          "id": "vertical_velocity_threshold",
+          "type": "float",
+          "default": -2.0,
+          "minimum": -100.0,
+          "maximum": -0.01,
+          "unit": "m/s",
+          "generated_symbol": "SYSTEM_FLIGHT_APOGEE_VZ_THRESHOLD_MPS",
+          "display_names": {
+            "zh_CN": "垂直速度阈值",
+            "en_US": "Vertical velocity threshold"
+          }
+        }
+      ],
+      "Tilt": [
+        {
+          "id": "tilt_threshold",
+          "type": "float",
+          "default": 45.0,
+          "minimum": 0.01,
+          "maximum": 180.0,
+          "unit": "°",
+          "generated_symbol": "SYSTEM_FLIGHT_TILT_THRESHOLD_DEG",
+          "display_names": {
+            "zh_CN": "倾斜角阈值",
+            "en_US": "Tilt angle threshold"
+          }
+        }
+      ],
+      "Delay": [
+        {
+          "id": "delay",
+          "type": "float",
+          "default": 60.0,
+          "minimum": 0.0,
+          "maximum": 4294967.0,
+          "unit": "s",
+          "generated_symbol": "SYSTEM_FLIGHT_DEPLOY_DELAY_MS",
+          "generated_scale": 1000.0,
+          "display_names": {
+            "zh_CN": "延时时间",
+            "en_US": "Delay"
+          }
+        }
+      ]
+    },
+    "option_symbols": {
+      "ApogeeVerticalVelocity": "SYSTEM_DEPLOY_TRIGGER_APOGEE_VZ",
+      "Tilt": "SYSTEM_DEPLOY_TRIGGER_TILT",
+      "Delay": "SYSTEM_DEPLOY_TRIGGER_DELAY"
+    },
+    "aggregate_symbol": "SYSTEM_FLIGHT_DEPLOY_TRIGGER_MASK",
     "labels": {
       "zh_CN": {
         "ApogeeVerticalVelocity": "越过最高点 / 垂直速度",

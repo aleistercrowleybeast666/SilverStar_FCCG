@@ -261,15 +261,16 @@ $generatedFiles = @(Get-ChildItem -LiteralPath `
     ForEach-Object { $_.FullName.Substring($repoRoot.Length + 1) } |
     Sort-Object)
 $expectedGeneratedFiles = @(
-    'Generated\Inc\project_capability_routes.h',
     'Generated\Inc\project_log_config.h',
     'Generated\Inc\project_resources.h',
     'Generated\Src\platform_resources.c',
-    'Generated\Src\project_capability_routes.c',
     'Generated\Src\project_log_config.c',
     'Generated\Src\project_metadata.c',
-    'Generated\module.mk',
-    'Generated\project_sources.mk'
+    'Generated\Inc\project_capability_routes.h',
+    'Generated\Src\project_capability_routes.c',
+    'Generated\Inc\project_flight_config.h',
+    'Generated\project_sources.mk',
+    'Generated\module.mk'
 ) | Sort-Object
 $generatedDifference = @(Compare-Object `
     -ReferenceObject $expectedGeneratedFiles -DifferenceObject $generatedFiles)
@@ -388,8 +389,8 @@ Assert-ArchitectureCondition `
     -Message 'EIDE does not use the authoritative F407 linker script.'
 Assert-ArchitectureCondition `
     -Condition ($eideContent -match `
-        '(?m)^\s+C_FLAGS:\s*-include Targets/SilverStar_F407/Inc/platform_memory_target\.h\s*$') `
-    -Message 'EIDE does not force-include the target memory policy.'
+        '(?m)^\s+C_FLAGS:\s*-include Targets/SilverStar_F407/Inc/platform_memory_target\.h -include Generated/Inc/project_flight_config\.h\s*$') `
+    -Message 'EIDE does not force-include the target memory and flight configuration policies.'
 Assert-ArchitectureCondition `
     -Condition ($eideContent -match '(?m)^\s+LIB_FLAGS:\s*-lc -lm -lnosys\s*$') `
     -Message 'EIDE target libraries do not match the authoritative F407 link.'
@@ -527,10 +528,29 @@ if ($makeExitCode -eq 0) {
         'Algorithm/Alignment/GravityKnownYaw/Src/alignment_gravity_known_yaw.c',
         'Algorithm/Alignment/GravityKnownYaw/Src/alignment_strategy_binding.c',
         'Algorithm/INS/Coning2Sculling2/Src/ins_mechanization.c',
-        'Algorithm/Estimator/KF6/Src/navigation_kf.c',
         'FlightLogic/Deployment/MultiTrigger/Src/flight_deployment.c',
         'FlightLogic/Landing/BarometerImuWindow/Src/flight_landing.c'
     )
+    $selectedEstimatorTaskSources = @($uniqueSources | Where-Object {
+        ($_ -eq 'APP/Src/estimator_task.c') -or
+        ($_ -eq 'APP/Src/estimator_task_none.c')
+    })
+    Assert-ArchitectureCondition `
+        -Condition ($selectedEstimatorTaskSources.Count -eq 1) `
+        -Message ("Expected exactly one estimator task implementation: " +
+            ($selectedEstimatorTaskSources -join ', '))
+    if ($uniqueSources -contains 'APP/Src/estimator_task.c') {
+        $requiredStrategySources += 'Algorithm/Estimator/KF6/Src/navigation_kf.c'
+    }
+    if ($uniqueSources -contains 'APP/Src/estimator_task_none.c') {
+        $noneKfSources = @($uniqueSources | Where-Object {
+            $_ -like 'Algorithm/Estimator/KF6/*'
+        })
+        Assert-ArchitectureCondition `
+            -Condition ($noneKfSources.Count -eq 0) `
+            -Message ("No-fusion estimator task still selects KF6 sources: " +
+                ($noneKfSources -join ', '))
+    }
     $missingStrategySources = @($requiredStrategySources | Where-Object {
         $uniqueSources -notcontains $_
     })

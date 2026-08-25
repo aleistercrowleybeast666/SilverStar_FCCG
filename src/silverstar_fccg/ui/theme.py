@@ -216,6 +216,7 @@ QComboBox QAbstractItemView {
     outline: 0;
 }
 QComboBox QAbstractItemView::item { min-height: 26px; padding: 3px 7px; }
+QComboBox QAbstractItemView::item:disabled { color: $muted; }
 QHeaderView::section {
     background: $surface;
     color: $text;
@@ -348,6 +349,16 @@ def Theme_Apply(application: QApplication, theme: str) -> None:
     palette.setColor(QPalette.ColorRole.WindowText, QColor(tokens.text))
     palette.setColor(QPalette.ColorRole.Base, QColor(tokens.surface_input))
     palette.setColor(QPalette.ColorRole.Text, QColor(tokens.text))
+    palette.setColor(
+        QPalette.ColorGroup.Disabled,
+        QPalette.ColorRole.Text,
+        QColor(tokens.muted),
+    )
+    palette.setColor(
+        QPalette.ColorGroup.Disabled,
+        QPalette.ColorRole.WindowText,
+        QColor(tokens.muted),
+    )
     palette.setColor(QPalette.ColorRole.Highlight, QColor(tokens.accent))
     palette.setColor(QPalette.ColorRole.HighlightedText, QColor(tokens.accent_text))
     application.setPalette(palette)

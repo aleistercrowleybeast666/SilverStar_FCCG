@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 from copy import deepcopy
 from dataclasses import dataclass, field
@@ -29,7 +30,25 @@ TOOLCHAIN_PREFIX_PATTERN = re.compile(r"^[A-Za-z0-9_.+-]+$")
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 RELATIVE_FILE_PATTERN = re.compile(r"^[A-Za-z0-9_./+@-]+$")
 
-PROJECT_FORMAT_VERSION = 5
+PROJECT_FORMAT_VERSION = 6
+DEFAULT_PROTOCOL_PROFILES = {
+    "telemetry": "air.compact.v0",
+    "maintenance": "maintenance.v0_0",
+    "logging": "sslog0",
+}
+DEFAULT_MODE_PARAMETERS = {
+    "deployment": {
+        "ApogeeVerticalVelocity": {
+            "vertical_velocity_threshold": -2.0,
+        },
+        "Tilt": {
+            "tilt_threshold": 45.0,
+        },
+        "Delay": {
+            "delay": 60.0,
+        },
+    }
+}
 HARDWARE_MODES = frozenset({"unselected", "board_plugin", "custom"})
 BOARD_SOURCE_KINDS = frozenset(
     {"unselected", "verified_builtin", "manual_import", "third_party"}
@@ -99,6 +118,7 @@ class HardwareConfiguration:
     source_digest: str = ""
     source_label: str = ""
     risk_acknowledged: bool = False
+    assignment_fingerprint: str = ""
 
 
 @dataclass(slots=True)
@@ -112,7 +132,13 @@ class ProjectModel:
     base_components: list[str] = field(default_factory=list)
     strategies: dict[str, str | None] = field(default_factory=dict)
     modes: dict[str, list[str]] = field(default_factory=dict)
+    mode_parameters: dict[str, dict[str, dict[str, float | int]]] = field(
+        default_factory=lambda: deepcopy(DEFAULT_MODE_PARAMETERS)
+    )
     protocol_bundles: list[str] = field(default_factory=list)
+    protocol_profiles: dict[str, str] = field(
+        default_factory=lambda: dict(DEFAULT_PROTOCOL_PROFILES)
+    )
     development_environment: str = ""
     hardware: HardwareConfiguration = field(default_factory=HardwareConfiguration)
     resource_assignments: dict[str, str] = field(default_factory=dict)
@@ -127,6 +153,7 @@ class ProjectModel:
             "project_resources",
             "project_log_config",
             "project_metadata",
+            "project_flight_config",
             "project_sources",
         ]
     )
@@ -187,6 +214,14 @@ class ProjectModel:
                 slot: list(selection)
                 for slot, selection in sorted(self.modes.items())
             },
+            "mode_parameters": {
+                slot: {
+                    option: dict(sorted(parameters.items()))
+                    for option, parameters in sorted(options.items())
+                }
+                for slot, options in sorted(self.mode_parameters.items())
+            },
+            "protocol_profiles": dict(sorted(self.protocol_profiles.items())),
             "hardware": {
                 "mode": self.hardware.mode,
                 "source_kind": self.hardware.source_kind,
@@ -212,6 +247,7 @@ class ProjectModel:
                 "source_digest": self.hardware.source_digest,
                 "source_label": self.hardware.source_label,
                 "risk_acknowledged": self.hardware.risk_acknowledged,
+                "assignment_fingerprint": self.hardware.assignment_fingerprint,
             },
             "resources": dict(sorted(self.resource_assignments.items())),
             "capability_sources": dict(
@@ -418,6 +454,22 @@ def _ProjectV4_Migrate(root: dict[str, Any]) -> dict[str, Any]:
     migrated.pop("capability_selections", None)
     build = _Object_Require(migrated.get("build"), "build")
     build.pop("configuration", None)
+    migrated["format_version"] = 5
+    return migrated
+
+
+def _ProjectV5_Migrate(root: dict[str, Any]) -> dict[str, Any]:
+    migrated = deepcopy(root)
+    migrated["mode_parameters"] = deepcopy(DEFAULT_MODE_PARAMETERS)
+    migrated["protocol_profiles"] = dict(DEFAULT_PROTOCOL_PROFILES)
+    hardware = _Object_Require(migrated.get("hardware"), "hardware")
+    hardware["assignment_fingerprint"] = ""
+    generated_glue = migrated.get("generated_glue", [])
+    if (
+        isinstance(generated_glue, list)
+        and "project_flight_config" not in generated_glue
+    ):
+        generated_glue.append("project_flight_config")
     migrated["format_version"] = PROJECT_FORMAT_VERSION
     return migrated
 
@@ -537,6 +589,70 @@ def _Modes_Parse(value: Any) -> dict[str, list[str]]:
     return modes
 
 
+def _ModeParameters_Parse(
+    value: Any,
+) -> dict[str, dict[str, dict[str, float | int]]]:
+    data = _Object_Require(value, "mode_parameters")
+    result: dict[str, dict[str, dict[str, float | int]]] = {}
+    for slot, options_value in data.items():
+        if not isinstance(slot, str) or not SELECTION_SLOT_PATTERN.fullmatch(slot):
+            raise ProjectModelError(f"Invalid mode parameter slot: {slot!r}")
+        options = _Object_Require(
+            options_value, f"mode_parameters.{slot}"
+        )
+        normalized_options: dict[str, dict[str, float | int]] = {}
+        for option, parameters_value in options.items():
+            if (
+                not isinstance(option, str)
+                or not SELECTION_OPTION_PATTERN.fullmatch(option)
+            ):
+                raise ProjectModelError(
+                    f"Invalid mode parameter option: {option!r}"
+                )
+            parameters = _Object_Require(
+                parameters_value, f"mode_parameters.{slot}.{option}"
+            )
+            normalized_parameters: dict[str, float | int] = {}
+            for parameter_id, parameter_value in parameters.items():
+                if (
+                    not isinstance(parameter_id, str)
+                    or not COMPONENT_ID_PATTERN.fullmatch(parameter_id)
+                ):
+                    raise ProjectModelError(
+                        f"Invalid mode parameter id: {parameter_id!r}"
+                    )
+                if (
+                    isinstance(parameter_value, bool)
+                    or not isinstance(parameter_value, (int, float))
+                    or not math.isfinite(float(parameter_value))
+                ):
+                    raise ProjectModelError(
+                        f"Mode parameter {slot}.{option}.{parameter_id} "
+                        "must be a finite number"
+                    )
+                normalized_parameters[parameter_id] = parameter_value
+            normalized_options[option] = normalized_parameters
+        result[slot] = normalized_options
+    return result
+
+
+def _ProtocolProfiles_Parse(value: Any) -> dict[str, str]:
+    data = _Object_Require(value, "protocol_profiles")
+    result: dict[str, str] = {}
+    for category, profile_id in data.items():
+        if (
+            not isinstance(category, str)
+            or not COMPONENT_ID_PATTERN.fullmatch(category)
+            or not isinstance(profile_id, str)
+            or not COMPONENT_ID_PATTERN.fullmatch(profile_id)
+        ):
+            raise ProjectModelError(
+                "protocol_profiles must map category ids to profile ids"
+            )
+        result[category] = profile_id
+    return result
+
+
 def _Hardware_Parse(value: Any, *, board: str) -> HardwareConfiguration:
     data = _Object_Require(value, "hardware")
     expected = {
@@ -557,6 +673,7 @@ def _Hardware_Parse(value: Any, *, board: str) -> HardwareConfiguration:
         "source_digest",
         "source_label",
         "risk_acknowledged",
+        "assignment_fingerprint",
     }
     if set(data) != expected:
         raise ProjectModelError("hardware has missing or unknown fields")
@@ -568,6 +685,9 @@ def _Hardware_Parse(value: Any, *, board: str) -> HardwareConfiguration:
     mcu = _String_Require(data, "mcu", allow_empty=True)
     source_digest = _String_Require(data, "source_digest", allow_empty=True)
     source_label = _String_Require(data, "source_label", allow_empty=True)
+    assignment_fingerprint = _String_Require(
+        data, "assignment_fingerprint", allow_empty=True
+    )
     capabilities = tuple(_StringList_Require(data, "capabilities"))
     inventory = _Object_Require(data.get("inventory"), "hardware inventory")
     resources_value = data.get("resources")
@@ -630,6 +750,10 @@ def _Hardware_Parse(value: Any, *, board: str) -> HardwareConfiguration:
         raise ProjectModelError("hardware.snapshot_id is invalid")
     if source_digest and not SHA256_PATTERN.fullmatch(source_digest):
         raise ProjectModelError("hardware.source_digest is invalid")
+    if assignment_fingerprint and not SHA256_PATTERN.fullmatch(
+        assignment_fingerprint
+    ):
+        raise ProjectModelError("hardware.assignment_fingerprint is invalid")
     if ioc_file and (
         not RELATIVE_FILE_PATTERN.fullmatch(ioc_file)
         or ioc_file.startswith("/")
@@ -666,6 +790,7 @@ def _Hardware_Parse(value: Any, *, board: str) -> HardwareConfiguration:
         source_digest=source_digest,
         source_label=source_label,
         risk_acknowledged=risk_acknowledged,
+        assignment_fingerprint=assignment_fingerprint,
     )
 
 
@@ -814,11 +939,15 @@ def ProjectModel_Parse(data: dict[str, Any]) -> ProjectModel:
         root = _ProjectV3_Migrate(root)
     if root.get("format_version") == 4:
         root = _ProjectV4_Migrate(root)
+    if root.get("format_version") == 5:
+        root = _ProjectV5_Migrate(root)
     required_root = {
         "format_version",
         "project",
         "components",
         "modes",
+        "mode_parameters",
+        "protocol_profiles",
         "hardware",
         "resources",
         "capability_sources",
@@ -866,6 +995,8 @@ def ProjectModel_Parse(data: dict[str, Any]) -> ProjectModel:
         environment,
     ) = _Components_Parse(root.get("components"))
     modes = _Modes_Parse(root.get("modes"))
+    mode_parameters = _ModeParameters_Parse(root.get("mode_parameters"))
+    protocol_profiles = _ProtocolProfiles_Parse(root.get("protocol_profiles"))
     hardware = _Hardware_Parse(root.get("hardware"), board=board)
     resources = _Object_Require(root.get("resources"), "resources")
     if not all(
@@ -909,7 +1040,9 @@ def ProjectModel_Parse(data: dict[str, Any]) -> ProjectModel:
         base_components=base,
         strategies=strategies,
         modes=modes,
+        mode_parameters=mode_parameters,
         protocol_bundles=protocol_bundles,
+        protocol_profiles=protocol_profiles,
         development_environment=environment,
         hardware=hardware,
         resource_assignments=dict(resources),

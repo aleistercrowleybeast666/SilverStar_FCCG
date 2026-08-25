@@ -115,9 +115,11 @@ Target在`target_system_config.h`把已选Device的构建资格映射为`SYSTEM_
 - Body/ENU与`q_nb`仍表示body到ENU；
 - Calibration支持NONE、ONE_FACE和SIX_FACE；
 - 默认Initial Alignment为窗口化Gravity + Known ENU Yaw，START后冻结初始姿态并只做软件四元数传播；
+- JY901B六轴/九轴hardware quaternion具备START前静态窗口Initial Alignment资格，但两种任务期authoritative资格均为0；该资格不允许START后替代或修正软件传播姿态；
 - Pure INS保持二子样圆锥/划桨补偿；融合保持六状态位置/速度KF6、GNSS分组门控、重捕获和Baro融合；
 - Lifecycle保持BOOT/SELF_TEST/PREFLIGHT/READY/FLIGHT/RECOVERY/LANDED/POSTFLIGHT/FAULT；
 - FlightRecovery保持NONE/TILT/APOGEE_VZ/START-relative DELAY触发、one-shot Mission Action、RECOVERY及可选Landing；默认仍为APOGEE_VZ与BARO_IMU_WINDOW；
+- JY901B accel/gyro具备Landing stillness资格，支持STILLNESS与BARO_IMU_WINDOW；impact资格保持0，IMPACT_THEN_STILLNESS继续编译期拒绝；
 - 不因平台化引入15维ESKF、多级火箭、双伞、复杂pyro、完整launch detector或新的公开Lifecycle状态。
 
 Host测试证明软件语义保持，不等于执行器、落地冲击捕获或整套安全链路上板验证。

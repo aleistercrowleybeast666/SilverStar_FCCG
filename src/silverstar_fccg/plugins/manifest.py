@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -84,6 +85,24 @@ class SelectionOptionRequirements:
 
 
 @dataclass(frozen=True, slots=True)
+class ModeParameterDefinition:
+    parameter_id: str
+    value_type: str
+    default: float | int
+    minimum: float | int
+    maximum: float | int
+    unit: str
+    generated_symbol: str
+    generated_scale: float = 1.0
+    display_names: dict[str, str] = field(default_factory=dict)
+
+    def DisplayName_Get(self, language: str) -> str:
+        return self.display_names.get(
+            language, self.parameter_id.replace("_", " ")
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class DeviceInstancePolicy:
     project_max: int = 1
     same_plugin_multiple: bool = False
@@ -107,6 +126,7 @@ class ResourceRequirement:
     mode: ResourceMode = ResourceMode.EXCLUSIVE
     candidates: tuple[str, ...] = ()
     constraints: dict[str, Any] = field(default_factory=dict)
+    electrical_constraints: dict[str, Any] = field(default_factory=dict)
     display_names: dict[str, str] = field(default_factory=dict)
 
     def DisplayName_Get(self, language: str) -> str:
@@ -152,6 +172,11 @@ class SelectionContribution:
     option_requirements: dict[str, SelectionOptionRequirements] = field(
         default_factory=dict
     )
+    parameters: dict[str, tuple[ModeParameterDefinition, ...]] = field(
+        default_factory=dict
+    )
+    option_symbols: dict[str, str] = field(default_factory=dict)
+    aggregate_symbol: str = ""
     none_defines: tuple[str, ...] = ()
 
 
@@ -168,11 +193,24 @@ class BoardContribution:
 
 
 @dataclass(frozen=True, slots=True)
+class ProtocolProfileContribution:
+    profile_id: str
+    version: str
+    display_names: dict[str, str] = field(default_factory=dict)
+
+    def DisplayName_Get(self, language: str) -> str:
+        return self.display_names.get(language, self.profile_id)
+
+
+@dataclass(frozen=True, slots=True)
 class ProtocolContribution:
     logging_metadata: str
     maintenance_protocol_version: str
     firmware_version: str
     documentation_version: str
+    profiles: dict[str, tuple[ProtocolProfileContribution, ...]] = field(
+        default_factory=dict
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -194,6 +232,9 @@ class EnvironmentContribution:
 @dataclass(frozen=True, slots=True)
 class BuildContribution:
     sources: tuple[str, ...] = ()
+    strategy_sources: dict[str, dict[str, tuple[str, ...]]] = field(
+        default_factory=dict
+    )
     asm_sources: tuple[str, ...] = ()
     include_dirs: tuple[str, ...] = ()
     defines: tuple[str, ...] = ()
@@ -504,6 +545,283 @@ def _Dependencies_Parse(requires: dict[str, Any]) -> tuple[ComponentRequirement,
     return tuple(dependencies)
 
 
+def _PositiveInteger_Validate(value: Any, field_name: str) -> None:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise PluginManifestError(f"{field_name} must be a positive integer")
+
+
+def _Number_Validate(
+    value: Any, field_name: str, *, minimum: float = 0.0
+) -> None:
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(float(value))
+        or float(value) < minimum
+    ):
+        raise PluginManifestError(
+            f"{field_name} must be a finite number >= {minimum:g}"
+        )
+
+
+def _PositiveIntegerList_Validate(value: Any, field_name: str) -> None:
+    if not isinstance(value, list) or not value:
+        raise PluginManifestError(f"{field_name} must be a non-empty array")
+    for entry in value:
+        _PositiveInteger_Validate(entry, field_name)
+    if len(value) != len(set(value)):
+        raise PluginManifestError(f"{field_name} contains duplicate values")
+
+
+def _BusConstraints_Validate(
+    name: str, kind: str, constraints: dict[str, Any]
+) -> None:
+    legacy_fields = {
+        "baud_rate",
+        "mode",
+        "signals",
+        "dma_rx_required",
+        "dma_tx_required",
+        "irq_required",
+    }
+    typed_fields = {"uart", "spi", "i2c", "pwm"}
+    unknown = set(constraints) - legacy_fields - typed_fields
+    if unknown:
+        raise PluginManifestError(
+            f"Resource constraints for {name} contain unknown fields: "
+            + ", ".join(sorted(unknown))
+        )
+    typed = set(constraints).intersection(typed_fields)
+    if len(typed) > 1:
+        raise PluginManifestError(
+            f"Resource constraints for {name} declare multiple bus types"
+        )
+    if typed and kind not in typed:
+        raise PluginManifestError(
+            f"Resource constraints for {name} declare {next(iter(typed))} "
+            f"for a {kind} requirement"
+        )
+    baud_rate = constraints.get("baud_rate")
+    if baud_rate is not None:
+        _PositiveInteger_Validate(
+            baud_rate, f"Resource baud_rate constraint for {name}"
+        )
+    constraint_mode = constraints.get("mode")
+    if constraint_mode is not None and (
+        not isinstance(constraint_mode, str) or not constraint_mode
+    ):
+        raise PluginManifestError(
+            f"Resource mode constraint for {name} must be a non-empty string"
+        )
+    signals = constraints.get("signals")
+    if signals is not None:
+        _StringTuple_Get(signals, f"resource signals for {name}")
+        if len(signals) != len(set(signals)):
+            raise PluginManifestError(
+                f"Resource signal constraints for {name} contain duplicates"
+            )
+    for flag in ("dma_rx_required", "dma_tx_required", "irq_required"):
+        if flag in constraints and not isinstance(constraints[flag], bool):
+            raise PluginManifestError(
+                f"Resource {flag} constraint for {name} must be a boolean"
+            )
+    if not typed:
+        return
+    bus_name = next(iter(typed))
+    bus = constraints[bus_name]
+    if not isinstance(bus, dict):
+        raise PluginManifestError(
+            f"Resource {bus_name} constraints for {name} must be an object"
+        )
+    allowed_fields = {
+        "uart": {
+            "baud",
+            "word_length",
+            "parity",
+            "stop_bits",
+            "rx_dma",
+            "tx_dma",
+            "irq",
+        },
+        "spi": {
+            "mode",
+            "cpol",
+            "cpha",
+            "data_bits",
+            "bit_order",
+            "minimum_clock_hz",
+            "maximum_clock_hz",
+            "dma",
+            "irq",
+        },
+        "i2c": {
+            "maximum_bus_frequency_hz",
+            "allowed_rates_hz",
+            "address_mode",
+            "required_pullup",
+            "dma",
+            "irq",
+        },
+        "pwm": {
+            "minimum_frequency_hz",
+            "maximum_frequency_hz",
+            "minimum_resolution_bits",
+            "polarity",
+            "channel",
+        },
+    }[bus_name]
+    unknown_bus_fields = set(bus) - allowed_fields
+    if unknown_bus_fields:
+        raise PluginManifestError(
+            f"Resource {bus_name} constraints for {name} contain unknown fields: "
+            + ", ".join(sorted(unknown_bus_fields))
+        )
+    if bus_name == "uart":
+        baud = bus.get("baud")
+        if not isinstance(baud, dict) or set(baud) - {
+            "exact",
+            "allowed_values",
+            "configurable",
+        }:
+            raise PluginManifestError(
+                f"Resource UART baud constraint for {name} is invalid"
+            )
+        if "exact" not in baud and "allowed_values" not in baud:
+            raise PluginManifestError(
+                f"Resource UART baud constraint for {name} needs exact or allowed_values"
+            )
+        if "exact" in baud:
+            _PositiveInteger_Validate(baud["exact"], f"UART baud.exact for {name}")
+        if "allowed_values" in baud:
+            _PositiveIntegerList_Validate(
+                baud["allowed_values"], f"UART baud.allowed_values for {name}"
+            )
+        if "configurable" in baud and not isinstance(baud["configurable"], bool):
+            raise PluginManifestError(
+                f"UART baud.configurable for {name} must be a boolean"
+            )
+        if "word_length" in bus:
+            _PositiveInteger_Validate(bus["word_length"], f"UART word_length for {name}")
+        if "stop_bits" in bus:
+            _Number_Validate(bus["stop_bits"], f"UART stop_bits for {name}", minimum=0.5)
+    elif bus_name == "spi":
+        for field_name in ("data_bits", "minimum_clock_hz", "maximum_clock_hz"):
+            if field_name in bus:
+                _PositiveInteger_Validate(bus[field_name], f"SPI {field_name} for {name}")
+        if (
+            "minimum_clock_hz" in bus
+            and "maximum_clock_hz" in bus
+            and bus["minimum_clock_hz"] > bus["maximum_clock_hz"]
+        ):
+            raise PluginManifestError(f"SPI clock range for {name} is reversed")
+    elif bus_name == "i2c":
+        if "maximum_bus_frequency_hz" in bus:
+            _PositiveInteger_Validate(
+                bus["maximum_bus_frequency_hz"],
+                f"I2C maximum_bus_frequency_hz for {name}",
+            )
+        if "allowed_rates_hz" in bus:
+            _PositiveIntegerList_Validate(
+                bus["allowed_rates_hz"], f"I2C allowed_rates_hz for {name}"
+            )
+    else:
+        for field_name in (
+            "minimum_frequency_hz",
+            "maximum_frequency_hz",
+            "minimum_resolution_bits",
+            "channel",
+        ):
+            if field_name in bus:
+                _PositiveInteger_Validate(bus[field_name], f"PWM {field_name} for {name}")
+        if (
+            "minimum_frequency_hz" in bus
+            and "maximum_frequency_hz" in bus
+            and bus["minimum_frequency_hz"] > bus["maximum_frequency_hz"]
+        ):
+            raise PluginManifestError(f"PWM frequency range for {name} is reversed")
+    for field_name, field_value in bus.items():
+        if field_name in {"baud", "word_length", "stop_bits"}:
+            continue
+        if field_name in {
+            "rx_dma",
+            "tx_dma",
+            "irq",
+            "dma",
+            "required_pullup",
+        } and not isinstance(field_value, bool):
+            raise PluginManifestError(
+                f"Resource {bus_name}.{field_name} for {name} must be a boolean"
+            )
+        if field_name in {
+            "parity",
+            "mode",
+            "cpol",
+            "cpha",
+            "bit_order",
+            "address_mode",
+            "polarity",
+        } and (not isinstance(field_value, str) or not field_value):
+            raise PluginManifestError(
+                f"Resource {bus_name}.{field_name} for {name} must be text"
+            )
+
+
+def _ElectricalConstraints_Validate(
+    name: str, electrical: dict[str, Any]
+) -> None:
+    allowed = {
+        "mode",
+        "output_type",
+        "pull",
+        "speed",
+        "safe_initial_level",
+        "active_polarity",
+        "exti_trigger",
+        "alternate_function",
+        "irq",
+        "maximum_irq_priority",
+        "startup_glitch_free",
+    }
+    unknown = set(electrical) - allowed
+    if unknown:
+        raise PluginManifestError(
+            f"Electrical constraints for {name} contain unknown fields: "
+            + ", ".join(sorted(unknown))
+        )
+    allowed_values = {
+        "mode": {"gpio_output", "gpio_input", "gpio_interrupt", "alternate_function"},
+        "output_type": {"push_pull", "open_drain"},
+        "pull": {"none", "up", "down"},
+        "speed": {"low", "medium", "high", "very_high"},
+        "safe_initial_level": {"inactive", "active", "low", "high"},
+        "active_polarity": {"low", "high"},
+        "exti_trigger": {"rising", "falling", "both"},
+    }
+    for field_name, accepted in allowed_values.items():
+        if field_name in electrical and electrical[field_name] not in accepted:
+            raise PluginManifestError(
+                f"Electrical {field_name} for {name} is invalid"
+            )
+    for flag in ("irq", "startup_glitch_free"):
+        if flag in electrical and not isinstance(electrical[flag], bool):
+            raise PluginManifestError(
+                f"Electrical {flag} for {name} must be a boolean"
+            )
+    if "maximum_irq_priority" in electrical:
+        value = electrical["maximum_irq_priority"]
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise PluginManifestError(
+                f"Electrical maximum_irq_priority for {name} must be a non-negative integer"
+            )
+    if "alternate_function" in electrical and (
+        not isinstance(electrical["alternate_function"], str)
+        or not electrical["alternate_function"]
+    ):
+        raise PluginManifestError(
+            f"Electrical alternate_function for {name} must be text"
+        )
+
+
 def _ResourceRequirements_Parse(
     requires: dict[str, Any],
 ) -> tuple[ResourceRequirement, ...]:
@@ -519,6 +837,7 @@ def _ResourceRequirements_Parse(
             "mode",
             "candidates",
             "constraints",
+            "electrical_constraints",
             "display_names",
         }:
             raise PluginManifestError("resource requirement contains unknown fields")
@@ -550,52 +869,13 @@ def _ResourceRequirements_Parse(
             raise PluginManifestError(
                 f"Resource constraints for {name} must be an object"
             )
-        allowed_constraints = {
-            "baud_rate",
-            "mode",
-            "signals",
-            "dma_rx_required",
-            "dma_tx_required",
-            "irq_required",
-        }
-        unknown_constraints = set(constraints) - allowed_constraints
-        if unknown_constraints:
+        _BusConstraints_Validate(name, kind, constraints)
+        electrical_constraints = entry.get("electrical_constraints", {})
+        if not isinstance(electrical_constraints, dict):
             raise PluginManifestError(
-                f"Resource constraints for {name} contain unknown fields: "
-                + ", ".join(sorted(unknown_constraints))
+                f"Electrical constraints for {name} must be an object"
             )
-        baud_rate = constraints.get("baud_rate")
-        if baud_rate is not None and (
-            isinstance(baud_rate, bool)
-            or not isinstance(baud_rate, int)
-            or baud_rate < 1
-        ):
-            raise PluginManifestError(
-                f"Resource baud_rate constraint for {name} must be a positive integer"
-            )
-        constraint_mode = constraints.get("mode")
-        if constraint_mode is not None and (
-            not isinstance(constraint_mode, str) or not constraint_mode
-        ):
-            raise PluginManifestError(
-                f"Resource mode constraint for {name} must be a non-empty string"
-            )
-        signals = constraints.get("signals")
-        if signals is not None:
-            _StringTuple_Get(signals, f"resource signals for {name}")
-            if len(signals) != len(set(signals)):
-                raise PluginManifestError(
-                    f"Resource signal constraints for {name} contain duplicates"
-                )
-        for flag in (
-            "dma_rx_required",
-            "dma_tx_required",
-            "irq_required",
-        ):
-            if flag in constraints and not isinstance(constraints[flag], bool):
-                raise PluginManifestError(
-                    f"Resource {flag} constraint for {name} must be a boolean"
-                )
+        _ElectricalConstraints_Validate(name, electrical_constraints)
         display_names = entry.get("display_names", {})
         if not isinstance(display_names, dict) or not all(
             isinstance(language, str)
@@ -616,6 +896,7 @@ def _ResourceRequirements_Parse(
                 mode=mode,
                 candidates=candidates,
                 constraints=dict(constraints),
+                electrical_constraints=dict(electrical_constraints),
                 display_names=dict(display_names),
             )
         )
@@ -753,6 +1034,9 @@ def _Selection_Parse(value: Any) -> SelectionContribution | None:
         "default",
         "labels",
         "option_requirements",
+        "parameters",
+        "option_symbols",
+        "aggregate_symbol",
         "none_defines",
     }:
         raise PluginManifestError("selection contains unknown fields")
@@ -842,6 +1126,139 @@ def _Selection_Parse(value: Any) -> SelectionContribution | None:
             ),
             components=components,
         )
+    parameters_value = value.get("parameters", {})
+    if not isinstance(parameters_value, dict):
+        raise PluginManifestError("selection.parameters must be an object")
+    parameters: dict[str, tuple[ModeParameterDefinition, ...]] = {}
+    for option, definitions_value in parameters_value.items():
+        if option not in options or not isinstance(definitions_value, list):
+            raise PluginManifestError(
+                "selection.parameters contains an invalid option"
+            )
+        definitions: list[ModeParameterDefinition] = []
+        seen_parameter_ids: set[str] = set()
+        for definition_value in definitions_value:
+            if not isinstance(definition_value, dict) or set(definition_value) - {
+                "id",
+                "type",
+                "default",
+                "minimum",
+                "maximum",
+                "unit",
+                "generated_symbol",
+                "generated_scale",
+                "display_names",
+            }:
+                raise PluginManifestError(
+                    f"selection parameter for {option} has unknown fields"
+                )
+            parameter_id = definition_value.get("id")
+            value_type = definition_value.get("type")
+            unit = definition_value.get("unit", "")
+            generated_symbol = definition_value.get("generated_symbol")
+            if (
+                not isinstance(parameter_id, str)
+                or not PLUGIN_ID_PATTERN.fullmatch(parameter_id)
+                or parameter_id in seen_parameter_ids
+            ):
+                raise PluginManifestError(
+                    f"selection parameter id for {option} is invalid"
+                )
+            if value_type not in {"float", "integer"}:
+                raise PluginManifestError(
+                    f"selection parameter {parameter_id} has an invalid type"
+                )
+            if not isinstance(unit, str) or not unit:
+                raise PluginManifestError(
+                    f"selection parameter {parameter_id} needs a unit"
+                )
+            if (
+                not isinstance(generated_symbol, str)
+                or not BINDING_MACRO_PATTERN.fullmatch(generated_symbol)
+            ):
+                raise PluginManifestError(
+                    f"selection parameter {parameter_id} has an invalid generated symbol"
+                )
+            numeric_values = tuple(
+                definition_value.get(name)
+                for name in ("default", "minimum", "maximum")
+            )
+            if not all(
+                not isinstance(number, bool)
+                and isinstance(number, (int, float))
+                and math.isfinite(float(number))
+                for number in numeric_values
+            ):
+                raise PluginManifestError(
+                    f"selection parameter {parameter_id} bounds must be finite numbers"
+                )
+            parameter_default, minimum, maximum = numeric_values
+            if float(minimum) > float(maximum) or not (
+                float(minimum) <= float(parameter_default) <= float(maximum)
+            ):
+                raise PluginManifestError(
+                    f"selection parameter {parameter_id} default is outside its range"
+                )
+            if value_type == "integer" and not all(
+                isinstance(number, int) for number in numeric_values
+            ):
+                raise PluginManifestError(
+                    f"integer selection parameter {parameter_id} needs integer bounds"
+                )
+            generated_scale = definition_value.get("generated_scale", 1.0)
+            if (
+                isinstance(generated_scale, bool)
+                or not isinstance(generated_scale, (int, float))
+                or not math.isfinite(float(generated_scale))
+                or float(generated_scale) <= 0.0
+            ):
+                raise PluginManifestError(
+                    f"selection parameter {parameter_id} generated_scale is invalid"
+                )
+            display_names = definition_value.get("display_names", {})
+            if not isinstance(display_names, dict) or not all(
+                isinstance(language, str)
+                and bool(language)
+                and isinstance(display_name, str)
+                and bool(display_name.strip())
+                for language, display_name in display_names.items()
+            ):
+                raise PluginManifestError(
+                    f"selection parameter {parameter_id} display_names are invalid"
+                )
+            seen_parameter_ids.add(parameter_id)
+            definitions.append(
+                ModeParameterDefinition(
+                    parameter_id=parameter_id,
+                    value_type=value_type,
+                    default=parameter_default,
+                    minimum=minimum,
+                    maximum=maximum,
+                    unit=unit,
+                    generated_symbol=generated_symbol,
+                    generated_scale=float(generated_scale),
+                    display_names=dict(display_names),
+                )
+            )
+        parameters[option] = tuple(definitions)
+    option_symbols_value = value.get("option_symbols", {})
+    if not isinstance(option_symbols_value, dict) or any(
+        option not in options
+        or not isinstance(symbol, str)
+        or not BINDING_MACRO_PATTERN.fullmatch(symbol)
+        for option, symbol in option_symbols_value.items()
+    ):
+        raise PluginManifestError("selection.option_symbols is invalid")
+    aggregate_symbol = value.get("aggregate_symbol", "")
+    if not isinstance(aggregate_symbol, str) or (
+        aggregate_symbol
+        and not BINDING_MACRO_PATTERN.fullmatch(aggregate_symbol)
+    ):
+        raise PluginManifestError("selection.aggregate_symbol is invalid")
+    if option_symbols_value and not aggregate_symbol:
+        raise PluginManifestError(
+            "selection.aggregate_symbol is required with option_symbols"
+        )
     none_defines = _StringTuple_Get(
         value.get("none_defines", []), "selection.none_defines"
     )
@@ -857,6 +1274,9 @@ def _Selection_Parse(value: Any) -> SelectionContribution | None:
         default=default,
         labels=normalized_labels,
         option_requirements=option_requirements,
+        parameters=parameters,
+        option_symbols=dict(option_symbols_value),
+        aggregate_symbol=aggregate_symbol,
         none_defines=none_defines,
     )
 
@@ -923,13 +1343,17 @@ def _Board_Parse(value: Any) -> BoardContribution | None:
 def _Protocol_Parse(value: Any) -> ProtocolContribution | None:
     if value is None:
         return None
-    expected = {
+    required = {
         "logging_metadata",
         "maintenance_protocol_version",
         "firmware_version",
         "documentation_version",
     }
-    if not isinstance(value, dict) or set(value) != expected:
+    if (
+        not isinstance(value, dict)
+        or not required.issubset(value)
+        or set(value) - {*required, "profiles"}
+    ):
         raise PluginManifestError(
             "protocol must contain logging metadata and explicit version fields"
         )
@@ -950,7 +1374,58 @@ def _Protocol_Parse(value: Any) -> ProtocolContribution | None:
         for version in versions
     ):
         raise PluginManifestError("protocol version fields are invalid")
-    return ProtocolContribution(metadata_path, *versions)
+    profiles_value = value.get("profiles", {})
+    if not isinstance(profiles_value, dict):
+        raise PluginManifestError("protocol.profiles must be an object")
+    profiles: dict[str, tuple[ProtocolProfileContribution, ...]] = {}
+    for category, entries_value in profiles_value.items():
+        if (
+            not isinstance(category, str)
+            or not PLUGIN_ID_PATTERN.fullmatch(category)
+            or not isinstance(entries_value, list)
+            or not entries_value
+        ):
+            raise PluginManifestError("protocol.profiles category is invalid")
+        entries: list[ProtocolProfileContribution] = []
+        seen_ids: set[str] = set()
+        for entry_value in entries_value:
+            if not isinstance(entry_value, dict) or set(entry_value) != {
+                "id",
+                "version",
+                "display_names",
+            }:
+                raise PluginManifestError(
+                    f"protocol profile in {category} is invalid"
+                )
+            profile_id = entry_value.get("id")
+            profile_version = entry_value.get("version")
+            display_names = entry_value.get("display_names")
+            if (
+                not isinstance(profile_id, str)
+                or not PLUGIN_ID_PATTERN.fullmatch(profile_id)
+                or profile_id in seen_ids
+                or not isinstance(profile_version, str)
+                or not VERSION_PATTERN.fullmatch(profile_version)
+                or not isinstance(display_names, dict)
+                or not all(
+                    isinstance(language, str)
+                    and bool(language)
+                    and isinstance(display_name, str)
+                    and bool(display_name.strip())
+                    for language, display_name in display_names.items()
+                )
+            ):
+                raise PluginManifestError(
+                    f"protocol profile in {category} is invalid"
+                )
+            seen_ids.add(profile_id)
+            entries.append(
+                ProtocolProfileContribution(
+                    profile_id, profile_version, dict(display_names)
+                )
+            )
+        profiles[category] = tuple(entries)
+    return ProtocolContribution(metadata_path, *versions, profiles=profiles)
 
 
 def _HardwareProvider_Parse(value: Any) -> HardwareProviderContribution | None:
@@ -1015,6 +1490,7 @@ def _Build_Parse(value: Any) -> BuildContribution:
     data = value if value is not None else {}
     if not isinstance(data, dict) or set(data) - {
         "sources",
+        "strategy_sources",
         "asm_sources",
         "include_dirs",
         "defines",
@@ -1029,6 +1505,29 @@ def _Build_Parse(value: Any) -> BuildContribution:
     }:
         raise PluginManifestError("build contains unknown fields")
     sources = _StringTuple_Get(data.get("sources", []), "build.sources")
+    strategy_sources_value = data.get("strategy_sources", {})
+    if not isinstance(strategy_sources_value, dict):
+        raise PluginManifestError("build.strategy_sources must be an object")
+    strategy_sources: dict[str, dict[str, tuple[str, ...]]] = {}
+    for slot, variants_value in strategy_sources_value.items():
+        if not isinstance(slot, str) or not PLUGIN_ID_PATTERN.fullmatch(slot):
+            raise PluginManifestError(
+                f"build.strategy_sources slot is invalid: {slot!r}"
+            )
+        if (
+            not isinstance(variants_value, dict)
+            or not variants_value
+            or set(variants_value) - {"selected", "none"}
+        ):
+            raise PluginManifestError(
+                f"build.strategy_sources.{slot} must define selected and/or none"
+            )
+        variants: dict[str, tuple[str, ...]] = {}
+        for state, state_sources in variants_value.items():
+            variants[state] = _StringTuple_Get(
+                state_sources, f"build.strategy_sources.{slot}.{state}"
+            )
+        strategy_sources[slot] = variants
     asm_sources = _StringTuple_Get(data.get("asm_sources", []), "build.asm_sources")
     include_dirs = _StringTuple_Get(data.get("include_dirs", []), "build.include_dirs")
     defines = _StringTuple_Get(data.get("defines", []), "build.defines")
@@ -1054,6 +1553,12 @@ def _Build_Parse(value: Any) -> BuildContribution:
         raise PluginManifestError("build.toolchain_prefix is invalid")
     path_values = (
         sources
+        + tuple(
+            source
+            for variants in strategy_sources.values()
+            for state_sources in variants.values()
+            for source in state_sources
+        )
         + asm_sources
         + include_dirs
         + forced_includes
@@ -1071,6 +1576,7 @@ def _Build_Parse(value: Any) -> BuildContribution:
         _BuildTokens_Validate((linker_script,), "linker_script", BUILD_PATH_PATTERN)
     return BuildContribution(
         sources=sources,
+        strategy_sources=strategy_sources,
         asm_sources=asm_sources,
         include_dirs=include_dirs,
         defines=defines,
@@ -1213,7 +1719,23 @@ def PluginManifest_Parse(
     if not isinstance(payload, dict) or set(payload) != {"roots"}:
         raise PluginManifestError("payload must contain only roots")
     payload_roots = _StringTuple_Get(payload.get("roots", []), "payload.roots")
-    if not payload_roots and component_type not in UTILITY_PLUGIN_TYPES:
+    source_free_build = (
+        not build.sources
+        and not build.strategy_sources
+        and not build.asm_sources
+        and not build.virtual_sources
+        and not build.include_dirs
+        and not build.forced_includes
+        and not build.linker_script
+    )
+    declarative_component = source_free_build and (
+        selection is not None or metadata.get("declarative") is True
+    )
+    if (
+        not payload_roots
+        and component_type not in UTILITY_PLUGIN_TYPES
+        and not declarative_component
+    ):
         raise PluginManifestError("payload.roots must not be empty")
     _RelativePaths_Validate(payload_roots, "payload")
     _BuildTokens_Validate(payload_roots, "payload.roots", BUILD_PATH_PATTERN)
@@ -1250,7 +1772,18 @@ def PluginManifest_Parse(
         path.relative_to(manifest.payload_root).as_posix()
         for path in manifest.PayloadFiles_Get()
     }
-    for build_path in (*build.sources, *build.asm_sources, *build.virtual_sources):
+    conditional_sources = tuple(
+        source
+        for variants in build.strategy_sources.values()
+        for state_sources in variants.values()
+        for source in state_sources
+    )
+    for build_path in (
+        *build.sources,
+        *conditional_sources,
+        *build.asm_sources,
+        *build.virtual_sources,
+    ):
         if build_path not in payload_files:
             raise PluginManifestError(
                 f"Build source is not supplied by payload roots: {build_path}"

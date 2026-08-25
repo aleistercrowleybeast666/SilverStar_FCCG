@@ -16,6 +16,10 @@ class PinInventory:
     alternate_function: str = ""
     pull: str = ""
     output_default: str = ""
+    output_type: str = ""
+    speed: str = ""
+    exti_trigger: str = ""
+    locked: bool = False
     exti_line: int | None = None
 
 
@@ -96,6 +100,22 @@ class HardwareInventory:
                     "peripheral": peripheral.instance,
                     "physical_resource": peripheral.instance,
                     "pins": dict(peripheral.pins),
+                    "pin_electrical": {
+                        role: {
+                            "pin": pin.pin,
+                            "signal": pin.signal,
+                            "mode": pin.mode,
+                            "alternate_function": (
+                                pin.alternate_function or pin.signal
+                            ),
+                            "pull": pin.pull,
+                            "output_type": pin.output_type,
+                            "speed": pin.speed,
+                        }
+                        for role, physical_pin in peripheral.pins.items()
+                        for pin in self.pins
+                        if pin.pin == physical_pin
+                    },
                     **dict(peripheral.settings),
                     "dma": [asdict(item) for item in peripheral.dma],
                 }
@@ -123,6 +143,17 @@ class HardwareInventory:
             label = pin.label or pin.pin
             resource_id = re.sub(r"[^A-Za-z0-9_.-]", "_", label)
             macro = re.sub(r"[^A-Za-z0-9_]", "_", label)
+            irq = None
+            if pin.exti_line is not None:
+                if pin.exti_line <= 4:
+                    irq_name = f"EXTI{pin.exti_line}_IRQn"
+                elif pin.exti_line <= 9:
+                    irq_name = "EXTI9_5_IRQn"
+                else:
+                    irq_name = "EXTI15_10_IRQn"
+                irq = next(
+                    (item for item in self.nvic if item.irq == irq_name), None
+                )
             resources.append(
                 HardwareResource(
                     resource_id,
@@ -137,12 +168,21 @@ class HardwareInventory:
                         "physical_resource": f"{pin.pin} ({pin.signal})",
                         "label": label,
                         "signal": pin.signal,
-                        "mode": pin.mode,
+                        "mode": kind,
+                        "pin_mode": pin.mode,
                         "alternate_function": pin.alternate_function,
                         "pull": pin.pull,
+                        "output_type": pin.output_type,
+                        "speed": pin.speed,
                         "output_default": pin.output_default,
+                        "initial_level": pin.output_default,
+                        "exti_trigger": pin.exti_trigger,
+                        "locked": pin.locked,
                         "exti_line": pin.exti_line,
-                        "irq_enabled": int(kind == "gpio_interrupt"),
+                        "irq": asdict(irq) if irq is not None else {},
+                        "irq_enabled": int(
+                            irq is not None and irq.enabled
+                        ),
                     },
                 )
             )
@@ -204,6 +244,76 @@ def _PinSignalParts_Get(signal: str, instance: str) -> str:
     if signal.startswith(instance + "_"):
         return signal[len(instance) + 1 :].casefold()
     return signal.casefold()
+
+
+def _Pull_Normalize(value: str) -> str:
+    upper = value.upper()
+    if "PULLUP" in upper:
+        return "up"
+    if "PULLDOWN" in upper:
+        return "down"
+    return "none"
+
+
+def _OutputType_Normalize(value: str, signal: str) -> str:
+    upper = value.upper()
+    if "OD" in upper or "OPEN_DRAIN" in upper:
+        return "open_drain"
+    if signal.upper().startswith("I2C"):
+        return "open_drain"
+    if signal == "GPIO_Output" or "PP" in upper or "PUSH_PULL" in upper:
+        return "push_pull"
+    return ""
+
+
+def _Speed_Normalize(value: str, signal: str) -> str:
+    upper = value.upper()
+    if "VERY_HIGH" in upper:
+        return "very_high"
+    if "HIGH" in upper:
+        return "high"
+    if "MEDIUM" in upper:
+        return "medium"
+    return "low" if signal == "GPIO_Output" else ""
+
+
+def _Level_Normalize(value: str, signal: str) -> str:
+    upper = value.upper()
+    if "SET" in upper or upper in {"HIGH", "1"}:
+        return "high"
+    if "RESET" in upper or upper in {"LOW", "0"}:
+        return "low"
+    return "low" if signal == "GPIO_Output" else ""
+
+
+def _ExtiTrigger_Normalize(value: str, signal: str) -> str:
+    upper = f"{value} {signal}".upper()
+    if "RISING_FALLING" in upper or "BOTH" in upper:
+        return "both"
+    if "FALLING" in upper:
+        return "falling"
+    if "EXTI" in upper or "GPXTI" in upper or "RISING" in upper:
+        return "rising"
+    return ""
+
+
+def _FrequencyHz_Parse(value: Any) -> int:
+    if isinstance(value, int) and not isinstance(value, bool):
+        return max(0, value)
+    text = str(value).strip()
+    try:
+        return max(0, int(text, 0))
+    except ValueError:
+        pass
+    match = re.fullmatch(
+        r"([0-9]+(?:\.[0-9]+)?)\s*([kKmM]?)\s*(?:bits?/s|hz)?",
+        text,
+        re.IGNORECASE,
+    )
+    if match is None:
+        return 0
+    scale = {"": 1, "k": 1_000, "m": 1_000_000}[match.group(2).casefold()]
+    return int(round(float(match.group(1)) * scale))
 
 
 def _Dma_Get(values: dict[str, str]) -> tuple[DmaInventory, ...]:
@@ -277,13 +387,50 @@ def _Peripheral_Get(
     if kind == "uart":
         settings["baud_rate"] = _Integer_Get(values.get(prefix + "BaudRate", "0"))
         settings["mode"] = values.get(prefix + "VirtualMode", "")
+        settings["word_length"] = _Integer_Get(
+            re.sub(
+                r"\D",
+                "",
+                values.get(prefix + "WordLength", "8"),
+            )
+            or "8"
+        )
+        parity = values.get(prefix + "Parity", "none").casefold()
+        settings["parity"] = (
+            "none" if "none" in parity else "even" if "even" in parity else "odd"
+        )
+        stop_bits = values.get(prefix + "StopBits", "1")
+        settings["stop_bits"] = (
+            2.0 if "2" in stop_bits else 1.5 if "1_5" in stop_bits else 1.0
+        )
     elif kind == "spi":
         raw_mode = values.get(prefix + "Mode", values.get(prefix + "VirtualType", ""))
         settings["mode"] = "master" if "MASTER" in raw_mode.upper() else "slave"
-        settings["baud_rate"] = values.get(prefix + "CalculateBaudRate", "")
+        settings["clock_hz"] = _FrequencyHz_Parse(
+            values.get(prefix + "CalculateBaudRate", "")
+        )
+        polarity = values.get(prefix + "CLKPolarity", "SPI_POLARITY_LOW").upper()
+        phase = values.get(prefix + "CLKPhase", "SPI_PHASE_1EDGE").upper()
+        first_bit = values.get(prefix + "FirstBit", "SPI_FIRSTBIT_MSB").upper()
+        data_size = values.get(prefix + "DataSize", "SPI_DATASIZE_8BIT")
+        data_bits_match = re.search(r"(\d+)", data_size)
+        settings["cpol"] = "high" if "HIGH" in polarity else "low"
+        settings["cpha"] = "2edge" if "2EDGE" in phase else "1edge"
+        settings["data_bits"] = (
+            int(data_bits_match.group(1)) if data_bits_match else 8
+        )
+        settings["bit_order"] = "lsb" if "LSB" in first_bit else "msb"
     elif kind == "i2c":
-        settings["speed"] = _Integer_Get(
-            values.get(prefix + "Timing", values.get(prefix + "ClockSpeed", "0"))
+        settings["bus_frequency_hz"] = _FrequencyHz_Parse(
+            values.get(
+                prefix + "CalculateClockFrequency",
+                values.get(prefix + "ClockSpeed", "0"),
+            )
+        )
+        settings["address_mode"] = (
+            "10bit"
+            if "10BIT" in values.get(prefix + "AddressingMode", "").upper()
+            else "7bit"
         )
     dma_items = tuple(item for item in dmas if item.request.startswith(instance + "_"))
     irq_names = {f"{instance}_IRQn", f"{instance}1_IRQn"}
@@ -311,12 +458,21 @@ def CubeMxInventory_Parse(ioc_text: str) -> HardwareInventory:
         if not re.fullmatch(r"P[A-K][0-9]+(?:-[A-Z0-9_]+)?", pin):
             continue
         exti_match = re.search(r"(?:GPXTI|EXTI)(\d+)", signal, re.IGNORECASE)
+        mode_value = values.get(
+            f"{pin}.GPIO_ModeDefaultEXTI",
+            values.get(f"{pin}.GPIO_Mode", values.get(f"{pin}.Mode", "")),
+        )
+        output_type_value = values.get(
+            f"{pin}.GPIO_ModeDefaultOutputPP",
+            values.get(f"{pin}.GPIO_OutputType", mode_value),
+        )
+        output_default_value = values.get(f"{pin}.PinState", "")
         pins.append(
             PinInventory(
                 pin=pin,
                 signal=signal,
                 label=values.get(f"{pin}.GPIO_Label", ""),
-                mode=values.get(f"{pin}.Mode", ""),
+                mode=mode_value,
                 alternate_function=values.get(
                     f"{pin}.GPIO_AF",
                     values.get(
@@ -324,8 +480,15 @@ def CubeMxInventory_Parse(ioc_text: str) -> HardwareInventory:
                         values.get(f"{pin}.GPIO_AFValue", ""),
                     ),
                 ),
-                pull=values.get(f"{pin}.GPIO_PuPd", ""),
-                output_default=values.get(f"{pin}.PinState", ""),
+                pull=_Pull_Normalize(values.get(f"{pin}.GPIO_PuPd", "")),
+                output_default=_Level_Normalize(output_default_value, signal),
+                output_type=_OutputType_Normalize(output_type_value, signal),
+                speed=_Speed_Normalize(
+                    values.get(f"{pin}.GPIO_Speed", ""), signal
+                ),
+                exti_trigger=_ExtiTrigger_Normalize(mode_value, signal),
+                locked=values.get(f"{pin}.Locked", "false").casefold()
+                == "true",
                 exti_line=int(exti_match.group(1)) if exti_match else None,
             )
         )

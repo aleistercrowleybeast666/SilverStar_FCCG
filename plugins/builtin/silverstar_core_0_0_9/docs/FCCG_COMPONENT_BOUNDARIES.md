@@ -63,6 +63,8 @@ Mode由已编入Component的runtime/project配置选择。Mode Set可以按contr
 
 `SilverStar.ssproject`只保存上述human/FCCG reference metadata，不参与Make解析。当前构建truth是Target与module manifests；配置头只保存已编入Component的Mode/参数。
 
+Device组件拥有细粒度构建资格，Target只负责映射为通用`SYSTEM_SELECTED_*`能力。Hardware Quaternion的六轴/九轴preflight alignment资格与任务期authoritative资格必须分别建模；IMU的Landing stillness与impact资格也必须分别建模。FCCG不得因为选择了hardware quaternion Alignment Strategy就自动授予飞行全程姿态权威，也不得因为IMU能判断静止就自动授予冲击捕获资格。
+
 ## Deployment硬件动作边界
 
 ```text

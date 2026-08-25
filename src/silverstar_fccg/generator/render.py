@@ -14,6 +14,7 @@ from silverstar_fccg.generator.hardware_preparation import (
     HardwarePreparationMetadata_Render,
 )
 from silverstar_fccg.plugins.catalog import PluginCatalog
+from silverstar_fccg.plugins.manifest import PluginManifest
 from silverstar_fccg.project.capabilities import CapabilityResolution_Resolve
 from silverstar_fccg.project.model import ProjectModel
 from silverstar_fccg.project.logging import (
@@ -67,6 +68,9 @@ def GeneratedFiles_Render(
         "Generated/project_sources.mk": graph.MakeFragment_Render(),
         "Generated/module.mk": _GeneratedModule_Render(),
         "Generated/Inc/project_capability_routes.h": _CapabilityRoutesHeader_Render(),
+        "Generated/Inc/project_flight_config.h": _FlightConfigHeader_Render(
+            model, catalog
+        ),
         "Generated/Inc/project_log_config.h": _LogHeader_Render(),
         "Generated/Inc/project_resources.h": _ResourceHeader_Render(model, catalog),
         "Generated/Src/platform_resources.c": _PlatformResources_Render(model, catalog),
@@ -106,11 +110,13 @@ def MetadataFiles_Render(
             model, catalog, graph
         ),
         ".vscode/tasks.json": _VsCodeTasks_Render(model),
-        ".vscode/settings.json": _VsCodeSettings_Render(),
-        ".vscode/extensions.json": _VsCodeExtensions_Render(),
-        ".eide/eide.yml": _Eide_Render(model, graph),
-        ".eide/files.options.yml": _EideFileOptions_Render(),
-        f"{model.identity.name}.code-workspace": _VsCodeWorkspace_Render(model),
+        ".vscode/settings.json": _VsCodeSettings_Render(environment),
+        ".vscode/extensions.json": _VsCodeExtensions_Render(environment),
+        ".eide/eide.yml": _Eide_Render(model, graph, environment),
+        ".eide/files.options.yml": _EideFileOptions_Render(environment),
+        f"{model.identity.name}.code-workspace": _VsCodeWorkspace_Render(
+            model, environment
+        ),
         "README.md": _GeneratedReadme_Render(model),
         f"{model.identity.name}.ssdecoder": _DecoderProfile_Render(model, catalog),
     }
@@ -236,12 +242,80 @@ const SystemLogStreamConfig *ProjectLogConfig_StreamByIndexGet(
 """
 
 
+def _GeneratedNumber_Render(
+    value: float | int, *, value_type: str, scale: float
+) -> str:
+    scaled = float(value) * scale
+    if value_type == "integer" or scale != 1.0:
+        integer_value = int(round(scaled))
+        if integer_value < 0 or integer_value > 0xFFFFFFFF:
+            raise ValueError("Generated integer mode parameter exceeds uint32")
+        return f"{integer_value}U"
+    rendered = f"{float(value):.9g}"
+    if "." not in rendered and "e" not in rendered.casefold():
+        rendered += ".0"
+    rendered += "f"
+    return f"({rendered})" if float(value) < 0.0 else rendered
+
+
+def _FlightConfigHeader_Render(
+    model: ProjectModel, catalog: PluginCatalog
+) -> str:
+    definitions: list[tuple[str, str]] = []
+    for component_id in model.base_components:
+        manifest = catalog.Component_Get(component_id)
+        selection = manifest.selection
+        if selection is None or selection.kind.value != "mode":
+            continue
+        selected = model.modes.get(selection.slot, [])
+        if selection.aggregate_symbol:
+            symbols = [
+                selection.option_symbols[option]
+                for option in selected
+                if option in selection.option_symbols
+            ]
+            definitions.append(
+                (
+                    selection.aggregate_symbol,
+                    f"({' | '.join(symbols)})" if symbols else "0U",
+                )
+            )
+        slot_values = model.mode_parameters.get(selection.slot, {})
+        for option, parameters in selection.parameters.items():
+            values = slot_values.get(option, {})
+            for parameter in parameters:
+                value = values.get(parameter.parameter_id, parameter.default)
+                definitions.append(
+                    (
+                        parameter.generated_symbol,
+                        _GeneratedNumber_Render(
+                            value,
+                            value_type=parameter.value_type,
+                            scale=parameter.generated_scale,
+                        ),
+                    )
+                )
+    rows = "\n".join(
+        f"#define {symbol:<48} {value}" for symbol, value in definitions
+    )
+    return f"""#ifndef __PROJECT_FLIGHT_CONFIG_H
+#define __PROJECT_FLIGHT_CONFIG_H
+
+{AUTOGEN_C_COMMENT}
+
+{rows}
+
+#endif /* __PROJECT_FLIGHT_CONFIG_H */
+"""
+
+
 def _ResourceHeader_Render(model: ProjectModel, catalog: PluginCatalog) -> str:
     result = ResourceAssignments_Resolve(model, catalog)
     if not result.valid:
         raise ValueError("Cannot generate resource header: " + "; ".join(result.errors))
     includes = set()
-    lines: list[str] = []
+    values: dict[str, str] = {}
+    assigned_macros: set[str] = set()
     for assignment in result.assignments:
         macro = assignment.requirement.binding_macro
         if not macro:
@@ -250,9 +324,50 @@ def _ResourceHeader_Render(model: ProjectModel, catalog: PluginCatalog) -> str:
         if isinstance(header, str) and header:
             includes.add(header)
         c_id = assignment.provision.metadata.get("c_id", assignment.provision.resource_id)
-        lines.append(f"#define {macro:<42} {c_id}")
+        if macro in values and values[macro] != c_id:
+            raise ValueError(f"Resource binding macro is ambiguous: {macro}")
+        values[macro] = str(c_id)
+        assigned_macros.add(macro)
+    optional_bindings: tuple[object, ...] = ()
+    if model.board:
+        board = catalog.Component_Get(model.board)
+        raw_bindings = board.metadata.get("optional_resource_bindings", [])
+        if not isinstance(raw_bindings, list):
+            raise ValueError("Board optional_resource_bindings must be an array")
+        optional_bindings = tuple(raw_bindings)
+    identifier_pattern = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+    macro_pattern = re.compile(r"[A-Z][A-Z0-9_]*")
+    for binding in optional_bindings:
+        if not isinstance(binding, dict) or set(binding) != {
+            "binding_macro",
+            "enabled_macro",
+            "fallback",
+            "header",
+        }:
+            raise ValueError("Board optional resource binding is invalid")
+        macro = binding.get("binding_macro")
+        enabled_macro = binding.get("enabled_macro")
+        fallback = binding.get("fallback")
+        header = binding.get("header")
+        if (
+            not isinstance(macro, str)
+            or macro_pattern.fullmatch(macro) is None
+            or not isinstance(enabled_macro, str)
+            or macro_pattern.fullmatch(enabled_macro) is None
+            or not isinstance(fallback, str)
+            or identifier_pattern.fullmatch(fallback) is None
+            or not isinstance(header, str)
+            or re.fullmatch(r"[A-Za-z0-9_./-]+\.h", header) is None
+            or ".." in Path(header).parts
+        ):
+            raise ValueError("Board optional resource binding token is unsafe")
+        includes.add(header)
+        values.setdefault(macro, fallback)
+        values[enabled_macro] = "1U" if macro in assigned_macros else "0U"
     include_text = "\n".join(f'#include "{header}"' for header in sorted(includes))
-    define_text = "\n".join(lines)
+    define_text = "\n".join(
+        f"#define {macro:<42} {value}" for macro, value in values.items()
+    )
     return f"""#ifndef __PROJECT_RESOURCES_H
 #define __PROJECT_RESOURCES_H
 
@@ -463,6 +578,8 @@ def _DecoderProfile_Render(model: ProjectModel, catalog: PluginCatalog) -> bytes
         "modes": {
             slot: list(values) for slot, values in sorted(model.modes.items())
         },
+        "mode_parameters": model.mode_parameters,
+        "protocol_profiles": dict(sorted(model.protocol_profiles.items())),
         "available_records": [
             {
                 "record": definition.record,
@@ -664,7 +781,7 @@ def _Makefile_Render(model: ProjectModel) -> str:
 ########################################################################################################################
 
 TARGET_PROFILE ?= {model.build.target_profile}
-CONFIG ?= Debug
+CONFIG ?= Release
 
 SUPPORTED_TARGETS := {model.build.target_profile}
 SUPPORTED_CONFIGS := Debug Release
@@ -853,11 +970,13 @@ def _TargetManifest_Render(
     platform_backend = _MakeSymbol_Get(
         catalog.Component_Get(model.mcu).component_class
     )
-    board_profile = _MakeSymbol_Get(
-        catalog.Component_Get(model.board).name
-        if model.board
+    board_manifest = catalog.Component_Get(model.board) if model.board else None
+    board_symbol = (
+        board_manifest.metadata.get("build_symbol", board_manifest.name)
+        if board_manifest is not None
         else (model.hardware.source_label or "CUSTOM_STM32")
     )
+    board_profile = _MakeSymbol_Get(str(board_symbol))
     return f"""# AUTO-GENERATED BY SILVERSTAR_FCCG. DO NOT EDIT.
 # Target flags are resolved from the selected MCU plugin.
 BUILD_MANIFESTS += Targets/{model.build.target_profile}/target.mk
@@ -895,54 +1014,128 @@ def _VsCodeTasks_Render(model: ProjectModel) -> str:
     release = [f"TARGET_PROFILE={model.build.target_profile}", "CONFIG=Release"]
     tasks = [
         task(
-            "SilverStar: Build Debug",
-            [*debug, "all"],
+            "SilverStar: Build Release",
+            [*release, "all"],
             group={"kind": "build", "isDefault": True},
         ),
-        task("SilverStar: Build Release", [*release, "all"]),
-        task("SilverStar: Clean Debug", [*debug, "clean"], []),
+        task("SilverStar: Build Debug", [*debug, "all"]),
         task("SilverStar: Clean Release", [*release, "clean"], []),
+        task("SilverStar: Clean Debug", [*debug, "clean"], []),
         task("SilverStar: Host tests", ["host-tests"]),
         task("SilverStar: Architecture check", ["architecture-check"], []),
         task("SilverStar: Power of Ten check", ["power10-check"], []),
-        task("SilverStar: Static analysis", [*debug, "static-analysis"]),
-        task("SilverStar: Artifact check", [*debug, "artifact-check"]),
+        task("SilverStar: Static analysis", [*release, "static-analysis"]),
+        task("SilverStar: Artifact check", [*release, "artifact-check"]),
     ]
     return json.dumps({"version": "2.0.0", "tasks": tasks}, indent=4) + "\n"
 
 
-def _VsCodeSettings_Render() -> str:
-    settings = {
-        "files.encoding": "utf8",
-        "files.eol": "\n",
-        "C_Cpp.default.cStandard": "c11",
-        "C_Cpp.default.compilerPath": "arm-none-eabi-gcc",
-    }
+def _EnvironmentTemplate_Read(
+    environment: PluginManifest, relative: str
+) -> str:
+    template_root = (environment.package_root / "templates" / "reference").resolve()
+    path = template_root.joinpath(*relative.split("/")).resolve()
+    try:
+        path.relative_to(template_root)
+    except ValueError as error:
+        raise ValueError("Development-environment template escaped its package") from error
+    if not path.is_file() or path.is_symlink():
+        raise ValueError(f"Development-environment reference template is missing: {relative}")
+    return path.read_text(encoding="utf-8")
+
+
+def _ReferenceWorkspace_Get(environment: PluginManifest) -> dict[str, Any]:
+    value = json.loads(
+        _EnvironmentTemplate_Read(
+            environment, "Flight_Controller0.5.code-workspace"
+        )
+    )
+    if not isinstance(value, dict):
+        raise ValueError("Reference VS Code workspace must be an object")
+    return value
+
+
+def _VsCodeSettings_Render(environment: PluginManifest) -> str:
+    settings = _ReferenceWorkspace_Get(environment).get("settings")
+    if not isinstance(settings, dict):
+        raise ValueError("Reference VS Code workspace has no settings object")
     return json.dumps(settings, ensure_ascii=False, indent=4) + "\n"
 
 
-def _VsCodeExtensions_Render() -> str:
-    value = {
-        "recommendations": [
-            "cl.eide",
-            "ms-vscode.cpptools",
-            "marus25.cortex-debug",
-        ]
-    }
+def _VsCodeExtensions_Render(environment: PluginManifest) -> str:
+    extensions = _ReferenceWorkspace_Get(environment).get("extensions")
+    if not isinstance(extensions, dict):
+        raise ValueError("Reference VS Code workspace has no extensions object")
+    return json.dumps(extensions, ensure_ascii=False, indent=4) + "\n"
+
+
+def _VsCodeWorkspace_Render(
+    model: ProjectModel, environment: PluginManifest
+) -> str:
+    value = _ReferenceWorkspace_Get(environment)
+    value["folders"] = [{"name": model.identity.name, "path": "."}]
     return json.dumps(value, ensure_ascii=False, indent=4) + "\n"
 
 
-def _VsCodeWorkspace_Render(model: ProjectModel) -> str:
-    value = {
-        "folders": [{"name": model.identity.name, "path": "."}],
-        "settings": {"files.encoding": "utf8", "files.eol": "\n"},
-    }
-    return json.dumps(value, ensure_ascii=False, indent=4) + "\n"
-
-
-def _Eide_Render(model: ProjectModel, graph: SourceGraph) -> str:
+def _EideTarget_Render(
+    reference_body: str,
+    graph: SourceGraph,
+    *,
+    optimization: str,
+) -> str:
     defines = "\n".join(f"        - {value}" for value in graph.defines)
     includes = "\n".join(f"        - {value}" for value in graph.include_dirs)
+    exclude_block = (
+        "    excludeList:\n"
+        + "\n".join(f"      - {value}" for value in graph.exclude_sources)
+        + "\n"
+        if graph.exclude_sources
+        else "    excludeList: []\n"
+    )
+    forced_flags = " ".join(f"-include {value}" for value in graph.forced_includes)
+    libraries = " ".join(graph.libraries)
+    body = re.sub(
+        r"(?ms)^      defineList:\n.*?(?=^      incList:)",
+        f"      defineList:\n{defines}\n",
+        reference_body,
+        count=1,
+    )
+    body = re.sub(
+        r"(?ms)^      incList:\n.*?(?=^      libList:)",
+        f"      incList:\n{includes}\n",
+        body,
+        count=1,
+    )
+    body = re.sub(
+        r"(?ms)^    excludeList:.*?(?=^    settings:)",
+        exclude_block,
+        body,
+        count=1,
+    )
+    replacements = (
+        (r"(?m)^(            C_FLAGS:).*$", rf"\1 {forced_flags}"),
+        (r"(?m)^(            optimization:).*$", rf"\1 {optimization}"),
+        (r"(?m)^(            LIB_FLAGS:).*$", rf"\1 {libraries}"),
+        (
+            r"(?m)^(        scatterFilePath:).*$",
+            rf"\1 {graph.linker_script}",
+        ),
+    )
+    for pattern, replacement in replacements:
+        body, count = re.subn(pattern, replacement, body, count=1)
+        if count != 1:
+            raise ValueError(f"Reference EIDE target field changed: {pattern}")
+    return body.rstrip()
+
+
+def _Eide_Render(
+    model: ProjectModel, graph: SourceGraph, environment: PluginManifest
+) -> str:
+    reference = _EnvironmentTemplate_Read(environment, ".eide/eide.yml")
+    target_marker = "targets:\n  Debug:\n"
+    if target_marker not in reference:
+        raise ValueError("Reference EIDE template has no Debug target")
+    prefix, reference_target = reference.split(target_marker, 1)
     virtual_set = set(graph.virtual_sources)
     source_dirs = tuple(
         dict.fromkeys(
@@ -956,104 +1149,68 @@ def _Eide_Render(model: ProjectModel, graph: SourceGraph) -> str:
         f"    - path: {value}"
         for value in (*graph.virtual_sources, *graph.asm_sources)
     )
-    exclude_block = (
-        "    excludeList:\n"
-        + "\n".join(f"      - {value}" for value in graph.exclude_sources)
-        if graph.exclude_sources
-        else "    excludeList: []"
+    prefix, count = re.subn(
+        r"(?m)^name:.*$",
+        f"name: {json.dumps(model.identity.name, ensure_ascii=False)}",
+        prefix,
+        count=1,
     )
-    forced_flags = " ".join(f"-include {value}" for value in graph.forced_includes)
-    libraries = " ".join(graph.libraries)
-
-    def target_block(configuration: str, optimization: str) -> str:
-        return f"""  {configuration}:
-    cppPreprocessAttrs:
-      defineList:
-{defines}
-      incList:
-{includes}
-      libList: []
-{exclude_block}
-    settings:
-      debugger: cortex-debug
-    toolchain: GCC
-    toolchainConfigMap:
-      GCC:
-        archExtensions: ""
-        cpuType: Cortex-M4
-        floatingPointHardware: single
-        options:
-          version: 5
-          afterBuildTasks: []
-          asm-compiler:
-            ASM_FLAGS: ""
-          beforeBuildTasks: []
-          c/cpp-compiler:
-            CXX_FLAGS: ""
-            C_FLAGS: {forced_flags}
-            language-c: c11
-            language-cpp: c++11
-            one-elf-section-per-data: true
-            one-elf-section-per-function: true
-            optimization: {optimization}
-            warnings: all-warnings
-          global:
-            $float-abi-type: hard
-            arm-thumb-mode: thumb
-            not-use-syscalls: true
-            output-debug-info: enable
-            use-newlib-nano: true
-          linker:
-            LIB_FLAGS: {libraries}
-            output-format: elf
-            remove-unused-input-sections: true
-            use-float-printf: false
-        scatterFilePath: {graph.linker_script}
-        storageLayout:
-          RAM: []
-          ROM: []
-        useCustomScatterFile: true"""
-
-    targets = "\n".join(
-        (
-            target_block("Debug", "level-debug"),
-            target_block("Release", "level-2"),
-        )
+    if count != 1:
+        raise ValueError("Reference EIDE project name field changed")
+    prefix = re.sub(
+        r"(?ms)^srcDirs:\n.*?(?=^virtualFolder:)",
+        f"srcDirs:\n{source_directories}\n",
+        prefix,
+        count=1,
     )
-    return f"""# AUTO-GENERATED BY SILVERSTAR_FCCG.
-# Native EIDE build graph resolved from the same Project Model as Make and VS Code.
-version: "4.1"
-name: {json.dumps(model.identity.name, ensure_ascii=False)}
-type: ARM
-deviceName: STM32F407VE
-packDir: null
-srcDirs:
-{source_directories}
-virtualFolder:
-  name: <virtual_root>
-  files:
-{virtual_files}
-  folders: []
-dependenceList: []
-outDir: build\\EIDE\\{model.build.target_profile}
-miscInfo:
-  uid: silverstar-fccg-{ProjectDigest_Get(model):08x}
-targets:
-{targets}
-"""
+    prefix = re.sub(
+        r"(?ms)^(  files:)\n.*?(?=^  folders:)",
+        rf"\1\n{virtual_files}\n",
+        prefix,
+        count=1,
+    )
+    prefix = re.sub(
+        r"(?m)^outDir:.*$",
+        lambda _match: f"outDir: build\\EIDE\\{model.build.target_profile}",
+        prefix,
+        count=1,
+    )
+    prefix = re.sub(
+        r"(?m)^(  uid:).*$",
+        rf"\1 {ProjectDigest_Get(model):032x}",
+        prefix,
+        count=1,
+    )
+    release = _EideTarget_Render(reference_target, graph, optimization="level-2")
+    debug = _EideTarget_Render(
+        reference_target, graph, optimization="level-debug"
+    )
+    return (
+        "# AUTO-GENERATED BY SILVERSTAR_FCCG.\n"
+        "# Structural template copied from the validated read-only firmware.\n"
+        f"{prefix.rstrip()}\n"
+        "targets:\n"
+        f"  Release:\n{release}\n"
+        f"  Debug:\n{debug}\n"
+    )
 
 
-def _EideFileOptions_Render() -> str:
-    return """# AUTO-GENERATED BY SILVERSTAR_FCCG.
-version: "2.1"
-options:
-  Debug:
-    files: {}
-    virtualPathFiles: {}
-  Release:
-    files: {}
-    virtualPathFiles: {}
-"""
+def _EideFileOptions_Render(environment: PluginManifest) -> str:
+    reference = _EnvironmentTemplate_Read(
+        environment, ".eide/files.options.yml"
+    )
+    marker = "options:\n    Debug:"
+    if marker not in reference:
+        raise ValueError("Reference EIDE file-options template has no Debug profile")
+    return reference.replace(
+        marker,
+        "options:\n"
+        "    Release:\n"
+        "        files: {}\n"
+        "        virtualPathFiles: {}\n"
+        "    Debug:",
+        1,
+    )
 
 
 def _Configuration_Render(model: ProjectModel, catalog: PluginCatalog, graph: SourceGraph) -> str:
@@ -1065,10 +1222,10 @@ def _Configuration_Render(model: ProjectModel, catalog: PluginCatalog, graph: So
         f"- Firmware: `{model.identity.firmware_version}`",
         f"- Build target: `{model.identity.build_target}`",
         f"- Target profile: `{model.build.target_profile}`",
-        "- Configurations: `Debug`, `Release`",
+        "- Configurations: `Release` (default), `Debug`",
         f"- Toolchain prefix: `{graph.toolchain_prefix}`",
         f"- MCU: `{model.mcu}`",
-        f"- Board: `{model.board or 'custom hardware'}`",
+        f"- Board: `{catalog.Component_Get(model.board).name if model.board else 'custom hardware'}`",
         f"- Hardware source: `{model.hardware.source_kind}` / `{model.hardware.mode}`",
         f"- Development environment: `{model.development_environment}`",
         f"- Authoritative source graph: `Generated/project_sources.mk`",
@@ -1089,6 +1246,19 @@ def _Configuration_Render(model: ProjectModel, catalog: PluginCatalog, graph: So
     lines.extend(("", "## Modes", ""))
     for slot, selections in sorted(model.modes.items()):
         lines.append(f"- `{slot}`: `{', '.join(selections) if selections else '[]'}`")
+    lines.extend(("", "## Mode parameters", ""))
+    for slot, options in sorted(model.mode_parameters.items()):
+        selected_options = set(model.modes.get(slot, []))
+        for option, parameters in sorted(options.items()):
+            state = "active" if option in selected_options else "retained / inactive"
+            rendered = ", ".join(
+                f"{parameter_id}={value}"
+                for parameter_id, value in sorted(parameters.items())
+            )
+            lines.append(f"- `{slot}.{option}` ({state}): `{rendered}`")
+    lines.extend(("", "## Protocol profiles", ""))
+    for category, profile_id in sorted(model.protocol_profiles.items()):
+        lines.append(f"- `{category}`: `{profile_id}`")
     capability_resolution = CapabilityResolution_Resolve(model, catalog)
     lines.extend(("", "## Enabled Device capabilities", ""))
     for instance in model.device_instances:
@@ -1163,17 +1333,21 @@ def _GeneratedReadme_Render(model: ProjectModel) -> str:
 This standalone embedded project was assembled by SilverStar_FCCG from declarative source plugins.
 It does not require FCCG or Python to build.
 
+- Default / Release build: `{model.build.make_command} TARGET_PROFILE={model.build.target_profile} CONFIG=Release all`
 - Debug build: `{model.build.make_command} TARGET_PROFILE={model.build.target_profile} CONFIG=Debug all`
-- Release build: `{model.build.make_command} TARGET_PROFILE={model.build.target_profile} CONFIG=Release all`
 - Host tests: `{model.build.make_command} host-tests`
 - Architecture check: `{model.build.make_command} architecture-check`
-- Power of Ten check: `{model.build.make_command} power10-check`
-- Static analysis: `{model.build.make_command} static-analysis`
-- Artifact check: `{model.build.make_command} TARGET_PROFILE={model.build.target_profile} CONFIG=Debug artifact-check`
+- Power of Ten project gate: `{model.build.make_command} power10-check`
+- GCC `-fanalyzer` static analysis: `{model.build.make_command} CONFIG=Release static-analysis`
+- Artifact check: `{model.build.make_command} TARGET_PROFILE={model.build.target_profile} CONFIG=Release artifact-check`
 
 Component sources are ordinary project-owned files. FCCG may overwrite `Generated/`,
 `SilverStar.ssproject`, `SilverStar_Configuration.md`, and generated editor/build metadata.
 
 Make and native EIDE are rendered from the same resolved source graph. VS Code tasks invoke
 the generated standalone project and do not modify global editor settings.
+
+Power of Ten is a project compliance gate, not formal verification or safety certification.
+Static analysis is the real Arm GNU GCC `-fanalyzer` pass over first-party firmware sources;
+it is not a substitute for runtime tests, hardware tests, or formal verification.
 """

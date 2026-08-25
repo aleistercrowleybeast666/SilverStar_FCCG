@@ -1,0 +1,78 @@
+{
+  "schema_version": 0,
+  "id": "silverstar.flight_logic.landing.stillness",
+  "name": "Stillness Landing",
+  "type": "flight_logic",
+  "class": "landing",
+  "version": "0.0.9",
+  "description": "Uses qualified acceleration and angular-rate stillness data for landing detection.",
+  "requires": {
+    "components": [
+      {
+        "id": "silverstar.flight_logic.landing.baro_imu_window",
+        "optional": false
+      }
+    ],
+    "resources": [],
+    "capabilities": [
+      {
+        "capability": "imu.acceleration",
+        "purpose": "landing_detection"
+      },
+      {
+        "capability": "imu.angular_rate",
+        "purpose": "landing_detection"
+      },
+      {
+        "capability": "imu.landing_stillness_qualified",
+        "purpose": "landing_detection"
+      }
+    ]
+  },
+  "resources": {
+    "provides": [],
+    "roles": [],
+    "conflicts": []
+  },
+  "provides": [
+    "flight_logic.landing"
+  ],
+  "build": {
+    "sources": [],
+    "asm_sources": [],
+    "include_dirs": [],
+    "defines": [
+      "SYSTEM_BUILD_LANDING_MODE=SYSTEM_LANDING_MODE_STILLNESS"
+    ]
+  },
+  "payload": {
+    "roots": []
+  },
+  "metadata": {
+    "reference": {
+      "path": "C:\\Users\\chdxm\\Desktop\\stm32-1\\Flight_Controller0.5",
+      "commit": "e67529ef67f53049fa8d7a1d3eed314e11043d1a",
+      "branch": "main",
+      "working_tree": "clean",
+      "status": [],
+      "snapshot_digest": "0f2388a98e33076b9a6454a8d370190dd339556527071b683a1bc10a2add2686",
+      "recorded_at_utc": "2026-08-25T11:31:56+00:00"
+    },
+    "display_names": {
+      "zh_CN": "静止着陆判断",
+      "en_US": "Stillness Landing"
+    },
+    "descriptions": {
+      "zh_CN": "使用具备静止着陆资格的加速度与角速度数据判断着陆。",
+      "en_US": "Uses qualified acceleration and angular-rate stillness data for landing detection."
+    },
+    "implementation": "Compile-time selector for the shared reference recovery state machine; no duplicated strategy payload."
+  },
+  "selection": {
+    "kind": "strategy",
+    "slot": "landing",
+    "required": true,
+    "allow_none": false,
+    "ui_order": 40
+  }
+}

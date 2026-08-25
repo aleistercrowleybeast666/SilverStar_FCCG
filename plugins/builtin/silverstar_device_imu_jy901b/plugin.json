@@ -4,17 +4,6 @@
   "name": "JY901B",
   "type": "device",
   "class": "imu",
-  "instance_policy": {
-    "project_max": 1,
-    "same_plugin_multiple": false,
-    "multi_instance_ready": false
-  },
-  "physical_device": {
-    "vendor": "WitMotion",
-    "model": "JY901B",
-    "chipset": "JY901B",
-    "driver": "JY901B Driver"
-  },
   "version": "0.0.9",
   "description": "Reference JY901B Device driver and canonical adapter.",
   "requires": {
@@ -29,19 +18,25 @@
         "name": "data",
         "kind": "uart",
         "binding_macro": "PROJECT_RESOURCE_IMU_UART",
-        "display_names": {"zh_CN": "数据通信", "en_US": "Data Communication"},
         "constraints": {
-          "baud_rate": 230400,
-          "signals": ["rx", "tx"],
-          "dma_rx_required": true,
-          "irq_required": true
+          "uart": {
+            "baud": {
+              "exact": 230400,
+              "configurable": false
+            },
+            "word_length": 8,
+            "parity": "none",
+            "stop_bits": 1.0,
+            "rx_dma": true,
+            "tx_dma": false,
+            "irq": true
+          }
         }
       },
       {
         "name": "time",
         "kind": "time",
-        "mode": "shared",
-        "display_names": {"zh_CN": "系统时间", "en_US": "System Time"}
+        "mode": "shared"
       }
     ],
     "capabilities": []
@@ -57,7 +52,14 @@
     "imu.angular_rate",
     "attitude.external",
     "magnetometer.field",
-    "barometer.altitude"
+    "barometer.altitude",
+    "attitude.external.preflight_alignment_6axis_qualified",
+    "attitude.external.preflight_alignment_9axis_qualified",
+    "attitude.external.preflight_fallback_qualified",
+    "imu.software_alignment_qualified",
+    "imu.software_propagation_qualified",
+    "imu.landing_stillness_qualified",
+    "barometer.landing_window_qualified"
   ],
   "build": {
     "sources": [
@@ -82,20 +84,16 @@
   "metadata": {
     "reference": {
       "path": "C:\\Users\\chdxm\\Desktop\\stm32-1\\Flight_Controller0.5",
-      "commit": "b8c90e997c3113dd23074302682c5560dae18926",
-      "branch": "codex/refactor-silverstar-0.0.9-platform",
+      "commit": "e67529ef67f53049fa8d7a1d3eed314e11043d1a",
+      "branch": "main",
       "working_tree": "clean",
       "status": [],
-      "snapshot_digest": "67e89c36cf11bbe3538469a1461c48a87967691ffd556995c8b5fc6c4b1c4d54",
-      "recorded_at_utc": "2026-08-23T14:50:21+00:00"
+      "snapshot_digest": "0f2388a98e33076b9a6454a8d370190dd339556527071b683a1bc10a2add2686",
+      "recorded_at_utc": "2026-08-25T11:31:56+00:00"
     },
     "display_names": {
       "zh_CN": "JY901B",
       "en_US": "JY901B"
-    },
-    "descriptions": {
-      "zh_CN": "JY901B物理设备驱动及SilverStar标准适配器。",
-      "en_US": "Reference JY901B device driver and canonical adapter."
     },
     "device_descriptors": [
       {
@@ -125,6 +123,64 @@
         "driver_hash": "0xADF02482UL",
         "name_hash": "0x53692179UL"
       }
-    ]
+    ],
+    "capability_qualifications": {
+      "attitude.external.preflight_alignment_6axis_qualified": {
+        "evidence": "JY901B_QUATERNION_BUILD_PREFLIGHT_ALIGNMENT_6AXIS_QUALIFIED=1U"
+      },
+      "attitude.external.preflight_alignment_9axis_qualified": {
+        "evidence": "JY901B_QUATERNION_BUILD_PREFLIGHT_ALIGNMENT_9AXIS_QUALIFIED=1U"
+      },
+      "attitude.external.preflight_fallback_qualified": {
+        "evidence": "JY901B_QUATERNION_BUILD_PREFLIGHT_FALLBACK_QUALIFIED=1U"
+      },
+      "imu.software_alignment_qualified": {
+        "evidence": "JY901B_IMU_BUILD_SOFTWARE_ALIGNMENT_QUALIFIED=1U"
+      },
+      "imu.software_propagation_qualified": {
+        "evidence": "JY901B_IMU_BUILD_SOFTWARE_PROPAGATION_QUALIFIED=1U"
+      },
+      "imu.landing_stillness_qualified": {
+        "evidence": "Derived from the reference Stillness gate requiring selected acceleration and angular-rate data"
+      },
+      "barometer.landing_window_qualified": {
+        "evidence": "JY901B_BAROMETER_BUILD_LANDING_WINDOW_QUALIFIED=1U"
+      }
+    },
+    "unqualified_capabilities": {
+      "magnetometer.absolute_vector_qualified": "JY901B_MAGNETOMETER_BUILD_ABSOLUTE_VECTOR_QUALIFIED=0U",
+      "attitude.external.authoritative_6axis_qualified": "JY901B_QUATERNION_BUILD_AUTHORITATIVE_6AXIS_QUALIFIED=0U",
+      "attitude.external.authoritative_9axis_qualified": "JY901B_QUATERNION_BUILD_AUTHORITATIVE_9AXIS_QUALIFIED=0U",
+      "imu.landing_impact_qualified": "JY901B_IMU_BUILD_LANDING_IMPACT_QUALIFIED=0U"
+    },
+    "recordable_outputs": {
+      "imu.acceleration": {
+        "enabled": true
+      },
+      "imu.angular_rate": {
+        "enabled": true
+      },
+      "attitude.external": {
+        "enabled": true
+      },
+      "barometer.altitude": {
+        "enabled": true
+      },
+      "magnetometer.field": {
+        "enabled": false,
+        "reason_code": "logging.unavailable.magnetometer_output_disabled"
+      }
+    }
+  },
+  "instance_policy": {
+    "project_max": 1,
+    "same_plugin_multiple": false,
+    "multi_instance_ready": false
+  },
+  "physical_device": {
+    "vendor": "WitMotion",
+    "model": "JY901B",
+    "chipset": "JY901B",
+    "driver": "JY901B Driver"
   }
 }

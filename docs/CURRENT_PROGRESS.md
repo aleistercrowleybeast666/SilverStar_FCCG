@@ -1,48 +1,58 @@
 # SilverStar_FCCG 当前进度
 
-更新时间：2026-08-24（Asia/Shanghai）
+更新时间：2026-08-26（Asia/Shanghai）
 
-状态：本轮 Prompt 已实现并完成验收。工作区改动尚未提交；未关机；只读 reference firmware 与 reference GUI 未被修改。
+状态：本轮“完成生成代码功能”修改已实现，完整 FCCG 回归、固件编译、静态规则和主机测试验收均已通过。reference firmware 与 reference GUI 始终只读。
 
-## 已完成
+## 本轮完成
 
-- 建立 Draft / Dirty / Materializing / Ready / Building / Error 生命周期。Save 会重新规划受管输出、使用 staging、完整性验证，并最后发布 `SilverStar.ssproject`；FCCG 生成器升级也不会被旧 Ready 快速路径跳过。
-- Build、Clean、Host Tests、Architecture Check、Power of Ten、Static Analysis、Artifact Check 全部先走 `Project_EnsureBuildable`，dirty/incomplete 工程自动保存，Make 使用明确 Project Root `cwd`。
-- SilverStar 0.5 已验证板卡自动准备 `.ioc`、Core、Drivers、FATFS、startup、linker、Board services 和连接数据，不调用 CubeMX；重复准备为零文件变更，保存仍会自动准备。
-- 页面顺序为设备 → 飞控配置 → 硬件连接 → 构建。设备页只选择物理设备并显示能力摘要；能力实际使用、消费者与歧义来源移到飞控配置页，工程格式 5 不再保存人工能力开关。
-- 新工程 Calibration 与 Deployment 三项均默认全开。Mode 选项可声明各自能力/组件需求；不可用项会禁用，设备变化会通过候选模型协调并安全清理或切换失效选择。
-- 新草稿使用 `hardware.mode=unselected`，编辑期只警告，保存/构建才严格拦截。硬件映射协调会保留合法项、清理失效项并自动分配新需求。
-- Debug 使用 `-Og -g3 -gdwarf-2`，Release 使用 `-O2 -g`；Release 不定义 `NDEBUG`，不关闭安全断言、Power of Ten 或静态内存约束。
-- 构建页主按钮固定 Debug；发布构建和五个高级检查使用响应式网格。Make dry-run统计实际步骤，正式构建逐行回传日志并解析编译/链接/SIZE/HEX/BIN进度标记。
-- 新建窗口使用紧凑原生标题栏对话框；未选择硬件为新 GUI 草稿默认状态，自定义手工模式隐藏独立“准备硬件文件”。
-- 中文弹窗使用结构化本地化摘要，“显示详情/隐藏详情”均已本地化；原始 Make/GCC 英文输出仅进入日志/详情。
-- 严格保存/构建校验失败会定位到对应主页面并高亮首个问题控件；编辑期未完成状态仍保持为非致命提示。
-- 构建输出读取线程使用逐行读取和必达结束信号，输出管道异常会显式上报，不再存在永久等待路径。
+- 正式区分 Raw/Data Capability 与 Qualified Capability；设备插件声明资格，Strategy 插件声明需求，Resolver 自动决定可用性，不按 JY901B 型号硬编码。
+- JY901B 的磁场原始数据仍存在，但双矢量绝对参考资格不存在；六轴/九轴权威姿态与冲击检测资格也明确为不具备。
+- 四种对准 Strategy 与三种着陆 Strategy 的可用矩阵、中文原因、GUI 禁用状态和测试已同步。
+- 必选 Strategy 下拉框不再插入“请选择策略”；真实可选的 None 仅保留在可选槽位，不可用 Strategy/Board 以灰色显示。
+- 新工程默认选择“自定义 STM32 硬件”，不再显示“尚未选择硬件配置”；手动自定义模式不显示“准备硬件文件”。
+- 板卡硬件规划已移到后台线程；QRunnable 在完成信号派发后才释放，真实准备流程点击 0.001 秒返回、3.222 秒完成且 100% 后正常退出。
+- Landing 采用一个共享 Common 和三个选择器；当前 reference 的集中式 `flight_landing.c` 没有被复制三份。
+- 所有普通用户可见板名统一为 `SS0.5`，稳定内部 ID 和 `SILVERSTAR_0_5` 构建符号保留。
+- 第四页改为“代码生成与构建”：正常区只保留生成/应用、打开 VS Code/工程、Arm GNU 与 Make；固件输出目录只有存在 ELF/HEX/BIN/MAP 时才可打开。
+- 起飞点火与火工开伞均可独立取消：无起飞点火时按外部点火处理，START 合法且不生成 GPIO；无开伞输出时清空并禁用开伞模式，不会循环自动加回。
+- 开伞模式参数由清单声明并生成 `project_flight_config.h`；默认阈值为 -2 m/s、45°、60 s，延时生成时转换为毫秒。
+- AIR 紧凑 V0、维护 0.0、SSLOG0 作为独立协议配置；Native 日志按 Recordable 判断，Estimator=None 时 BARO_NATIVE 可用、BARO_MEASUREMENT 不可用。
+- Core 通过清单 `strategy_sources` 在 KF6 估算器任务和独立纯 INS/不融合任务间选择；Estimator=None 的 Make/EIDE 源码图不含 KF6，也不依赖第一方 C 条件编译。
+- 日志编辑改为信号快照 + 下一事件循环事务 + 增量控件更新，50 次连续信号压力测试通过。
+- 硬件连接支持 UART/SPI/I2C/PWM 与 GPIO 电气/安全初值约束；“完成手动分配并检查”通过后保存指纹，相关配置改变即失效。
+- 删除独立“构建发布版本”按钮；高级“验证构建”默认 Release。
+- Make、VS Code 与 EIDE 默认 Release，同时保留 Debug；Release 为 `-O2 -g`，Debug 为 `-Og -g3 -gdwarf-2`，均不定义 `NDEBUG`。
+- 普通工具状态仅显示 Arm GNU 与 Make；objcopy/size 从 Arm GNU 同目录推导，Host GCC 位于高级质量检查，静态分析复用 Arm GCC。
+- EIDE 改为无 Pack 的一致状态：`deviceName: null`、`packDir: null`，Release 在前，workspace 根路径为 `.`。
+- 重复应用按字节比较受管文件，不重写未变化内容、不清理 build，并保留 Make `.d` 依赖文件。
 
-## 实际验收
+## 最终验收
 
-验收工程：`tests/reference_copy/acceptance_format5_20260824/`，格式 5，状态 `Ready`，476 个生成文件，missing=0，stale=0。Debug dry-run 共识别 139 个步骤（135 编译、1 链接、1 SIZE、1 HEX、1 BIN）。
+默认工程：`tests/acceptance_generation_code_complete_20260825_v4/`（478 个文件）；不融合/无任务功率输出变体：`tests/acceptance_optional_external_ignition_20260825_v5/`（475 个文件）。
 
-- Debug Arm build：通过；text 253,960，data 1,160，bss 114,152 bytes。
-- Release Arm build：通过；text 241,416，data 1,160，bss 114,144 bytes。
+- Python：`compileall` 通过；严格插件目录 29 个；完整回归 111 passed in 419.12s。
+- 默认 Release：text 241,584 / data 1,160 / bss 114,144；ELF 2,535,504；BIN 242,744 bytes。
+- 默认 Debug：text 254,064 / data 1,160 / bss 114,152；ELF 3,862,348；BIN 255,224 bytes。
 - Host Tests：50 executables，8,221 checks，0 failures。
 - Architecture Check：186 checks，0 failures。
-- Power of Ten：5,263 checks，86 first-party C files，1,941 functions。
-- GCC `-fanalyzer` 独立构建：通过。
-- Artifact/Memory Check：Debug 与 Release 均通过；BIN 分别为 255,120 / 242,576 bytes，heap symbols 均为 0。
-- Python `compileall`：通过。
-- Python 最终回归：83 passed in 145.17s。
-- GUI、本地化、协调与主题专项回归：19 passed；最终 `git diff --check` 结果见本轮收尾检查。
+- Power of Ten：5,302 checks，87 个第一方 C 文件，1,955 个函数；违规 fixture 已验证会非零失败。
+- Arm GCC `-fanalyzer`：独立 Release 目录全量重编通过；告警 fixture 已验证会在 warnings-as-errors 下失败。
+- Artifact Check：默认 Release/Debug 均通过，heap symbols 为 0。
+- 不融合变体：源码图只含 `APP/Src/estimator_task_none.c`；Release text 203,028 / data 1,160 / bss 96,104；Architecture 188/188、Power of Ten 5,124、Artifact Check 均通过，KF6 未进入工程。
+
+## EIDE 实际状态
+
+当前机器安装 VS Code 1.133.0 与 EIDE 3.27.2。当前启动器已使用 `Code.exe --new-window <绝对工作区路径>` 成功打开新生成且 Ready 的工作区，并观察到独立可见窗口。VS Code CLI 无法直接触发扩展命令，因此未声称 EIDE 原生 UI 编译通过；仍需手工确认 EIDE 工程树/include/target、选择 Release 并执行 EIDE Build。
 
 ## 当前限制
 
-- 当前没有经过 Board + Environment 联合声明和硬件验证的烧录能力。
-- 当前 JY901B、M9N、SX1281、维护串口驱动仍是 singleton；没有传感器投票/故障切换。
-- 多设备模型不会自动生成多个 Estimator；Multi-EKF 仍需未来显式 Strategy。
-- 手工硬件配置当前仅支持 STM32 + STM32CubeMX；没有完整 PLL/时钟求解器。
-- 没有真实 PWM actuator、Guidance、Control、Control Allocation、Keil/IAR/CMake renderer 或 EIDE CLI 编译验收。
-- SilverStar_FLP 尚未导入 `.ssdecoder`；本轮未修改 FLP。
+- 当前 Landing 三个选择器共享 reference 的集中式状态机，不是三套独立底层实现。
+- 当前只正式支持 Arm GNU 固件编译和 STM32CubeMX 硬件提供器。
+- 没有真正多 IMU、多 EKF、Guidance、Control、Control Allocation 或 PWM actuator。
+- Power of Ten 和 `-fanalyzer` 都不是形式化证明或第三方安全认证。
+- EIDE CLI 编译、硬件烧录、电气测试以及 FLP 导入 `.ssdecoder` 尚未完成。
 
 ## 工作区说明
 
-工作区包含本轮及此前连续开发形成的大量未提交修改；`main.zip` 属于用户既有改动，未触碰。后续继续时应保留这些修改，不要 reset/clean，也不要写入 reference firmware/GUI。
+保留当前所有修改，不要 reset/clean，也不要写入 reference firmware/GUI。后续继续时以 `VALIDATION.md` 和本文件为当前基线。

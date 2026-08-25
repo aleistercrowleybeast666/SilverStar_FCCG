@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 import re
 
 from silverstar_fccg.plugins.catalog import PluginCatalog
@@ -176,6 +177,108 @@ def _Modes_Validate(
                         + ", ".join(missing_components),
                     )
                 )
+
+
+def _ModeParameters_Validate(
+    model: ProjectModel,
+    catalog: PluginCatalog,
+    issues: list[ValidationIssue],
+) -> None:
+    owners = {
+        manifest.selection.slot: manifest.selection
+        for component_id in model.base_components
+        for manifest in (catalog.Component_Get(component_id),)
+        if manifest.selection is not None
+        and manifest.selection.kind == SelectionKind.MODE
+    }
+    for slot in sorted(set(model.mode_parameters) - set(owners)):
+        issues.append(
+            ValidationIssue(
+                "error",
+                "mode_parameter_slot",
+                f"Unknown mode parameter slot: {slot}",
+            )
+        )
+    for slot, selection in owners.items():
+        options = model.mode_parameters.get(slot, {})
+        declared_options = set(selection.parameters)
+        for option in sorted(set(options) - declared_options):
+            issues.append(
+                ValidationIssue(
+                    "error",
+                    "mode_parameter_option",
+                    f"Unknown mode parameter option: {slot}.{option}",
+                )
+            )
+        for option, definitions in selection.parameters.items():
+            values = options.get(option, {})
+            expected_ids = {definition.parameter_id for definition in definitions}
+            if set(values) != expected_ids:
+                issues.append(
+                    ValidationIssue(
+                        "error",
+                        "mode_parameter_fields",
+                        f"Mode parameters for {slot}.{option} have missing or unknown fields",
+                    )
+                )
+                continue
+            if option not in model.modes.get(slot, []):
+                continue
+            for definition in definitions:
+                value = values[definition.parameter_id]
+                if (
+                    definition.value_type == "integer"
+                    and not isinstance(value, int)
+                ) or not (
+                    math.isfinite(float(value))
+                    and
+                    float(definition.minimum)
+                    <= float(value)
+                    <= float(definition.maximum)
+                ):
+                    issues.append(
+                        ValidationIssue(
+                            "error",
+                            "mode_parameter_range",
+                            f"Mode parameter {slot}.{option}.{definition.parameter_id} "
+                            f"must be in [{definition.minimum}, {definition.maximum}]",
+                        )
+                    )
+
+
+def _ProtocolProfiles_Validate(
+    model: ProjectModel,
+    catalog: PluginCatalog,
+    issues: list[ValidationIssue],
+) -> None:
+    profiles: dict[str, set[str]] = {}
+    for component_id in model.protocol_bundles:
+        protocol = catalog.Component_Get(component_id).protocol
+        if protocol is None:
+            continue
+        for category, entries in protocol.profiles.items():
+            profiles.setdefault(category, set()).update(
+                entry.profile_id for entry in entries
+            )
+    if not profiles:
+        return
+    if set(model.protocol_profiles) != set(profiles):
+        issues.append(
+            ValidationIssue(
+                "error",
+                "protocol_profile_categories",
+                "Protocol profile categories do not match the selected bundle",
+            )
+        )
+    for category, profile_id in model.protocol_profiles.items():
+        if profile_id not in profiles.get(category, set()):
+            issues.append(
+                ValidationIssue(
+                    "error",
+                    "protocol_profile",
+                    f"Unknown {category} protocol profile: {profile_id}",
+                )
+            )
 
 
 def _Hardware_Validate(
@@ -426,11 +529,19 @@ def Project_Validate(model: ProjectModel, catalog: PluginCatalog) -> ProjectVali
                 )
             )
     for component_class, instance_ids in sorted(devices_by_class.items()):
-        class_limit = max(
-            catalog.Component_Get(instance.plugin).instance_policy.project_max
+        class_manifests = tuple(
+            catalog.Component_Get(instance.plugin)
             for instance in model.device_instances
             if catalog.Component_Get(instance.plugin).component_class
             == component_class
+        )
+        if class_manifests and all(
+            manifest.metadata.get("independent_class_member") is True
+            for manifest in class_manifests
+        ):
+            continue
+        class_limit = max(
+            manifest.instance_policy.project_max for manifest in class_manifests
         )
         if len(instance_ids) > class_limit:
             issues.append(
@@ -442,10 +553,8 @@ def Project_Validate(model: ProjectModel, catalog: PluginCatalog) -> ProjectVali
                 )
             )
         if len(instance_ids) > 1 and any(
-            not catalog.Component_Get(instance.plugin).instance_policy.multi_instance_ready
-            for instance in model.device_instances
-            if catalog.Component_Get(instance.plugin).component_class
-            == component_class
+            not manifest.instance_policy.multi_instance_ready
+            for manifest in class_manifests
         ):
             issues.append(
                 ValidationIssue(
@@ -474,6 +583,8 @@ def Project_Validate(model: ProjectModel, catalog: PluginCatalog) -> ProjectVali
         )
     _Strategies_Validate(model, catalog, issues)
     _Modes_Validate(model, catalog, issues)
+    _ModeParameters_Validate(model, catalog, issues)
+    _ProtocolProfiles_Validate(model, catalog, issues)
     try:
         mcu_manifest = catalog.Component_Get(model.mcu)
         environment_manifest = catalog.Component_Get(model.development_environment)

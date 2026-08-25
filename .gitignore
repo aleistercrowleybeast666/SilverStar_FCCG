@@ -12,4 +12,11 @@ tests/.tmp/
 tests/artifacts/
 tests/generated_projects/
 tests/reference_copy/
+tests/.probe*
+tests/.pytest-*/
+tests/.startup*
+tests/.vscode-*/
+tests/.w*/
+tests/.work*
+tests/acceptance_*/
 *.egg-info/

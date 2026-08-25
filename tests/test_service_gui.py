@@ -26,7 +26,7 @@ def test_gui_service_loads_catalog_opens_project_and_previews(
     service.GenerationPlan_Apply(model, initial_plan)
     project_file = project_root / "SilverStar.ssproject"
     try:
-        assert window.plugin_manager_dialog.panel.plugin_table.rowCount() == 23
+        assert window.plugin_manager_dialog.panel.plugin_table.rowCount() == 29
         assert window.plugin_manager_dialog.panel.plugin_table.columnCount() == 9
         assert len(window.devices_page.device_combos) == 4
         wizard_values = wizard.WizardData_Get()
@@ -64,11 +64,11 @@ def test_gui_service_loads_catalog_opens_project_and_previews(
         window._DeviceInstance_Change("imu0", device_id)
         assert device_id in window._model.DevicePluginIds_Get()
         assert service.Resources_AutoAssign(window._model).valid
-        resource_key = "silverstar.board.silverstar_0_5:power_output_1"
+        resource_key = "launch_ignition0:output"
         resource_row = next(
             row
             for row in range(window.board_hardware_page.resource_table.rowCount())
-            if "power_output_1"
+            if "launch_ignition0:output"
             in window.board_hardware_page.resource_table.item(row, 0).toolTip()
         )
         resource_editor = window.board_hardware_page.resource_table.cellWidget(

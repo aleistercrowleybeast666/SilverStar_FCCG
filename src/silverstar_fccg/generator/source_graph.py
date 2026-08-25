@@ -73,6 +73,17 @@ def SourceGraph_Resolve(model: ProjectModel, catalog: PluginCatalog) -> SourceGr
     for component_id in model.ComponentIds_Get():
         build = catalog.Component_Get(component_id).build
         sources.extend(build.sources)
+        for slot, variants in build.strategy_sources.items():
+            if slot not in model.strategies:
+                raise SourceGraphError(
+                    f"Build contribution references unknown strategy slot: {slot}"
+                )
+            state = "selected" if model.strategies[slot] is not None else "none"
+            for variant_state, variant_sources in variants.items():
+                if variant_state == state:
+                    sources.extend(variant_sources)
+                else:
+                    exclude_sources.extend(variant_sources)
         asm_sources.extend(build.asm_sources)
         include_dirs.extend(build.include_dirs)
         defines.extend(build.defines)
@@ -115,6 +126,7 @@ def SourceGraph_Resolve(model: ProjectModel, catalog: PluginCatalog) -> SourceGr
     )
     sources.extend(generated_sources)
     include_dirs.append("Generated/Inc")
+    forced_includes.append("Generated/Inc/project_flight_config.h")
     if model.device_instances:
         include_dirs.append("Devices")
     duplicate_sources = sorted(

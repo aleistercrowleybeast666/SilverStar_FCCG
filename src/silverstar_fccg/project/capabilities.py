@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import StrEnum
 
 from silverstar_fccg.plugins.catalog import PluginCatalog
 from silverstar_fccg.project.model import DeviceInstance, ProjectModel
@@ -11,6 +12,19 @@ class CapabilityUse:
     consumer_component: str
     capability: str
     purpose: str
+
+
+class CapabilityKind(StrEnum):
+    RAW_DATA = "raw_data"
+    QUALIFIED = "qualified"
+
+
+def CapabilityKind_Get(capability: str) -> CapabilityKind:
+    return (
+        CapabilityKind.QUALIFIED
+        if capability.endswith("_qualified")
+        else CapabilityKind.RAW_DATA
+    )
 
 
 @dataclass(frozen=True, slots=True)

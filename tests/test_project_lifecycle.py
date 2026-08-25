@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import re
 from dataclasses import replace
 from pathlib import Path
 
@@ -76,7 +77,7 @@ def test_first_save_materializes_a_ready_dry_runnable_project(
     )
     assert dry_run.returncode == 0, dry_run.stdout + dry_run.stderr
     makefile_text = (project_root / "Makefile").read_text(encoding="utf-8")
-    assert "CONFIG ?= Debug" in makefile_text
+    assert "CONFIG ?= Release" in makefile_text
     assert "DEBUG_FLAGS := -g" in makefile_text
     assert "FCCG_PROGRESS|COMPILE|$<" in makefile_text
     assert "FCCG_PROGRESS|LINK|$@" in makefile_text
@@ -321,24 +322,92 @@ def test_build_runner_starts_make_with_explicit_project_cwd(
     assert all(root == project_root.resolve() for _command, root in calls)
 
 
-def test_debug_and_release_commands_use_distinct_safe_make_configuration(
+def test_advanced_build_defaults_release_and_generated_debug_remains_available(
     tmp_path: Path, workspace_root: Path
 ) -> None:
     service = FccgService(workspace_root)
     project_root = tmp_path / "BuildConfigurations"
-    debug_model = service.ReferenceProject_Create("BuildConfigurations")
-    service.Project_Save(debug_model, project_root)
+    model = service.ReferenceProject_Create("BuildConfigurations")
+    service.Project_Save(model, project_root)
     runner = BuildRunner(WorkspacePolicy(project_root))
 
-    debug_command = runner.Command_Get(debug_model, BuildAction.BUILD)
-    release_command = runner.Command_Get(debug_model, BuildAction.BUILD_RELEASE)
-    assert "CONFIG=Debug" in debug_command
-    assert "CONFIG=Release" in release_command
-    assert debug_command != release_command
+    validation_command = runner.Command_Get(model, BuildAction.BUILD)
+    assert "CONFIG=Release" in validation_command
 
     makefile = (project_root / "Makefile").read_text(encoding="utf-8")
+    tasks = (project_root / ".vscode" / "tasks.json").read_text(encoding="utf-8")
+    eide = (project_root / ".eide" / "eide.yml").read_text(encoding="utf-8")
+    assert "CONFIG ?= Release" in makefile
     assert "OPT := -Og" in makefile
     assert "DEBUG_FLAGS := -g3 -gdwarf-2" in makefile
     assert "OPT := -O2" in makefile
     assert "CONFIG must be Debug or Release" in makefile
     assert "NDEBUG" not in makefile
+    assert "BUILD_ROOT := build/$(TARGET_PROFILE)/StaticAnalysis/$(CONFIG)" in makefile
+    assert "FIRST_PARTY_WARNINGS += -fanalyzer" in makefile
+    assert "powershell -NoProfile -ExecutionPolicy Bypass -File Tools/check_power_of_ten.ps1" in makefile
+    assert "BUILD_ROOT := build/$(TARGET_PROFILE)/StaticAnalysis/$(CONFIG)" in makefile
+    assert "FIRST_PARTY_WARNINGS += -fanalyzer" in makefile
+    assert "powershell -NoProfile -ExecutionPolicy Bypass -File Tools/check_power_of_ten.ps1" in makefile
+    assert tasks.index("SilverStar: Build Release") < tasks.index(
+        "SilverStar: Build Debug"
+    )
+    assert '"isDefault": true' in tasks
+    assert eide.index("  Release:") < eide.index("  Debug:")
+    assert "deviceName: null" in eide
+    assert "packDir: null" in eide
+    assert re.search(r"(?m)^  uid: [0-9a-f]{32}$", eide)
+    workspace = (
+        project_root / "BuildConfigurations.code-workspace"
+    ).read_text(encoding="utf-8")
+    assert '"path": "."' in workspace
+    configuration = (project_root / "SilverStar_Configuration.md").read_text(
+        encoding="utf-8"
+    )
+    assert "- Board: `SS0.5`" in configuration
+    assert "SilverStar 0.5" not in configuration
+
+    power_service = (
+        workspace_root
+        / "plugins"
+        / "builtin"
+        / "silverstar_board_silverstar_0_5"
+        / "payload"
+        / "Board"
+        / "SilverStar_0_5"
+        / "Services"
+        / "Src"
+        / "power_service.c"
+    ).read_text(encoding="utf-8")
+    assert 'model_name = "SS0.5 Voltage Input"' in power_service
+    assert "SilverStar 0.5 Voltage Input" not in power_service
+    configuration = (project_root / "SilverStar_Configuration.md").read_text(
+        encoding="utf-8"
+    )
+    assert "- Board: `SS0.5`" in configuration
+    assert "SilverStar 0.5" not in configuration
+
+
+def test_repeated_apply_preserves_managed_mtimes_and_build_dependencies(
+    tmp_path: Path, workspace_root: Path
+) -> None:
+    service = FccgService(workspace_root)
+    project_root = tmp_path / "IncrementalApply"
+    model = service.ReferenceProject_Create("IncrementalApply")
+    service.Project_Save(model, project_root)
+    tracked = (
+        project_root / "Generated" / "Src" / "project_metadata.c",
+        project_root / "Makefile",
+        project_root / ".eide" / "eide.yml",
+    )
+    mtimes = {path: path.stat().st_mtime_ns for path in tracked}
+    dependency = project_root / "build" / "SilverStar_F407" / "Release" / "keep.d"
+    dependency.parent.mkdir(parents=True)
+    dependency.write_text("keep.o: keep.c\n", encoding="utf-8")
+
+    result = service.Project_Save(model, project_root)
+
+    assert result.files_added == 0
+    assert result.files_modified == 0
+    assert {path: path.stat().st_mtime_ns for path in tracked} == mtimes
+    assert dependency.read_text(encoding="utf-8") == "keep.o: keep.c\n"

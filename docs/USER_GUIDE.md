@@ -5,14 +5,14 @@
 Run `python main.py` and choose **File → New Project**. The compact one-step dialog uses the native title bar and asks only for project name and output directory. The sole current firmware/Core/OS/Protocol/Environment defaults are automatic; select the MCU on Devices. Configuration continues through exactly four main pages:
 
 ```text
-Devices → Flight Configuration → Hardware Connection → Build
+Devices → Flight Configuration → Hardware Connection → Code Generation & Build
 ```
 
 When only one Core, OS, Protocol Bundle, or Development Environment is installed, FCCG selects it automatically.
 
 ## Select physical Devices first
 
-The page starts with the STM32 MCU, then physical instances such as `imu0`/JY901B, `gnss0`/NEO-M9N, `telemetry0`/E28-2G4M12SX (SX1281), and `maintenance0`/Serial Maintenance Protocol 0.0. **Maintenance Console** remains the stable system-function label. Current plugins set `project_max=1`, so no misleading Add control appears. The **Other Sensors** section remains visible with an install action even when empty.
+The page starts with the STM32 MCU, then physical instances such as `imu0`/JY901B, `gnss0`/NEO-M9N, `telemetry0`/E28-2G4M12SX (SX1281), and `maintenance0`/Serial Maintenance Protocol 0.0. **Maintenance Console** remains the stable system-function label. Current plugins set `project_max=1`, so no misleading Add control appears. The **Other Sensors** section remains visible; **Install Plugin** appears there only while no Other Sensors plugin is installed.
 
 One physical Device may provide several capabilities. The Devices page shows a concise capability summary but no capability enable/source controls. FCCG derives actual usage from selected Algorithm/Flight requirements on **Flight Configuration**. A sole required provider is selected automatically. Only an ambiguous case—such as JY901B and BMP280 both providing barometric altitude—shows a data-source selector and persists that override. Unused physical outputs are read-only status, not project choices. The consumer implementation owns lifecycle; FCCG does not expose PRE_START/ASCENT/RECOVERY phase policy.
 
@@ -26,17 +26,18 @@ Select existing Board plugin
         → resource defaults are auto-assigned
         → inspect only if “Advanced Resource Configuration” is needed
         → optionally Prepare Hardware Files
-        → Save
-        → Build
+        → Generate / Apply Project
+        → Open VS Code Workspace
+        → Build with VS Code / EIDE
 ```
 
-The Board selector keeps incompatible entries identifiable and explains missing resource kinds. Fixed roles cannot be changed; selectable roles show only legal candidates. Reserved resources and declared conflict groups are enforced. **Prepare Hardware Files** copies and checks the verified SilverStar 0.5 payload without invoking CubeMX; repeating it with the same fingerprint is a no-op. Save performs the same preparation automatically, so this optional button is never a prerequisite.
+The Board selector keeps incompatible entries identifiable and marks them in muted gray while explaining missing resource kinds. Fixed roles cannot be changed; selectable roles show only legal candidates. Reserved resources and declared conflict groups are enforced. **Prepare Hardware Files** is shown only for a Board plugin: it copies and checks the verified SS0.5 payload without invoking CubeMX, and repeating it with the same fingerprint is a no-op. Save performs the same preparation automatically, so this optional button is never a prerequisite.
 
-The page is named **Hardware Connection** because it resolves Device needs against real hardware. For an STM32 Board, FCCG reads the Board `.ioc`, inventories pins/peripherals/DMA/IRQ/clocks, validates requirement constraints, and then applies the Board's semantic `connections.json`. A fixed connection is shown as text with its physical peripheral, pins, baud, DMA and IRQ details; only genuinely selectable roles use a dropdown.
+The page is named **Hardware Connection** because it resolves Device needs against real hardware. For an STM32 Board, FCCG reads the Board `.ioc`, inventories pins/peripherals/DMA/IRQ/clocks, validates requirement constraints, and then applies the Board's semantic `connections.json`. A fixed connection is shown as text with its physical peripheral, pins, baud, DMA and IRQ details; only genuinely selectable roles use a dropdown. **Complete Manual Assignment and Check** performs strict resolution and stores a fingerprint; changing Devices, Modes, IOC content, or assignments clears the confirmation.
 
 ## STM32 custom hardware flow
 
-Only an MCU with a compatible HardwareConfigurationProvider offers custom hardware. The current real implementation is STM32CubeMX for STM32. A new draft starts at **No hardware configuration selected**, which is allowed during editing but rejected by Save/Build until a Board or custom import is completed.
+Only an MCU with a compatible HardwareConfigurationProvider offers custom hardware. The current real implementation is STM32CubeMX for STM32. A new STM32 draft selects **Custom STM32 Hardware** by default. This is a manual import workflow, so it does not show or run **Prepare Hardware Files**; Save/Build remains unavailable until a valid `.ioc` or generated CubeMX directory has been imported.
 
 ```text
 Select STM32 MCU
@@ -50,7 +51,7 @@ Select STM32 MCU
   → optionally Export Board Plugin
 ```
 
-FCCG does not edit `.ioc`, solve PLL/pinmux/DMA, install CubeMX, or replace CubeMX. It reads MCU/package/core, GPIO/AF/EXTI, UART, SPI, I2C, ADC, Timer/PWM, CAN, DMA, NVIC and useful clock fields without arbitrary peripheral-count limits. A project containing CubeMX FreeRTOS/CMSIS-RTOS2 is rejected because SilverStar supplies its own official FreeRTOS component.
+FCCG does not edit `.ioc`, solve PLL/pinmux/DMA, install CubeMX, or replace CubeMX. It reads MCU/package/core, GPIO/AF/EXTI, UART, SPI, I2C, ADC, Timer/PWM, CAN, DMA, NVIC and useful clock fields without arbitrary peripheral-count limits. It validates UART rate/frame/DMA/IRQ, SPI mode/order/rate, I2C rate/address/pull-up, PWM frequency/resolution/polarity, and GPIO electrical/safe-start/interrupt contracts. A project containing CubeMX FreeRTOS/CMSIS-RTOS2 is rejected because SilverStar supplies its own official FreeRTOS component.
 
 Custom hardware is a manual import workflow, so this mode does not show or run the separate **Prepare Hardware Files** action. Save/Build still validates and stages the imported snapshot as part of normal materialization. Selecting an existing Board plugin restores the optional preparation action.
 
@@ -62,11 +63,17 @@ Imported files are copied under `HardwareGenerated/STM32CubeMX/` with a warning 
 
 Strategy controls are created from installed manifests. Current slots are Alignment, INS, Estimator, and Landing. Estimator supports **No fusion**, which removes KF6 sources from both Make and EIDE.
 
-Mode controls are also manifest-driven. Calibration offers Existing/OneFace/SixFace as a multi-select group and new projects select all three. Deployment supports any combination of Apogee/vertical-velocity, Tilt, and Delay, including none; new projects select all three. Per-option requirements disable unsupported choices before selection. The same page shows the read-only capability/consumer table and ambiguity-only source selectors. Logging is directly visible and is read from the selected Protocol plugin: record names are localized by Protocol metadata, Required records remain visibly checked and locked, every currently available record starts enabled, and unavailable records are disabled. Existing projects preserve their stored choices.
+The reference JY901B enables Gravity + Known Yaw, 6-axis Hardware Quaternion + Known Yaw, and 9-axis Hardware Quaternion Static Sample alignment. Those hardware choices require static preflight qualification, not absent authoritative runtime-attitude qualification. **Gravity Magnetic-Field Two-Vector Alignment** remains disabled because the current magnetic source lacks absolute-vector qualification. Stillness and Barometer + IMU Window Landing are available; Impact Then Stillness remains disabled. Availability is recalculated from the selected Device plugins. Disabled Alignment/Landing entries keep their normal names, use the theme's disabled text color, and explain missing capabilities in their tooltip rather than appending an “Unavailable” suffix. The three Landing selectors share one reference landing-math component and centralized recovery state machine.
+
+Mode controls are also manifest-driven. Calibration offers Existing/OneFace/SixFace as a multi-select group and new projects select all three. Deployment supports any combination of Apogee/vertical-velocity, Tilt, and Delay, including none; new projects select Apogee and Tilt while Delay starts clear. The manifest also owns the vertical-velocity threshold (default -2 m/s), tilt threshold (default 45°), and delay (default 60 s, generated as `uint32` milliseconds). Per-option requirements disable unsupported choices before selection. Telemetry, maintenance, and logging protocol profiles are independent categories; the current AIR compact V0, maintenance 0.0, and SSLOG0 choices remain visible but disabled because each category currently has one profile. Logging is directly visible and Protocol-owned; existing projects preserve stored choices.
+
+Devices are grouped as Main Controller, Primary Devices, Other Sensors, and Actuators. **Input Voltage Monitor** is selected by default under Other Sensors and may be disabled; it is the logical sensor backed by the SS0.5 ADC/power service, not the ADC itself. The first two Actuator entries are **Launch Ignition Power Output** and **Parachute Pyro Power Output**, without parenthesized Required text. Both are independently optional. Removing launch ignition means external ignition: START remains legal and no GPIO is generated. Removing parachute pyro atomically clears/disables deployment Modes and never re-adds the actuator in a reconcile loop; explicitly enabling it again restores the manifest defaults. Internally both use the one-shot Mission Action Actuator class.
+
+Log availability uses three meanings: a capability can be **Provided** by a Device, **Consumed** by a selected Algorithm, and independently **Recordable** as a raw stream. Native records follow Recordable outputs: BARO_NATIVE stays available with Estimator=None while BARO_MEASUREMENT becomes unavailable. POWER follows Input Voltage Monitor; Optional HW_QUAT_NATIVE is available even when Gravity + Known Yaw does not consume external attitude. MAG_NATIVE is generic and extensible to any compatible selected magnetometer plugin. Required streams are visibly locked and forced on by the model.
 
 ## Save and project readiness
 
-There is no Generate page, separate normal Generate/Apply action, or mandatory Preview step. **Save** reads the GUI model, validates and resolves it, prepares verified hardware, installs newly selected component payloads, regenerates only FCCG-owned glue/editor/build metadata, verifies the complete project, and publishes `SilverStar.ssproject` last. The lifecycle is Draft/Dirty → Materializing → Ready, with Building/Error used while work runs or fails.
+There is no standalone Generate page or mandatory Preview step. **Code Generation & Build** exposes **Generate / Apply Project**, **Open VS Code Workspace**, and **Open Project Folder**. Its advanced **Open Firmware Output** action is enabled only when an actual `.elf`, `.hex`, `.bin`, or `.map` exists. Generate/Apply reads the GUI model, validates and resolves it, prepares verified hardware, installs newly selected component payloads, updates only changed content, verifies the complete project, and publishes `SilverStar.ssproject` last. It does not build, clean, or run quality checks.
 
 Component source copied from plugins is never overwritten by normal Save. FCCG-managed glue and environment metadata are regenerated. A concise diff confirmation appears for component deactivation, conflicts/local source concerns, MCU/target changes, manual EIDE overwrite, or HardwareGenerated replacement. Open or drag `SilverStar.ssproject` to restore a project.
 
@@ -82,8 +89,10 @@ Generation also emits `<ProjectName>.ssdecoder`. It is a deterministic JSON-only
 
 Plugins are declarative data. Installation validates/stages an archive and never executes its contents. **Plugins → Plugin Manager...** exposes the useful ID/name/type/class/version/source/dependency/capability/status fields directly in its table; the redundant details popup was removed. **Install Plugin...** and **Refresh Plugins** are in the same menu. Normal configuration pages use localized physical names.
 
-Build exposes Build/Clean and tool status. The normal Build button always uses Debug. **Build Release**, tool paths, Host Tests, Architecture Check, Power of Ten, Static Analysis, and Artifact Check are in a responsive grid under Advanced Build Settings. Debug uses `-Og -g3 -gdwarf-2`; Release uses `-O2 -g` without disabling SilverStar assertions or safety gates. Build configuration is not saved in the project and never marks it dirty. Before an Arm build, FCCG runs Make in dry-run mode and counts the pending compile/link/SIZE/HEX/BIN markers; the real run streams each output line immediately and advances a determinate progress bar. Tool overrides remain project-local, and generated firmware builds independently with Make or native EIDE; no Python/FCCG runtime is required.
+The normal page shows only Arm GNU Toolchain and Make status. Objcopy and Size are derived from the selected Arm GNU `bin` directory. Host GCC appears only with advanced quality checks, and static analysis reuses Arm GCC with `-fanalyzer`; it is not presented as another compiler. The advanced **Validation Build** defaults to Release. Debug (`-Og -g3 -gdwarf-2`) remains available in generated VS Code/EIDE tasks, while Release (`-O2 -g`) is the default and does not disable SilverStar assertions or safety gates. Power of Ten is a real project compliance gate, not formal verification or certification. Tool overrides remain project-local, and generated firmware builds independently with Make or native EIDE; no Python/FCCG runtime is required.
+
+**Open VS Code Workspace** prefers the real `Code.exe --new-window <absolute-workspace>` executable so a visible window is created, derives it from discovered `code.cmd` installations, checks known VS Code locations, and finally tries the system association. If every route fails, a localized dialog includes the workspace path and exact launcher/association reason. EIDE metadata starts from the read-only working firmware template and keeps its required target/upload structure with no Pack and no J-Link default. FCCG exposes no flash button; a missing EIDE/J-Link temporary XML remains an external extension problem, not evidence of a firmware compile failure.
 
 ## Current limits
 
-Only the STM32F407VET6/SilverStar 0.5 reference is fully firmware-build validated. FCCG v0.x formally supports STM32 + STM32CubeMX manual hardware configuration only. Current drivers do not yet support multiple IMU/GNSS/link/maintenance instances; sensor voting/failover and Multi-EKF are not implemented. There is no complete clock solver, real PWM actuator, alternate MCU/provider, Guidance, Control, Control Allocation, or Keil environment. No current Board/Environment pair declares a validated flash capability, so no GUI, Make, VS Code, or EIDE upload action is emitted; no electrical validation is implied by generation.
+Only the STM32F407VET6/SS0.5 reference is fully firmware-build validated. FCCG v0.x formally supports STM32 + STM32CubeMX manual hardware configuration only. Current drivers do not yet support multiple IMU/GNSS/link/maintenance instances; sensor voting/failover and Multi-EKF are not implemented. There is no complete clock solver, real PWM actuator, alternate MCU/provider, Guidance, Control, Control Allocation, or Keil environment. No current Board/Environment pair declares a validated flash capability, so no GUI, Make, VS Code, or EIDE upload action is emitted; no electrical validation is implied by generation.

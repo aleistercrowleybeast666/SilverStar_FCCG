@@ -25,17 +25,15 @@ def _BuildRoot_Create(tmp_path: Path):
     return root, model, BuildRunner(policy)
 
 
-def test_build_commands_fix_debug_and_release_without_project_state(
+def test_validation_build_uses_release_without_project_state(
     tmp_path: Path,
 ) -> None:
     _root, model, runner = _BuildRoot_Create(tmp_path)
 
-    debug = runner.Command_Get(model, BuildAction.BUILD)
-    release = runner.Command_Get(model, BuildAction.BUILD_RELEASE)
+    command = runner.Command_Get(model, BuildAction.BUILD)
 
-    assert "CONFIG=Debug" in debug
-    assert "CONFIG=Release" in release
-    assert debug[-1] == release[-1] == "all"
+    assert "CONFIG=Release" in command
+    assert command[-1] == "all"
     assert "configuration" not in model.Dictionary_Get()["build"]
 
 

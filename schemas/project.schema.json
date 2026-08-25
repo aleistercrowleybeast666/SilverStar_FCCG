@@ -4,12 +4,13 @@
   "title": "SilverStar FCCG project",
   "type": "object",
   "required": [
-    "format_version", "project", "components", "modes", "hardware",
+    "format_version", "project", "components", "modes", "mode_parameters",
+    "protocol_profiles", "hardware",
     "resources", "capability_sources", "logging", "build", "generated_glue",
     "component_provenance", "reference_provenance"
   ],
   "properties": {
-    "format_version": {"const": 5},
+    "format_version": {"const": 6},
     "project": {
       "type": "object",
       "required": ["name", "firmware_version", "build_target"],
@@ -52,13 +53,31 @@
         "items": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"}
       }
     },
+    "mode_parameters": {
+      "type": "object",
+      "propertyNames": {"$ref": "#/$defs/lowerIdentifier"},
+      "additionalProperties": {
+        "type": "object",
+        "propertyNames": {"$ref": "#/$defs/selectionOption"},
+        "additionalProperties": {
+          "type": "object",
+          "propertyNames": {"$ref": "#/$defs/lowerIdentifier"},
+          "additionalProperties": {"type": "number"}
+        }
+      }
+    },
+    "protocol_profiles": {
+      "type": "object",
+      "propertyNames": {"$ref": "#/$defs/lowerIdentifier"},
+      "additionalProperties": {"$ref": "#/$defs/lowerIdentifier"}
+    },
     "hardware": {
       "type": "object",
       "required": [
         "mode", "source_kind", "provider", "snapshot_id", "ioc_file",
         "mcu", "capabilities", "inventory", "resources", "build_sources", "asm_sources",
         "include_dirs", "defines", "linker_script", "source_digest",
-        "source_label", "risk_acknowledged"
+        "source_label", "risk_acknowledged", "assignment_fingerprint"
       ],
       "properties": {
         "mode": {"enum": ["unselected", "board_plugin", "custom"]},
@@ -89,7 +108,10 @@
         "linker_script": {"type": "string", "pattern": "^(?:[A-Za-z0-9_./+@-]+)?$"},
         "source_digest": {"oneOf": [{"const": ""}, {"$ref": "#/$defs/sha256"}]},
         "source_label": {"type": "string"},
-        "risk_acknowledged": {"type": "boolean"}
+        "risk_acknowledged": {"type": "boolean"},
+        "assignment_fingerprint": {
+          "oneOf": [{"const": ""}, {"$ref": "#/$defs/sha256"}]
+        }
       },
       "additionalProperties": false
     },
@@ -166,6 +188,7 @@
       "additionalProperties": false
     },
     "lowerIdentifier": {"type": "string", "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*$"},
+    "selectionOption": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"},
     "projectToken": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$"},
     "resourceId": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"},
     "buildPath": {"type": "string", "minLength": 1, "pattern": "^[A-Za-z0-9_./+@-]+$"},

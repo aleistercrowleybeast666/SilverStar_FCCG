@@ -52,7 +52,217 @@ from silverstar_fccg.ui.widgets import (
     StandardCheckBox,
 )
 from silverstar_fccg.core.i18n import Translator
+import tools.import_reference_components as reference_import
 from tools.import_reference_components import _ProtocolMetadata_Adapt
+
+
+def test_reference_import_definition_preserves_current_fccg_overlays(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        reference_import, "_ManifestValues_Get", lambda *_arguments: []
+    )
+    components = reference_import._Components_Get(Path("unused"), {})
+    manifests = {
+        component["manifest"]["id"]: component["manifest"]
+        for component in components
+    }
+
+    assert len(manifests) == 29
+    board = manifests["silverstar.board.silverstar_0_5"]
+    assert board["name"] == "SS0.5"
+    assert board["metadata"]["build_symbol"] == "SILVERSTAR_0_5"
+    imu = manifests["silverstar.device.imu.jy901b"]
+    assert "magnetometer.field" in imu["provides"]
+    assert "magnetometer.absolute_vector_qualified" not in imu["provides"]
+    assert "imu.software_alignment_qualified" in imu["provides"]
+    assert (
+        "attitude.external.preflight_alignment_6axis_qualified"
+        in imu["provides"]
+    )
+    assert (
+        "attitude.external.preflight_alignment_9axis_qualified"
+        in imu["provides"]
+    )
+    assert (
+        "imu.landing_impact_qualified"
+        in imu["metadata"]["unqualified_capabilities"]
+    )
+    assert (
+        manifests["silverstar.algorithm.alignment.gravity_mag_triad"]
+        ["requires"]["capabilities"][-1]["capability"]
+        == "magnetometer.absolute_vector_qualified"
+    )
+    assert (
+        manifests["silverstar.flight_logic.landing.baro_imu_window"]
+        ["class"]
+        == "landing_common"
+    )
+    assert {
+        "silverstar.flight_logic.landing.stillness",
+        "silverstar.flight_logic.landing.impact_then_stillness",
+        "silverstar.flight_logic.landing.baro_imu_window_strategy",
+    }.issubset(manifests)
+    assert {
+        "silverstar.device.sensor.input_voltage",
+        "silverstar.device.actuator.launch_ignition",
+        "silverstar.device.actuator.parachute_pyro",
+    }.issubset(manifests)
+
+
+def test_reference_payload_sync_and_environment_templates_are_read_only(
+    workspace_root: Path,
+) -> None:
+    reference = Path(
+        r"C:\Users\chdxm\Desktop\stm32-1\Flight_Controller0.5"
+    )
+    markers = (
+        "SilverStar.ssproject",
+        "AGENTS.md",
+        "Devices/IMU/JY901B",
+        "System/User/system_user_capability_validation.h",
+        "Targets/SilverStar_F407",
+        "Algorithm/Alignment",
+    )
+    if not all((reference / marker).exists() for marker in markers):
+        pytest.skip("read-only reference firmware is not present on this host")
+
+    before = reference_import.ReferenceProvenance_Get(reference)
+    assert before["working_tree"] == "clean"
+    exact_pairs = (
+        (
+            "Devices/IMU/JY901B/Adapter/Inc/"
+            "jy901b_quaternion_build_capabilities.h",
+            "plugins/builtin/silverstar_device_imu_jy901b/payload/"
+            "Devices/IMU/JY901B/Adapter/Inc/"
+            "jy901b_quaternion_build_capabilities.h",
+        ),
+        (
+            "Devices/IMU/JY901B/Inc/jy901b_imu_build_capabilities.h",
+            "plugins/builtin/silverstar_device_imu_jy901b/payload/"
+            "Devices/IMU/JY901B/Inc/jy901b_imu_build_capabilities.h",
+        ),
+        (
+            "System/User/system_user_capability_validation.h",
+            "plugins/builtin/silverstar_core_0_0_9/payload/"
+            "System/User/system_user_capability_validation.h",
+        ),
+        (
+            "Tests/Host/test_build_capability_contract.c",
+            "plugins/builtin/silverstar_core_0_0_9/payload/"
+            "Tests/Host/test_build_capability_contract.c",
+        ),
+        (
+            ".eide/eide.yml",
+            "plugins/builtin/silverstar_environment_vscode_eide_gcc/"
+            "templates/reference/.eide/eide.yml",
+        ),
+        (
+            ".eide/files.options.yml",
+            "plugins/builtin/silverstar_environment_vscode_eide_gcc/"
+            "templates/reference/.eide/files.options.yml",
+        ),
+        (
+            "Flight_Controller0.5.code-workspace",
+            "plugins/builtin/silverstar_environment_vscode_eide_gcc/"
+            "templates/reference/Flight_Controller0.5.code-workspace",
+        ),
+        (
+            ".vscode/tasks.json",
+            "plugins/builtin/silverstar_environment_vscode_eide_gcc/"
+            "templates/reference/.vscode/tasks.json",
+        ),
+    )
+    for reference_relative, builtin_relative in exact_pairs:
+        assert (reference / reference_relative).read_bytes() == (
+            workspace_root / builtin_relative
+        ).read_bytes()
+
+    target_reference = (
+        reference / "Targets/SilverStar_F407/Inc/target_system_config.h"
+    ).read_text(encoding="utf-8")
+    target_builtin = (
+        workspace_root
+        / "plugins/builtin/silverstar_mcu_stm32f407vet6/payload/"
+        "Targets/SilverStar_F407/Inc/target_system_config.h"
+    ).read_text(encoding="utf-8")
+    assert target_builtin == target_reference.replace(
+        "SilverStar 0.5 Board services", "SS0.5 Board services"
+    )
+
+    provenance = json.loads(
+        (workspace_root / "plugins/builtin/reference_provenance.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    for key in (
+        "path",
+        "commit",
+        "branch",
+        "working_tree",
+        "status",
+        "snapshot_digest",
+    ):
+        assert provenance[key] == before[key]
+    inventory = json.loads(
+        (
+            workspace_root
+            / "plugins/builtin/silverstar_environment_vscode_eide_gcc/"
+            "templates/reference/inventory.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert inventory["missing_in_reference"] == [
+        ".vscode/extensions.json",
+        ".vscode/settings.json",
+    ]
+    after = reference_import.ReferenceProvenance_Get(reference)
+    assert {
+        key: after[key]
+        for key in ("commit", "working_tree", "status", "snapshot_digest")
+    } == {
+        key: before[key]
+        for key in ("commit", "working_tree", "status", "snapshot_digest")
+    }
+def test_reference_import_normalizes_board_user_visible_names(
+    tmp_path: Path,
+) -> None:
+    staged_builtin = tmp_path / "builtin"
+    power_service = (
+        staged_builtin
+        / "silverstar_board_silverstar_0_5"
+        / "payload"
+        / "Board"
+        / "SilverStar_0_5"
+        / "Services"
+        / "Src"
+        / "power_service.c"
+    )
+    target_config = (
+        staged_builtin
+        / "silverstar_mcu_stm32f407vet6"
+        / "payload"
+        / "Targets"
+        / "SilverStar_F407"
+        / "Inc"
+        / "target_system_config.h"
+    )
+    power_service.parent.mkdir(parents=True)
+    target_config.parent.mkdir(parents=True)
+    power_service.write_text(
+        'name = "SilverStar 0.5 Voltage Input";\n', encoding="utf-8"
+    )
+    target_config.write_text(
+        "Adapters and SilverStar 0.5 Board services\n", encoding="utf-8"
+    )
+
+    reference_import._BoardUserVisibleNames_Adapt(
+        staged_builtin, WorkspacePolicy(tmp_path)
+    )
+
+    assert '"SS0.5 Voltage Input"' in power_service.read_text(encoding="utf-8")
+    assert "Adapters and SS0.5 Board services" in target_config.read_text(
+        encoding="utf-8"
+    )
 
 
 def test_standard_controls_and_collapsible_visibility(qapp) -> None:
@@ -148,7 +358,6 @@ def test_new_project_mode_and_logging_defaults_do_not_override_later_choices(
     assert model.modes["deployment"] == [
         "ApogeeVerticalVelocity",
         "Tilt",
-        "Delay",
     ]
     assert model.modes["calibration"] == ["Existing", "OneFace", "SixFace"]
     assert all(

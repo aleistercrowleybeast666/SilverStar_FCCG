@@ -1,0 +1,93 @@
+{
+  "schema_version": 0,
+  "id": "silverstar.device.actuator.parachute_pyro",
+  "name": "Parachute Pyro Power Output",
+  "type": "device",
+  "class": "mission_action_actuator",
+  "version": "0.0.9",
+  "description": "Declarative logical device backed by the selected Board service; it owns capability and physical-resource selection, not Board source.",
+  "requires": {
+    "components": [],
+    "resources": [
+      {
+        "name": "output",
+        "kind": "gpio_output",
+        "binding_macro": "PROJECT_RESOURCE_PARACHUTE_PYRO_OUTPUT",
+        "electrical_constraints": {
+          "mode": "gpio_output",
+          "output_type": "push_pull",
+          "pull": "none",
+          "speed": "low",
+          "safe_initial_level": "inactive",
+          "active_polarity": "high",
+          "startup_glitch_free": true
+        },
+        "display_names": {
+          "zh_CN": "火工开伞功率输出",
+          "en_US": "Parachute Pyro Power Output"
+        }
+      }
+    ],
+    "capabilities": []
+  },
+  "resources": {
+    "provides": [],
+    "roles": [],
+    "conflicts": []
+  },
+  "provides": [
+    "actuator.mission_action.parachute_deploy"
+  ],
+  "build": {
+    "sources": [],
+    "asm_sources": [],
+    "include_dirs": [],
+    "defines": []
+  },
+  "payload": {
+    "roots": []
+  },
+  "metadata": {
+    "reference": {
+      "path": "C:\\Users\\chdxm\\Desktop\\stm32-1\\Flight_Controller0.5",
+      "commit": "e67529ef67f53049fa8d7a1d3eed314e11043d1a",
+      "branch": "main",
+      "working_tree": "clean",
+      "status": [],
+      "snapshot_digest": "0f2388a98e33076b9a6454a8d370190dd339556527071b683a1bc10a2add2686",
+      "recorded_at_utc": "2026-08-25T11:31:56+00:00"
+    },
+    "declarative": true,
+    "logical_device": true,
+    "display_names": {
+      "zh_CN": "火工开伞功率输出",
+      "en_US": "Parachute Pyro Power Output"
+    },
+    "device_category": "mission_action_actuator",
+    "independent_class_member": true,
+    "default_instance_id": "parachute_pyro0",
+    "auto_select_when_required": false,
+    "device_descriptors": [
+      {
+        "order": 11,
+        "class": "SYSTEM_DEVICE_CLASS_MISSION_ACTION",
+        "flags": "SYSTEM_DESCRIPTOR_FLAG_ENABLED",
+        "capability": "SYSTEM_CAPABILITY_OUTPUT",
+        "rate": "0U",
+        "driver_hash": "0x8BC9C34EUL",
+        "name_hash": "0x3870C351UL"
+      }
+    ]
+  },
+  "instance_policy": {
+    "project_max": 1,
+    "same_plugin_multiple": false,
+    "multi_instance_ready": false
+  },
+  "physical_device": {
+    "vendor": "SilverStar",
+    "model": "SS0.5 P_CONTROL2",
+    "chipset": "SS0.5 GPIO Output",
+    "driver": "output_service"
+  }
+}

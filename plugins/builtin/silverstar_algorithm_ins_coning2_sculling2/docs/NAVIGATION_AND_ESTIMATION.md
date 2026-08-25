@@ -59,7 +59,7 @@ Calibration READY且执行`ALIGN START`后，InsTask按所选算法非阻塞收�
 
 ### 2.1 六轴硬件四元数 + 已知航向
 
-该兼容模式使用hardware quaternion窗口建立tilt，再以统一SilverStar ENU yaw修正水平方向。消费级六轴姿态不能独立确定绝对yaw，因此必须提供known yaw；新的软件默认模式不使用legacy body-axis参数。
+该兼容模式使用START前hardware quaternion静态窗口建立tilt，再以统一SilverStar ENU yaw修正水平方向。当前JY901B具备该静态Initial Alignment资格；消费级六轴姿态不能独立确定绝对yaw，因此必须提供known yaw。该资格不允许hardware quaternion成为START后的权威姿态源；新的软件默认模式不使用legacy body-axis参数。
 
 ### 2.2 重力/磁场 TRIAD
 
@@ -67,7 +67,7 @@ Calibration READY且执行`ALIGN START`后，InsTask按所选算法非阻塞收�
 
 ### 2.3 九轴硬件四元数
 
-该兼容模式对合法hardware quaternion窗口统一双覆盖符号、求均值、归一化并检查离散度，不改变直接Interface已经交付的坐标和分量语义。
+该兼容模式对START前合法hardware quaternion静态窗口统一双覆盖符号、求均值、归一化并检查离散度，不改变直接Interface已经交付的坐标和分量语义。当前JY901B具备该静态Initial Alignment资格，但任务期authoritative资格保持0。
 
 ### 2.4 重力 + 已知ENU yaw（默认）
 
@@ -230,7 +230,7 @@ P' = D * P * D'
 
 ## 11. SilverStar 0.0.9 Calibration与初始对准实现
 
-当前固件的任务初始姿态固定采用`ALIGN START`后由所选静态窗口算法生成并在READY冻结的final `q_nb`。默认GravityKnownYaw和TRIAD是已接入的软件对准能力，hardware quaternion模式也使用多帧hemisphere mean；不存在最新单帧捷径。
+当前固件的任务初始姿态固定采用`ALIGN START`后由所选静态窗口算法生成并在READY冻结的final `q_nb`。默认GravityKnownYaw和TRIAD是已接入的软件对准能力，hardware quaternion模式也使用多帧hemisphere mean；当前JY901B六轴/九轴模式具备这种预飞静态资格，但不具备START后权威姿态资格，不存在最新单帧捷径或飞行中回注。
 
 对准与机械化统一使用`SYSTEM_LOCAL_GRAVITY_MPS2=9.78f`，该宏是工程中唯一的本地重力配置。Algorithm上下文由调用方显式传入该值，不包含第二套默认值。
 

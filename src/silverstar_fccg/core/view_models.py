@@ -25,6 +25,7 @@ class ResourceRequirementView:
     name: str
     key: str = ""
     display_name: str = ""
+    contract_summary: str = ""
     assignment: str = ""
     recommended_assignment: str = ""
     candidates: tuple[str, ...] = ()
@@ -33,6 +34,8 @@ class ResourceRequirementView:
     fixed: bool = False
     physical_resource: str = ""
     physical_details: str = ""
+    pending_hardware_confirmation: bool = False
+    validation_error: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,6 +83,9 @@ class DeviceInstanceView:
     consumed: tuple[str, ...]
     unused: tuple[str, ...]
     enabled: tuple[str, ...] = ()
+    unqualified: tuple[str, ...] = ()
+    required: bool = False
+    required_capabilities: tuple[str, ...] = ()
     project_max: int = 1
     same_plugin_multiple: bool = False
     multi_instance_ready: bool = False
@@ -88,6 +94,7 @@ class DeviceInstanceView:
 @dataclass(frozen=True, slots=True)
 class CapabilityUsageView:
     capability: str
+    kind: str = "raw_data"
     source_instance_id: str = ""
     source_name: str = ""
     used: bool = False

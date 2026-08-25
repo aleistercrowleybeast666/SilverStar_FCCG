@@ -1,11 +1,11 @@
 {
   "schema_version": 0,
   "id": "silverstar.board.silverstar_0_5",
-  "name": "SilverStar 0.5",
+  "name": "SS0.5",
   "type": "board",
   "class": "flight_controller_board",
   "version": "0.0.9",
-  "description": "Verified SilverStar 0.5 PCB, CubeMX hardware source, fixed services and resource mapping.",
+  "description": "Verified SS0.5 PCB, CubeMX hardware source, fixed services and resource mapping.",
   "requires": {
     "components": [
       {
@@ -19,33 +19,13 @@
     ],
     "resources": [
       {
-        "name": "power_output_1",
-        "kind": "gpio_output",
-        "binding_macro": "PROJECT_RESOURCE_POWER_OUTPUT_1",
-        "display_names": {"zh_CN": "开伞输出1", "en_US": "Deployment Output 1"}
-      },
-      {
-        "name": "power_output_2",
-        "kind": "gpio_output",
-        "binding_macro": "PROJECT_RESOURCE_POWER_OUTPUT_2",
-        "display_names": {"zh_CN": "开伞输出2", "en_US": "Deployment Output 2"}
-      },
-      {
         "name": "system_indicator",
         "kind": "gpio_output",
-        "binding_macro": "PROJECT_RESOURCE_SYSTEM_INDICATOR",
-        "display_names": {"zh_CN": "系统指示灯", "en_US": "System Indicator"}
-      },
-      {
-        "name": "input_voltage",
-        "kind": "adc",
-        "binding_macro": "PROJECT_RESOURCE_INPUT_VOLTAGE_ADC",
-        "display_names": {"zh_CN": "输入电压采样", "en_US": "Input Voltage Sampling"}
+        "binding_macro": "PROJECT_RESOURCE_SYSTEM_INDICATOR"
       },
       {
         "name": "storage",
-        "kind": "sdio",
-        "display_names": {"zh_CN": "日志存储", "en_US": "Log Storage"}
+        "kind": "sdio"
       }
     ],
     "capabilities": []
@@ -294,7 +274,7 @@
         "fixed": true
       },
       {
-        "key": "flight_controller_board:power_output_1",
+        "key": "silverstar.device.actuator.launch_ignition:output",
         "kind": "gpio_output",
         "default": "PLATFORM_GPIO_4",
         "candidates": [
@@ -303,7 +283,7 @@
         "fixed": true
       },
       {
-        "key": "flight_controller_board:power_output_2",
+        "key": "silverstar.device.actuator.parachute_pyro:output",
         "kind": "gpio_output",
         "default": "PLATFORM_GPIO_5",
         "candidates": [
@@ -321,7 +301,7 @@
         "fixed": true
       },
       {
-        "key": "flight_controller_board:input_voltage",
+        "key": "silverstar.device.sensor.input_voltage:input_voltage",
         "kind": "adc",
         "default": "PLATFORM_ADC_1",
         "candidates": [
@@ -403,31 +383,43 @@
   "metadata": {
     "reference": {
       "path": "C:\\Users\\chdxm\\Desktop\\stm32-1\\Flight_Controller0.5",
-      "commit": "b8c90e997c3113dd23074302682c5560dae18926",
-      "branch": "codex/refactor-silverstar-0.0.9-platform",
+      "commit": "e67529ef67f53049fa8d7a1d3eed314e11043d1a",
+      "branch": "main",
       "working_tree": "clean",
       "status": [],
-      "snapshot_digest": "67e89c36cf11bbe3538469a1461c48a87967691ffd556995c8b5fc6c4b1c4d54",
-      "recorded_at_utc": "2026-08-23T14:50:21+00:00"
+      "snapshot_digest": "0f2388a98e33076b9a6454a8d370190dd339556527071b683a1bc10a2add2686",
+      "recorded_at_utc": "2026-08-25T11:31:56+00:00"
     },
+    "build_symbol": "SILVERSTAR_0_5",
     "display_names": {
-      "zh_CN": "SilverStar 0.5（已验证）",
-      "en_US": "SilverStar 0.5 (Verified)"
+      "zh_CN": "SS0.5（已验证）",
+      "en_US": "SS0.5 (Validated)"
     },
     "descriptions": {
-      "zh_CN": "已验证的SilverStar 0.5板卡、CubeMX硬件源、固定服务与资源映射。",
-      "en_US": "Verified SilverStar 0.5 PCB, CubeMX hardware source, fixed services, and resource mapping."
+      "zh_CN": "已验证的SS0.5板卡、CubeMX硬件源、固定服务与资源映射。",
+      "en_US": "Verified SS0.5 PCB, CubeMX hardware source, fixed services, and resource mapping."
     },
-    "device_descriptors": [
+    "optional_resource_bindings": [
       {
-        "order": 7,
-        "class": "SYSTEM_DEVICE_CLASS_POWER",
-        "flags": "SYSTEM_DESCRIPTOR_FLAG_ENABLED",
-        "capability": "SYSTEM_CAPABILITY_POWER",
-        "rate": "(uint32_t)(1000000ULL / SYSTEM_POWER_SAMPLE_PERIOD_US)",
-        "driver_hash": "0x7C755741UL",
-        "name_hash": "0xEF288B50UL"
+        "binding_macro": "PROJECT_RESOURCE_INPUT_VOLTAGE_ADC",
+        "enabled_macro": "PROJECT_FEATURE_INPUT_VOLTAGE_MONITOR",
+        "fallback": "PLATFORM_ADC_COUNT",
+        "header": "platform_adc.h"
       },
+      {
+        "binding_macro": "PROJECT_RESOURCE_LAUNCH_IGNITION_OUTPUT",
+        "enabled_macro": "PROJECT_FEATURE_LAUNCH_IGNITION_OUTPUT",
+        "fallback": "PLATFORM_GPIO_COUNT",
+        "header": "platform_gpio.h"
+      },
+      {
+        "binding_macro": "PROJECT_RESOURCE_PARACHUTE_PYRO_OUTPUT",
+        "enabled_macro": "PROJECT_FEATURE_PARACHUTE_PYRO_OUTPUT",
+        "fallback": "PLATFORM_GPIO_COUNT",
+        "header": "platform_gpio.h"
+      }
+    ],
+    "device_descriptors": [
       {
         "order": 8,
         "class": "SYSTEM_DEVICE_CLASS_STORAGE",
@@ -445,24 +437,6 @@
         "rate": "0U",
         "driver_hash": "0x6DB00410UL",
         "name_hash": "0xCD7C84A3UL"
-      },
-      {
-        "order": 10,
-        "class": "SYSTEM_DEVICE_CLASS_OUTPUT",
-        "flags": "SYSTEM_DESCRIPTOR_FLAG_ENABLED | SYSTEM_DESCRIPTOR_FLAG_REQUIRED",
-        "capability": "SYSTEM_CAPABILITY_OUTPUT",
-        "rate": "0U",
-        "driver_hash": "0xA03101D4UL",
-        "name_hash": "0x30FDFAB9UL"
-      },
-      {
-        "order": 11,
-        "class": "SYSTEM_DEVICE_CLASS_MISSION_ACTION",
-        "flags": "SYSTEM_DESCRIPTOR_FLAG_ENABLED",
-        "capability": "SYSTEM_CAPABILITY_OUTPUT",
-        "rate": "0U",
-        "driver_hash": "0x8BC9C34EUL",
-        "name_hash": "0x3870C351UL"
       }
     ]
   },

@@ -8,11 +8,22 @@ from pathlib import Path
 from PySide6.QtWidgets import QFileDialog
 
 from silverstar_fccg.app.service import FccgService
+from silverstar_fccg.core.i18n import Translator
 from silverstar_fccg.core.settings import SettingsStore
 from silverstar_fccg.generator.source_graph import SourceGraph_Resolve
 from silverstar_fccg.plugins.catalog import PluginCatalog
-from silverstar_fccg.project.capabilities import CapabilityResolution_Resolve
-from silverstar_fccg.project.logging import LoggingProfile_Reconcile
+from silverstar_fccg.project.capabilities import (
+    CapabilityKind,
+    CapabilityKind_Get,
+    CapabilityResolution_Resolve,
+)
+from silverstar_fccg.project.logging import (
+    LogAvailability_Get,
+    LogPolicyLevel,
+    LoggingProfile_Reconcile,
+    ProjectRecordableOutputs_Get,
+    ProtocolLogDefinitions_Get,
+)
 from silverstar_fccg.project.model import (
     DeviceInstance,
     ProjectModel_Load,
@@ -26,7 +37,10 @@ from silverstar_fccg.ui.widgets import LockedCheckBox, StandardCheckBox
 
 
 def _MultiBarometerCatalog_Create(
-    workspace_root: Path, installed_root: Path
+    workspace_root: Path,
+    installed_root: Path,
+    *,
+    recordable_magnetometer: bool = False,
 ) -> PluginCatalog:
     package = installed_root / "fixture.device.sensor.bmp280" / "1.0.0"
     package.mkdir(parents=True)
@@ -58,7 +72,10 @@ def _MultiBarometerCatalog_Create(
             "capabilities": [],
         },
         "resources": {"provides": [], "roles": [], "conflicts": []},
-        "provides": ["barometer.altitude"],
+        "provides": [
+            "barometer.altitude",
+            *(["magnetometer.field"] if recordable_magnetometer else []),
+        ],
         "build": {
             "sources": [],
             "asm_sources": [],
@@ -67,7 +84,16 @@ def _MultiBarometerCatalog_Create(
         },
         "payload": {"roots": ["Fixture"]},
         "metadata": {
-            "display_names": {"zh_CN": "BMP280", "en_US": "BMP280"}
+            "display_names": {"zh_CN": "BMP280", "en_US": "BMP280"},
+            **(
+                {
+                    "recordable_outputs": {
+                        "magnetometer.field": {"enabled": True}
+                    }
+                }
+                if recordable_magnetometer
+                else {}
+            ),
         },
     }
     (package / "plugin.json").write_text(
@@ -174,12 +200,15 @@ def test_project_v2_migrates_devices_and_resource_owners() -> None:
     data["generated_glue"].remove("project_capability_routes")
 
     migrated = ProjectModel_Parse(data)
-    assert migrated.format_version == 5
+    assert migrated.format_version == 6
     assert [instance.instance_id for instance in migrated.device_instances] == [
         "imu0",
         "gnss0",
         "telemetry0",
         "maintenance0",
+        "sensor0",
+        "actuator0",
+        "actuator1",
     ]
     assert migrated.resource_assignments["imu0:data"] == "PLATFORM_UART_1"
     assert migrated.capability_source_overrides == {}
@@ -193,7 +222,7 @@ def test_project_v3_migrates_without_capability_selections() -> None:
 
     migrated = ProjectModel_Parse(data)
 
-    assert migrated.format_version == 5
+    assert migrated.format_version == 6
     assert "capability_selections" not in migrated.Dictionary_Get()
 
 
@@ -206,9 +235,26 @@ def test_project_v4_removes_legacy_capability_and_build_choices() -> None:
     migrated = ProjectModel_Parse(data)
 
     serialized = migrated.Dictionary_Get()
-    assert migrated.format_version == 5
+    assert migrated.format_version == 6
     assert "capability_selections" not in serialized
     assert "configuration" not in serialized["build"]
+
+
+def test_project_v5_adds_mode_protocol_and_assignment_contracts() -> None:
+    data = ReferenceProject_Create("MigrateV5").Dictionary_Get()
+    data["format_version"] = 5
+    data.pop("mode_parameters")
+    data.pop("protocol_profiles")
+    data["hardware"].pop("assignment_fingerprint")
+    data["generated_glue"].remove("project_flight_config")
+
+    migrated = ProjectModel_Parse(data)
+
+    assert migrated.format_version == 6
+    assert migrated.mode_parameters["deployment"]["Delay"]["delay"] == 60.0
+    assert migrated.protocol_profiles["telemetry"] == "air.compact.v0"
+    assert migrated.hardware.assignment_fingerprint == ""
+    assert "project_flight_config" in migrated.generated_glue
 
 
 def test_reference_capability_resolution_matches_physical_truth(
@@ -224,7 +270,13 @@ def test_reference_capability_resolution_matches_physical_truth(
     ) == 1
 
     jy901b = builtin_catalog.Component_Get("silverstar.device.imu.jy901b")
-    assert set(jy901b.provides) == {
+    raw = {
+        capability
+        for capability in jy901b.provides
+        if CapabilityKind_Get(capability) == CapabilityKind.RAW_DATA
+    }
+    qualified = set(jy901b.provides) - raw
+    assert raw == {
         "device.imu",
         "imu.acceleration",
         "imu.angular_rate",
@@ -232,10 +284,29 @@ def test_reference_capability_resolution_matches_physical_truth(
         "magnetometer.field",
         "barometer.altitude",
     }
+    assert qualified == {
+        "attitude.external.preflight_fallback_qualified",
+        "attitude.external.preflight_alignment_6axis_qualified",
+        "attitude.external.preflight_alignment_9axis_qualified",
+        "imu.software_alignment_qualified",
+        "imu.software_propagation_qualified",
+        "imu.landing_stillness_qualified",
+        "barometer.landing_window_qualified",
+    }
+    assert set(jy901b.metadata["unqualified_capabilities"]) == {
+        "magnetometer.absolute_vector_qualified",
+        "attitude.external.authoritative_6axis_qualified",
+        "attitude.external.authoritative_9axis_qualified",
+        "imu.landing_impact_qualified",
+    }
     assert set(resolution.ConsumedCapabilitiesForInstance_Get("imu0")) == {
         "imu.acceleration",
         "imu.angular_rate",
         "barometer.altitude",
+        "imu.software_alignment_qualified",
+        "imu.software_propagation_qualified",
+        "imu.landing_stillness_qualified",
+        "barometer.landing_window_qualified",
     }
     assert {"attitude.external", "magnetometer.field"}.issubset(
         resolution.unused_by_instance["imu0"]
@@ -257,7 +328,7 @@ def test_reference_capability_resolution_matches_physical_truth(
     )
 
 
-def test_external_attitude_is_strategy_requirement_without_phase_policy(
+def test_external_attitude_static_alignment_uses_preflight_qualification(
     builtin_catalog: PluginCatalog,
 ) -> None:
     model = ReferenceProject_Create("HardwareAttitude")
@@ -274,7 +345,174 @@ def test_external_attitude_is_strategy_requirement_without_phase_policy(
     assert len(routes) == 1
     assert routes[0].provider.instance_id == "imu0"
     assert routes[0].requirement.purpose == "initialization"
+    assert not resolution.missing
+    assert "attitude.external.preflight_alignment_6axis_qualified" in (
+        resolution.EnabledCapabilitiesForInstance_Get("imu0")
+    )
+    assert "attitude.external.authoritative_6axis_qualified" not in (
+        resolution.EnabledCapabilitiesForInstance_Get("imu0")
+    )
     assert "phase" not in model.Dictionary_Get()
+
+
+def test_jy901b_strategy_availability_uses_qualified_capabilities(
+    workspace_root: Path,
+) -> None:
+    service = FccgService(workspace_root)
+    model = service.ReferenceProject_Create("QualifiedStrategies")
+    availability = service.ProjectConfiguration_Reconcile(
+        model
+    ).strategy_availability
+
+    expected = {
+        "silverstar.algorithm.alignment.gravity_known_yaw": (True, ()),
+        "silverstar.algorithm.alignment.gravity_mag_triad": (
+            False,
+            ("magnetometer.absolute_vector_qualified",),
+        ),
+        "silverstar.algorithm.alignment.hardware_quat_6axis_known_yaw": (
+            True,
+            (),
+        ),
+        "silverstar.algorithm.alignment.hardware_quat_9axis": (
+            True,
+            (),
+        ),
+        "silverstar.flight_logic.landing.stillness": (True, ()),
+        "silverstar.flight_logic.landing.impact_then_stillness": (
+            False,
+            ("imu.landing_impact_qualified",),
+        ),
+        "silverstar.flight_logic.landing.baro_imu_window_strategy": (True, ()),
+    }
+    assert {
+        component_id: (availability[component_id].available,
+                       availability[component_id].missing_capabilities)
+        for component_id in expected
+    } == expected
+
+    model.device_instances = [
+        instance for instance in model.device_instances if instance.instance_id != "imu0"
+    ]
+    missing_barometer = service.ProjectConfiguration_Reconcile(
+        model
+    ).strategy_availability[
+        "silverstar.flight_logic.landing.baro_imu_window_strategy"
+    ]
+    assert not missing_barometer.available
+    assert "barometer.altitude" in missing_barometer.missing_capabilities
+
+
+def test_raw_log_recordability_is_independent_from_algorithm_consumption(
+    workspace_root: Path,
+) -> None:
+    service = FccgService(workspace_root)
+    model = service.ReferenceProject_Create("RecordableOutputs")
+    definitions = {
+        definition.name: definition
+        for definition in LoggingProfile_Reconcile(model, service.catalog)
+    }
+    streams = {stream.record: stream for stream in model.logging_streams}
+    resolution = CapabilityResolution_Resolve(model, service.catalog)
+
+    assert not any(
+        route.requirement.capability == "attitude.external"
+        for route in resolution.routes
+    )
+    assert LogAvailability_Get(
+        definitions["HW_QUAT_NATIVE"], model, service.catalog
+    ).available
+    assert definitions["HW_QUAT_NATIVE"].level == LogPolicyLevel.OPTIONAL
+    assert streams[definitions["HW_QUAT_NATIVE"].record].enabled
+    assert LogAvailability_Get(
+        definitions["POWER"], model, service.catalog
+    ).available
+    assert streams[definitions["POWER"].record].enabled
+
+    magnetic = LogAvailability_Get(
+        definitions["MAG_NATIVE"], model, service.catalog
+    )
+    assert not magnetic.available
+    assert magnetic.reason_code == (
+        "logging.unavailable.magnetometer_output_disabled"
+    )
+    assert Translator("zh_CN").Text_Get(magnetic.reason_code) == (
+        "当前所选设备插件未启用可记录的磁场数据输出；"
+        "可由启用该输出的兼容磁力计插件提供。"
+    )
+    recordable, disabled = ProjectRecordableOutputs_Get(model, service.catalog)
+    assert "attitude.external" in recordable
+    assert "magnetometer.field" not in recordable
+    assert disabled["magnetometer.field"] == magnetic.reason_code
+
+
+def test_recordable_magnetometer_output_can_be_extended_by_another_device_plugin(
+    tmp_path: Path, workspace_root: Path
+) -> None:
+    catalog = _MultiBarometerCatalog_Create(
+        workspace_root,
+        tmp_path / "installed",
+        recordable_magnetometer=True,
+    )
+    service = FccgService(workspace_root)
+    service.catalog = catalog
+    model = ReferenceProject_Create("ExtensibleMagnetometerLog", catalog=catalog)
+    model.device_instances.append(
+        DeviceInstance("magnetometer0", "fixture.device.sensor.bmp280")
+    )
+    definitions = {
+        definition.name: definition
+        for definition in ProtocolLogDefinitions_Get(model, catalog)
+    }
+
+    magnetic = LogAvailability_Get(
+        definitions["MAG_NATIVE"], model, catalog
+    )
+
+    assert magnetic.available
+    recordable, disabled = ProjectRecordableOutputs_Get(model, catalog)
+    assert "magnetometer.field" in recordable
+    assert "magnetometer.field" not in disabled
+
+    model.device_instances = [
+        instance
+        for instance in model.device_instances
+        if instance.plugin != "silverstar.device.sensor.input_voltage"
+    ]
+    reconciled = service.ProjectConfiguration_Reconcile(model).model
+    assert "voltage_monitor0:input_voltage" not in reconciled.resource_assignments
+    definitions = {
+        definition.name: definition
+        for definition in LoggingProfile_Reconcile(reconciled, service.catalog)
+    }
+    assert not LogAvailability_Get(
+        definitions["POWER"], reconciled, service.catalog
+    ).available
+
+
+def test_landing_selectors_share_one_reference_implementation(
+    builtin_catalog: PluginCatalog,
+) -> None:
+    model = ReferenceProject_Create("LandingSourceGraph")
+    graph = SourceGraph_Resolve(model, builtin_catalog)
+
+    assert graph.sources.count(
+        "FlightLogic/Landing/BarometerImuWindow/Src/flight_landing.c"
+    ) == 1
+    assert (
+        "SYSTEM_BUILD_LANDING_MODE=SYSTEM_LANDING_MODE_BARO_IMU_WINDOW"
+        in graph.defines
+    )
+    assert not any(
+        source.startswith(
+            (
+                "FlightLogic/Landing/Stillness/",
+                "FlightLogic/Landing/ImpactThenStillness/",
+                "FlightLogic/Landing/BarometerImuWindowStrategy/",
+            )
+        )
+        for source in graph.sources
+    )
 
 
 def test_ambiguous_provider_requires_only_one_saved_override(

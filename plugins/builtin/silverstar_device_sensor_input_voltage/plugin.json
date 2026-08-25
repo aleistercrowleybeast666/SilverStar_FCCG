@@ -1,0 +1,88 @@
+{
+  "schema_version": 0,
+  "id": "silverstar.device.sensor.input_voltage",
+  "name": "Input Voltage Monitor",
+  "type": "device",
+  "class": "other_sensor",
+  "version": "0.0.9",
+  "description": "Declarative logical device backed by the selected Board service; it owns capability and physical-resource selection, not Board source.",
+  "requires": {
+    "components": [],
+    "resources": [
+      {
+        "name": "input_voltage",
+        "kind": "adc",
+        "binding_macro": "PROJECT_RESOURCE_INPUT_VOLTAGE_ADC",
+        "display_names": {
+          "zh_CN": "输入电压监测",
+          "en_US": "Input Voltage Monitor"
+        }
+      }
+    ],
+    "capabilities": []
+  },
+  "resources": {
+    "provides": [],
+    "roles": [],
+    "conflicts": []
+  },
+  "provides": [
+    "power.voltage",
+    "power.monitor"
+  ],
+  "build": {
+    "sources": [],
+    "asm_sources": [],
+    "include_dirs": [],
+    "defines": []
+  },
+  "payload": {
+    "roots": []
+  },
+  "metadata": {
+    "reference": {
+      "path": "C:\\Users\\chdxm\\Desktop\\stm32-1\\Flight_Controller0.5",
+      "commit": "e67529ef67f53049fa8d7a1d3eed314e11043d1a",
+      "branch": "main",
+      "working_tree": "clean",
+      "status": [],
+      "snapshot_digest": "0f2388a98e33076b9a6454a8d370190dd339556527071b683a1bc10a2add2686",
+      "recorded_at_utc": "2026-08-25T11:31:56+00:00"
+    },
+    "declarative": true,
+    "logical_device": true,
+    "display_names": {
+      "zh_CN": "输入电压监测",
+      "en_US": "Input Voltage Monitor"
+    },
+    "device_category": "sensor",
+    "default_instance_id": "voltage_monitor0",
+    "recordable_outputs": {
+      "power.voltage": {
+        "enabled": true
+      }
+    },
+    "device_descriptors": [
+      {
+        "order": 7,
+        "class": "SYSTEM_DEVICE_CLASS_POWER",
+        "flags": "SYSTEM_DESCRIPTOR_FLAG_ENABLED",
+        "capability": "SYSTEM_CAPABILITY_POWER",
+        "rate": "(uint32_t)(1000000ULL / SYSTEM_POWER_SAMPLE_PERIOD_US)",
+        "driver_hash": "0x7C755741UL",
+        "name_hash": "0xEF288B50UL"
+      }
+    ]
+  },
+  "instance_policy": {
+    "project_max": 1,
+    "same_plugin_multiple": false,
+    "multi_instance_ready": false
+  },
+  "physical_device": {
+    "vendor": "SilverStar",
+    "model": "SS0.5 Input Voltage Monitor",
+    "chipset": "SS0.5 ADC Input",
+    "driver": "power_service"
+  }
+}

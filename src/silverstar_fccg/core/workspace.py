@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import subprocess
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -11,6 +12,24 @@ from silverstar_fccg.core.errors import FccgError
 
 class WorkspacePolicyError(FccgError):
     """Raised when a filesystem operation would escape an authorized root."""
+
+
+def _WindowsDirectoryInheritance_Enable(path: Path) -> None:
+    result = subprocess.run(
+        ["icacls", str(path), "/inheritance:e"],
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    )
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout).strip()
+        raise WorkspacePolicyError(
+            f"Cannot enable inherited permissions for staging directory {path}: "
+            f"{detail or f'icacls exited with {result.returncode}'}"
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,7 +97,14 @@ class WorkspacePolicy:
 
     def StagingDirectory_Create(self, prefix: str = "fccg-") -> Path:
         staging_root = self.Directory_Ensure(".staging")
-        return Path(tempfile.mkdtemp(prefix=prefix, dir=staging_root)).resolve()
+        staging = Path(tempfile.mkdtemp(prefix=prefix, dir=staging_root)).resolve()
+        if os.name == "nt":
+            try:
+                _WindowsDirectoryInheritance_Enable(staging)
+            except Exception:
+                self.Tree_Remove(staging)
+                raise
+        return staging
 
     def Text_AtomicWrite(self, path: str | Path, text: str) -> Path:
         target = self.Path_Resolve(path, allow_root=False)

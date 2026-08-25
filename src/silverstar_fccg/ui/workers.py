@@ -27,7 +27,10 @@ class FunctionWorker(QRunnable):
             line_callback=self.signals.line.emit,
         )
         self._function = function
-        self.setAutoDelete(True)
+        # The main window releases the runnable after its queued ``finished``
+        # signal returns.  QThreadPool auto-deletion can otherwise invalidate
+        # the Python wrapper while the final Qt callbacks are still dispatching.
+        self.setAutoDelete(False)
 
     @Slot()
     def run(self) -> None:

@@ -4,8 +4,24 @@
 #include <stdint.h>
 
 #include "system_device_types.h"
-#include "navigation_kf.h"
 #include "system_alignment.h"
+
+#ifndef SYSTEM_BUILD_ESTIMATOR_ENABLED
+#define SYSTEM_BUILD_ESTIMATOR_ENABLED 1U
+#endif
+
+#if SYSTEM_BUILD_ESTIMATOR_ENABLED != 0U
+#include "navigation_kf.h"
+#else
+typedef enum
+{
+    NAV_KF_UPDATE_ACCEPTED = 0U,
+    NAV_KF_UPDATE_SOFT_WEIGHTED,
+    NAV_KF_UPDATE_REJECTED_NIS,
+    NAV_KF_UPDATE_REJECTED_INVALID,
+    NAV_KF_UPDATE_NUMERIC_ERROR
+} NavigationKfUpdateResult;
+#endif
 
 #define ESTIMATOR_HEALTH_NONE                       0U
 #define ESTIMATOR_HEALTH_PREDICTION_QUEUE_OVERFLOW (1U << 0)

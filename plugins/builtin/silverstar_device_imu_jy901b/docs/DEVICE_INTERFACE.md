@@ -127,8 +127,8 @@ Device包可提供`*_build_capabilities.h`，Target在`target_system_config.h`�
 
 - Gravity alignment要求可用且合格的accel/gyro；
 - TRIAD要求合格absolute magnetic vector；
-- hardware quaternion权威Alignment要求对应6/9轴资格；
-- impact landing要求通过冲击捕获资格；
+- hardware quaternion静态Initial Alignment要求对应6/9轴preflight qualification，任务期权威姿态另用authoritative qualification，二者不得混用；
+- Stillness和Baro/IMU landing要求通过IMU静止判断资格，impact landing还要求通过冲击捕获资格；
 - KF6要求选中IMU/GNSS/Baro的静态噪声推荐或完整User override；
 - 非零deploy trigger要求Mission Action支持deploy动作。
 

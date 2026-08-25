@@ -38,6 +38,7 @@ from silverstar_fccg.project.model import (
     ProjectModel_Load,
 )
 from silverstar_fccg.project.capabilities import (
+    CapabilityKind_Get,
     CapabilityResolution,
     CapabilityResolution_Resolve,
     CapabilitySourceOverrides_Reconcile,
@@ -91,9 +92,15 @@ class FccgService:
     def ProjectDraft_Create(self, name: str) -> ProjectModel:
         model = self.ReferenceProject_Create(name)
         model.board = ""
-        model.hardware = HardwareConfiguration(
-            mode="unselected",
-            source_kind="unselected",
+        provider = self.HardwareProviderForMcu_Get(model.mcu)
+        model.hardware = (
+            HardwareConfiguration(
+                mode="custom",
+                source_kind="manual_import",
+                provider=provider,
+            )
+            if provider
+            else HardwareConfiguration()
         )
         model.resource_assignments = {}
         return self.ProjectConfiguration_Reconcile(model).model
@@ -493,6 +500,9 @@ class FccgService:
     def ResourceRequirementViews_Get(
         self, model: ProjectModel, language: str = "zh_CN"
     ) -> tuple[ResourceRequirementView, ...]:
+        resolution = ResourceAssignments_Resolve(
+            model, self.catalog, auto_assign=False
+        )
         return tuple(
             ResourceRequirementView(
                 kind=option.kind,
@@ -502,6 +512,7 @@ class FccgService:
                     f"{self.catalog.Component_Get(option.plugin_id).DisplayName_Get(language)}"
                     f" · {option.display_names.get(language, option.key.rsplit(':', 1)[-1].replace('_', ' '))}"
                 ),
+                contract_summary=option.contract_summary,
                 assignment=option.assignment,
                 recommended_assignment=option.recommended_assignment,
                 candidates=option.candidates,
@@ -510,6 +521,14 @@ class FccgService:
                 fixed=option.fixed,
                 physical_resource=option.physical_resource,
                 physical_details=option.physical_details,
+                pending_hardware_confirmation=(
+                    not option.candidates
+                    and model.hardware.mode != "board_plugin"
+                    and not model.hardware.snapshot_id
+                ),
+                validation_error="\n".join(
+                    error for error in resolution.errors if option.key in error
+                ),
             )
             for option in ResourceRequirementOptions_Get(model, self.catalog)
         )
@@ -646,6 +665,18 @@ class FccgService:
                 enabled=resolution.EnabledCapabilitiesForInstance_Get(
                     instance.instance_id
                 ),
+                unqualified=tuple(
+                    str(capability)
+                    for capability in self.catalog.Component_Get(
+                        instance.plugin
+                    ).metadata.get("unqualified_capabilities", {})
+                ),
+                required=bool(
+                    resolution.required_by_instance.get(instance.instance_id, ())
+                ),
+                required_capabilities=resolution.required_by_instance.get(
+                    instance.instance_id, ()
+                ),
                 project_max=self.catalog.Component_Get(
                     instance.plugin
                 ).instance_policy.project_max,
@@ -722,6 +753,7 @@ class FccgService:
             views.append(
                 CapabilityUsageView(
                     capability=capability,
+                    kind=CapabilityKind_Get(capability).value,
                     source_instance_id=source_id,
                     source_name=instance_names.get(source_id, ""),
                     used=bool(routes),
@@ -767,6 +799,10 @@ class FccgService:
             provides=manifest.provides,
             requirements=requirements,
             options={
+                "device_category": str(
+                    manifest.metadata.get("device_category", "")
+                ),
+                "logical_device": manifest.metadata.get("logical_device") is True,
                 "selection_labels": (
                     manifest.selection.labels.get(language, {})
                     if manifest.selection is not None
@@ -783,6 +819,27 @@ class FccgService:
                             "components": requirements.components,
                         }
                         for option, requirements in manifest.selection.option_requirements.items()
+                    }
+                    if manifest.selection is not None
+                    else {}
+                ),
+                "selection_parameters": (
+                    {
+                        option: tuple(
+                            {
+                                "id": parameter.parameter_id,
+                                "type": parameter.value_type,
+                                "default": parameter.default,
+                                "minimum": parameter.minimum,
+                                "maximum": parameter.maximum,
+                                "unit": parameter.unit,
+                                "generated_symbol": parameter.generated_symbol,
+                                "generated_scale": parameter.generated_scale,
+                                "display_name": parameter.DisplayName_Get(language),
+                            }
+                            for parameter in parameters
+                        )
+                        for option, parameters in manifest.selection.parameters.items()
                     }
                     if manifest.selection is not None
                     else {}

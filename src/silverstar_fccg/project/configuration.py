@@ -7,15 +7,22 @@ from silverstar_fccg.plugins.catalog import PluginCatalog
 from silverstar_fccg.plugins.manifest import PluginManifest, SelectionKind
 from silverstar_fccg.project.capabilities import (
     CapabilityResolution,
+    CapabilityResolution_Resolve,
     CapabilitySourceOverrides_Reconcile,
 )
 from silverstar_fccg.project.logging import LoggingProfile_Reconcile
-from silverstar_fccg.project.model import ProjectModel
-from silverstar_fccg.project.model import HardwareConfiguration
+from silverstar_fccg.project.model import (
+    DeviceInstance,
+    HardwareConfiguration,
+    ProjectModel,
+)
 from silverstar_fccg.project.resources import (
     ResourceAssignmentResult,
     ResourceAssignments_Resolve,
     ResourceRequirementOptions_Get,
+)
+from silverstar_fccg.generator.hardware_preparation import (
+    HardwareAssignmentFingerprint_Get,
 )
 from silverstar_fccg.project.validation import (
     ProjectValidationResult,
@@ -81,6 +88,20 @@ def _LogicalCapabilities_Get(
     )
 
 
+def _AutoSelectableCapabilities_Get(catalog: PluginCatalog) -> frozenset[str]:
+    provider_counts: dict[str, int] = {}
+    for manifest in catalog.Type_Get("device"):
+        if manifest.metadata.get("auto_select_when_required") is not True:
+            continue
+        for capability in manifest.provides:
+            provider_counts[capability] = provider_counts.get(capability, 0) + 1
+    return frozenset(
+        capability
+        for capability, provider_count in provider_counts.items()
+        if provider_count == 1
+    )
+
+
 def _ManifestAvailability_Get(
     manifest: PluginManifest,
     component_ids: tuple[str, ...],
@@ -88,6 +109,7 @@ def _ManifestAvailability_Get(
     *,
     additional_capabilities: tuple[str, ...] = (),
     additional_components: tuple[str, ...] = (),
+    allow_device_auto_selection: bool = True,
 ) -> SelectionAvailability:
     selected = set(component_ids)
     capabilities = set(_LogicalCapabilities_Get(component_ids, catalog))
@@ -117,6 +139,10 @@ def _ManifestAvailability_Get(
         capability
         for capability in dict.fromkeys(required_capabilities)
         if capability not in capabilities
+        and (
+            not allow_device_auto_selection
+            or capability not in _AutoSelectableCapabilities_Get(catalog)
+        )
     )
     compatible_mcus = manifest.metadata.get("compatible_mcus", [])
     incompatible_mcu = (
@@ -189,6 +215,7 @@ def ModeOptionAvailabilities_Get(
                 additional_components=(
                     requirements.components if requirements is not None else ()
                 ),
+                allow_device_auto_selection=False,
             )
     return values
 
@@ -264,6 +291,70 @@ def _Modes_Reconcile(
                 )
             )
     return tuple(notices)
+
+
+def _ModeParameters_Reconcile(
+    model: ProjectModel, catalog: PluginCatalog
+) -> None:
+    reconciled: dict[str, dict[str, dict[str, float | int]]] = {}
+    for component_id in model.base_components:
+        manifest = catalog.Component_Get(component_id)
+        selection = manifest.selection
+        if selection is None or selection.kind != SelectionKind.MODE:
+            continue
+        slot_values = model.mode_parameters.get(selection.slot, {})
+        option_values: dict[str, dict[str, float | int]] = {}
+        for option, definitions in selection.parameters.items():
+            current = slot_values.get(option, {})
+            option_values[option] = {
+                definition.parameter_id: current.get(
+                    definition.parameter_id, definition.default
+                )
+                for definition in definitions
+            }
+        if option_values:
+            reconciled[selection.slot] = option_values
+    model.mode_parameters = reconciled
+
+
+def _ProtocolProfiles_Reconcile(
+    model: ProjectModel, catalog: PluginCatalog
+) -> None:
+    available: dict[str, tuple[str, ...]] = {}
+    for component_id in model.protocol_bundles:
+        protocol = catalog.Component_Get(component_id).protocol
+        if protocol is None:
+            continue
+        for category, profiles in protocol.profiles.items():
+            available[category] = tuple(profile.profile_id for profile in profiles)
+    if not available:
+        return
+    model.protocol_profiles = {
+        category: (
+            model.protocol_profiles.get(category, "")
+            if model.protocol_profiles.get(category, "") in profile_ids
+            else profile_ids[0]
+        )
+        for category, profile_ids in available.items()
+        if profile_ids
+    }
+
+
+def _HardwareAssignmentConfirmation_Reconcile(
+    model: ProjectModel, catalog: PluginCatalog
+) -> None:
+    fingerprint = model.hardware.assignment_fingerprint
+    if fingerprint and fingerprint != HardwareAssignmentFingerprint_Get(
+        model, catalog
+    ):
+        model.hardware = HardwareConfiguration(
+            **{
+                field_name: getattr(model.hardware, field_name)
+                for field_name in model.hardware.__dataclass_fields__
+                if field_name != "assignment_fingerprint"
+            },
+            assignment_fingerprint="",
+        )
 
 
 def _Hardware_Reconcile(
@@ -342,13 +433,110 @@ def _ResourceAssignments_Reconcile(
     return result, retained_count, cleared_count, pending_count
 
 
+def _RequiredDependencies_Reconcile(
+    model: ProjectModel, catalog: PluginCatalog
+) -> None:
+    """Retain non-selectable shared dependencies required by selected components."""
+    while True:
+        selected = set(model.ComponentIds_Get())
+        additions: list[str] = []
+        for component_id in tuple(selected):
+            manifest = catalog.Component_Get(component_id)
+            for requirement in manifest.dependencies:
+                if requirement.optional or requirement.component_id in selected:
+                    continue
+                dependency = catalog.Component_Get(requirement.component_id)
+                if dependency.selection is not None:
+                    continue
+                additions.append(requirement.component_id)
+        additions = list(dict.fromkeys(additions))
+        if not additions:
+            return
+        model.base_components.extend(additions)
+
+
+def _DeviceInstanceId_Next(
+    model: ProjectModel, preferred: str
+) -> str:
+    selected = {instance.instance_id for instance in model.device_instances}
+    if preferred not in selected:
+        return preferred
+    suffix = 1
+    while f"{preferred}_{suffix}" in selected:
+        suffix += 1
+    return f"{preferred}_{suffix}"
+
+
+def _RequiredLogicalDevices_Reconcile(
+    model: ProjectModel, catalog: PluginCatalog
+) -> tuple[ConfigurationNotice, ...]:
+    """Select a unique declarative device when a live requirement needs it."""
+    notices: list[ConfigurationNotice] = []
+    device_candidates = tuple(
+        manifest
+        for manifest in catalog.Type_Get("device")
+        if manifest.metadata.get("auto_select_when_required") is True
+    )
+    for _pass in range(len(device_candidates) + 1):
+        resolution = CapabilityResolution_Resolve(model, catalog)
+        missing_capabilities = tuple(
+            dict.fromkeys(requirement.capability for requirement in resolution.missing)
+        )
+        additions = []
+        selected_plugins = set(model.DevicePluginIds_Get())
+        for capability in missing_capabilities:
+            providers = [
+                manifest
+                for manifest in device_candidates
+                if capability in manifest.provides
+                and manifest.component_id not in selected_plugins
+            ]
+            if len(providers) == 1:
+                additions.append(providers[0])
+                selected_plugins.add(providers[0].component_id)
+        if not additions:
+            break
+        for manifest in additions:
+            preferred = str(
+                manifest.metadata.get(
+                    "default_instance_id", manifest.component_class or "device0"
+                )
+            )
+            model.device_instances.append(
+                DeviceInstance(
+                    _DeviceInstanceId_Next(model, preferred),
+                    manifest.component_id,
+                )
+            )
+            notices.append(
+                ConfigurationNotice(
+                    "configuration.logical_device_auto_selected",
+                    component_id=manifest.component_id,
+                )
+            )
+    return tuple(notices)
+
+
+def _LegacyLandingStrategy_Reconcile(model: ProjectModel) -> None:
+    legacy_component = "silverstar.flight_logic.landing.baro_imu_window"
+    if model.strategies.get("landing") == legacy_component:
+        model.strategies["landing"] = (
+            "silverstar.flight_logic.landing.baro_imu_window_strategy"
+        )
+
+
 def ProjectConfiguration_Reconcile(
     model: ProjectModel, catalog: PluginCatalog
 ) -> ProjectConfigurationResult:
     candidate = deepcopy(model)
+    _LegacyLandingStrategy_Reconcile(candidate)
+    _RequiredDependencies_Reconcile(candidate, catalog)
     notices = [*_Hardware_Reconcile(candidate, catalog)]
     notices.extend(_Strategies_Reconcile(candidate, catalog))
     notices.extend(_Modes_Reconcile(candidate, catalog))
+    notices.extend(_RequiredLogicalDevices_Reconcile(candidate, catalog))
+    _ModeParameters_Reconcile(candidate, catalog)
+    _ProtocolProfiles_Reconcile(candidate, catalog)
     capability_resolution = CapabilitySourceOverrides_Reconcile(candidate, catalog)
     (
         resource_resolution,
@@ -356,6 +544,7 @@ def ProjectConfiguration_Reconcile(
         cleared,
         pending,
     ) = _ResourceAssignments_Reconcile(candidate, catalog)
+    _HardwareAssignmentConfirmation_Reconcile(candidate, catalog)
     LoggingProfile_Reconcile(candidate, catalog)
     edit_validation = Project_EditValidate(candidate, catalog)
     return ProjectConfigurationResult(

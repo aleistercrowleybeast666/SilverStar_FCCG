@@ -108,6 +108,19 @@
       "type": "object",
       "properties": {
         "sources": {"$ref": "#/$defs/buildPaths"},
+        "strategy_sources": {
+          "type": "object",
+          "propertyNames": {"$ref": "#/$defs/lowerIdentifier"},
+          "additionalProperties": {
+            "type": "object",
+            "minProperties": 1,
+            "properties": {
+              "selected": {"$ref": "#/$defs/buildPaths"},
+              "none": {"$ref": "#/$defs/buildPaths"}
+            },
+            "additionalProperties": false
+          }
+        },
         "asm_sources": {"$ref": "#/$defs/buildPaths"},
         "include_dirs": {"$ref": "#/$defs/buildPaths"},
         "defines": {
@@ -187,6 +200,18 @@
             "additionalProperties": false
           }
         },
+        "parameters": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {"$ref": "#/$defs/modeParameter"}
+          }
+        },
+        "option_symbols": {
+          "type": "object",
+          "additionalProperties": {"$ref": "#/$defs/bindingMacro"}
+        },
+        "aggregate_symbol": {"$ref": "#/$defs/bindingMacro"},
         "none_defines": {
           "type": "array", "uniqueItems": true,
           "items": {"type": "string"}
@@ -219,7 +244,16 @@
         "logging_metadata": {"$ref": "#/$defs/buildPath"},
         "maintenance_protocol_version": {"$ref": "#/$defs/version"},
         "firmware_version": {"$ref": "#/$defs/version"},
-        "documentation_version": {"$ref": "#/$defs/version"}
+        "documentation_version": {"$ref": "#/$defs/version"},
+        "profiles": {
+          "type": "object",
+          "propertyNames": {"$ref": "#/$defs/lowerIdentifier"},
+          "additionalProperties": {
+            "type": "array",
+            "minItems": 1,
+            "items": {"$ref": "#/$defs/protocolProfile"}
+          }
+        }
       },
       "additionalProperties": false
     },
@@ -259,6 +293,39 @@
     "componentId": {"type": "string", "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*$"},
     "lowerIdentifier": {"type": "string", "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*$"},
     "selectionOption": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"},
+    "bindingMacro": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]*$"},
+    "modeParameter": {
+      "type": "object",
+      "required": ["id", "type", "default", "minimum", "maximum", "unit", "generated_symbol", "display_names"],
+      "properties": {
+        "id": {"$ref": "#/$defs/lowerIdentifier"},
+        "type": {"enum": ["float", "integer"]},
+        "default": {"type": "number"},
+        "minimum": {"type": "number"},
+        "maximum": {"type": "number"},
+        "unit": {"type": "string", "minLength": 1},
+        "generated_symbol": {"$ref": "#/$defs/bindingMacro"},
+        "generated_scale": {"type": "number", "exclusiveMinimum": 0},
+        "display_names": {
+          "type": "object",
+          "additionalProperties": {"type": "string", "minLength": 1}
+        }
+      },
+      "additionalProperties": false
+    },
+    "protocolProfile": {
+      "type": "object",
+      "required": ["id", "version", "display_names"],
+      "properties": {
+        "id": {"$ref": "#/$defs/componentId"},
+        "version": {"$ref": "#/$defs/version"},
+        "display_names": {
+          "type": "object",
+          "additionalProperties": {"type": "string", "minLength": 1}
+        }
+      },
+      "additionalProperties": false
+    },
     "capability": {"type": "string", "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*$"},
     "capabilityRequirement": {
       "type": "object",
@@ -296,14 +363,97 @@
             },
             "dma_rx_required": {"type": "boolean"},
             "dma_tx_required": {"type": "boolean"},
-            "irq_required": {"type": "boolean"}
+            "irq_required": {"type": "boolean"},
+            "uart": {"$ref": "#/$defs/uartConstraints"},
+            "spi": {"$ref": "#/$defs/spiConstraints"},
+            "i2c": {"$ref": "#/$defs/i2cConstraints"},
+            "pwm": {"$ref": "#/$defs/pwmConstraints"}
           },
           "additionalProperties": false
         },
+        "electrical_constraints": {"$ref": "#/$defs/electricalConstraints"},
         "display_names": {
           "type": "object",
           "additionalProperties": {"type": "string", "minLength": 1}
         }
+      },
+      "additionalProperties": false
+    },
+    "uartConstraints": {
+      "type": "object",
+      "required": ["baud"],
+      "properties": {
+        "baud": {
+          "type": "object",
+          "properties": {
+            "exact": {"type": "integer", "minimum": 1},
+            "allowed_values": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "integer", "minimum": 1}},
+            "configurable": {"type": "boolean"}
+          },
+          "anyOf": [{"required": ["exact"]}, {"required": ["allowed_values"]}],
+          "additionalProperties": false
+        },
+        "word_length": {"type": "integer", "minimum": 1},
+        "parity": {"type": "string", "minLength": 1},
+        "stop_bits": {"type": "number", "minimum": 0.5},
+        "rx_dma": {"type": "boolean"},
+        "tx_dma": {"type": "boolean"},
+        "irq": {"type": "boolean"}
+      },
+      "additionalProperties": false
+    },
+    "spiConstraints": {
+      "type": "object",
+      "properties": {
+        "mode": {"type": "string", "minLength": 1},
+        "cpol": {"type": "string", "minLength": 1},
+        "cpha": {"type": "string", "minLength": 1},
+        "data_bits": {"type": "integer", "minimum": 1},
+        "bit_order": {"type": "string", "minLength": 1},
+        "minimum_clock_hz": {"type": "integer", "minimum": 1},
+        "maximum_clock_hz": {"type": "integer", "minimum": 1},
+        "dma": {"type": "boolean"},
+        "irq": {"type": "boolean"}
+      },
+      "additionalProperties": false
+    },
+    "i2cConstraints": {
+      "type": "object",
+      "properties": {
+        "maximum_bus_frequency_hz": {"type": "integer", "minimum": 1},
+        "allowed_rates_hz": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "integer", "minimum": 1}},
+        "address_mode": {"type": "string", "minLength": 1},
+        "required_pullup": {"type": "boolean"},
+        "dma": {"type": "boolean"},
+        "irq": {"type": "boolean"}
+      },
+      "additionalProperties": false
+    },
+    "pwmConstraints": {
+      "type": "object",
+      "properties": {
+        "minimum_frequency_hz": {"type": "integer", "minimum": 1},
+        "maximum_frequency_hz": {"type": "integer", "minimum": 1},
+        "minimum_resolution_bits": {"type": "integer", "minimum": 1},
+        "polarity": {"type": "string", "minLength": 1},
+        "channel": {"type": "integer", "minimum": 1}
+      },
+      "additionalProperties": false
+    },
+    "electricalConstraints": {
+      "type": "object",
+      "properties": {
+        "mode": {"enum": ["gpio_output", "gpio_input", "gpio_interrupt", "alternate_function"]},
+        "output_type": {"enum": ["push_pull", "open_drain"]},
+        "pull": {"enum": ["none", "up", "down"]},
+        "speed": {"enum": ["low", "medium", "high", "very_high"]},
+        "safe_initial_level": {"enum": ["inactive", "active", "low", "high"]},
+        "active_polarity": {"enum": ["low", "high"]},
+        "exti_trigger": {"enum": ["rising", "falling", "both"]},
+        "alternate_function": {"type": "string", "minLength": 1},
+        "irq": {"type": "boolean"},
+        "maximum_irq_priority": {"type": "integer", "minimum": 0},
+        "startup_glitch_free": {"type": "boolean"}
       },
       "additionalProperties": false
     },

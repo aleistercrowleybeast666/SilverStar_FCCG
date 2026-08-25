@@ -4,17 +4,6 @@
   "name": "E28-2G4M12SX (SX1281)",
   "type": "device",
   "class": "telemetry",
-  "instance_policy": {
-    "project_max": 1,
-    "same_plugin_multiple": false,
-    "multi_instance_ready": false
-  },
-  "physical_device": {
-    "vendor": "Ebyte",
-    "model": "E28-2G4M12SX",
-    "chipset": "SX1281",
-    "driver": "SX1281 Driver"
-  },
   "version": "0.0.9",
   "description": "Reference SX1281 Device driver and canonical adapter.",
   "requires": {
@@ -29,41 +18,73 @@
         "name": "radio_bus",
         "kind": "spi",
         "binding_macro": "PROJECT_RESOURCE_RADIO_SPI",
-        "display_names": {"zh_CN": "无线SPI", "en_US": "Radio SPI"},
         "constraints": {
-          "mode": "master",
-          "signals": ["miso", "mosi", "sck"]
+          "spi": {
+            "mode": "master",
+            "cpol": "low",
+            "cpha": "1edge",
+            "data_bits": 8,
+            "bit_order": "msb",
+            "minimum_clock_hz": 100000,
+            "maximum_clock_hz": 18000000,
+            "dma": false,
+            "irq": false
+          }
         }
       },
       {
         "name": "radio_nss",
         "kind": "gpio_output",
         "binding_macro": "PROJECT_RESOURCE_RADIO_NSS",
-        "display_names": {"zh_CN": "片选输出", "en_US": "Chip-Select Output"}
+        "electrical_constraints": {
+          "mode": "gpio_output",
+          "output_type": "push_pull",
+          "pull": "none",
+          "speed": "low",
+          "safe_initial_level": "inactive",
+          "active_polarity": "low",
+          "startup_glitch_free": true
+        }
       },
       {
         "name": "radio_reset",
         "kind": "gpio_output",
         "binding_macro": "PROJECT_RESOURCE_RADIO_RESET",
-        "display_names": {"zh_CN": "复位输出", "en_US": "Reset Output"}
+        "electrical_constraints": {
+          "mode": "gpio_output",
+          "output_type": "push_pull",
+          "pull": "none",
+          "speed": "low",
+          "safe_initial_level": "inactive",
+          "active_polarity": "low",
+          "startup_glitch_free": true
+        }
       },
       {
         "name": "radio_busy",
         "kind": "gpio_input",
         "binding_macro": "PROJECT_RESOURCE_RADIO_BUSY",
-        "display_names": {"zh_CN": "忙状态输入", "en_US": "Busy Input"}
+        "electrical_constraints": {
+          "mode": "gpio_input",
+          "pull": "none"
+        }
       },
       {
         "name": "radio_dio1",
         "kind": "gpio_interrupt",
         "binding_macro": "PROJECT_RESOURCE_RADIO_DIO1",
-        "display_names": {"zh_CN": "DIO1中断", "en_US": "DIO1 Interrupt"}
+        "electrical_constraints": {
+          "mode": "gpio_interrupt",
+          "pull": "none",
+          "exti_trigger": "rising",
+          "irq": true,
+          "maximum_irq_priority": 5
+        }
       },
       {
         "name": "time",
         "kind": "time",
-        "mode": "shared",
-        "display_names": {"zh_CN": "系统时间", "en_US": "System Time"}
+        "mode": "shared"
       }
     ],
     "capabilities": []
@@ -102,20 +123,16 @@
   "metadata": {
     "reference": {
       "path": "C:\\Users\\chdxm\\Desktop\\stm32-1\\Flight_Controller0.5",
-      "commit": "b8c90e997c3113dd23074302682c5560dae18926",
-      "branch": "codex/refactor-silverstar-0.0.9-platform",
+      "commit": "e67529ef67f53049fa8d7a1d3eed314e11043d1a",
+      "branch": "main",
       "working_tree": "clean",
       "status": [],
-      "snapshot_digest": "67e89c36cf11bbe3538469a1461c48a87967691ffd556995c8b5fc6c4b1c4d54",
-      "recorded_at_utc": "2026-08-23T14:50:21+00:00"
+      "snapshot_digest": "0f2388a98e33076b9a6454a8d370190dd339556527071b683a1bc10a2add2686",
+      "recorded_at_utc": "2026-08-25T11:31:56+00:00"
     },
     "display_names": {
       "zh_CN": "E28-2G4M12SX（SX1281）",
       "en_US": "E28-2G4M12SX (SX1281)"
-    },
-    "descriptions": {
-      "zh_CN": "E28-2G4M12SX（SX1281）物理设备驱动及标准适配器。",
-      "en_US": "Reference SX1281 device driver and canonical adapter."
     },
     "device_descriptors": [
       {
@@ -128,5 +145,16 @@
         "name_hash": "0xC4A6E024UL"
       }
     ]
+  },
+  "instance_policy": {
+    "project_max": 1,
+    "same_plugin_multiple": false,
+    "multi_instance_ready": false
+  },
+  "physical_device": {
+    "vendor": "Ebyte",
+    "model": "E28-2G4M12SX",
+    "chipset": "SX1281",
+    "driver": "SX1281 Driver"
   }
 }

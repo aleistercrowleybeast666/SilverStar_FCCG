@@ -274,7 +274,7 @@ foreach ($direction in @(
 }
 
 $capabilitySource = "$repoRoot\Tests\Host\test_build_capability_contract.c"
-Invoke-ExpectedCompileSuccess -Name 'capability_default_jy901b' `
+Invoke-ExpectedCompileSuccess -Name 'capability_jy901b_gravity_known_yaw' `
     -ExtraCompilerArgs @('-DTEST_EXPECT_DEFAULT_JY901B_PROFILE=1') `
     -Source $capabilitySource
 Invoke-ExpectedCompileFailure -Name 'capability_missing_imu_noise' `
@@ -295,6 +295,12 @@ Invoke-ExpectedCompileSuccess -Name 'capability_noise_overrides' `
         '-DSYSTEM_SELECTED_GNSS_ESTIMATOR_NOISE_RECOMMENDATION_AVAILABLE=0U',
         '-DSYSTEM_SELECTED_BAROMETER_ESTIMATOR_NOISE_RECOMMENDATION_AVAILABLE=0U'
     )) -Source $capabilitySource
+Invoke-ExpectedCompileFailure -Name 'capability_jy901b_gravity_mag_rejected' `
+    -ExtraCompilerArgs @(
+        '-DSYSTEM_ALIGNMENT_BUILD_ALGORITHM=SYSTEM_ALIGNMENT_GRAVITY_MAG_TRIAD',
+        '-DSYSTEM_USER_MAGNETOMETER_ENABLE=1U',
+        '-DJY901B_MAGNETOMETER_ADAPTER_ENABLE=1U'
+    ) -Source $capabilitySource
 Invoke-ExpectedCompileSuccess -Name 'capability_future_triad' `
     -ExtraCompilerArgs @(
         '-DSYSTEM_ALIGNMENT_BUILD_ALGORITHM=SYSTEM_ALIGNMENT_GRAVITY_MAG_TRIAD',
@@ -303,13 +309,27 @@ Invoke-ExpectedCompileSuccess -Name 'capability_future_triad' `
         '-DSYSTEM_SELECTED_MAGNETOMETER_PHYSICAL_UNIT_AVAILABLE=1U',
         '-DSYSTEM_SELECTED_MAGNETOMETER_ABSOLUTE_VECTOR_QUALIFIED=1U'
     ) -Source $capabilitySource
-Invoke-ExpectedCompileFailure -Name 'capability_hw_quat_6axis_unqualified' `
+Invoke-ExpectedCompileSuccess -Name 'capability_jy901b_hw_quat_6axis_preflight' `
     -ExtraCompilerArgs @(
         '-DSYSTEM_ALIGNMENT_BUILD_ALGORITHM=SYSTEM_ALIGNMENT_HW_QUAT_6AXIS_KNOWN_YAW'
     ) -Source $capabilitySource
-Invoke-ExpectedCompileFailure -Name 'capability_hw_quat_9axis_unqualified' `
+Invoke-ExpectedCompileSuccess -Name 'capability_jy901b_hw_quat_9axis_preflight' `
     -ExtraCompilerArgs @(
         '-DSYSTEM_ALIGNMENT_BUILD_ALGORITHM=SYSTEM_ALIGNMENT_HW_QUAT_9AXIS'
+    ) -Source $capabilitySource
+Invoke-ExpectedCompileFailure -Name 'capability_hw_quat_6axis_preflight_unqualified' `
+    -ExtraCompilerArgs @(
+        '-DSYSTEM_ALIGNMENT_BUILD_ALGORITHM=SYSTEM_ALIGNMENT_HW_QUAT_6AXIS_KNOWN_YAW',
+        '-DSYSTEM_SELECTED_HARDWARE_QUATERNION_PREFLIGHT_ALIGNMENT_6AXIS_QUALIFIED=0U'
+    ) -Source $capabilitySource
+Invoke-ExpectedCompileFailure -Name 'capability_hw_quat_9axis_preflight_unqualified' `
+    -ExtraCompilerArgs @(
+        '-DSYSTEM_ALIGNMENT_BUILD_ALGORITHM=SYSTEM_ALIGNMENT_HW_QUAT_9AXIS',
+        '-DSYSTEM_SELECTED_HARDWARE_QUATERNION_PREFLIGHT_ALIGNMENT_9AXIS_QUALIFIED=0U'
+    ) -Source $capabilitySource
+Invoke-ExpectedCompileSuccess -Name 'capability_jy901b_stillness_landing' `
+    -ExtraCompilerArgs @(
+        '-DSYSTEM_BUILD_LANDING_MODE=SYSTEM_LANDING_MODE_STILLNESS'
     ) -Source $capabilitySource
 Invoke-ExpectedCompileFailure -Name 'capability_impact_unqualified' `
     -ExtraCompilerArgs @(
@@ -319,6 +339,20 @@ Invoke-ExpectedCompileSuccess -Name 'capability_future_impact_qualified' `
     -ExtraCompilerArgs @(
         '-DSYSTEM_BUILD_LANDING_MODE=SYSTEM_LANDING_MODE_IMPACT_THEN_STILLNESS',
         '-DSYSTEM_SELECTED_IMU_LANDING_IMPACT_QUALIFIED=1U'
+    ) -Source $capabilitySource
+Invoke-ExpectedCompileSuccess -Name 'capability_jy901b_baro_imu_window_landing' `
+    -ExtraCompilerArgs @(
+        '-DSYSTEM_BUILD_LANDING_MODE=SYSTEM_LANDING_MODE_BARO_IMU_WINDOW'
+    ) -Source $capabilitySource
+Invoke-ExpectedCompileFailure -Name 'capability_stillness_unqualified' `
+    -ExtraCompilerArgs @(
+        '-DSYSTEM_BUILD_LANDING_MODE=SYSTEM_LANDING_MODE_STILLNESS',
+        '-DSYSTEM_SELECTED_IMU_LANDING_STILLNESS_QUALIFIED=0U'
+    ) -Source $capabilitySource
+Invoke-ExpectedCompileFailure -Name 'capability_baro_imu_stillness_unqualified' `
+    -ExtraCompilerArgs @(
+        '-DSYSTEM_BUILD_LANDING_MODE=SYSTEM_LANDING_MODE_BARO_IMU_WINDOW',
+        '-DSYSTEM_SELECTED_IMU_LANDING_STILLNESS_QUALIFIED=0U'
     ) -Source $capabilitySource
 Invoke-ExpectedCompileFailure -Name 'capability_deploy_without_action' `
     -ExtraCompilerArgs @('-DSYSTEM_USER_MISSION_ACTION_ENABLE=0U') `
