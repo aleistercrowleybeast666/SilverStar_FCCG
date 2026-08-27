@@ -42,5 +42,11 @@ SystemIndicatorMode SystemIndicator_SystemModeResolve(
     uint8_t alignment_ready,
     uint8_t system_ready,
     SystemLifecycleState lifecycle_state);
+SystemIndicatorMode SystemIndicator_GnssModeResolve(
+    SystemDeviceResult health_result,
+    uint8_t initialized,
+    uint8_t online,
+    SystemDeviceResult sample_result,
+    uint8_t position_usable);
 
 #endif /* __SYSTEM_INDICATOR_H */

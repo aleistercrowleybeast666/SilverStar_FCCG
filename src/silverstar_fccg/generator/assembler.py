@@ -2,14 +2,28 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import shutil
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
 from silverstar_fccg.core.workspace import WorkspacePolicy
 from silverstar_fccg.core.errors import FccgError
-from silverstar_fccg.generator.render import GeneratedFiles_Render, MetadataFiles_Render
+from silverstar_fccg.generator.render import (
+    ComponentProvenance_Get,
+    GeneratedFiles_Render,
+    MetadataFiles_Render,
+)
+from silverstar_fccg.generator.eide_ownership import (
+    EideOwnershipError,
+    EideOwnedFields_Compare,
+    EideOwnedFields_Merge,
+    EideOwnedFields_Normalize,
+    EideOwnedFingerprint_Get,
+)
+from silverstar_fccg.project.generation_state import (
+    ProjectGenerationFingerprint_Get,
+)
 from silverstar_fccg.generator.source_graph import SourceGraph_Resolve
 from silverstar_fccg.plugins.catalog import PluginCatalog
 from silverstar_fccg.project.model import ProjectModel
@@ -54,6 +68,9 @@ class ApplyResult:
     files_modified: int
     component_files_preserved: int
     hardware_replaced: bool = False
+
+
+GenerationProgressCallback = Callable[[int, int, str, bool], None]
 
 
 class ProjectAssembler:
@@ -179,7 +196,6 @@ class ProjectAssembler:
                         )
                     )
 
-        previous_hashes = previous.get("managed_hashes", {})
         for relative, content in sorted(desired.items()):
             target = destination.joinpath(*relative.split("/"))
             dangerous = False
@@ -191,12 +207,45 @@ class ProjectAssembler:
             elif target.is_file():
                 operation = "MODIFY"
                 if relative == ".eide/eide.yml":
-                    current_hash = hashlib.sha256(target.read_bytes()).hexdigest()
-                    previous_hash = previous_hashes.get(relative)
-                    if previous_hash and current_hash != previous_hash:
+                    try:
+                        current_fields = EideOwnedFields_Normalize(
+                            target.read_text(encoding="utf-8")
+                        )
+                    except (OSError, UnicodeError, EideOwnershipError) as error:
+                        operations.append(
+                            PlanOperation(
+                                "CONFLICT",
+                                relative,
+                                f"EIDE configuration cannot be normalized: {error}",
+                                "generated",
+                                dangerous=True,
+                            )
+                        )
+                        continue
+                    desired_fields = EideOwnedFields_Normalize(
+                        content.decode("utf-8")
+                    )
+                    recorded_fields = previous.get("eide", {}).get(
+                        "owned_fields"
+                    )
+                    if isinstance(recorded_fields, dict) and (
+                        current_fields != recorded_fields
+                    ):
                         dangerous = True
+                        changed = EideOwnedFields_Compare(
+                            recorded_fields, current_fields
+                        )
                         detail = (
-                            "EIDE configuration was manually modified; applying will regenerate it"
+                            "EIDE build-owned fields were manually modified: "
+                            + ", ".join(changed)
+                        )
+                    else:
+                        changed = EideOwnedFields_Compare(
+                            current_fields, desired_fields
+                        )
+                        detail = (
+                            "EIDE build-owned fields updated: "
+                            + ", ".join(changed)
                         )
             else:
                 operation = "CONFLICT"
@@ -221,6 +270,7 @@ class ProjectAssembler:
         plan: GenerationPlan,
         *,
         confirm_dangerous: bool = False,
+        progress_callback: GenerationProgressCallback | None = None,
     ) -> ApplyResult:
         if not plan.valid:
             raise ProjectAssemblerError(
@@ -230,6 +280,9 @@ class ProjectAssembler:
             raise ProjectAssemblerError(
                 "Dangerous operations require an explicit confirmation"
             )
+        self._Progress_Report(
+            progress_callback, 1, "validate_configuration", False
+        )
         expected = self.Plan(model, plan.project_root)
         if (
             expected.operations != plan.operations
@@ -238,10 +291,18 @@ class ProjectAssembler:
             raise ProjectAssemblerError(
                 "Project state changed after planning; create a new plan"
             )
+        self._Progress_Report(
+            progress_callback, 1, "validate_configuration", True
+        )
         if plan.new_project:
-            return self._NewProject_Apply(model, plan.project_root)
+            return self._NewProject_Apply(
+                model, plan.project_root, progress_callback
+            )
         return self._ExistingProject_Apply(
-            model, plan.project_root, replace_hardware=plan.dangerous
+            model,
+            plan.project_root,
+            replace_hardware=plan.dangerous,
+            progress_callback=progress_callback,
         )
 
     def _DesiredFiles_Get(
@@ -249,10 +310,43 @@ class ProjectAssembler:
         model: ProjectModel,
         project_root: Path,
         hardware_files: dict[str, bytes] | None = None,
+        progress_callback: GenerationProgressCallback | None = None,
     ) -> tuple[dict[str, bytes], dict]:
+        self._Progress_Report(progress_callback, 4, "generate_glue", False)
         graph = SourceGraph_Resolve(model, self.catalog)
         desired = GeneratedFiles_Render(model, self.catalog, graph)
+        self._Progress_Report(progress_callback, 4, "generate_glue", True)
+
+        self._Progress_Report(
+            progress_callback, 5, "generate_environments", False
+        )
         desired.update(MetadataFiles_Render(model, self.catalog, graph))
+        previous = self._Ownership_Load(project_root)
+        eide_relative = ".eide/eide.yml"
+        eide_target = project_root / ".eide" / "eide.yml"
+        desired_eide = desired[eide_relative].decode("utf-8")
+        desired_eide_fields = EideOwnedFields_Normalize(desired_eide)
+        if eide_target.is_file():
+            try:
+                current_eide = eide_target.read_text(encoding="utf-8")
+                current_eide_fields = EideOwnedFields_Normalize(current_eide)
+            except (OSError, UnicodeError, EideOwnershipError) as error:
+                raise ProjectAssemblerError(
+                    f"Invalid EIDE configuration: {error}"
+                ) from error
+            if current_eide_fields == desired_eide_fields:
+                desired[eide_relative] = eide_target.read_bytes()
+            else:
+                desired[eide_relative] = EideOwnedFields_Merge(
+                    current_eide, desired_eide
+                ).encode("utf-8")
+        self._Progress_Report(
+            progress_callback, 5, "generate_environments", True
+        )
+
+        self._Progress_Report(
+            progress_callback, 6, "generate_documents", False
+        )
         for relative in desired:
             try:
                 self.policy.RelativePath_Validate(relative)
@@ -260,9 +354,13 @@ class ProjectAssembler:
                 raise ProjectAssemblerError(
                     f"Renderer produced an unsafe managed path: {relative!r}"
                 ) from error
-        previous = self._Ownership_Load(project_root)
         components = dict(previous.get("components", {}))
-        components.update(model.component_provenance)
+        components.update(
+            {
+                component_id: ComponentProvenance_Get(self.catalog, component_id)
+                for component_id in model.ComponentIds_Get()
+            }
+        )
         hardware_files = hardware_files or {}
         hardware_hashes = {
             path: hashlib.sha256(content).hexdigest()
@@ -270,13 +368,20 @@ class ProjectAssembler:
         }
         managed_files = sorted((*desired.keys(), ".fccg/ownership.json"))
         ownership = {
-            "format_version": 1,
+            "format_version": 2,
+            "generation_fingerprint": f"{ProjectGenerationFingerprint_Get(model):08x}",
             "active_components": list(model.ComponentIds_Get()),
             "components": components,
             "managed_files": managed_files,
             "managed_hashes": {
                 path: hashlib.sha256(content).hexdigest()
                 for path, content in sorted(desired.items())
+            },
+            "eide": {
+                "owned_fingerprint": EideOwnedFingerprint_Get(
+                    desired_eide_fields
+                ),
+                "owned_fields": desired_eide_fields,
             },
             "hardware": {
                 "snapshot_id": (
@@ -295,6 +400,9 @@ class ProjectAssembler:
             json.dumps(ownership, ensure_ascii=False, indent=2, sort_keys=True)
             + "\n"
         ).encode("utf-8")
+        self._Progress_Report(
+            progress_callback, 6, "generate_documents", True
+        )
         return desired, ownership
 
     def _Ownership_Load(self, project_root: Path) -> dict:
@@ -307,7 +415,11 @@ class ProjectAssembler:
             raise ProjectAssemblerError(
                 f"Invalid project ownership metadata: {error}"
             ) from error
-        if not isinstance(value, dict) or value.get("format_version") not in (0, 1):
+        if not isinstance(value, dict) or value.get("format_version") not in (
+            0,
+            1,
+            2,
+        ):
             raise ProjectAssemblerError("Unsupported project ownership metadata")
         return value
 
@@ -418,7 +530,10 @@ class ProjectAssembler:
         return False
 
     def _NewProject_Apply(
-        self, model: ProjectModel, destination: Path
+        self,
+        model: ProjectModel,
+        destination: Path,
+        progress_callback: GenerationProgressCallback | None,
     ) -> ApplyResult:
         if destination.exists() and any(destination.iterdir()):
             raise ProjectAssemblerError("New-project destination became non-empty")
@@ -429,6 +544,17 @@ class ProjectAssembler:
         added = 0
         applied: list[Path] = []
         try:
+            self._Progress_Report(
+                progress_callback, 2, "prepare_hardware", False
+            )
+            hardware_files = self._HardwareFiles_Get(model)
+            self._Progress_Report(
+                progress_callback, 2, "prepare_hardware", True
+            )
+
+            self._Progress_Report(
+                progress_callback, 3, "copy_components", False
+            )
             for component_id in model.ComponentIds_Get():
                 manifest = self.catalog.Component_Get(component_id)
                 for source in manifest.PayloadFiles_Get():
@@ -437,20 +563,26 @@ class ProjectAssembler:
                     target.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy2(source, target)
                     added += 1
-            hardware_files = self._HardwareFiles_Get(model)
+            self._Progress_Report(
+                progress_callback, 3, "copy_components", True
+            )
+
             for relative, content in hardware_files.items():
                 target = staged_project.joinpath(*relative.split("/"))
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_bytes(content)
                 added += 1
             desired, _ownership = self._DesiredFiles_Get(
-                model, destination, hardware_files
+                model, destination, hardware_files, progress_callback
             )
             for relative, content in desired.items():
                 target = staged_project.joinpath(*relative.split("/"))
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_bytes(content)
                 added += 1
+            self._Progress_Report(
+                progress_callback, 7, "integrity_check", False
+            )
             for source in sorted(
                 staged_project.iterdir(),
                 key=lambda item: (
@@ -463,7 +595,7 @@ class ProjectAssembler:
                     raise ProjectAssemblerError(
                         f"New-project destination changed during apply: {target}"
                     )
-                os.replace(source, target)
+                self.policy.Path_Replace(source, target)
                 applied.append(target)
             return ApplyResult(destination, added, 0, 0)
         except Exception:
@@ -490,10 +622,14 @@ class ProjectAssembler:
         destination: Path,
         *,
         replace_hardware: bool,
+        progress_callback: GenerationProgressCallback | None,
     ) -> ApplyResult:
+        self._Progress_Report(
+            progress_callback, 2, "prepare_hardware", False
+        )
         hardware_files = self._HardwareFiles_Get(model)
-        desired, _ownership = self._DesiredFiles_Get(
-            model, destination, hardware_files
+        self._Progress_Report(
+            progress_callback, 2, "prepare_hardware", True
         )
         previous = self._Ownership_Load(destination)
         previous_components = previous.get("components", {})
@@ -513,6 +649,9 @@ class ProjectAssembler:
         hardware_target = destination / "HardwareGenerated" / "STM32CubeMX"
         hardware_was_replaced = False
         try:
+            self._Progress_Report(
+                progress_callback, 3, "copy_components", False
+            )
             new_components = [
                 component_id
                 for component_id in model.ComponentIds_Get()
@@ -528,6 +667,13 @@ class ProjectAssembler:
                     staged = staged_files / "components" / relative
                     staged.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy2(source, staged)
+            self._Progress_Report(
+                progress_callback, 3, "copy_components", True
+            )
+
+            desired, _ownership = self._DesiredFiles_Get(
+                model, destination, hardware_files, progress_callback
+            )
 
             managed_targets: list[tuple[Path, Path, bool]] = []
             for relative, content in sorted(
@@ -556,6 +702,9 @@ class ProjectAssembler:
                 else:
                     added += 1
 
+            self._Progress_Report(
+                progress_callback, 7, "integrity_check", False
+            )
             for component_id in new_components:
                 manifest = self.catalog.Component_Get(component_id)
                 for source in manifest.PayloadFiles_Get():
@@ -592,14 +741,14 @@ class ProjectAssembler:
                     target.write_bytes(content)
                 if hardware_target.exists():
                     hardware_backup = stage / "hardware-backup"
-                    os.replace(hardware_target, hardware_backup)
+                    self.policy.Path_Replace(hardware_target, hardware_backup)
                 hardware_target.parent.mkdir(parents=True, exist_ok=True)
-                os.replace(staged_hardware, hardware_target)
+                self.policy.Path_Replace(staged_hardware, hardware_target)
                 hardware_was_replaced = True
 
             for target, staged, existed in managed_targets:
                 target.parent.mkdir(parents=True, exist_ok=True)
-                os.replace(staged, target)
+                self.policy.Path_Replace(staged, target)
                 applied_managed.append((target, existed))
             return ApplyResult(
                 destination,
@@ -614,14 +763,14 @@ class ProjectAssembler:
                     relative = target.relative_to(destination)
                     backup = backup_files / relative
                     if backup.exists():
-                        os.replace(backup, target)
+                        self.policy.Path_Replace(backup, target)
                 else:
                     target.unlink(missing_ok=True)
             if hardware_was_replaced:
                 if hardware_target.exists():
                     self.policy.Tree_Remove(hardware_target)
                 if hardware_backup is not None and hardware_backup.exists():
-                    os.replace(hardware_backup, hardware_target)
+                    self.policy.Path_Replace(hardware_backup, hardware_target)
             for target in reversed(copied_components):
                 target.unlink(missing_ok=True)
             raise
@@ -634,6 +783,16 @@ class ProjectAssembler:
         staging_root = self.policy.Path_Resolve(".staging", allow_root=False)
         if staging_root.is_dir() and not any(staging_root.iterdir()):
             staging_root.rmdir()
+
+    @staticmethod
+    def _Progress_Report(
+        callback: GenerationProgressCallback | None,
+        current: int,
+        subject: str,
+        done: bool,
+    ) -> None:
+        if callback is not None:
+            callback(current, 7, subject, done)
 
 
 def _Sha256_Is(value: str) -> bool:

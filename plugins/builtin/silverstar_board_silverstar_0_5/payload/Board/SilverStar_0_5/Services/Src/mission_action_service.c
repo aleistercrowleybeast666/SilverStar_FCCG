@@ -2,7 +2,6 @@
 
 #include "system_output_if.h"
 #include "mission_action_output_config.h"
-#include "project_resources.h"
 #include "silverstar_assert.h"
 
 static uint8_t s_initialized;
@@ -35,19 +34,10 @@ static SystemDeviceResult SilverStarMissionActionService_Execute(
     switch (action)
     {
         case SYSTEM_MISSION_ACTION_START:
-            if (PROJECT_FEATURE_LAUNCH_IGNITION_OUTPUT == 0U)
-            {
-                /* External ignition keeps START legal without driving a GPIO. */
-                return SYSTEM_DEVICE_OK;
-            }
             channel = MISSION_ACTION_START_OUTPUT_CHANNEL;
             pulse_ms = MISSION_ACTION_START_PULSE_MS;
             break;
         case SYSTEM_MISSION_ACTION_PARACHUTE_DEPLOY:
-            if (PROJECT_FEATURE_PARACHUTE_PYRO_OUTPUT == 0U)
-            {
-                return SYSTEM_DEVICE_UNSUPPORTED;
-            }
             channel = MISSION_ACTION_DEPLOY_OUTPUT_CHANNEL;
             pulse_ms = MISSION_ACTION_DEPLOY_PULSE_MS;
             break;

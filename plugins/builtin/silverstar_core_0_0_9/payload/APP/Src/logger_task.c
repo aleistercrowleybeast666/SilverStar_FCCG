@@ -28,6 +28,7 @@ typedef struct
     uint8_t session_finalized;
     uint8_t header_written;
     uint8_t startup_report_written;
+    uint8_t decoder_profile_queued;
 } LoggerRuntime;
 
 static LoggerRuntime s_logger;
@@ -118,6 +119,18 @@ static void LoggerTask_Close(void)
     s_logger.aggregate_length = 0U;
 }
 
+static uint8_t LoggerTask_DecoderProfileQueue(uint64_t timestamp_us)
+{
+    if (s_logger.decoder_profile_queued != 0U) { return 1U; }
+    if (LoggerBus_DecoderProfileDescriptorPush(timestamp_us) !=
+        LOGGER_BUS_RESULT_OK)
+    {
+        return 0U;
+    }
+    s_logger.decoder_profile_queued = 1U;
+    return 1U;
+}
+
 static uint8_t LoggerTask_SessionOpen(void)
 {
     FlightLogFileHeaderInfo header_info;
@@ -167,27 +180,42 @@ static uint8_t LoggerTask_SessionOpen(void)
         s_logger.record_sequence = 0U;
         s_logger.last_flush_us = SystemTime_GetMonotonicUs();
     }
+    if (LoggerTask_DecoderProfileQueue(s_logger.last_flush_us) == 0U)
+    {
+        LoggerTask_Close();
+        return 0U;
+    }
     return 1U;
 }
 
-static uint8_t LoggerTask_RecordIsCritical(const FlightLogRecord *record)
+static uint8_t LoggerTask_DescriptorRecordIsCritical(uint8_t record_type)
 {
-    if (record == NULL) { return 0U; }
-    if ((record->record_type == FLIGHT_LOG_RECORD_SYSTEM_CONFIG) ||
-        (record->record_type == FLIGHT_LOG_RECORD_DEVICE_DESCRIPTOR) ||
-        (record->record_type == FLIGHT_LOG_RECORD_ALGORITHM_DESCRIPTOR) ||
-        (record->record_type == FLIGHT_LOG_RECORD_LOG_STREAM_DESCRIPTOR) ||
-        (record->record_type == FLIGHT_LOG_RECORD_INITIAL_STATE) ||
-        (record->record_type == FLIGHT_LOG_RECORD_CALIBRATION_RESULT) ||
-        (record->record_type == FLIGHT_LOG_RECORD_ALIGNMENT_RESULT))
-    {
-        return 1U;
-    }
+    return (uint8_t)((record_type == FLIGHT_LOG_RECORD_SYSTEM_CONFIG) ||
+        (record_type == FLIGHT_LOG_RECORD_DEVICE_DESCRIPTOR) ||
+        (record_type == FLIGHT_LOG_RECORD_ALGORITHM_DESCRIPTOR) ||
+        (record_type == FLIGHT_LOG_RECORD_LOG_STREAM_DESCRIPTOR) ||
+        (record_type == FLIGHT_LOG_RECORD_DECODER_PROFILE_DESCRIPTOR) ||
+        (record_type == FLIGHT_LOG_RECORD_INITIAL_STATE) ||
+        (record_type == FLIGHT_LOG_RECORD_CALIBRATION_RESULT) ||
+        (record_type == FLIGHT_LOG_RECORD_ALIGNMENT_RESULT));
+}
+
+static uint8_t LoggerTask_EventRecordIsCritical(
+    const FlightLogRecord *record)
+{
     return (uint8_t)((record->record_type == FLIGHT_LOG_RECORD_EVENT) &&
         ((record->payload.event.event_id == FLIGHT_LOG_EVENT_MISSION_START) ||
          (record->payload.event.event_id == FLIGHT_LOG_EVENT_SELF_TEST_COMPLETE) ||
          (record->payload.event.event_id == FLIGHT_LOG_EVENT_LANDING) ||
          (record->payload.event.event_id == FLIGHT_LOG_EVENT_SYSTEM_FAULT)));
+}
+
+static uint8_t LoggerTask_RecordIsCritical(const FlightLogRecord *record)
+{
+    if (record == NULL) { return 0U; }
+    if (LoggerTask_DescriptorRecordIsCritical(record->record_type) != 0U)
+    { return 1U; }
+    return LoggerTask_EventRecordIsCritical(record);
 }
 
 static uint8_t LoggerTask_Finalize(void)

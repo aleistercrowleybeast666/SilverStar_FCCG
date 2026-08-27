@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "platform_critical.h"
+#include "project_device_instances.h"
 #include "silverstar_assert.h"
 #include "system_alignment.h"
 #include "system_barometer_if.h"
@@ -14,9 +15,6 @@
 #include "system_magnetometer_if.h"
 #include "system_navigation_profile.h"
 #include "system_user_alignment_config.h"
-#include "target_build_capabilities.h"
-
-#define SYSTEM_SENSOR_BUILTIN_COUNT 5U
 
 typedef enum
 {
@@ -31,6 +29,7 @@ typedef struct
 {
     uint8_t sensor_id;
     uint8_t instance_id;
+    SystemDeviceClass device_class;
     SystemSensorSource source;
 } SystemSensorDescriptor;
 
@@ -76,56 +75,93 @@ static uint8_t SystemSensorStatus_DescriptorLess(
     return (uint8_t)(lhs->instance_id < rhs->instance_id);
 }
 
-static void SystemSensorStatus_DescriptorAppend(uint8_t sensor_id,
-                                                SystemSensorSource source)
+static uint8_t SystemSensorStatus_DeviceClassResolve(
+    SystemDeviceClass device_class, uint8_t *sensor_id,
+    SystemSensorSource *source)
+{
+    if ((sensor_id == NULL) || (source == NULL)) { return 0U; }
+    SILVERSTAR_ASSERT_OBJECT(sensor_id, uint8_t,
+        SILVERSTAR_ASSERT_MODULE_SYSTEM);
+    switch (device_class)
+    {
+        case SYSTEM_DEVICE_CLASS_IMU:
+            *sensor_id = SILVERSTAR_SENSOR_ID_IMU;
+            *source = SYSTEM_SENSOR_SOURCE_IMU;
+            return 1U;
+        case SYSTEM_DEVICE_CLASS_GNSS:
+            *sensor_id = SILVERSTAR_SENSOR_ID_GNSS;
+            *source = SYSTEM_SENSOR_SOURCE_GNSS;
+            return 1U;
+        case SYSTEM_DEVICE_CLASS_BAROMETER:
+            *sensor_id = SILVERSTAR_SENSOR_ID_BAROMETER;
+            *source = SYSTEM_SENSOR_SOURCE_BAROMETER;
+            return 1U;
+        case SYSTEM_DEVICE_CLASS_MAGNETOMETER:
+            *sensor_id = SILVERSTAR_SENSOR_ID_MAGNETOMETER;
+            *source = SYSTEM_SENSOR_SOURCE_MAGNETOMETER;
+            return 1U;
+        case SYSTEM_DEVICE_CLASS_HARDWARE_QUATERNION:
+            *sensor_id = SILVERSTAR_SENSOR_ID_EXTERNAL_ATTITUDE;
+            *source = SYSTEM_SENSOR_SOURCE_HARDWARE_ATTITUDE;
+            return 1U;
+        case SYSTEM_DEVICE_CLASS_TELEMETRY:
+        case SYSTEM_DEVICE_CLASS_CONSOLE:
+        case SYSTEM_DEVICE_CLASS_POWER:
+        case SYSTEM_DEVICE_CLASS_STORAGE:
+        case SYSTEM_DEVICE_CLASS_LOG_SINK:
+        case SYSTEM_DEVICE_CLASS_OUTPUT:
+        case SYSTEM_DEVICE_CLASS_MISSION_ACTION:
+        case SYSTEM_DEVICE_CLASS_TIME:
+        default: return 0U;
+    }
+}
+
+static void SystemSensorStatus_DescriptorAppend(
+    const SystemDeviceDescriptor *project_descriptor)
 {
     SystemSensorDescriptor *descriptor;
+    uint8_t sensor_id;
+    SystemSensorSource source;
 
-    if (s_descriptor_count >= SYSTEM_SENSOR_STATUS_MAX_ENTRIES) { return; }
+    if ((project_descriptor == NULL) ||
+        (s_descriptor_count >= SYSTEM_SENSOR_STATUS_MAX_ENTRIES) ||
+        (SystemSensorStatus_DeviceClassResolve(
+            project_descriptor->device_class, &sensor_id, &source) == 0U))
+    {
+        return;
+    }
     descriptor = &s_descriptors[s_descriptor_count++];
     descriptor->sensor_id = sensor_id;
-    descriptor->instance_id = 0U;
+    descriptor->instance_id = project_descriptor->instance_id;
+    descriptor->device_class = project_descriptor->device_class;
     descriptor->source = source;
 }
 
 static void SystemSensorStatus_DescriptorsRefresh(void)
 {
+    SystemDeviceDescriptor project_descriptor;
     SystemSensorDescriptor value;
-    uint8_t index, insert, shift;
+    uint16_t project_count;
+    uint16_t project_index;
+    uint8_t index;
+    uint8_t insert;
+    uint8_t shift;
     uint32_t primask = SystemSensorStatus_IrqLock();
 
     SILVERSTAR_ASSERT_OBJECT(s_descriptors, SystemSensorDescriptor,
         SILVERSTAR_ASSERT_MODULE_SYSTEM);
     s_descriptor_count = 0U;
-    if ((TARGET_COMPILED_SYSTEM_CAPABILITIES & SYSTEM_CAPABILITY_IMU) != 0U)
+    project_count = SystemDescriptor_DeviceCountGet();
+    for (project_index = 0U;
+         project_index < SYSTEM_DESCRIPTOR_DEVICE_COUNT_MAX;
+         project_index++)
     {
-        SystemSensorStatus_DescriptorAppend(
-            SILVERSTAR_SENSOR_ID_IMU, SYSTEM_SENSOR_SOURCE_IMU);
-    }
-    if ((TARGET_COMPILED_SYSTEM_CAPABILITIES & SYSTEM_CAPABILITY_GNSS) != 0U)
-    {
-        SystemSensorStatus_DescriptorAppend(
-            SILVERSTAR_SENSOR_ID_GNSS, SYSTEM_SENSOR_SOURCE_GNSS);
-    }
-    if ((TARGET_COMPILED_SYSTEM_CAPABILITIES &
-         SYSTEM_CAPABILITY_BAROMETER) != 0U)
-    {
-        SystemSensorStatus_DescriptorAppend(
-            SILVERSTAR_SENSOR_ID_BAROMETER, SYSTEM_SENSOR_SOURCE_BAROMETER);
-    }
-    if ((TARGET_COMPILED_SYSTEM_CAPABILITIES &
-         SYSTEM_CAPABILITY_MAGNETOMETER) != 0U)
-    {
-        SystemSensorStatus_DescriptorAppend(
-            SILVERSTAR_SENSOR_ID_MAGNETOMETER,
-            SYSTEM_SENSOR_SOURCE_MAGNETOMETER);
-    }
-    if ((TARGET_COMPILED_SYSTEM_CAPABILITIES &
-         SYSTEM_CAPABILITY_HARDWARE_QUATERNION) != 0U)
-    {
-        SystemSensorStatus_DescriptorAppend(
-            SILVERSTAR_SENSOR_ID_EXTERNAL_ATTITUDE,
-            SYSTEM_SENSOR_SOURCE_HARDWARE_ATTITUDE);
+        if (project_index >= project_count) { break; }
+        if (SystemDescriptor_DeviceGet(project_index, &project_descriptor) ==
+            SYSTEM_DEVICE_OK)
+        {
+            SystemSensorStatus_DescriptorAppend(&project_descriptor);
+        }
     }
     for (index = 1U; index < s_descriptor_count; index++)
     {
@@ -291,15 +327,18 @@ static void SystemSensorStatus_DetailResolve(SystemSensorStatus *status)
 static uint8_t SystemSensorStatus_ImuStatusApply(
     SystemSensorStatus *status,
     SystemDeviceHealth *health,
-    uint8_t *calibration_ok)
+    uint8_t *calibration_ok,
+    uint8_t instance_id)
 {
     SystemImuSample sample;
 
     SystemSensorStatus_HealthApply(status, health,
-        SystemImu_HealthGet(health));
+        ProjectDeviceInstance_HealthGet(
+            SYSTEM_DEVICE_CLASS_IMU, instance_id, health));
     (void)memset(&sample, 0, sizeof(sample));
     *calibration_ok = SystemCalibration_IsReady();
-    return (uint8_t)((SystemImu_LatestSampleGet(&sample) ==
+    return (uint8_t)((ProjectImuInstance_LatestSampleGet(
+        instance_id, &sample) ==
         SYSTEM_DEVICE_OK) &&
         ((sample.valid_mask & (SYSTEM_IMU_VALID_ACCEL |
                                SYSTEM_IMU_VALID_GYRO)) ==
@@ -308,27 +347,33 @@ static uint8_t SystemSensorStatus_ImuStatusApply(
 
 static uint8_t SystemSensorStatus_GnssStatusApply(
     SystemSensorStatus *status,
-    SystemDeviceHealth *health)
+    SystemDeviceHealth *health,
+    uint8_t instance_id)
 {
     SystemGnssSample sample;
 
     SystemSensorStatus_HealthApply(status, health,
-        SystemGnss_HealthGet(health));
+        ProjectDeviceInstance_HealthGet(
+            SYSTEM_DEVICE_CLASS_GNSS, instance_id, health));
     (void)memset(&sample, 0, sizeof(sample));
-    return (uint8_t)((SystemGnss_LatestSampleGet(&sample) ==
+    return (uint8_t)((ProjectGnssInstance_LatestSampleGet(
+        instance_id, &sample) ==
         SYSTEM_DEVICE_OK) && (sample.position_usable != 0U));
 }
 
 static uint8_t SystemSensorStatus_BarometerStatusApply(
     SystemSensorStatus *status,
-    SystemDeviceHealth *health)
+    SystemDeviceHealth *health,
+    uint8_t instance_id)
 {
     SystemBarometerSample sample;
 
     SystemSensorStatus_HealthApply(status, health,
-        SystemBarometer_HealthGet(health));
+        ProjectDeviceInstance_HealthGet(
+            SYSTEM_DEVICE_CLASS_BAROMETER, instance_id, health));
     (void)memset(&sample, 0, sizeof(sample));
-    return (uint8_t)((SystemBarometer_LatestSampleGet(&sample) ==
+    return (uint8_t)((ProjectBarometerInstance_LatestSampleGet(
+        instance_id, &sample) ==
         SYSTEM_DEVICE_OK) &&
         ((sample.valid_fields & (SYSTEM_BARO_FIELD_ALTITUDE |
                                  SYSTEM_BARO_FIELD_PRESSURE)) != 0U));
@@ -337,15 +382,20 @@ static uint8_t SystemSensorStatus_BarometerStatusApply(
 static uint8_t SystemSensorStatus_MagnetometerStatusApply(
     SystemSensorStatus *status,
     SystemDeviceHealth *health,
-    uint8_t *calibration_ok)
+    uint8_t *calibration_ok,
+    uint8_t instance_id)
 {
     SystemMagnetometerSample sample;
     uint8_t data_valid;
 
+    SILVERSTAR_ASSERT_OBJECT(status, SystemSensorStatus,
+        SILVERSTAR_ASSERT_MODULE_SYSTEM);
     SystemSensorStatus_HealthApply(status, health,
-        SystemMagnetometer_HealthGet(health));
+        ProjectDeviceInstance_HealthGet(
+            SYSTEM_DEVICE_CLASS_MAGNETOMETER, instance_id, health));
     (void)memset(&sample, 0, sizeof(sample));
-    data_valid = (uint8_t)((SystemMagnetometer_LatestSampleGet(&sample) ==
+    data_valid = (uint8_t)((ProjectMagnetometerInstance_LatestSampleGet(
+        instance_id, &sample) ==
         SYSTEM_DEVICE_OK) &&
         ((sample.valid_mask & SYSTEM_MAG_VALID_PHYSICAL_UNIT) != 0U));
     if ((status->status_flags & SYSTEM_SENSOR_STATUS_ALIGNMENT_USED) != 0U)
@@ -357,14 +407,18 @@ static uint8_t SystemSensorStatus_MagnetometerStatusApply(
 
 static uint8_t SystemSensorStatus_HardwareAttitudeStatusApply(
     SystemSensorStatus *status,
-    SystemDeviceHealth *health)
+    SystemDeviceHealth *health,
+    uint8_t instance_id)
 {
     SystemHardwareQuaternionSample sample;
 
     SystemSensorStatus_HealthApply(status, health,
-        SystemHardwareQuaternion_HealthGet(health));
+        ProjectDeviceInstance_HealthGet(
+            SYSTEM_DEVICE_CLASS_HARDWARE_QUATERNION,
+            instance_id, health));
     (void)memset(&sample, 0, sizeof(sample));
-    return (uint8_t)((SystemHardwareQuaternion_LatestSampleGet(&sample) ==
+    return (uint8_t)((ProjectAttitudeInstance_LatestSampleGet(
+        instance_id, &sample) ==
         SYSTEM_DEVICE_OK) && (sample.valid != 0U) &&
         (sample.normalized != 0U));
 }
@@ -393,22 +447,23 @@ static SystemDeviceResult SystemSensorStatus_BuiltinGet(
     {
         case SYSTEM_SENSOR_SOURCE_IMU:
             data_valid = SystemSensorStatus_ImuStatusApply(status, &health,
-                &calibration_ok);
+                &calibration_ok, descriptor->instance_id);
             break;
         case SYSTEM_SENSOR_SOURCE_GNSS:
-            data_valid = SystemSensorStatus_GnssStatusApply(status, &health);
+            data_valid = SystemSensorStatus_GnssStatusApply(
+                status, &health, descriptor->instance_id);
             break;
         case SYSTEM_SENSOR_SOURCE_BAROMETER:
             data_valid = SystemSensorStatus_BarometerStatusApply(status,
-                &health);
+                &health, descriptor->instance_id);
             break;
         case SYSTEM_SENSOR_SOURCE_MAGNETOMETER:
             data_valid = SystemSensorStatus_MagnetometerStatusApply(status,
-                &health, &calibration_ok);
+                &health, &calibration_ok, descriptor->instance_id);
             break;
         case SYSTEM_SENSOR_SOURCE_HARDWARE_ATTITUDE:
             data_valid = SystemSensorStatus_HardwareAttitudeStatusApply(
-                status, &health);
+                status, &health, descriptor->instance_id);
             break;
         default:
             return SYSTEM_DEVICE_UNSUPPORTED;

@@ -62,8 +62,27 @@ typedef enum
     FLIGHT_LOG_EVENT_PARACHUTE_DEPLOY,
     FLIGHT_LOG_EVENT_LANDING,
     FLIGHT_LOG_EVENT_PARACHUTE_DEPLOY_DETAIL,
-    FLIGHT_LOG_EVENT_LANDING_IMPACT
+    FLIGHT_LOG_EVENT_LANDING_IMPACT,
+    FLIGHT_LOG_EVENT_SENSOR_SOURCE_CHANGE
 } FlightLogEventId;
+
+typedef enum
+{
+    FLIGHT_LOG_SENSOR_SOURCE_CHANGE_INITIAL_SELECTION = 1U,
+    FLIGHT_LOG_SENSOR_SOURCE_CHANGE_FAILOVER,
+    FLIGHT_LOG_SENSOR_SOURCE_CHANGE_RECOVERY,
+    FLIGHT_LOG_SENSOR_SOURCE_CHANGE_CONFIGURATION
+} FlightLogSensorSourceChangeReason;
+
+#define FLIGHT_LOG_SENSOR_SOURCE_CHANGE_ARG0(device_class, old_instance, \
+    new_instance, reason) \
+    (((uint32_t)(device_class) & 0xFFUL) | \
+     (((uint32_t)(old_instance) & 0xFFUL) << 8U) | \
+     (((uint32_t)(new_instance) & 0xFFUL) << 16U) | \
+     (((uint32_t)(reason) & 0xFFUL) << 24U))
+#define FLIGHT_LOG_SENSOR_SOURCE_CHANGE_ARG1(old_descriptor, new_descriptor) \
+    (((uint32_t)(old_descriptor) & 0xFFFFUL) | \
+     (((uint32_t)(new_descriptor) & 0xFFFFUL) << 16U))
 
 typedef struct
 {
@@ -225,6 +244,9 @@ typedef struct { float covariance_upper_triangle[21]; } FlightLogKf6FullPRecord;
 
 typedef struct
 {
+    uint16_t source_descriptor_id;
+    uint8_t instance_id;
+    uint8_t reserved;
     uint64_t sample_timestamp_us;
     uint64_t receive_timestamp_us;
     uint32_t sequence;
@@ -290,6 +312,9 @@ typedef struct
 
 typedef struct
 {
+    uint16_t source_descriptor_id;
+    uint8_t instance_id;
+    uint8_t reserved;
     uint64_t sample_timestamp_us;
     uint64_t receive_timestamp_us;
     uint32_t sequence;
@@ -303,6 +328,9 @@ typedef struct
 
 typedef struct
 {
+    uint16_t source_descriptor_id;
+    uint8_t instance_id;
+    uint8_t reserved;
     uint64_t sample_timestamp_us;
     uint64_t receive_timestamp_us;
     uint32_t sequence;
@@ -324,6 +352,9 @@ typedef struct
 
 typedef struct
 {
+    uint16_t source_descriptor_id;
+    uint8_t instance_id;
+    uint8_t reserved;
     uint64_t sample_timestamp_us;
     uint64_t receive_timestamp_us;
     uint32_t sequence;
@@ -337,6 +368,9 @@ typedef struct
 
 typedef struct
 {
+    uint16_t source_descriptor_id;
+    uint8_t instance_id;
+    uint8_t reserved;
     uint64_t sample_timestamp_us;
     uint64_t receive_timestamp_us;
     uint32_t sequence;
@@ -349,6 +383,9 @@ typedef struct
 
 typedef struct
 {
+    uint16_t source_descriptor_id;
+    uint8_t instance_id;
+    uint8_t reserved;
     uint64_t sample_timestamp_us;
     uint64_t receive_timestamp_us;
     uint32_t sequence;
@@ -495,6 +532,7 @@ typedef struct
 typedef struct
 {
     uint16_t descriptor_id;
+    uint16_t physical_device_id;
     uint8_t device_class;
     uint8_t instance_id;
     uint16_t driver_id;
@@ -527,6 +565,18 @@ typedef struct
     uint32_t period_us;
 } FlightLogStreamDescriptorRecord;
 
+typedef struct
+{
+    uint16_t package_schema_major;
+    uint16_t package_schema_minor;
+    uint16_t container_format_major;
+    uint16_t container_format_minor;
+    uint8_t record_catalog_hash_128[16];
+    uint8_t project_semantics_hash_128[16];
+    uint8_t generation_profile_hash_128[16];
+    uint8_t reserved[8];
+} FlightLogDecoderProfileDescriptorRecord;
+
 typedef union
 {
     FlightLogSampleRecord sample;
@@ -557,6 +607,7 @@ typedef union
     FlightLogDeviceDescriptorRecord device_descriptor;
     FlightLogAlgorithmDescriptorRecord algorithm_descriptor;
     FlightLogStreamDescriptorRecord stream_descriptor;
+    FlightLogDecoderProfileDescriptorRecord decoder_profile_descriptor;
 } FlightLogPayload;
 
 typedef struct

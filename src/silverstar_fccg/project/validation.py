@@ -13,6 +13,7 @@ from silverstar_fccg.project.logging import (
 )
 from silverstar_fccg.project.capabilities import CapabilityResolution_Resolve
 from silverstar_fccg.project.model import ProjectModel, ProjectModelError, ProjectModel_Parse
+from silverstar_fccg.project.protocols import ProtocolResolution_Resolve
 from silverstar_fccg.project.resources import (
     BoardHardwareInventory_Get,
     ResourceAssignments_Resolve,
@@ -251,34 +252,11 @@ def _ProtocolProfiles_Validate(
     catalog: PluginCatalog,
     issues: list[ValidationIssue],
 ) -> None:
-    profiles: dict[str, set[str]] = {}
-    for component_id in model.protocol_bundles:
-        protocol = catalog.Component_Get(component_id).protocol
-        if protocol is None:
-            continue
-        for category, entries in protocol.profiles.items():
-            profiles.setdefault(category, set()).update(
-                entry.profile_id for entry in entries
-            )
-    if not profiles:
-        return
-    if set(model.protocol_profiles) != set(profiles):
-        issues.append(
-            ValidationIssue(
-                "error",
-                "protocol_profile_categories",
-                "Protocol profile categories do not match the selected bundle",
-            )
-        )
-    for category, profile_id in model.protocol_profiles.items():
-        if profile_id not in profiles.get(category, set()):
-            issues.append(
-                ValidationIssue(
-                    "error",
-                    "protocol_profile",
-                    f"Unknown {category} protocol profile: {profile_id}",
-                )
-            )
+    resolution = ProtocolResolution_Resolve(model, catalog)
+    issues.extend(
+        ValidationIssue("error", issue.code, issue.message)
+        for issue in resolution.issues
+    )
 
 
 def _Hardware_Validate(
@@ -503,13 +481,13 @@ def Project_Validate(model: ProjectModel, catalog: PluginCatalog) -> ProjectVali
         )
     for plugin_id, instance_ids in sorted(devices_by_plugin.items()):
         policy = catalog.Component_Get(plugin_id).instance_policy
-        if len(instance_ids) > policy.project_max:
+        if len(instance_ids) > policy.plugin_max:
             issues.append(
                 ValidationIssue(
                     "error",
                     "device_instance_limit",
                     f"Device plugin {plugin_id} allows at most "
-                    f"{policy.project_max} instance(s)",
+                    f"{policy.plugin_max} instance(s)",
                 )
             )
         if len(instance_ids) > 1 and not policy.same_plugin_multiple:
@@ -529,19 +507,23 @@ def Project_Validate(model: ProjectModel, catalog: PluginCatalog) -> ProjectVali
                 )
             )
     for component_class, instance_ids in sorted(devices_by_class.items()):
-        class_manifests = tuple(
+        selected_class_manifests = tuple(
             catalog.Component_Get(instance.plugin)
             for instance in model.device_instances
-            if catalog.Component_Get(instance.plugin).component_class
-            == component_class
+            if catalog.Component_Get(instance.plugin).component_class == component_class
         )
-        if class_manifests and all(
+        if selected_class_manifests and all(
             manifest.metadata.get("independent_class_member") is True
-            for manifest in class_manifests
+            for manifest in selected_class_manifests
         ):
             continue
         class_limit = max(
-            manifest.instance_policy.project_max for manifest in class_manifests
+            (
+                manifest.instance_policy.class_max
+                for manifest in catalog.Type_Get("device")
+                if manifest.component_class == component_class
+            ),
+            default=1,
         )
         if len(instance_ids) > class_limit:
             issues.append(
@@ -550,17 +532,6 @@ def Project_Validate(model: ProjectModel, catalog: PluginCatalog) -> ProjectVali
                     "device_class_instance_limit",
                     f"Device class {component_class} allows at most "
                     f"{class_limit} instance(s)",
-                )
-            )
-        if len(instance_ids) > 1 and any(
-            not manifest.instance_policy.multi_instance_ready
-            for manifest in class_manifests
-        ):
-            issues.append(
-                ValidationIssue(
-                    "error",
-                    "device_class_multi_instance_not_ready",
-                    f"Device class {component_class} includes a singleton driver",
                 )
             )
     for component_id in model.base_components:

@@ -5,13 +5,13 @@ SilverStar 0.0.9是首次发布前的FCCG-ready reference firmware。本版把Sy
 ## 1. 版本与兼容性
 
 - 固件版本：`0.0.9`；日志构建标识：`SILV0009`；System Profile ID：`0x00000009`；
-- AIR保持`AIR_PROFILE_COMPACT_V0 = 0`，类型值、固定长度、字段偏移、token、字节序、5 Hz周期和无应用层CRC契约不变；
-- 飞行日志容器保持`SSLOG0`，文件头、Record header、little-endian和CRC-32/ISO-HDLC语义不提升；
+- AIR遥测协议正式名称为M0；wire兼容枚举保持`AIR_PROFILE_COMPACT_V0 = 0`，类型值、固定长度、字段偏移、token、字节序、5 Hz周期和无应用层CRC契约不变；
+- 飞行日志格式正式名称为0.0；wire magic保持`SSLOG0`，文件头、Record header、little-endian和CRC-32/ISO-HDLC语义不提升；
 - 既有SSLOG Record `0x01..0x19`的ID和`record_version=0`不因架构移动而改变；新增descriptor为`0x1A..0x1C`，从version 0开始；
-- Maintenance命令、权限和响应语义不提升协议版本；
+- 串口维护协议正式名称与版本为0.0；命令、权限和响应语义不变；
 - 0.0.9处于首次发布前阶段，不保留旧Provider、CMSIS-RTOS2、旧LoggerBus结构或旧构建图的兼容层。
 
-固件版本与wire协议版本是独立概念。以后升级SilverStar版本不得自动升级AIR、SSLOG或Maintenance版本。
+固件版本与wire协议版本是独立概念。以后升级SilverStar版本不得自动升级AIR遥测协议M0、串口维护协议0.0或飞行日志格式0.0。
 
 ## 2. 架构
 
@@ -124,13 +124,13 @@ Target在`target_system_config.h`把已选Device的构建资格映射为`SYSTEM_
 
 Host测试证明软件语义保持，不等于执行器、落地冲击捕获或整套安全链路上板验证。
 
-## 8. AIR与Maintenance
+## 8. AIR遥测协议M0与串口维护协议0.0
 
-AIR由`Protocol/air_protocol.*`纯字节编解码，Telemetry Service只依赖通用Interfaces。`AIR_PROFILE_COMPACT_V0`保持现有固定帧和稳定Sensor ID表；System Sensor Status使用静态目标描述与实时Interface健康/样本生成，不在Telemetry中硬编码具体型号。
+AIR遥测协议M0由`Protocol/air_protocol.*`纯字节编解码，Telemetry Service只依赖通用Interfaces。技术枚举`AIR_PROFILE_COMPACT_V0`保持数值0、现有固定帧和稳定Sensor ID表；System Sensor Status使用静态目标描述与实时Interface健康/样本生成，不在Telemetry中硬编码具体型号。
 
-Maintenance由System Console解析，UART Console Adapter只处理字节链路。`STATUS`给出运行与健康摘要，不新增独立`HEALTH`命令；`IO CLEAR`只建立显示基线，不清底层累计计数、Parser、Platform ring buffer或健康状态。SerialTask不直接执行设备事务、状态转换或功率动作。
+串口维护协议0.0由System Console解析，UART Console Adapter只处理字节链路。IMU/GNSS/BARO/MAG/ATTITUDE/TELEMETRY/POWER使用`<CAPABILITY> <INSTANCE> <COMMAND>`，系统和算法模块保持无实例号；旧无实例能力命令不保留。Physical Device与Capability Endpoint通过Generated descriptor中的`physical_device_id`、`device_class`和类别内`instance_id`区分；JY901B的IMU 0、BARO 0和ATTITUDE 0是独立逻辑端点但共享一个物理ID。Generated facade对每个能力提供Count与静态`switch(instance_id)` direct binding，不存在实例返回`NOT_PRESENT`，不得回退到0。当前正式F407仍只有instance 0，JY901B同插件重复资格为0；多实例兼容不等于同型号重复Driver、Sensor Selection或Multi-EKF。`STATUS`给出运行与健康摘要，不新增独立`HEALTH`命令；`IO CLEAR`按物理ID建立共享显示基线，不清底层累计计数、Parser、Platform ring buffer或健康状态。SerialTask不直接执行设备事务、状态转换或功率动作。
 
-## 9. SSLOG0
+## 9. 飞行日志格式0.0
 
 职责分离：
 
@@ -143,9 +143,13 @@ Generated       = project-enabled stream selection
 Board LogSink   = target storage destination
 ```
 
-`Protocol/SSLOG/Inc/sslog_records.h`与`Protocol/SSLOG/Src/sslog_records.c`是Record ID、version、payload size、metadata及wire codec的正常受控源码。serializer/deserializer按字段显式读写little-endian整数和float bit pattern；payload C struct只用于内存，禁止按结构体布局直接复制到wire或从wire强制转换。`Protocol/SSLOG/schema`保留作parser开发和人工协议阅读参考，firmware build不读取它，也不存在构建时代码生成或伪同步检查。
+`Protocol/SSLOG/Inc/sslog_records.h`与`Protocol/SSLOG/Src/sslog_records.c`是Record ID、version、payload size、metadata及wire codec的正常受控源码。serializer/deserializer按字段显式读写little-endian整数和float bit pattern；payload C struct只用于内存，禁止按结构体布局直接复制到wire或从wire强制转换。`Protocol/SSLOG/schema/sslog_schema.json`同时是FCCG/解析器使用的声明式Record Catalog真源，JSON Schema限制有限基础类型、固定数组和纯数据语义；Host离线validator核对字段与padding总和、parser metadata、C ID/size/codec、Generated stream配置及profile哈希。firmware build不读取JSON或执行Python。
 
-`SystemLogStreamConfig[SSLOG_RECORD_COUNT]`以record type为键，取代32-bit mask；当前工程的enabled/decimation/period/policy由`Generated/Src/project_log_config.c`提供并在START时冻结。`SYSTEM_CONFIG`只记录汇总计数和最终配置，具体设备、算法、日志流分别通过可重复的`DEVICE_DESCRIPTOR(0x1A)`、`ALGORITHM_DESCRIPTOR(0x1B)`和`LOG_STREAM_DESCRIPTOR(0x1C)`表达。
+`SystemLogStreamConfig[SSLOG_RECORD_COUNT]`以record type为键，取代32-bit mask；当前工程的enabled/decimation/period/policy由`Generated/Src/project_log_config.c`提供并在START时冻结。`SYSTEM_CONFIG`只记录汇总计数和最终配置，具体设备、算法、日志流分别通过可重复的`DEVICE_DESCRIPTOR(0x1A)`、`ALGORITHM_DESCRIPTOR(0x1B)`和`LOG_STREAM_DESCRIPTOR(0x1C)`表达。`DECODER_PROFILE_DESCRIPTOR(0x1D)`为64-byte one-shot Record，在Logger session开始时记录package schema 1.0、container 0.0以及Record Catalog、project semantics、generation profile三个SHA-256的前16字节；固件只消费Generated常量，不计算SHA-256，不嵌入ZIP自身哈希。DEVICE_DESCRIPTOR包含明确`physical_device_id`；POWER及IMU/GNSS/BARO/MAG/HW_QUAT Native记录包含`source_descriptor_id + instance_id`，与Canonical算法记录区分。各Native producer通过Generated Count/Instance facade遍历全部启用实例，每实例保存独立sequence/timestamp基线；当前正式Target只有instance 0，Canonical记录仍只保存当前instance 0来源的一份。预留的Sensor Source Change事件复用既有EVENT framing，当前单源工程不产生伪切换。
+
+FCCG以后将Record Catalog和`project_semantics.json`放入同一个纯数据`.ssdecoder`。Canonical JSON固定为UTF-8、键字典序、无无意义空白、JSON稳定最短数字、LF并保留一个末尾LF。`record_catalog_hash`与`project_semantics_hash`分别为规范化JSON的SHA-256；`generation_profile_hash`输入依次为UTF-8 package schema ID、LF、UTF-8 container plugin ID、LF、完整32-byte Catalog hash和完整32-byte semantics hash。日志只保存三者各自前16字节。
+
+STATS与TELEMETRY_DIAG已有真实周期producer并默认启用：Device Task在FLIGHT/RECOVERY每1 s记录ImuSampleBus overflow、LoggerBus overflow、Canonical INS update sequence和health flags；Telemetry Task每200 ms从通用`SystemTelemetryHealth`记录Transport/Link健康。Health读取失败不写伪数据；Telemetry Service内部调度统计不进入该payload。日志可用性必须以实际producer为依据，schema存在本身不构成available声明；新增诊断日志不得改变AIR遥测协议M0 wire。
 
 Record version唯一位于通用Record header/record metadata；`MISSION_CONFIG` payload不再携带第二个冗余version字段。
 
@@ -160,7 +164,7 @@ mingw32-make TARGET_PROFILE=SilverStar_F407 CONFIG=Debug all
 mingw32-make TARGET_PROFILE=SilverStar_F407 CONFIG=Release all
 ```
 
-输出为`build/<Target>/<Debug|Release>/SilverStar_0_0_9.{elf,map,hex,bin}`，对象保留源码相对目录。构建只依赖GNU Make和Arm toolchain，不依赖Python/FCCG。`.eide/eide.yml`是当前F407可直接构建的手工镜像，输出隔离到`build/EIDE/`；`architecture-check`确保其源、include、define、CPU/FPU、linker与forced include和Make一致。未来FCCG可以覆盖该镜像，但Make保持正式release/validation权威。
+输出为`build/FCCG/<Target>/<Debug|Release>/SilverStar_0_0_9.{elf,map,hex,bin}`，对象保留源码相对目录。构建只依赖GNU Make和Arm toolchain，不依赖Python/FCCG。`.eide/eide.yml`是当前F407可直接构建的手工镜像，输出隔离到`build/FCCG/SilverStar_F407/EIDE/`；`architecture-check`确保其源、include、define、CPU/FPU、linker与forced include和Make一致。未来FCCG可以覆盖该镜像，但Make保持正式release/validation权威。
 
 CubeMX只管理STM32时钟、GPIO、DMA、UART、SPI、SDIO、ADC、NVIC和HAL初始化。重新生成后必须确认`.ioc`没有恢复FreeRTOS middleware、`freertos.c`、CMSIS-RTOS2或defaultTask，并复核USER CODE以外的必要改动。
 
@@ -180,7 +184,7 @@ CubeMX只管理STM32时钟、GPIO、DMA、UART、SPI、SDIO、ADC、NVIC和HAL�
 
 当前构建期Strategy为GravityKnownYaw、Coning2Sculling2、KF6、BarometerImuWindow和MultiTrigger。未选择Strategy不进入source graph；`ESTIMATOR_STRATEGY=None`不编译KF6。Calibration的Existing/OneFace/SixFace与MultiTrigger的Apogee/Tilt/Delay属于Mode，后者允许0..N组合且mask=0不自动部署。不得恢复runtime strategy registry或函数指针dispatch。
 
-F407通过vendor-neutral memory placement宏把Estimator、当前Alignment strategy storage、七个任务栈和Idle栈放入CPU-only CCMRAM；DMA相关对象留在主SRAM。Target linker/startup负责`.ccmram_bss`定义和清零，CubeMX重新生成后必须复核。Power of Ten、CCMRAM、EIDE与Strategy组件化均不改变0.0.9、AIR Profile 0或SSLOG0 wire版本。
+F407通过vendor-neutral memory placement宏把Estimator、当前Alignment strategy storage、七个任务栈和Idle栈放入CPU-only CCMRAM；DMA相关对象留在主SRAM。Target linker/startup负责`.ccmram_bss`定义和清零，CubeMX重新生成后必须复核。Power of Ten、CCMRAM、EIDE与Strategy组件化均不改变0.0.9、AIR遥测协议M0、串口维护协议0.0或飞行日志格式0.0；技术wire标识仍分别为profile numeric 0和magic `SSLOG0`。
 
 ## 13. 文档索引
 
@@ -192,9 +196,9 @@ F407通过vendor-neutral memory placement宏把Estimator、当前Alignment strat
 - [生命周期](details/SYSTEM_LIFECYCLE.md)
 - [Calibration与Alignment](details/CALIBRATION_AND_ALIGNMENT.md)
 - [导航与估计](details/NAVIGATION_AND_ESTIMATION.md)
-- [AIR Profile 0](details/AIR_PROTOCOL.md)
-- [Maintenance](details/MAINTENANCE_PROTOCOL.md)
-- [Storage与SSLOG0](details/STORAGE_AND_FLIGHT_LOG.md)
+- [AIR遥测协议M0](details/AIR_PROTOCOL.md)
+- [串口维护协议0.0](details/MAINTENANCE_PROTOCOL.md)
+- [飞行日志格式0.0与Storage](details/STORAGE_AND_FLIGHT_LOG.md)
 - [编码约束](details/CODING_STANDARD.md)
 - [移植与发布](details/PORTING_AND_RELEASE.md)
 - [验收要求](details/VALIDATION_REQUIREMENTS.md)

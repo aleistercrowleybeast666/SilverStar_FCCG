@@ -34,9 +34,61 @@ REFERENCE_MARKERS = (
     "Generated",
 )
 
+REFERENCE_REQUIRED_FILES = (
+    "Generated/Inc/project_device_instances.h",
+    "Generated/Inc/project_log_decoder_profile.h",
+    "Generated/Src/project_device_instances.c",
+    "Generated/Src/project_log_decoder_profile.c",
+    "Generated/Src/project_log_config.c",
+    "Generated/Src/project_metadata.c",
+    "Generated/project_semantics.json",
+    "Interfaces/Inc/system_descriptor_if.h",
+    "System/Src/system_console.c",
+    "System/Src/system_sensor_status.c",
+    "Protocol/SSLOG/Inc/sslog_records.h",
+    "Protocol/SSLOG/Src/sslog_records.c",
+    "Protocol/SSLOG/schema/sslog_schema.json",
+    "Protocol/SSLOG/schema/sslog_parser_metadata.json",
+    "Protocol/SSLOG/schema/sslog_record_catalog.schema.json",
+    "APP/Inc/diagnostic_log.h",
+    "APP/Src/diagnostic_log.c",
+    "APP/Src/device_task.c",
+    "APP/Src/device_native_log.c",
+    "APP/Src/logger_task.c",
+    "APP/Src/telemetry_task.c",
+    "Tests/Host/Fixtures/multi_instance_project_fixture.c",
+    "Tests/Host/run_tests.ps1",
+    "Tests/Host/test_console.c",
+    "Tests/Host/test_device_native_log.c",
+    "Tests/Host/test_logger.c",
+    "Tools/check_architecture.ps1",
+    "Tools/validate_sslog_record_catalog.py",
+    "docs/details/MAINTENANCE_PROTOCOL.md",
+    "docs/details/STORAGE_AND_FLIGHT_LOG.md",
+    "docs/details/AIR_PROTOCOL.md",
+    "docs/details/ARCHITECTURE.md",
+    "docs/details/FCCG_COMPONENT_BOUNDARIES.md",
+    "docs/details/VALIDATION_REQUIREMENTS.md",
+)
+
+REFERENCE_IMPORT_GROUPS = (
+    "Generated device-instance facade contract",
+    "Generated decoder-profile descriptor and project-semantics contract",
+    "descriptor and physical-device identity interfaces",
+    "native capability logging production code and Host Tests",
+    "periodic STATS and TELEMETRY_DIAG producers and Host validation",
+    "SSLOG codec, schema and parser metadata",
+    "SSLOG Record Catalog schema and validator",
+    "maintenance instance-command implementation and Host Tests",
+    "AIR M0 Sensor Status metadata and golden tests",
+    "official architecture, protocol and component-boundary documents",
+)
+
 
 def _Git_Run(reference: Path, *arguments: str) -> str:
     safe_path = reference.as_posix()
+    environment = os.environ.copy()
+    environment["GIT_OPTIONAL_LOCKS"] = "0"
     result = subprocess.run(
         ["git", "-c", f"safe.directory={safe_path}", *arguments],
         cwd=reference,
@@ -45,6 +97,7 @@ def _Git_Run(reference: Path, *arguments: str) -> str:
         text=True,
         encoding="utf-8",
         errors="replace",
+        env=environment,
     )
     return result.stdout
 
@@ -103,6 +156,9 @@ def _ReferenceSnapshotDigest_Get(reference: Path) -> str:
 
 def ReferenceProvenance_Get(reference: Path) -> dict[str, Any]:
     commit = _Git_Run(reference, "rev-parse", "HEAD").strip()
+    commit_time_utc = _Git_Run(
+        reference, "show", "-s", "--format=%cI", "HEAD"
+    ).strip()
     branch = _Git_Run(reference, "branch", "--show-current").strip()
     status_lines = tuple(
         line for line in _Git_Run(reference, "status", "--porcelain").splitlines() if line
@@ -110,11 +166,58 @@ def ReferenceProvenance_Get(reference: Path) -> dict[str, Any]:
     return {
         "path": str(reference),
         "commit": commit,
+        "commit_time_utc": commit_time_utc,
         "branch": branch,
         "working_tree": "clean" if not status_lines else "modified",
         "status": list(status_lines),
         "snapshot_digest": _ReferenceSnapshotDigest_Get(reference),
         "recorded_at_utc": datetime.now(UTC).isoformat(timespec="seconds"),
+    }
+
+
+def ReferenceAudit_Get(reference: Path) -> dict[str, Any]:
+    missing = tuple(
+        relative
+        for relative in REFERENCE_REQUIRED_FILES
+        if not reference.joinpath(*relative.split("/")).is_file()
+    )
+    maintenance_path = reference / "docs" / "details" / "MAINTENANCE_PROTOCOL.md"
+    maintenance_text = (
+        maintenance_path.read_text(encoding="utf-8")
+        if maintenance_path.is_file()
+        else ""
+    )
+    expected_examples = (
+        "| `IMU STATUS` | `BAD_FORMAT/INSTANCE_REQUIRED` |",
+        "| `IMU -1 STATUS` | `BAD_INSTANCE/FORMAT` |",
+        "| `IMU X STATUS` | `BAD_INSTANCE/FORMAT` |",
+        "| `IMU 256 STATUS` | `BAD_INSTANCE/RANGE` |",
+        "| `GNSS 0 STATUS EXTRA` | `BAD_FORMAT/TOKEN_COUNT` |",
+    )
+    public_semantics_reference = (
+        "按第4节的公共命令错误语义" in maintenance_text
+        or "公共命令错误语义" in maintenance_text
+    )
+    findings: list[str] = []
+    if not public_semantics_reference:
+        findings.append(
+            "MAINTENANCE_PROTOCOL.md does not reference the public command "
+            "semantics for CONFIG VERIFY/APPLY capability failures."
+        )
+    missing_examples = tuple(
+        example for example in expected_examples if example not in maintenance_text
+    )
+    if missing_examples:
+        findings.append(
+            "MAINTENANCE_PROTOCOL.md instance-format examples are incomplete: "
+            + ", ".join(missing_examples)
+        )
+    return {
+        "required_files": list(REFERENCE_REQUIRED_FILES),
+        "missing_required_files": list(missing),
+        "maintenance_document_findings": findings,
+        "maintenance_document_accepted": not findings,
+        "import_groups": list(REFERENCE_IMPORT_GROUPS),
     }
 
 
@@ -158,6 +261,7 @@ def _Component(
     instance_policy: dict[str, Any] | None = None,
     physical_device: dict[str, str] | None = None,
     protocol: dict[str, str] | None = None,
+    transports: list[dict[str, Any]] | None = None,
     docs: list[str] | None = None,
     version: str = "0.0.9",
 ) -> dict[str, Any]:
@@ -205,6 +309,7 @@ def _Component(
         ("instance_policy", instance_policy),
         ("physical_device", physical_device),
         ("protocol", protocol),
+        ("transports", transports),
     ):
         if value is not None:
             manifest[key] = value
@@ -312,7 +417,11 @@ def _BoardRoles_Get() -> list[dict[str, Any]]:
             "gpio_output",
             "PLATFORM_GPIO_5",
         ),
-        ("flight_controller_board:system_indicator", "gpio_output", "PLATFORM_GPIO_6"),
+        (
+            "silverstar.device.indicator.system_status:output",
+            "gpio_output",
+            "PLATFORM_GPIO_6",
+        ),
         (
             "silverstar.device.sensor.input_voltage:input_voltage",
             "adc",
@@ -403,7 +512,11 @@ def _Components_Get(
             provides=["core.silverstar", "interface.canonical", "system.lifecycle"],
             metadata={
                 "display_names": {"zh_CN": "SilverStar 核心 0.0.9", "en_US": "SilverStar Core 0.0.9"},
-                "device_descriptors": [{"order": 12, "class": "SYSTEM_DEVICE_CLASS_TIME", "instance": 0, "driver_id": 1, "flags": primary_flags, "capability": "0U", "rate": "1000000UL", "driver_hash": "0x162F2C94UL", "name_hash": "0xADE08D82UL"}],
+                "log_producers": [
+                    "silverstar.core.device_task",
+                    "silverstar.core.telemetry_task",
+                ],
+                "device_descriptors": [{"order": 12, "physical_device_id": "PROJECT_PHYSICAL_DEVICE_ID_NONE", "class": "SYSTEM_DEVICE_CLASS_TIME", "instance": 0, "driver_id": 1, "flags": primary_flags, "capability": "0U", "rate": "1000000UL", "driver_hash": "0x162F2C94UL", "name_hash": "0xADE08D82UL"}],
             },
             docs=[
                 "docs/SilverStar_0_0_9.md",
@@ -450,12 +563,11 @@ def _Components_Get(
             includes=["Core/Inc", "Board/SilverStar_0_5/Services/Inc", "FATFS/Target", "FATFS/App", "Middlewares/Third_Party/FatFs/src"],
             dependencies=[core_id, mcu_id],
             resources_required=[
-                {"name": "system_indicator", "kind": "gpio_output", "binding_macro": "PROJECT_RESOURCE_SYSTEM_INDICATOR"},
                 {"name": "storage", "kind": "sdio"},
             ],
             resources_provided=provisions,
             resource_roles=_BoardRoles_Get(),
-            provides=["board.silverstar_0_5", "hardware.stm32.generated", "service.output", "service.storage", "service.log_sink"],
+            provides=["board.silverstar_0_5", "hardware.stm32.generated", "service.output", "service.storage", "service.log_sink", "transport.sequential_file_sink"],
             metadata={
                 "build_symbol": "SILVERSTAR_0_5",
                 "display_names": {"zh_CN": "SS0.5（已验证）", "en_US": "SS0.5 (Validated)"},
@@ -464,6 +576,18 @@ def _Components_Get(
                     "en_US": "Verified SS0.5 PCB, CubeMX hardware source, fixed services, and resource mapping.",
                 },
                 "optional_resource_bindings": [
+                    {
+                        "binding_macro": "PROJECT_RESOURCE_SYSTEM_INDICATOR",
+                        "enabled_macro": "PROJECT_FEATURE_SYSTEM_STATUS_INDICATOR",
+                        "fallback": "PLATFORM_GPIO_COUNT",
+                        "header": "platform_gpio.h",
+                    },
+                    {
+                        "binding_macro": "PROJECT_RESOURCE_GNSS_INDICATOR",
+                        "enabled_macro": "PROJECT_FEATURE_GNSS_STATUS_INDICATOR",
+                        "fallback": "PLATFORM_GPIO_COUNT",
+                        "header": "platform_gpio.h",
+                    },
                     {
                         "binding_macro": "PROJECT_RESOURCE_INPUT_VOLTAGE_ADC",
                         "enabled_macro": "PROJECT_FEATURE_INPUT_VOLTAGE_MONITOR",
@@ -484,12 +608,13 @@ def _Components_Get(
                     },
                 ],
                 "device_descriptors": [
-                    {"order": 8, "class": "SYSTEM_DEVICE_CLASS_STORAGE", "flags": device_flags, "capability": "SYSTEM_CAPABILITY_STORAGE", "rate": "0U", "driver_hash": "0xF02E45D5UL", "name_hash": "0x3A7B5375UL"},
-                    {"order": 9, "class": "SYSTEM_DEVICE_CLASS_LOG_SINK", "flags": device_flags, "capability": "SYSTEM_CAPABILITY_STORAGE", "rate": "0U", "driver_hash": "0x6DB00410UL", "name_hash": "0xCD7C84A3UL"},
+                    {"order": 8, "physical_device_id": "PROJECT_PHYSICAL_DEVICE_ID_STORAGE", "class": "SYSTEM_DEVICE_CLASS_STORAGE", "flags": f"{device_flags} | SYSTEM_DESCRIPTOR_FLAG_SHARED_PHYSICAL", "capability": "SYSTEM_CAPABILITY_STORAGE", "rate": "0U", "driver_hash": "0xF02E45D5UL", "name_hash": "0x3A7B5375UL"},
+                    {"order": 9, "physical_device_id": "PROJECT_PHYSICAL_DEVICE_ID_STORAGE", "class": "SYSTEM_DEVICE_CLASS_LOG_SINK", "flags": f"{device_flags} | SYSTEM_DESCRIPTOR_FLAG_SHARED_PHYSICAL", "capability": "SYSTEM_CAPABILITY_STORAGE", "rate": "0U", "driver_hash": "0x6DB00410UL", "name_hash": "0xCD7C84A3UL"},
                 ],
             },
             build_extra={"exclude_sources": ["Core/Src/sysmem.c"]},
             board={"source_kind": "verified_builtin", "compatible_mcus": [mcu_id], "vendor": "STM32", "provider": "silverstar.hardware_provider.stm32_cubemx", "verified": True, "hardware_root": "Core", "ioc_file": "payload/Flight_Controller0.5.ioc", "connections_file": "connections.json"},
+            transports=[{"capability": "transport.sequential_file_sink", "kind": "sequential_file_sink", "mtu": 65535, "ordered": True, "bidirectional": False, "reliable": True, "mode": "file"}],
             docs=["docs/details/STORAGE_AND_FLIGHT_LOG.md", "docs/details/BUILD_AND_TARGETS.md"],
         )
     )
@@ -513,16 +638,17 @@ def _Components_Get(
             "imu.landing_stillness_qualified",
             "barometer.landing_window_qualified",
         ], [
-            {"order": 1, "class": "SYSTEM_DEVICE_CLASS_IMU", "flags": f"{device_flags} | SYSTEM_DESCRIPTOR_FLAG_REQUIRED | SYSTEM_DESCRIPTOR_FLAG_PRIMARY", "capability": "SYSTEM_CAPABILITY_IMU", "rate": "SYSTEM_IMU_OUTPUT_RATE_HZ", "driver_hash": "0xADF02482UL", "name_hash": "0x53692179UL"},
-            {"order": 3, "class": "SYSTEM_DEVICE_CLASS_BAROMETER", "flags": f"{device_flags} | SYSTEM_DESCRIPTOR_FLAG_SHARED_PHYSICAL", "capability": "SYSTEM_CAPABILITY_BAROMETER", "rate": "SYSTEM_BAROMETER_OUTPUT_RATE_HZ", "driver_hash": "0xADF02482UL", "name_hash": "0x53692179UL"},
-            {"order": 4, "class": "SYSTEM_DEVICE_CLASS_HARDWARE_QUATERNION", "flags": f"{device_flags} | SYSTEM_DESCRIPTOR_FLAG_SHARED_PHYSICAL", "capability": "SYSTEM_CAPABILITY_HARDWARE_QUATERNION", "rate": "SYSTEM_HARDWARE_QUATERNION_OUTPUT_RATE_HZ", "driver_hash": "0xADF02482UL", "name_hash": "0x53692179UL"},
+            {"order": 1, "physical_device_id": "PROJECT_PHYSICAL_DEVICE_ID_JY901B", "class": "SYSTEM_DEVICE_CLASS_IMU", "flags": f"{device_flags} | SYSTEM_DESCRIPTOR_FLAG_REQUIRED | SYSTEM_DESCRIPTOR_FLAG_PRIMARY | SYSTEM_DESCRIPTOR_FLAG_SHARED_PHYSICAL", "capability": "SYSTEM_CAPABILITY_IMU", "rate": "SYSTEM_IMU_OUTPUT_RATE_HZ", "driver_hash": "0xADF02482UL", "name_hash": "0x53692179UL"},
+            {"order": 3, "physical_device_id": "PROJECT_PHYSICAL_DEVICE_ID_JY901B", "class": "SYSTEM_DEVICE_CLASS_BAROMETER", "flags": f"{device_flags} | SYSTEM_DESCRIPTOR_FLAG_SHARED_PHYSICAL", "capability": "SYSTEM_CAPABILITY_BAROMETER", "rate": "SYSTEM_BAROMETER_OUTPUT_RATE_HZ", "driver_hash": "0xADF02482UL", "name_hash": "0x53692179UL"},
+            {"order": 4, "physical_device_id": "PROJECT_PHYSICAL_DEVICE_ID_JY901B", "class": "SYSTEM_DEVICE_CLASS_HARDWARE_QUATERNION", "flags": f"{device_flags} | SYSTEM_DESCRIPTOR_FLAG_SHARED_PHYSICAL", "capability": "SYSTEM_CAPABILITY_HARDWARE_QUATERNION", "rate": "SYSTEM_HARDWARE_QUATERNION_OUTPUT_RATE_HZ", "driver_hash": "0xADF02482UL", "name_hash": "0x53692179UL"},
+            {"order": 13, "physical_device_id": "PROJECT_PHYSICAL_DEVICE_ID_JY901B", "class": "SYSTEM_DEVICE_CLASS_MAGNETOMETER", "flags": f"SYSTEM_DESCRIPTOR_FLAG_SHARED_PHYSICAL | ((SYSTEM_USER_MAGNETOMETER_ENABLE != 0U) ? {device_flags} : 0U)", "capability": "SYSTEM_CAPABILITY_MAGNETOMETER", "rate": "SYSTEM_MAGNETOMETER_OUTPUT_RATE_HZ", "driver_hash": "0xADF02482UL", "name_hash": "0x53692179UL"},
         ], ["docs/details/IMU_JY901B.md", "docs/details/DEVICE_INTERFACE.md"]),
         ("silverstar.device.gnss.neo_m9n", "NEO-M9N", "gnss", "Devices/GNSS/NEO_M9N/module.mk", ["Devices/GNSS/NEO_M9N"], ["Devices/GNSS/NEO_M9N/Inc"], [
             {"name": "data", "kind": "uart", "binding_macro": "PROJECT_RESOURCE_GNSS_UART", "constraints": {"uart": {"baud": {"exact": 921600, "configurable": False}, "word_length": 8, "parity": "none", "stop_bits": 1.0, "rx_dma": True, "tx_dma": False, "irq": True}}},
             {"name": "reset", "kind": "gpio_output", "binding_macro": "PROJECT_RESOURCE_GNSS_RESET", "electrical_constraints": {"mode": "gpio_output", "output_type": "push_pull", "pull": "none", "speed": "low", "safe_initial_level": "inactive", "active_polarity": "low", "startup_glitch_free": True}},
             {"name": "timepulse", "kind": "gpio_interrupt", "binding_macro": "PROJECT_RESOURCE_GNSS_TIMEPULSE", "electrical_constraints": {"mode": "gpio_interrupt", "pull": "none", "exti_trigger": "rising", "irq": True, "maximum_irq_priority": 5}},
             {"name": "time", "kind": "time", "mode": "shared"},
-        ], ["device.gnss", "gnss.position", "gnss.velocity"], [{"order": 2, "class": "SYSTEM_DEVICE_CLASS_GNSS", "flags": primary_flags, "capability": "SYSTEM_CAPABILITY_GNSS", "rate": "SYSTEM_GNSS_NAVIGATION_RATE_HZ", "driver_hash": "0xC751E890UL", "name_hash": "0xA8E98337UL"}], ["docs/details/GNSS_NEO_M9N.md", "docs/details/GNSS_UBX.md"]),
+        ], ["device.gnss", "gnss.position", "gnss.velocity"], [{"order": 2, "physical_device_id": "PROJECT_PHYSICAL_DEVICE_ID_NEO_M9N", "class": "SYSTEM_DEVICE_CLASS_GNSS", "flags": primary_flags, "capability": "SYSTEM_CAPABILITY_GNSS", "rate": "SYSTEM_GNSS_NAVIGATION_RATE_HZ", "driver_hash": "0xC751E890UL", "name_hash": "0xA8E98337UL"}], ["docs/details/GNSS_NEO_M9N.md", "docs/details/GNSS_UBX.md"]),
         ("silverstar.device.telemetry.sx1281", "E28-2G4M12SX (SX1281)", "telemetry", "Devices/Telemetry/SX1281/module.mk", ["Devices/Telemetry/SX1281", "Middlewares/Third_Party/SX1280lib"], ["Devices/Telemetry/SX1281/Inc", "Middlewares/Third_Party/SX1280lib"], [
             {"name": "radio_bus", "kind": "spi", "binding_macro": "PROJECT_RESOURCE_RADIO_SPI", "constraints": {"spi": {"mode": "master", "cpol": "low", "cpha": "1edge", "data_bits": 8, "bit_order": "msb", "minimum_clock_hz": 100000, "maximum_clock_hz": 18000000, "dma": False, "irq": False}}},
             {"name": "radio_nss", "kind": "gpio_output", "binding_macro": "PROJECT_RESOURCE_RADIO_NSS", "electrical_constraints": {"mode": "gpio_output", "output_type": "push_pull", "pull": "none", "speed": "low", "safe_initial_level": "inactive", "active_polarity": "low", "startup_glitch_free": True}},
@@ -530,8 +656,8 @@ def _Components_Get(
             {"name": "radio_busy", "kind": "gpio_input", "binding_macro": "PROJECT_RESOURCE_RADIO_BUSY", "electrical_constraints": {"mode": "gpio_input", "pull": "none"}},
             {"name": "radio_dio1", "kind": "gpio_interrupt", "binding_macro": "PROJECT_RESOURCE_RADIO_DIO1", "electrical_constraints": {"mode": "gpio_interrupt", "pull": "none", "exti_trigger": "rising", "irq": True, "maximum_irq_priority": 5}},
             {"name": "time", "kind": "time", "mode": "shared"},
-        ], ["device.telemetry", "transport.lora", "transport.integrity.hardware_crc"], [{"order": 5, "class": "SYSTEM_DEVICE_CLASS_TELEMETRY", "flags": device_flags, "capability": "SYSTEM_CAPABILITY_TELEMETRY", "rate": "0U", "driver_hash": "0x3C6CF5BAUL", "name_hash": "0xC4A6E024UL"}], ["docs/details/SX1281_TRANSPORT.md"]),
-        ("silverstar.device.console.uart", "Serial Maintenance Protocol 0.0", "console", "Devices/Console/UART/module.mk", ["Devices/Console/UART"], ["Devices/Console/UART/Inc"], [{"name": "console", "kind": "uart", "binding_macro": "PROJECT_RESOURCE_CONSOLE_UART", "constraints": {"uart": {"baud": {"exact": 230400, "configurable": False}, "word_length": 8, "parity": "none", "stop_bits": 1.0, "rx_dma": False, "tx_dma": False, "irq": True}}}], ["device.console", "maintenance.console"], [{"order": 6, "class": "SYSTEM_DEVICE_CLASS_CONSOLE", "flags": device_flags, "capability": "SYSTEM_CAPABILITY_CONSOLE", "rate": "0U", "driver_hash": "0x92850855UL", "name_hash": "0xC8A9F404UL"}], ["docs/details/MAINTENANCE_PROTOCOL.md"]),
+        ], ["device.telemetry", "transport.packet", "transport.lora", "transport.integrity.hardware_crc"], [{"order": 5, "physical_device_id": "PROJECT_PHYSICAL_DEVICE_ID_E28_SX1281", "class": "SYSTEM_DEVICE_CLASS_TELEMETRY", "flags": device_flags, "capability": "SYSTEM_CAPABILITY_TELEMETRY", "rate": "0U", "driver_hash": "0x3C6CF5BAUL", "name_hash": "0xC4A6E024UL"}], ["docs/details/SX1281_TRANSPORT.md"]),
+        ("silverstar.device.console.uart", "Serial Maintenance Protocol 0.0", "console", "Devices/Console/UART/module.mk", ["Devices/Console/UART"], ["Devices/Console/UART/Inc"], [{"name": "console", "kind": "uart", "binding_macro": "PROJECT_RESOURCE_CONSOLE_UART", "constraints": {"uart": {"baud": {"exact": 230400, "configurable": False}, "word_length": 8, "parity": "none", "stop_bits": 1.0, "rx_dma": False, "tx_dma": False, "irq": True}}}], ["device.console", "maintenance.console", "transport.byte_stream"], [{"order": 6, "physical_device_id": "PROJECT_PHYSICAL_DEVICE_ID_CONSOLE", "class": "SYSTEM_DEVICE_CLASS_CONSOLE", "flags": device_flags, "capability": "SYSTEM_CAPABILITY_CONSOLE", "rate": "0U", "driver_hash": "0x92850855UL", "name_hash": "0xC8A9F404UL"}], ["docs/details/MAINTENANCE_PROTOCOL.md"]),
     )
     device_details = {
         "silverstar.device.imu.jy901b": {
@@ -557,10 +683,46 @@ def _Components_Get(
     }
     for component_id, name, component_class, module, roots, includes, requirements, provides, descriptors, docs in device_specs:
         details = device_details[component_id]
+        group_by_class = {
+            "imu": ("primary_devices", 20),
+            "gnss": ("primary_devices", 20),
+            "telemetry": ("telemetry_links", 60),
+            "console": ("maintenance_endpoints", 70),
+        }
+        device_group, device_group_order = group_by_class.get(
+            component_class, ("other_sensors", 40)
+        )
         device_metadata: dict[str, Any] = {
             "display_names": details["display_names"],
             "device_descriptors": descriptors,
+            "device_group": device_group,
+            "device_group_order": device_group_order,
+            "device_selection_style": "instance",
         }
+        facade_bindings: dict[str, dict[str, Any]] = {
+            "silverstar.device.imu.jy901b": {
+                "SYSTEM_DEVICE_CLASS_IMU": {"function_prefix": "SystemImu"},
+                "SYSTEM_DEVICE_CLASS_BAROMETER": {
+                    "function_prefix": "SystemBarometer"
+                },
+                "SYSTEM_DEVICE_CLASS_MAGNETOMETER": {
+                    "function_prefix": "SystemMagnetometer"
+                },
+                "SYSTEM_DEVICE_CLASS_HARDWARE_QUATERNION": {
+                    "function_prefix": "SystemHardwareQuaternion"
+                },
+            },
+            "silverstar.device.gnss.neo_m9n": {
+                "SYSTEM_DEVICE_CLASS_GNSS": {"function_prefix": "SystemGnss"}
+            },
+            "silverstar.device.telemetry.sx1281": {
+                "SYSTEM_DEVICE_CLASS_TELEMETRY": {
+                    "function_prefix": "SystemTelemetry"
+                }
+            },
+        }.get(component_id, {})
+        if facade_bindings:
+            device_metadata["device_instance_bindings"] = facade_bindings
         if component_id == "silverstar.device.imu.jy901b":
             device_metadata.update(
                 {
@@ -610,6 +772,11 @@ def _Components_Get(
                 "gnss.position": {"enabled": True},
                 "gnss.velocity": {"enabled": True},
             }
+        transports: list[dict[str, Any]] = []
+        if component_id == "silverstar.device.telemetry.sx1281":
+            transports = [{"capability": "transport.packet", "kind": "packet", "mtu": 255, "ordered": True, "bidirectional": True, "reliable": False, "mode": "datagram"}]
+        elif component_id == "silverstar.device.console.uart":
+            transports = [{"capability": "transport.byte_stream", "kind": "byte_stream", "mtu": 1, "ordered": True, "bidirectional": True, "reliable": True, "mode": "stream"}]
         components.append(
             _Component(
                 component_id,
@@ -625,11 +792,15 @@ def _Components_Get(
                 resources_required=requirements,
                 provides=provides,
                 instance_policy={
-                    "project_max": 1,
+                    "plugin_max": 1,
+                    "class_max": (
+                        4 if component_class in {"imu", "gnss", "telemetry"} else 1
+                    ),
                     "same_plugin_multiple": False,
                     "multi_instance_ready": False,
                 },
                 physical_device=details["physical_device"],
+                transports=transports,
                 metadata=device_metadata,
                 docs=(
                     docs
@@ -663,11 +834,15 @@ def _Components_Get(
             ["power.voltage", "power.monitor"],
             {
                 "device_category": "sensor",
+                "device_group": "other_sensors",
+                "device_group_order": 40,
+                "device_selection_style": "toggle",
                 "default_instance_id": "voltage_monitor0",
                 "recordable_outputs": {"power.voltage": {"enabled": True}},
                 "device_descriptors": [
                     {
                         "order": 7,
+                        "physical_device_id": "PROJECT_PHYSICAL_DEVICE_ID_POWER_ADC",
                         "class": "SYSTEM_DEVICE_CLASS_POWER",
                         "flags": device_flags,
                         "capability": "SYSTEM_CAPABILITY_POWER",
@@ -706,14 +881,18 @@ def _Components_Get(
             ["actuator.mission_action.launch_ignition"],
             {
                 "device_category": "mission_action_actuator",
+                "device_group": "actuators",
+                "device_group_order": 50,
+                "device_selection_style": "toggle",
                 "independent_class_member": True,
                 "default_instance_id": "launch_ignition0",
                 "auto_select_when_required": False,
                 "device_descriptors": [
                     {
                         "order": 10,
+                        "physical_device_id": "PROJECT_PHYSICAL_DEVICE_ID_OUTPUT",
                         "class": "SYSTEM_DEVICE_CLASS_OUTPUT",
-                        "flags": f"{device_flags} | SYSTEM_DESCRIPTOR_FLAG_REQUIRED",
+                        "flags": f"{device_flags} | SYSTEM_DESCRIPTOR_FLAG_REQUIRED | SYSTEM_DESCRIPTOR_FLAG_SHARED_PHYSICAL",
                         "capability": "SYSTEM_CAPABILITY_OUTPUT",
                         "rate": "0U",
                         "driver_hash": "0xA03101D4UL",
@@ -750,14 +929,18 @@ def _Components_Get(
             ["actuator.mission_action.parachute_deploy"],
             {
                 "device_category": "mission_action_actuator",
+                "device_group": "actuators",
+                "device_group_order": 50,
+                "device_selection_style": "toggle",
                 "independent_class_member": True,
                 "default_instance_id": "parachute_pyro0",
                 "auto_select_when_required": False,
                 "device_descriptors": [
                     {
                         "order": 11,
+                        "physical_device_id": "PROJECT_PHYSICAL_DEVICE_ID_OUTPUT",
                         "class": "SYSTEM_DEVICE_CLASS_MISSION_ACTION",
-                        "flags": device_flags,
+                        "flags": f"{device_flags} | SYSTEM_DESCRIPTOR_FLAG_SHARED_PHYSICAL",
                         "capability": "SYSTEM_CAPABILITY_OUTPUT",
                         "rate": "0U",
                         "driver_hash": "0x8BC9C34EUL",
@@ -811,7 +994,8 @@ def _Components_Get(
                 resources_required=resources,
                 provides=provides,
                 instance_policy={
-                    "project_max": 1,
+                    "plugin_max": 1,
+                    "class_max": 4 if component_class == "other_sensor" else 1,
                     "same_plugin_multiple": False,
                     "multi_instance_ready": False,
                 },
@@ -820,7 +1004,133 @@ def _Components_Get(
                     "declarative": True,
                     "logical_device": True,
                     "display_names": {"zh_CN": chinese_name, "en_US": name},
+                    **(
+                        {
+                            "device_instance_bindings": {
+                                "SYSTEM_DEVICE_CLASS_POWER": {
+                                    "function_prefix": "SystemPower"
+                                }
+                            }
+                        }
+                        if component_id
+                        == "silverstar.device.sensor.input_voltage"
+                        else {}
+                    ),
                     **logical_metadata,
+                },
+            )
+        )
+
+    indicator_specs = (
+        (
+            "silverstar.device.indicator.system_status",
+            "System Status Indicator",
+            "系统状态指示灯",
+            "system_indicator0",
+            "system",
+            "PROJECT_RESOURCE_SYSTEM_INDICATOR",
+            "SYSTEM_INDICATOR_SYSTEM_ENABLE",
+            [],
+            "SilverStar",
+            "SS0.5 IMU_CAL_LED",
+            "Active-low GPIO Indicator",
+            "显示校准、系统就绪及任务阶段状态；SS0.5使用PA1上的IMU_CAL_LED，低电平点亮。",
+            "Shows calibration, readiness, and mission state; SS0.5 uses the active-low IMU_CAL_LED on PA1.",
+        ),
+        (
+            "silverstar.device.indicator.gnss_status",
+            "GNSS Status Indicator",
+            "GNSS状态指示灯",
+            "gnss_indicator0",
+            "gnss",
+            "PROJECT_RESOURCE_GNSS_INDICATOR",
+            "SYSTEM_INDICATOR_GNSS_ENABLE",
+            [{"capability": "device.gnss", "purpose": "status_indication"}],
+            "Generic",
+            "External GNSS Status Indicator",
+            "GPIO Indicator",
+            "离线或无样本时熄灭，在线但不可导航时慢闪，可用于导航时常亮；需要独立GPIO输出。",
+            "Off while offline or without a sample, slow blink while online but unusable, and solid while navigation-usable; requires an independent GPIO output.",
+        ),
+    )
+    for (
+        component_id,
+        name,
+        chinese_name,
+        instance_id,
+        indicator_role,
+        binding_macro,
+        enable_symbol,
+        capabilities_required,
+        vendor,
+        model_name,
+        chipset,
+        chinese_description,
+        english_description,
+    ) in indicator_specs:
+        components.append(
+            _Component(
+                component_id,
+                name,
+                "device",
+                "indicator",
+                [],
+                description="Declarative software-controlled status indicator.",
+                provenance=provenance,
+                dependencies=[core_id],
+                resources_required=[
+                    {
+                        "name": "output",
+                        "kind": "gpio_output",
+                        "binding_macro": binding_macro,
+                        "electrical_constraints": {
+                            "mode": "gpio_output",
+                            "output_type": "push_pull",
+                            "pull": "none",
+                            "speed": "low",
+                            "safe_initial_level": "inactive",
+                            "active_polarity": "low",
+                            "startup_glitch_free": True,
+                        },
+                        "display_names": {
+                            "zh_CN": f"{chinese_name} · GPIO输出",
+                            "en_US": f"{name} · GPIO Output",
+                        },
+                    }
+                ],
+                capabilities_required=capabilities_required,
+                provides=[f"device.indicator.{indicator_role}_status"],
+                instance_policy={
+                    "plugin_max": 1,
+                    "class_max": 1,
+                    "same_plugin_multiple": False,
+                    "multi_instance_ready": False,
+                },
+                physical_device={
+                    "vendor": vendor,
+                    "model": model_name,
+                    "chipset": chipset,
+                    "driver": "indicator_service",
+                },
+                metadata={
+                    "declarative": True,
+                    "logical_device": True,
+                    "optional_device": indicator_role == "gnss",
+                    "device_category": "indicator",
+                    "device_group": "indicators",
+                    "device_group_order": 45,
+                    "device_selection_style": "toggle",
+                    "default_instance_id": instance_id,
+                    "indicator_role": indicator_role,
+                    "indicator_enable_symbol": enable_symbol,
+                    "display_names": {
+                        "zh_CN": chinese_name,
+                        "en_US": name,
+                    },
+                    "descriptions": {
+                        "zh_CN": chinese_description,
+                        "en_US": english_description,
+                    },
                 },
             )
         )
@@ -1058,10 +1368,92 @@ def _Components_Get(
     )
     components.append(
         _Component(
-            "silverstar.protocol.reference_v0", "SilverStar AIR V0 + SSLOG0", "protocol_bundle", "reference_protocols", ["Protocol"],
+            "silverstar.protocol.reference_v0", "SilverStar Protocol Bundle 0.0", "protocol_bundle", "reference_protocols", ["Protocol"],
             description="Complete AIR, SSLOG, Maintenance protocol sources and documentation.", provenance=provenance,
-            sources=protocol_sources, includes=["Protocol/Inc", "Protocol/SSLOG/Inc"], provides=["protocol.air", "protocol.sslog", "protocol.maintenance"], metadata={"display_names": {"zh_CN": "SilverStar AIR V0 + SSLOG0 协议包", "en_US": "SilverStar AIR V0 + SSLOG0"}}, docs=["docs/details/AIR_PROTOCOL.md", "docs/details/STORAGE_AND_FLIGHT_LOG.md", "docs/details/MAINTENANCE_PROTOCOL.md"],
-            protocol={"logging_metadata": "Protocol/SSLOG/schema/sslog_parser_metadata.json", "maintenance_protocol_version": "0.0", "firmware_version": "0.0.9", "documentation_version": "0.0.9", "profiles": {"telemetry": [{"id": "air.compact.v0", "version": "0.0", "display_names": {"zh_CN": "AIR紧凑协议 V0", "en_US": "AIR Compact Protocol V0"}}], "maintenance": [{"id": "maintenance.v0_0", "version": "0.0", "display_names": {"zh_CN": "SilverStar维护协议 0.0", "en_US": "SilverStar Maintenance Protocol 0.0"}}], "logging": [{"id": "sslog0", "version": "0.0", "display_names": {"zh_CN": "SSLOG0", "en_US": "SSLOG0"}}]}},
+            sources=protocol_sources, includes=["Protocol/Inc", "Protocol/SSLOG/Inc"], dependencies=[core_id], provides=["protocol.air", "protocol.sslog", "protocol.maintenance"], metadata={"display_names": {"zh_CN": "SilverStar 协议包 0.0", "en_US": "SilverStar Protocol Bundle 0.0"}}, docs=["docs/details/AIR_PROTOCOL.md", "docs/details/STORAGE_AND_FLIGHT_LOG.md", "docs/details/MAINTENANCE_PROTOCOL.md"],
+            protocol={
+                "logging_metadata": "Protocol/SSLOG/schema/sslog_parser_metadata.json",
+                "maintenance_protocol_version": "0.0",
+                "firmware_version": "0.0.9",
+                "documentation_version": "0.0.9",
+                "profiles": {
+                    "telemetry": [{
+                        "id": "air.m0",
+                        "version": "0.0",
+                        "display_names": {"zh_CN": "AIR遥测协议 M0", "en_US": "AIR Telemetry Protocol M0"},
+                        "service": "telemetry_service",
+                        "slot": "telemetry_protocol",
+                        "codec_sources": ["Protocol/Src/air_protocol.c"],
+                        "parser_sources": ["Protocol/Src/air_protocol.c"],
+                        "include_dirs": ["Protocol/Inc"],
+                        "defines": [],
+                        "binding": "telemetry_transport",
+                        "transport": {
+                            "capability": "transport.packet",
+                            "kind": "packet",
+                            "minimum_mtu": 50,
+                            "ordered": True,
+                            "bidirectional": True,
+                            "reliable": False,
+                            "mode": "datagram",
+                        },
+                        "decoder_metadata": "Protocol/metadata/air_m0.json",
+                        "documentation": ["docs/AIR_PROTOCOL.md"],
+                        "host_tests": ["Tests/Host/test_air_kf.c", "Tests/Host/test_telemetry.c"],
+                        "golden_tests": ["Tests/Host/test_air_kf.c", "Tests/Host/test_telemetry.c"],
+                    }],
+                    "maintenance": [{
+                        "id": "maintenance.serial.0_0",
+                        "version": "0.0",
+                        "display_names": {"zh_CN": "串口维护协议 0.0", "en_US": "Serial Maintenance Protocol 0.0"},
+                        "service": "maintenance_service",
+                        "slot": "maintenance_protocol",
+                        "codec_sources": ["System/Src/system_console.c"],
+                        "parser_sources": ["System/Src/system_console.c"],
+                        "include_dirs": ["System/Inc", "Interfaces/Inc"],
+                        "defines": [],
+                        "binding": "maintenance_console",
+                        "transport": {
+                            "capability": "transport.byte_stream",
+                            "kind": "byte_stream",
+                            "minimum_mtu": 1,
+                            "ordered": True,
+                            "bidirectional": True,
+                            "reliable": True,
+                            "mode": "stream",
+                        },
+                        "decoder_metadata": "Protocol/metadata/maintenance_serial_0_0.json",
+                        "documentation": ["docs/MAINTENANCE_PROTOCOL.md"],
+                        "host_tests": ["Tests/Host/test_console.c"],
+                        "golden_tests": ["Tests/Host/test_console.c"],
+                    }],
+                    "logging": [{
+                        "id": "flight_log.0_0",
+                        "version": "0.0",
+                        "display_names": {"zh_CN": "飞行日志格式 0.0", "en_US": "Flight Log Format 0.0"},
+                        "service": "flight_log_service",
+                        "slot": "log_format",
+                        "codec_sources": ["Protocol/SSLOG/Src/sslog_protocol.c", "Protocol/SSLOG/Src/sslog_records.c"],
+                        "parser_sources": ["Protocol/SSLOG/Src/sslog_protocol.c"],
+                        "include_dirs": ["Protocol/SSLOG/Inc"],
+                        "defines": [],
+                        "binding": "flight_log_sink",
+                        "transport": {
+                            "capability": "transport.sequential_file_sink",
+                            "kind": "sequential_file_sink",
+                            "minimum_mtu": 280,
+                            "ordered": True,
+                            "bidirectional": False,
+                            "reliable": True,
+                            "mode": "file",
+                        },
+                        "decoder_metadata": "Protocol/SSLOG/schema/sslog_parser_metadata.json",
+                        "documentation": ["docs/STORAGE_AND_FLIGHT_LOG.md"],
+                        "host_tests": ["Tests/Host/test_logger.c", "Tests/Host/test_device_native_log.c"],
+                        "golden_tests": ["Tests/Host/test_logger.c"],
+                    }],
+                },
+            },
         )
     )
     components.append(
@@ -1100,6 +1492,48 @@ def _Tree_Copy(policy: WorkspacePolicy, source: Path, destination: Path) -> None
 def _ArchitectureChecker_Adapt(path: Path, policy: WorkspacePolicy) -> None:
     text = path.read_text(encoding="utf-8")
     changed = False
+
+    documentation_marker = "$fccgMaintenanceDocumentationPath"
+    if documentation_marker not in text:
+        legacy_documentation_check = """Assert-FileContainsPattern `
+    -RelativePath 'docs\\details\\MAINTENANCE_PROTOCOL.md' `
+    -Pattern '<CAPABILITY_MODULE>\\s+<INSTANCE>\\s+<COMMAND>' `
+    -Message 'Maintenance documentation does not define indexed capability syntax.'
+Assert-NoArchitecturePattern -Name `
+    'Maintenance documentation addresses a physical device model as a module.' `
+    -Paths @('docs\\details\\MAINTENANCE_PROTOCOL.md') `
+    -Extensions @('.md') `
+    -Pattern '(?i)\\b(?:JY901B|NEO[_-]?M9N|E28[^\\s]*)\\s+[0-9]+\\s+STATUS\\b'
+"""
+        generated_documentation_check = """$fccgMaintenanceDocumentationPath = Join-Path $repoRoot `
+    'docs\\details\\MAINTENANCE_PROTOCOL.md'
+if (Test-Path -LiteralPath $fccgMaintenanceDocumentationPath -PathType Leaf) {
+    Assert-FileContainsPattern `
+        -RelativePath 'docs\\details\\MAINTENANCE_PROTOCOL.md' `
+        -Pattern '<CAPABILITY_MODULE>\\s+<INSTANCE>\\s+<COMMAND>' `
+        -Message 'Maintenance documentation does not define indexed capability syntax.'
+    Assert-NoArchitecturePattern -Name `
+        'Maintenance documentation addresses a physical device model as a module.' `
+        -Paths @('docs\\details\\MAINTENANCE_PROTOCOL.md') `
+        -Extensions @('.md') `
+        -Pattern '(?i)\\b(?:JY901B|NEO[_-]?M9N|E28[^\\s]*)\\s+[0-9]+\\s+STATUS\\b'
+}
+else {
+    Write-Output ('FCCG architecture note: generated source omits installed-plugin ' +
+        'documentation; maintenance Markdown was audited during reference import.')
+}
+"""
+        if legacy_documentation_check not in text:
+            raise RuntimeError(
+                "Reference architecture checker maintenance-document check changed"
+            )
+        text = text.replace(
+            legacy_documentation_check,
+            generated_documentation_check,
+            1,
+        )
+        changed = True
+
     required_generated_files = (
         "Generated\\Inc\\project_capability_routes.h",
         "Generated\\Src\\project_capability_routes.c",
@@ -1162,25 +1596,18 @@ def _ArchitectureChecker_Adapt(path: Path, policy: WorkspacePolicy) -> None:
             )
         estimator_check = (
             "    $selectedEstimatorTaskSources = @($uniqueSources | Where-Object {\n"
-            "        ($_ -eq 'APP/Src/estimator_task.c') -or\n"
-            "        ($_ -eq 'APP/Src/estimator_task_none.c')\n"
+            "        $_ -eq 'APP/Src/estimator_task.c'\n"
             "    })\n"
             "    Assert-ArchitectureCondition `\n"
             "        -Condition ($selectedEstimatorTaskSources.Count -eq 1) `\n"
-            "        -Message (\"Expected exactly one estimator task implementation: \" +\n"
+            "        -Message (\"Expected the unified estimator task facade: \" +\n"
             "            ($selectedEstimatorTaskSources -join ', '))\n"
-            "    if ($uniqueSources -contains 'APP/Src/estimator_task.c') {\n"
+            "    $selectedKfSources = @($uniqueSources | Where-Object {\n"
+            "        $_ -like 'Algorithm/Estimator/KF6/*'\n"
+            "    })\n"
+            "    if ($selectedKfSources.Count -gt 0) {\n"
             "        $requiredStrategySources += "
             "'Algorithm/Estimator/KF6/Src/navigation_kf.c'\n"
-            "    }\n"
-            "    if ($uniqueSources -contains 'APP/Src/estimator_task_none.c') {\n"
-            "        $noneKfSources = @($uniqueSources | Where-Object {\n"
-            "            $_ -like 'Algorithm/Estimator/KF6/*'\n"
-            "        })\n"
-            "        Assert-ArchitectureCondition `\n"
-            "            -Condition ($noneKfSources.Count -eq 0) `\n"
-            "            -Message (\"No-fusion estimator task still selects KF6 sources: \" +\n"
-            "                ($noneKfSources -join ', '))\n"
             "    }\n"
         )
         text = text.replace(kf_requirement, "", 1)
@@ -1212,31 +1639,745 @@ def _ArchitectureChecker_Adapt(path: Path, policy: WorkspacePolicy) -> None:
         )
         changed = True
 
+    build_root_legacy = (
+        "BUILD_ROOT\\s*:=\\s*build/\\$\\(TARGET_PROFILE\\)/\\$\\(CONFIG\\)"
+    )
+    build_root_current = (
+        "BUILD_ROOT\\s*:=\\s*build/FCCG/\\$\\(TARGET_PROFILE\\)/"
+        "\\$\\(CONFIG\\)"
+    )
+    if build_root_legacy in text:
+        text = text.replace(build_root_legacy, build_root_current, 1)
+        changed = True
+    elif build_root_current not in text:
+        raise RuntimeError("Reference architecture checker build-root check changed")
+
+    eide_root_legacy = "outDir:\\s*build\\\\EIDE\\\\SilverStar_F407"
+    eide_root_current = (
+        "outDir:\\s*build\\\\FCCG\\\\SilverStar_F407\\\\EIDE"
+    )
+    if eide_root_legacy in text:
+        text = text.replace(eide_root_legacy, eide_root_current, 1)
+        text = text.replace(
+            "build\\EIDE\\SilverStar_F407",
+            "build\\FCCG\\SilverStar_F407\\EIDE",
+        )
+        changed = True
+    elif eide_root_current not in text:
+        raise RuntimeError("Reference architecture checker EIDE-root check changed")
+
+    # Windows PowerShell 5 interprets UTF-8 JSON without a BOM through the
+    # active ANSI code page unless the encoding is explicit.  The SSLOG
+    # metadata contains localized display names, so mojibake can otherwise
+    # turn valid JSON into an apparent ConvertFrom-Json syntax error.
+    utf8_json_reads = (
+        (
+            "Get-Content -Raw -LiteralPath $sslogSchemaPath |",
+            "Get-Content -Raw -Encoding UTF8 -LiteralPath $sslogSchemaPath |",
+        ),
+        (
+            "Get-Content -Raw -LiteralPath (Join-Path $repoRoot `\n"
+            "        'Protocol\\SSLOG\\schema\\sslog_parser_metadata.json') |",
+            "Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $repoRoot `\n"
+            "        'Protocol\\SSLOG\\schema\\sslog_parser_metadata.json') |",
+        ),
+    )
+    for legacy_read, utf8_read in utf8_json_reads:
+        if utf8_read in text:
+            continue
+        if legacy_read not in text:
+            raise RuntimeError("Reference architecture checker SSLOG JSON read changed")
+        text = text.replace(legacy_read, utf8_read, 1)
+        changed = True
+
+    if "FCCG_PROGRESS|ARCHITECTURE|PLAN|6" not in text:
+        progress_replacements = (
+            (
+                "$script:failures = New-Object 'System.Collections.Generic.List[string]'\n",
+                "$script:failures = New-Object 'System.Collections.Generic.List[string]'\n"
+                "Write-Output 'FCCG_PROGRESS|ARCHITECTURE|PLAN|6'\n"
+                "Write-Output 'FCCG_PROGRESS|ARCHITECTURE|BEGIN|1|6|source_graph'\n",
+            ),
+            (
+                "$legacyPaths = @(\n",
+                "Write-Output 'FCCG_PROGRESS|ARCHITECTURE|DONE|1|6|source_graph'\n"
+                "Write-Output 'FCCG_PROGRESS|ARCHITECTURE|BEGIN|2|6|directory_boundaries'\n"
+                "$legacyPaths = @(\n",
+            ),
+            (
+                "Assert-FileContainsPattern -RelativePath 'Makefile' `\n",
+                "Write-Output 'FCCG_PROGRESS|ARCHITECTURE|DONE|2|6|directory_boundaries'\n"
+                "Write-Output 'FCCG_PROGRESS|ARCHITECTURE|BEGIN|3|6|eide_consistency'\n"
+                "Assert-FileContainsPattern -RelativePath 'Makefile' `\n",
+            ),
+            (
+                "Assert-FileContainsPattern -RelativePath 'ThirdParty\\FreeRTOS-Kernel\\include\\task.h' `\n",
+                "Write-Output 'FCCG_PROGRESS|ARCHITECTURE|DONE|3|6|eide_consistency'\n"
+                "Write-Output 'FCCG_PROGRESS|ARCHITECTURE|BEGIN|4|6|freertos'\n"
+                "Assert-FileContainsPattern -RelativePath 'ThirdParty\\FreeRTOS-Kernel\\include\\task.h' `\n",
+            ),
+            (
+                "Assert-FileContainsPattern -RelativePath 'System\\User\\system_user_config.h' `\n",
+                "Write-Output 'FCCG_PROGRESS|ARCHITECTURE|DONE|4|6|freertos'\n"
+                "Write-Output 'FCCG_PROGRESS|ARCHITECTURE|BEGIN|5|6|protocol'\n"
+                "Assert-FileContainsPattern -RelativePath 'System\\User\\system_user_config.h' `\n",
+            ),
+            (
+                "if ($script:failures.Count -ne 0) {\n",
+                "Write-Output 'FCCG_PROGRESS|ARCHITECTURE|DONE|5|6|protocol'\n"
+                "Write-Output 'FCCG_PROGRESS|ARCHITECTURE|BEGIN|6|6|summary'\n"
+                "if ($script:failures.Count -ne 0) {\n",
+            ),
+        )
+        for needle, replacement in progress_replacements:
+            if needle not in text:
+                raise RuntimeError(
+                    "Reference architecture checker progress anchor changed: "
+                    + needle.splitlines()[0]
+                )
+            text = text.replace(needle, replacement, 1)
+        text = text.rstrip() + (
+            "\nWrite-Output 'FCCG_PROGRESS|ARCHITECTURE|DONE|6|6|summary'\n"
+        )
+        changed = True
+
     if changed:
         policy.Text_AtomicWrite(path, text)
 
 
+def _PowerShellFunction_Adapt(
+    text: str,
+    function_name: str,
+    replacements: tuple[tuple[str, str], ...],
+) -> str:
+    start = text.find(f"function {function_name} {{")
+    if start < 0:
+        raise RuntimeError(f"Reference host function is missing: {function_name}")
+    end = text.find("\nfunction ", start + 1)
+    if end < 0:
+        end = text.find("\nInitialize-HostCompiler", start + 1)
+    if end < 0:
+        raise RuntimeError(f"Reference host function boundary changed: {function_name}")
+    block = text[start:end]
+    for needle, replacement in replacements:
+        if needle not in block:
+            raise RuntimeError(
+                f"Reference host function progress anchor changed: {function_name}: "
+                + needle.splitlines()[0]
+            )
+        block = block.replace(needle, replacement, 1)
+    return text[:start] + block + text[end:]
+
+
+def _HostTestProgress_Adapt(text: str) -> str:
+    if "FCCG_PROGRESS|$taskKind|PLAN|$total" in text:
+        return text
+    variables = "$script:expectedCompileFailureCount = 0\n"
+    if variables not in text:
+        raise RuntimeError("Reference host progress counter contract changed")
+    text = text.replace(
+        variables,
+        variables
+        + "$script:collectHostJobs = $true\n"
+        + "$script:hostJobs = [System.Collections.Generic.List[object]]::new()\n"
+        + "$script:progressCompleted = @{}\n"
+        + "$script:progressTotals = @{}\n",
+        1,
+    )
+    output_marker = "$silverstarAssertSource = \"$repoRoot\\Common\\Src\\silverstar_assert.c\"\n"
+    if output_marker not in text:
+        raise RuntimeError("Reference host detail-log anchor changed")
+    text = text.replace(
+        output_marker,
+        output_marker
+        + "$detailLogPath = Join-Path $outputDir 'host-tests-detail.log'\n"
+        + "if (Test-Path -LiteralPath $detailLogPath) {\n"
+        + "    Remove-Item -LiteralPath $detailLogPath -Force\n"
+        + "}\n",
+        1,
+    )
+    function_anchor = "function Invoke-HostTest {\n"
+    if function_anchor not in text:
+        raise RuntimeError("Reference host test function anchor changed")
+    progress_functions = r'''function Write-FccgProgressBegin {
+    param(
+        [Parameter(Mandatory = $true)][string]$Task,
+        [Parameter(Mandatory = $true)][string]$Subject
+    )
+
+    $current = [int]$script:progressCompleted[$Task] + 1
+    $total = [int]$script:progressTotals[$Task]
+    Write-Output "FCCG_PROGRESS|$Task|BEGIN|$current|$total|$Subject"
+}
+
+function Write-FccgProgressDone {
+    param(
+        [Parameter(Mandatory = $true)][string]$Task,
+        [Parameter(Mandatory = $true)][string]$Subject
+    )
+
+    $script:progressCompleted[$Task] = `
+        [int]$script:progressCompleted[$Task] + 1
+    $current = [int]$script:progressCompleted[$Task]
+    $total = [int]$script:progressTotals[$Task]
+    Write-Output "FCCG_PROGRESS|$Task|DONE|$current|$total|$Subject"
+}
+
+function Write-HostTestDetail {
+    param([Parameter(Mandatory = $true)][string]$Text)
+
+    [System.IO.File]::AppendAllText(
+        $detailLogPath,
+        $Text + [Environment]::NewLine,
+        [System.Text.UTF8Encoding]::new($false)
+    )
+    Write-Output "FCCG_DETAIL|$Text"
+}
+
+'''
+    text = text.replace(function_anchor, progress_functions + function_anchor, 1)
+
+    parameter_end = "        [string[]]$ExtraCompilerArgs = @()\n    )\n\n"
+    text = _PowerShellFunction_Adapt(
+        text,
+        "Invoke-HostTest",
+        (
+            (
+                parameter_end,
+                parameter_end
+                + "    if ($script:collectHostJobs) {\n"
+                + "        $script:hostJobs.Add([pscustomobject]@{\n"
+                + "            Kind = 'HOST_TEST'\n"
+                + "            Name = $Name\n"
+                + "            Sources = @($Sources)\n"
+                + "            ExtraCompilerArgs = @($ExtraCompilerArgs)\n"
+                + "        })\n"
+                + "        return\n"
+                + "    }\n\n"
+                + "    Write-FccgProgressBegin -Task 'HOST_TEST' -Subject $Name\n\n",
+            ),
+            (
+                "    $script:hostExecutableCount++\n",
+                "    $script:hostExecutableCount++\n"
+                + "    Write-FccgProgressDone -Task 'HOST_TEST' -Subject $Name\n",
+            ),
+        ),
+    )
+    expected_failure_completion_legacy = (
+        "    $script:expectedCompileFailureCount++\n"
+        "    Write-Output \"Expected host compile failure passed: $Name\"\n"
+    )
+    expected_failure_completion_current = (
+        "    $diagnosticLine = $compileResult.Output | Where-Object {\n"
+        "        ([string]$_) -match '(?i)(fatal error:|error:|#error)'\n"
+        "    } | Select-Object -First 1\n"
+        "    if ($null -eq $diagnosticLine) {\n"
+        "        Write-HostCompileDiagnostic -Name $Name -CompilerArgs $compilerArgs `\n"
+        "            -ExitCode $compileResult.ExitCode -CompilerOutput $compileResult.Output\n"
+        "        throw \"Expected host compile failure had no GCC diagnostic: $Name\"\n"
+        "    }\n"
+        "    $script:expectedCompileFailureCount++\n"
+        "    Write-Output ((\"Expected host compile failure passed: {0} \" +\n"
+        "        \"compiler={1} target={2} diagnostic={3}\") -f $Name,\n"
+        "        $script:hostCompilerPath, $script:hostCompilerTarget,\n"
+        "        ([string]$diagnosticLine).Trim())\n"
+    )
+    if expected_failure_completion_legacy in text:
+        expected_failure_completion = expected_failure_completion_legacy
+    elif expected_failure_completion_current in text:
+        expected_failure_completion = expected_failure_completion_current
+    else:
+        raise RuntimeError(
+            "Reference expected-compile-failure completion contract changed"
+        )
+    text = _PowerShellFunction_Adapt(
+        text,
+        "Invoke-ExpectedCompileFailure",
+        (
+            (
+                parameter_end,
+                parameter_end
+                + "    if ($script:collectHostJobs) {\n"
+                + "        $script:hostJobs.Add([pscustomobject]@{\n"
+                + "            Kind = 'HOST_EXPECTED_FAILURE'\n"
+                + "            Name = $Name\n"
+                + "            Source = $Source\n"
+                + "            ExtraCompilerArgs = @($ExtraCompilerArgs)\n"
+                + "        })\n"
+                + "        return\n"
+                + "    }\n\n"
+                + "    Write-FccgProgressBegin -Task 'HOST_EXPECTED_FAILURE' -Subject $Name\n\n",
+            ),
+            (
+                expected_failure_completion,
+                "    $diagnosticLine = $compileResult.Output | Where-Object {\n"
+                "        ([string]$_) -match '(?i)(static assertion failed|#error)'\n"
+                "    } | Select-Object -First 1\n"
+                "    if ($null -eq $diagnosticLine) {\n"
+                "        Write-HostCompileDiagnostic -Name $Name -CompilerArgs $compilerArgs `\n"
+                "            -ExitCode $compileResult.ExitCode -CompilerOutput $compileResult.Output\n"
+                "        throw \"Expected host compile failure did not match a configuration gate: $Name\"\n"
+                "    }\n"
+                "    $script:expectedCompileFailureCount++\n"
+                "    Write-Output \"FCCG_EXPECTED_REJECTION|$Name\"\n"
+                "    Write-HostTestDetail -Text (\"Expected compile rejection: {0}\" -f $Name)\n"
+                "    Write-HostTestDetail -Text (\"Compiler: {0}\" -f $script:hostCompilerPath)\n"
+                "    Write-HostTestDetail -Text (\"Target: {0}\" -f $script:hostCompilerTarget)\n"
+                "    foreach ($diagnostic in $compileResult.Output) {\n"
+                "        Write-HostTestDetail -Text ([string]$diagnostic)\n"
+                "    }\n"
+                "    Write-FccgProgressDone -Task 'HOST_EXPECTED_FAILURE' -Subject $Name\n",
+            ),
+        ),
+    )
+    text = _PowerShellFunction_Adapt(
+        text,
+        "Invoke-ExpectedCompileSuccess",
+        (
+            (
+                parameter_end,
+                parameter_end
+                + "    if ($script:collectHostJobs) {\n"
+                + "        $script:hostJobs.Add([pscustomobject]@{\n"
+                + "            Kind = 'HOST_COMPILE_PASS'\n"
+                + "            Name = $Name\n"
+                + "            Source = $Source\n"
+                + "            ExtraCompilerArgs = @($ExtraCompilerArgs)\n"
+                + "        })\n"
+                + "        return\n"
+                + "    }\n\n"
+                + "    Write-FccgProgressBegin -Task 'HOST_COMPILE_PASS' -Subject $Name\n\n",
+            ),
+            (
+                "    Write-Output \"Expected host compile success passed: $Name\"\n",
+                "    Write-Output \"Expected host compile success passed: $Name\"\n"
+                + "    Write-FccgProgressDone -Task 'HOST_COMPILE_PASS' -Subject $Name\n",
+            ),
+        ),
+    )
+    replay_anchor = "$alignmentRuntimeFiles = @(\n"
+    if replay_anchor not in text:
+        raise RuntimeError("Reference host test replay anchor changed")
+    replay = r'''$script:collectHostJobs = $false
+$plannedJobs = @($script:hostJobs | Where-Object {
+    (($_.Kind -eq 'HOST_TEST') -and
+        (@($_.Sources | Where-Object { -not (Test-Path -LiteralPath $_) }).Count -eq 0)) -or
+    (($_.Kind -ne 'HOST_TEST') -and (Test-Path -LiteralPath $_.Source))
+})
+foreach ($taskKind in @(
+    'HOST_TEST',
+    'HOST_COMPILE_PASS',
+    'HOST_EXPECTED_FAILURE'
+)) {
+    $total = @($plannedJobs | Where-Object { $_.Kind -eq $taskKind }).Count
+    $script:progressCompleted[$taskKind] = 0
+    $script:progressTotals[$taskKind] = $total
+    if ($total -gt 0) {
+        Write-Output "FCCG_PROGRESS|$taskKind|PLAN|$total"
+    }
+}
+foreach ($skippedJob in @($script:hostJobs | Where-Object {
+    ($_.Kind -eq 'HOST_TEST') -and
+    (@($_.Sources | Where-Object { -not (Test-Path -LiteralPath $_) }).Count -ne 0)
+})) {
+    Write-Output ("Skipped host test {0}: unselected component sources" -f `
+        $skippedJob.Name)
+}
+foreach ($job in $plannedJobs) {
+    switch ($job.Kind) {
+        'HOST_TEST' {
+            Invoke-HostTest -Name $job.Name -Sources $job.Sources `
+                -ExtraCompilerArgs $job.ExtraCompilerArgs
+        }
+        'HOST_COMPILE_PASS' {
+            Invoke-ExpectedCompileSuccess -Name $job.Name `
+                -Source $job.Source `
+                -ExtraCompilerArgs $job.ExtraCompilerArgs
+        }
+        'HOST_EXPECTED_FAILURE' {
+            Invoke-ExpectedCompileFailure -Name $job.Name `
+                -Source $job.Source `
+                -ExtraCompilerArgs $job.ExtraCompilerArgs
+        }
+    }
+}
+
+'''
+    return text.replace(replay_anchor, replay + replay_anchor, 1)
+
+
 def _HostTestRunner_Adapt(path: Path, policy: WorkspacePolicy) -> None:
     text = path.read_text(encoding="utf-8")
+    legacy_output = "$outputDir = Join-Path $repoRoot 'build\\Host\\Tests'"
+    current_output = "$outputDir = Join-Path $repoRoot 'build\\FCCG\\Host\\Tests'"
+    if legacy_output in text:
+        text = text.replace(legacy_output, current_output, 1)
+    elif current_output not in text:
+        raise RuntimeError("Reference host test output directory contract changed")
     marker = "$fccgMissingSources"
-    if marker in text:
+    if marker not in text:
+        needle = "    $executable = Join-Path $outputDir ($Name + '.exe')"
+        if needle not in text:
+            raise RuntimeError("Reference host test runner Invoke-HostTest changed")
+        replacement = (
+            "    # A generated FCCG project contains only its selected component payloads.\n"
+            "    $fccgMissingSources = @($Sources | Where-Object {\n"
+            "        -not (Test-Path -LiteralPath $_)\n"
+            "    })\n"
+            "    if ($fccgMissingSources.Count -ne 0) {\n"
+            "        Write-Output (\"Skipped host test {0}: unselected component sources {1}\" "
+            "-f $Name, ($fccgMissingSources -join ', '))\n"
+            "        return\n"
+            "    }\n\n"
+            f"{needle}"
+        )
+        text = text.replace(needle, replacement, 1)
+    if "Host compiler return code:" not in text:
+        parameter = (
+            "        [Parameter(Mandatory = $true)][string[]]$CompilerArgs,\n"
+            "        [object[]]$CompilerOutput = @()"
+        )
+        if parameter not in text:
+            raise RuntimeError("Reference host diagnostic parameter contract changed")
+        text = text.replace(
+            parameter,
+            "        [Parameter(Mandatory = $true)][string[]]$CompilerArgs,\n"
+            "        [Parameter(Mandatory = $true)][int]$ExitCode,\n"
+            "        [object[]]$CompilerOutput = @()",
+            1,
+        )
+        target_line = (
+            '    Write-Output "Host compiler target: '
+            '$($script:hostCompilerTarget)"'
+        )
+        if target_line not in text:
+            raise RuntimeError("Reference host diagnostic output contract changed")
+        text = text.replace(
+            target_line,
+            target_line + '\n    Write-Output "Host compiler return code: $ExitCode"',
+            1,
+        )
+        call = "            -CompilerOutput $compileResult.Output"
+        if call not in text:
+            raise RuntimeError("Reference host diagnostic call contract changed")
+        text = text.replace(
+            call,
+            "            -ExitCode $compileResult.ExitCode "
+            "-CompilerOutput $compileResult.Output",
+        )
+    runtime_marker = "Host compiler runtime directory:"
+    if runtime_marker not in text:
+        compiler_path_assignment = (
+            "    $script:hostCompilerPath = $compilerCommand.Path\n"
+        )
+        if compiler_path_assignment not in text:
+            raise RuntimeError("Reference Host compiler initialization changed")
+        runtime_isolation = r'''    $script:hostCompilerPath = $compilerCommand.Path
+    $hostCompilerDirectory = Split-Path -Parent $script:hostCompilerPath
+    Write-Output "Host compiler runtime directory: $hostCompilerDirectory"
+    $env:PATH = $hostCompilerDirectory + [System.IO.Path]::PathSeparator + `
+        $env:PATH
+    foreach ($variableName in @(
+        'GCC_EXEC_PREFIX',
+        'COMPILER_PATH',
+        'CPATH',
+        'C_INCLUDE_PATH',
+        'CPLUS_INCLUDE_PATH',
+        'OBJC_INCLUDE_PATH',
+        'LIBRARY_PATH',
+        'DEPENDENCIES_OUTPUT',
+        'SUNPRO_DEPENDENCIES'
+    )) {
+        $environmentPath = "Env:$variableName"
+        if (Test-Path -LiteralPath $environmentPath) {
+            Remove-Item -LiteralPath $environmentPath -Force
+        }
+    }
+'''
+        text = text.replace(
+            compiler_path_assignment,
+            runtime_isolation,
+            1,
+        )
+    text = _HostTestProgress_Adapt(text)
+    golden_marker = "$env:SILVERSTAR_GOLDEN_OUTPUT"
+    if golden_marker not in text:
+        setup_anchor = "Initialize-HostCompiler\nInvoke-RecordCatalogValidator\n"
+        if setup_anchor not in text:
+            raise RuntimeError("Reference Host Test initialization changed")
+        golden_setup = r'''Initialize-HostCompiler
+Invoke-RecordCatalogValidator
+
+$projectDocument = Get-Content -Raw -Encoding UTF8 -LiteralPath `
+    (Join-Path $repoRoot 'SilverStar.ssproject') | ConvertFrom-Json
+$goldenDirectory = Join-Path $repoRoot 'Logs\Golden'
+New-Item -ItemType Directory -Force -Path $goldenDirectory | Out-Null
+$goldenFilename = ([string]$projectDocument.project.name) + '_golden.sslog'
+$env:SILVERSTAR_GOLDEN_OUTPUT = Join-Path $goldenDirectory $goldenFilename
+'''
+        text = text.replace(setup_anchor, golden_setup, 1)
+        collection_anchor = "$script:collectHostJobs = $false\n"
+        if collection_anchor not in text:
+            raise RuntimeError("Reference Host Test collection boundary changed")
+        golden_job = r'''Invoke-HostTest -Name 'golden_sample' -Sources (@(
+    "$repoRoot\Tests\Host\generate_golden_sample.c",
+    "$repoRoot\Generated\Src\project_log_decoder_profile.c"
+) + $sslogSources)
+
+'''
+        text = text.replace(collection_anchor, golden_job + collection_anchor, 1)
+    policy.Text_AtomicWrite(path, text)
+
+
+def _ArtifactChecker_Adapt(path: Path, policy: WorkspacePolicy) -> None:
+    text = path.read_text(encoding="utf-8")
+    legacy = "(Join-Path 'build' `"
+    current = "(Join-Path 'build\\FCCG' `"
+    if legacy in text:
+        text = text.replace(legacy, current, 1)
+    elif current not in text:
+        raise RuntimeError("Reference artifact checker build-root contract changed")
+    if "FCCG_PROGRESS|ARTIFACT|PLAN|8" not in text:
+        progress_replacements = (
+            (
+                "$failures = New-Object 'System.Collections.Generic.List[string]'\n",
+                "$failures = New-Object 'System.Collections.Generic.List[string]'\n"
+                "Write-Output 'FCCG_PROGRESS|ARTIFACT|PLAN|8'\n"
+                "Write-Output 'FCCG_PROGRESS|ARTIFACT|BEGIN|1|8|ELF_MAP_BIN_HEX'\n",
+            ),
+            (
+                "$nmCommand = Get-Command arm-none-eabi-nm -ErrorAction SilentlyContinue\n",
+                "Write-Output 'FCCG_PROGRESS|ARTIFACT|DONE|1|8|ELF_MAP_BIN_HEX'\n"
+                "Write-Output 'FCCG_PROGRESS|ARTIFACT|BEGIN|2|8|ELF'\n"
+                "$nmCommand = Get-Command arm-none-eabi-nm -ErrorAction SilentlyContinue\n",
+            ),
+            (
+                "$ccmStart = [uint64]0x10000000\n",
+                "Write-Output 'FCCG_PROGRESS|ARTIFACT|DONE|2|8|ELF'\n"
+                "Write-Output 'FCCG_PROGRESS|ARTIFACT|BEGIN|3|8|MAP'\n"
+                "$ccmStart = [uint64]0x10000000\n",
+            ),
+            (
+                "$flashSectionNames = @(\n",
+                "Write-Output 'FCCG_PROGRESS|ARTIFACT|DONE|3|8|MAP'\n"
+                "$flashSectionNames = @(\n",
+            ),
+            (
+                "Assert-ArtifactCondition -Condition ($flashUsed -le $flashLength) `\n",
+                "Write-Output 'FCCG_PROGRESS|ARTIFACT|BEGIN|4|8|FLASH'\n"
+                "Assert-ArtifactCondition -Condition ($flashUsed -le $flashLength) `\n",
+            ),
+            (
+                "Assert-ArtifactCondition -Condition ($mainSramUsed -le $mainSramLength) `\n",
+                "Write-Output 'FCCG_PROGRESS|ARTIFACT|DONE|4|8|FLASH'\n"
+                "Write-Output 'FCCG_PROGRESS|ARTIFACT|BEGIN|5|8|MAIN_SRAM'\n"
+                "Assert-ArtifactCondition -Condition ($mainSramUsed -le $mainSramLength) `\n",
+            ),
+            (
+                "Assert-ArtifactCondition -Condition ($ccmUsed -le $ccmLength) `\n",
+                "Write-Output 'FCCG_PROGRESS|ARTIFACT|DONE|5|8|MAIN_SRAM'\n"
+                "Write-Output 'FCCG_PROGRESS|ARTIFACT|BEGIN|6|8|CCMRAM'\n"
+                "Assert-ArtifactCondition -Condition ($ccmUsed -le $ccmLength) `\n",
+            ),
+            (
+                "$flashRemaining = $flashLength - [Math]::Min($flashUsed, $flashLength)\n",
+                "Write-Output 'FCCG_PROGRESS|ARTIFACT|DONE|6|8|CCMRAM'\n"
+                "Write-Output 'FCCG_PROGRESS|ARTIFACT|BEGIN|7|8|heap'\n"
+                "$flashRemaining = $flashLength - [Math]::Min($flashUsed, $flashLength)\n",
+            ),
+            (
+                "$largestStaticObjects = @($symbols.Values | Where-Object {\n",
+                "Write-Output 'FCCG_PROGRESS|ARTIFACT|DONE|7|8|heap'\n"
+                "Write-Output 'FCCG_PROGRESS|ARTIFACT|BEGIN|8|8|summary'\n"
+                "$largestStaticObjects = @($symbols.Values | Where-Object {\n",
+            ),
+        )
+        for needle, replacement in progress_replacements:
+            if needle not in text:
+                raise RuntimeError(
+                    "Reference artifact checker progress anchor changed: "
+                    + needle.splitlines()[0]
+                )
+            text = text.replace(needle, replacement, 1)
+        text = text.rstrip() + (
+            "\nWrite-Output 'FCCG_PROGRESS|ARTIFACT|DONE|8|8|summary'\n"
+        )
+    policy.Text_AtomicWrite(path, text)
+
+
+def _PowerTenChecker_Adapt(path: Path, policy: WorkspacePolicy) -> None:
+    text = path.read_text(encoding="utf-8")
+    if "FCCG_PROGRESS|POWER10|PLAN|$progressTotal" in text:
         return
-    needle = "    $executable = Join-Path $outputDir ($Name + '.exe')"
-    if needle not in text:
-        raise RuntimeError("Reference host test runner Invoke-HostTest changed")
-    replacement = (
-        "    # A generated FCCG project contains only its selected component payloads.\n"
-        "    $fccgMissingSources = @($Sources | Where-Object {\n"
-        "        -not (Test-Path -LiteralPath $_)\n"
-        "    })\n"
-        "    if ($fccgMissingSources.Count -ne 0) {\n"
-        "        Write-Output (\"Skipped host test {0}: unselected component sources {1}\" "
-        "-f $Name, ($fccgMissingSources -join ', '))\n"
-        "        return\n"
-        "    }\n\n"
-        f"{needle}"
+    replacements = (
+        (
+            "$files = Get-FirstPartyCFiles\n",
+            "$files = Get-FirstPartyCFiles\n"
+            "$progressTotal = $files.Count + 2\n"
+            "$progressCurrent = 0\n"
+            "Write-Output \"FCCG_PROGRESS|POWER10|PLAN|$progressTotal\"\n",
+        ),
+        (
+            "foreach ($file in $files) {\n",
+            "foreach ($file in $files) {\n"
+            "    $progressCurrent++\n"
+            "    $progressSubject = $file.FullName.Substring($repoRoot.Length + 1)\n"
+            "    Write-Output \"FCCG_PROGRESS|POWER10|BEGIN|$progressCurrent|$progressTotal|$progressSubject\"\n",
+        ),
+        (
+            "}\n\nforeach ($function in $allFunctions) {\n",
+            "    Write-Output \"FCCG_PROGRESS|POWER10|DONE|$progressCurrent|$progressTotal|$progressSubject\"\n"
+            "}\n\n"
+            "$progressCurrent++\n"
+            "Write-Output \"FCCG_PROGRESS|POWER10|BEGIN|$progressCurrent|$progressTotal|function_rules\"\n"
+            "foreach ($function in $allFunctions) {\n",
+        ),
+        (
+            "}\n\n$makefile = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'Makefile')\n",
+            "}\n"
+            "Write-Output \"FCCG_PROGRESS|POWER10|DONE|$progressCurrent|$progressTotal|function_rules\"\n\n"
+            "$progressCurrent++\n"
+            "Write-Output \"FCCG_PROGRESS|POWER10|BEGIN|$progressCurrent|$progressTotal|build_policy\"\n"
+            "$makefile = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'Makefile')\n",
+        ),
     )
-    policy.Text_AtomicWrite(path, text.replace(needle, replacement, 1))
+    for needle, replacement in replacements:
+        if needle not in text:
+            raise RuntimeError(
+                "Reference Power-of-Ten checker progress anchor changed: "
+                + needle.splitlines()[0]
+            )
+        text = text.replace(needle, replacement, 1)
+    text = text.rstrip() + (
+        "\nWrite-Output \"FCCG_PROGRESS|POWER10|DONE|$progressCurrent|$progressTotal|build_policy\"\n"
+    )
+    policy.Text_AtomicWrite(path, text)
+
+
+def _ProtocolProfileMetadata_Write(
+    staged_builtin: Path, policy: WorkspacePolicy
+) -> None:
+    metadata_root = (
+        staged_builtin
+        / "silverstar_protocol_reference_v0"
+        / "payload"
+        / "Protocol"
+        / "metadata"
+    )
+    documents = {
+        "air_m0.json": {
+            "format_version": 1,
+            "profile_id": "air.m0",
+            "service": "telemetry_service",
+            "slot": "telemetry_protocol",
+            "wire_value": 0,
+            "framing": "packet",
+            "minimum_mtu": 50,
+            "sensor_status": {
+                "message_type": "AIR_TYPE_SENSOR_STATUS",
+                "device_identity_fields": ["sensor_id", "instance_id"],
+                "wire_layout_unchanged": True,
+            },
+        },
+        "maintenance_serial_0_0.json": {
+            "format_version": 1,
+            "profile_id": "maintenance.serial.0_0",
+            "service": "maintenance_service",
+            "slot": "maintenance_protocol",
+            "framing": "utf8_line",
+            "transport": "byte_stream",
+            "device_addressing": {
+                "classes": ["IMU", "BARO", "GNSS"],
+                "instance_range": [0, 255],
+                "identity_fields": [
+                    "descriptor_id",
+                    "instance_id",
+                    "physical_device_id",
+                ],
+            },
+        },
+    }
+    for filename, document in documents.items():
+        policy.Text_AtomicWrite(
+            metadata_root / filename,
+            json.dumps(document, ensure_ascii=False, indent=2) + "\n",
+        )
+
+
+def _GeneratedFacadeTemplates_Copy(
+    reference: Path, staged_builtin: Path, policy: WorkspacePolicy
+) -> None:
+    template_root = (
+        staged_builtin
+        / "silverstar_core_0_0_9"
+        / "templates"
+        / "generated"
+    )
+    header_source = reference / "Generated" / "Inc" / "project_device_instances.h"
+    implementation_source = (
+        reference / "Generated" / "Src" / "project_device_instances.c"
+    )
+    decoder_header_source = (
+        reference / "Generated" / "Inc" / "project_log_decoder_profile.h"
+    )
+    decoder_implementation_source = (
+        reference / "Generated" / "Src" / "project_log_decoder_profile.c"
+    )
+    semantics_source = reference / "Generated" / "project_semantics.json"
+    log_config_source = reference / "Generated" / "Src" / "project_log_config.c"
+    header_text = header_source.read_text(encoding="utf-8")
+    implementation_text = implementation_source.read_text(encoding="utf-8")
+    legacy_validator = (
+        "    SystemDeviceDescriptor descriptor;\n\n"
+        "    switch (instance_id)\n"
+        "    {\n"
+        "        case 0U:\n"
+        "            return SystemDescriptor_DeviceFind(\n"
+        "                device_class, instance_id, &descriptor);\n"
+        "        default:\n"
+        "            return SYSTEM_DEVICE_NOT_PRESENT;\n"
+        "    }"
+    )
+    generic_validator = (
+        "    SystemDeviceDescriptor descriptor;\n\n"
+        "    return SystemDescriptor_DeviceFind(\n"
+        "        device_class, instance_id, &descriptor);"
+    )
+    compact_generic_validator = (
+        "    SystemDeviceDescriptor descriptor;\n\n"
+        "    return SystemDescriptor_DeviceFind(device_class, instance_id, &descriptor);"
+    )
+    if legacy_validator in implementation_text:
+        implementation_text = implementation_text.replace(
+            legacy_validator, generic_validator, 1
+        )
+    elif (
+        generic_validator not in implementation_text
+        and compact_generic_validator not in implementation_text
+    ):
+        raise RuntimeError("Reference project-device facade validation changed")
+    policy.Text_AtomicWrite(
+        template_root / "project_device_instances.h", header_text
+    )
+    policy.Text_AtomicWrite(
+        template_root / "project_device_instances.c", implementation_text
+    )
+    policy.File_Copy(
+        log_config_source,
+        template_root / "project_log_config.c",
+    )
+    policy.File_Copy(
+        decoder_header_source,
+        template_root / "project_log_decoder_profile.h",
+    )
+    policy.File_Copy(
+        decoder_implementation_source,
+        template_root / "project_log_decoder_profile.c",
+    )
+    policy.File_Copy(
+        semantics_source,
+        template_root / "project_semantics.json",
+    )
 
 
 def _ProtocolMetadata_Adapt(
@@ -1261,10 +2402,6 @@ def _ProtocolMetadata_Adapt(
         record = by_name.get(str(name))
         if record is None or not isinstance(enabled, bool):
             raise RuntimeError(f"Protocol metadata overlay record is invalid: {name}")
-        default_stream = record.get("default_stream")
-        if not isinstance(default_stream, dict):
-            raise RuntimeError(f"Protocol record has no default stream: {name}")
-        default_stream["enabled"] = enabled
     fccg = overlay["fccg"]
     record_policies = fccg.get("records") if isinstance(fccg, dict) else None
     record_enums = {
@@ -1274,6 +2411,12 @@ def _ProtocolMetadata_Adapt(
     }
     if not isinstance(record_policies, dict) or set(record_policies) != record_enums:
         raise RuntimeError("Protocol metadata overlay does not cover every record")
+    for name, enabled in enabled_overrides.items():
+        enum_name = str(by_name[str(name)]["enum"])
+        policy_entry = record_policies.get(enum_name)
+        if not isinstance(policy_entry, dict):
+            raise RuntimeError(f"Protocol policy overlay is invalid: {enum_name}")
+        policy_entry["default_enabled"] = enabled
     metadata["fccg"] = fccg
     policy.Text_AtomicWrite(
         path, json.dumps(metadata, ensure_ascii=False, indent=2) + "\n"
@@ -1535,9 +2678,42 @@ def _EnvironmentTemplates_Copy(
     )
 
 
+def _ImportedDocumentation_Adapt(
+    staged_builtin: Path, policy: WorkspacePolicy
+) -> None:
+    """Apply FCCG output-layout overlays to copied reference documentation."""
+    replacements = (
+        ("build/SilverStar_F407/", "build/FCCG/SilverStar_F407/"),
+        ("build/EIDE/SilverStar_F407/Debug/", "build/FCCG/SilverStar_F407/EIDE/"),
+        ("build/EIDE/SilverStar_F407/Debug", "build/FCCG/SilverStar_F407/EIDE"),
+        ("build/EIDE/", "build/FCCG/SilverStar_F407/EIDE/"),
+        ("build/Host/Tests/", "build/FCCG/Host/Tests/"),
+        ("build/Host/Tests", "build/FCCG/Host/Tests"),
+        ("build/<Target>/<Debug|Release>", "build/FCCG/<Target>/<Debug|Release>"),
+    )
+    for path in staged_builtin.glob("*/docs/*.md"):
+        content = path.read_text(encoding="utf-8")
+        adapted = content
+        for old, new in replacements:
+            adapted = adapted.replace(old, new)
+        if adapted != content:
+            policy.Text_AtomicWrite(path, adapted)
+
+
 def Components_Import(reference: Path, *, force: bool = False) -> dict[str, Any]:
     reference = reference.resolve()
     provenance = ReferenceProvenance_Get(reference)
+    if provenance["working_tree"] != "clean":
+        raise RuntimeError(
+            "Reference import requires a clean read-only firmware working tree"
+        )
+    audit = ReferenceAudit_Get(reference)
+    if audit["missing_required_files"]:
+        raise RuntimeError(
+            "Reference is missing required latest-firmware files: "
+            + ", ".join(audit["missing_required_files"])
+        )
+    provenance["audit"] = audit
     policy = WorkspacePolicy(WORKSPACE_ROOT)
     builtin_root = policy.Path_Resolve(BUILTIN_ROOT, allow_root=False)
     if builtin_root.exists() and not force:
@@ -1588,9 +2764,37 @@ def Components_Import(reference: Path, *, force: bool = False) -> dict[str, Any]
             / "run_tests.ps1",
             policy,
         )
+        policy.File_Copy(
+            REFERENCE_OVERLAY_ROOT / "generate_golden_sample.c",
+            staged_builtin
+            / "silverstar_core_0_0_9"
+            / "payload"
+            / "Tests"
+            / "Host"
+            / "generate_golden_sample.c",
+        )
+        _ArtifactChecker_Adapt(
+            staged_builtin
+            / "silverstar_core_0_0_9"
+            / "payload"
+            / "Tools"
+            / "check_firmware_artifact.ps1",
+            policy,
+        )
+        _PowerTenChecker_Adapt(
+            staged_builtin
+            / "silverstar_core_0_0_9"
+            / "payload"
+            / "Tools"
+            / "check_power_of_ten.ps1",
+            policy,
+        )
         _BoardUserVisibleNames_Adapt(staged_builtin, policy)
         _BoardLogicalDevices_Adapt(staged_builtin, policy)
+        _ImportedDocumentation_Adapt(staged_builtin, policy)
         _EnvironmentTemplates_Copy(reference, staged_builtin, policy)
+        _GeneratedFacadeTemplates_Copy(reference, staged_builtin, policy)
+        _ProtocolProfileMetadata_Write(staged_builtin, policy)
         _ProtocolMetadata_Adapt(
             staged_builtin
             / "silverstar_protocol_reference_v0"
@@ -1614,12 +2818,12 @@ def Components_Import(reference: Path, *, force: bool = False) -> dict[str, Any]
         )
         PluginCatalog(staged_builtin, stage / "installed-empty").Scan()
         if builtin_root.exists():
-            os.replace(builtin_root, backup)
+            policy.Path_Replace(builtin_root, backup)
         try:
-            os.replace(staged_builtin, builtin_root)
+            policy.Path_Replace(staged_builtin, builtin_root)
         except Exception:
             if backup.exists():
-                os.replace(backup, builtin_root)
+                policy.Path_Replace(backup, builtin_root)
             raise
         if backup.exists():
             policy.Tree_Remove(backup)

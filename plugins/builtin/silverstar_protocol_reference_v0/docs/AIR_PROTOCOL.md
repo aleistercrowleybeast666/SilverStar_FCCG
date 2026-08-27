@@ -1,9 +1,10 @@
-# SilverStar AIR 应用层协议
+# SilverStar AIR 遥测协议 M0
 
-> 协议版本：V0  
-> 当前 AIR Profile：`AIR_PROFILE_COMPACT_V0 = 0`  
+> 正式名称：AIR 遥测协议 M0
+> wire兼容标识：`AIR_PROFILE_COMPACT_V0 = 0`
+> 当前技术profile枚举：`AIR_PROFILE_COMPACT_V0 = 0`
 > 适用范围：SilverStar 飞控与地面站  
-> 状态：尚未正式发布；正式发布前协议版本与 `air_profile_id` 均保持 V0 / 0，可继续调整 V0 内部定义
+> 状态：尚未正式发布；正式发布前协议名称与 `air_profile_id` 均保持 M0 / 0，可继续调整 M0 内部定义
 
 ## 1. 固定原则
 
@@ -17,11 +18,11 @@ AIR 是飞控与地面站之间的定长二进制应用层协议。
 - 不使用 TLV；
 - 不在已有固定帧尾部随意增加字段；
 - 不因增加普通传感器而改变既有固定帧；
-- 不因更换具体传感器型号而改变 AIR Profile。
+- 不因更换具体传感器型号而改变AIR M0。
 
 AIR 应用层不附加 CRC8/CRC16/CRC32。
 
-当前 SX1281 Transport 使用 LoRa hardware CRC 提供空口完整性保护。未来如果更换 Transport，新 Transport 必须自行提供 CRC 或等效完整性保护，不得静默改变 AIR V0 的固定帧布局。
+当前 SX1281 Transport 使用 LoRa hardware CRC 提供空口完整性保护。未来如果更换 Transport，新 Transport 必须自行提供 CRC 或等效完整性保护，不得静默改变 AIR M0 的固定帧布局。
 
 ```c
 AIR_PROFILE_COMPACT_V0 = 0U
@@ -41,9 +42,9 @@ SilverStar firmware version 不编码进 AIR profile。
 
 ---
 
-## 2. AIR V0 设计目标
+## 2. AIR M0 设计目标
 
-AIR V0 将飞行状态、传感器类别、具体传感器型号、Alignment 算法与 Transport 实现解耦。
+AIR M0 将飞行状态、传感器类别、具体传感器型号、Alignment 算法与 Transport 实现解耦。
 
 AIR 周期主链只关心长期稳定的 canonical information：
 
@@ -54,11 +55,11 @@ AIR 周期主链只关心长期稳定的 canonical information：
 - alignment；
 - flight state。
 
-普通传感器使用通用 `SENSOR_STATUS` 描述。未来新增 barometer、magnetometer、air-data sensor、rangefinder、radar altimeter、sun sensor、star tracker、vision sensor、external attitude sensor 等，不得要求修改固定 AIR V0 frame layout。
+普通传感器使用通用 `SENSOR_STATUS` 描述。未来新增 barometer、magnetometer、air-data sensor、rangefinder、radar altimeter、sun sensor、star tracker、vision sensor、external attitude sensor 等，不得要求修改固定 AIR M0 frame layout。
 
 Ground Station 遇到尚未认识的 sensor ID 时应显示 `Unknown Sensor 0xNN`，而不是拒绝整个会话。
 
-由于当前协议尚未正式发布，V0 定义仍可调整；正式发布后再冻结 V0 wire layout。
+由于当前协议尚未正式发布，M0 定义仍可调整；正式发布后再冻结 M0 wire layout。
 
 ---
 
@@ -149,7 +150,7 @@ bit4..7 = reserved
 `IMU_PRESENT`：Target启用了canonical IMU Interface。
 `GNSS_PRESENT`：Target启用了GNSS Interface。
 `AUX_SENSOR_PRESENT`：至少存在一个不属于 IMU/GNSS 的 sensor class。
-`SENSOR_STATUS_SNAPSHOT_SUPPORTED`：AIR V0 当前定义固定为 1。
+`SENSOR_STATUS_SNAPSHOT_SUPPORTED`：AIR M0 当前定义固定为 1。
 
 该字段不枚举具体辅助传感器；具体传感器通过 `SENSOR_STATUS.sensor_id` 表示。
 
@@ -200,7 +201,7 @@ START 后进入 `DISABLED_FOR_FLIGHT`。
 | 7 | flags | 见 7.2 |
 | 8 | `start_block_reason` | 见 7.3 |
 
-AIR V0 不再把 ATTITUDE ready、GNSS origin ready、BARO origin ready 写死为固定 Alignment source bits。
+AIR M0 不再把 ATTITUDE ready、GNSS origin ready、BARO origin ready 写死为固定 Alignment source bits。
 
 具体 sensor/source detail 由 `SENSOR_STATUS` 和飞控串口详细诊断提供。
 
@@ -263,9 +264,11 @@ GNSS 保持独立 dynamic status，因为它可能动态获得/失去定位，�
 
 ## 8. SENSOR_STATUS（`0x14`，9 bytes）
 
-`SENSOR_STATUS` 是 AIR V0 的通用 sensor snapshot frame，用于描述一个逻辑 sensor class / instance 的状态，而不是具体芯片型号。
+`SENSOR_STATUS` 是 AIR M0 的通用 sensor snapshot frame，用于描述一个逻辑 sensor class / instance 的状态，而不是具体芯片型号。
 
-例如一个JY901B可以通过同一Device组件内的多个直接Adapter暴露IMU、BAROMETER，以及在显式启用时暴露MAGNETOMETER逻辑sensor class。Target未启用的逻辑接口不出现在snapshot中。
+System Sensor Status从Generated Capability Endpoint Descriptor生成当前条目，使用descriptor的`device_class + instance_id`，再通过静态instance facade读取健康和样本。排序仍为IMU优先、GNSS其次、其余按Sensor ID和instance。一个JY901B可通过同一Device组件暴露IMU、BAROMETER、EXTERNAL_ATTITUDE，以及显式启用时的MAGNETOMETER逻辑sensor class；Target未启用的逻辑端点不出现在snapshot中。
+
+`sensor_id + instance_id`已经足以轮询未来同类多个能力实例；Physical Device ID不进入AIR M0。多个能力端点可以在本地descriptor中链接到同一物理设备，但AIR只报告逻辑sensor状态。
 
 ### 8.1 Frame layout
 
@@ -304,7 +307,7 @@ GNSS 保持独立 dynamic status，因为它可能动态获得/失去定位，�
 | `0x0D` | `TEMPERATURE` |
 | `0x0E` | `HUMIDITY` |
 
-增加 sensor ID 不改变 AIR V0。
+增加 sensor ID 不改变 AIR M0。
 
 Ground Station 不认识 ID 时显示 `Unknown Sensor 0xNN`，同时继续解析 instance、flags 和 detail code。
 
@@ -350,7 +353,7 @@ Ground Station 不认识 ID 时显示 `Unknown Sensor 0xNN`，同时继续解析
 
 Sensor status 不周期广播。
 
-AIR V0 不定义 `SENSOR_STATUS_REQUEST` 或 `DEVICE_INFO_REQUEST` 命令。
+AIR M0 不定义 `SENSOR_STATUS_REQUEST` 或 `DEVICE_INFO_REQUEST` 命令。
 
 Sensor snapshot 只在 Alignment 事务结束时自动生成。
 
@@ -638,7 +641,7 @@ Alignment sensor snapshot 中的 GNSS 状态只表示 Alignment 完成时的设�
 
 `0x06` undefined。
 
-AIR V0 不定义 SENSOR_STATUS_REQUEST / DEVICE_INFO_REQUEST。
+AIR M0 不定义 SENSOR_STATUS_REQUEST / DEVICE_INFO_REQUEST。
 
 ---
 
@@ -758,7 +761,7 @@ Link
 
 ## 30. Sensor Status 与具体设备型号
 
-AIR V0 不发送具体型号字符串。
+AIR M0 不发送具体型号字符串。
 
 只发送：
 
@@ -869,7 +872,7 @@ Gravity + Magnetic TRIAD：IMU 与 Magnetometer 使用。
 
 因此 AIR 不再写死具体 Alignment source bit。
 
-当前默认JY901B构建发送IMU、GNSS、BAROMETER及其他实际启用的sensor；Magnetometer默认未启用，因此不发送其`SENSOR_STATUS`。这只改变snapshot成员集合，不改变`SENSOR_STATUS`的9-byte布局、Sensor ID表或任何AIR V0固定帧。
+当前默认JY901B构建发送IMU、GNSS、BAROMETER及其他实际启用的sensor；Magnetometer默认未启用，因此不发送其`SENSOR_STATUS`。这只改变snapshot成员集合，不改变`SENSOR_STATUS`的9-byte布局、Sensor ID表或任何AIR M0固定帧。
 
 ---
 
@@ -904,7 +907,9 @@ Unknown sensor ID 必须保留原值。
 
 ---
 
-## 39. V0 扩展原则
+## 39. M0 扩展原则
+
+本轮Capability Instance Addressing对AIR M0的wire修改为NONE：没有新增message、字段、ID或CRC，没有改变任何帧长度、offset、量化、发送频率或MTU要求，当前golden frame保持逐字节一致。System Sensor Status从Generated descriptor/facade枚举全部启用能力实例，既有9-byte `SENSOR_STATUS.sensor_id + instance_id`可表达instance 1；正式F407默认成员和输出字节不变。AIR继续只承载一份绑定instance 0的Canonical flight state和低频sensor health；不会通过M0发送多个IMU/GNSS的高频原始数据。多实例raw数据属于本地飞行日志和维护协议。
 
 未来新增 STAR_TRACKER、SUN_SENSOR、AIR_DATA 或其他普通传感器，只需：
 
@@ -913,13 +918,13 @@ Unknown sensor ID 必须保留原值。
 3. 通过直接Interface提供generic sensor status；
 4. Ground Station可选增加友好名称。
 
-不需要改变 AIR V0 固定帧。
+不需要改变 AIR M0 固定帧。
 
 ---
 
-## 40. AIR V0 冻结目标
+## 40. AIR M0 冻结目标
 
-AIR V0 当前尚未正式发布，因此仍可调整。
+AIR M0 wire在0.0.9当前契约内冻结；普通物理设备或能力实例扩展只能复用既有`SENSOR_STATUS.sensor_id + instance_id`，不能顺带调整现有帧。
 
 正式发布后，普通硬件扩展不得要求修改 wire format。
 

@@ -88,7 +88,7 @@ gyro_scale  = 1
 
 ### 2.5 生命周期与可观测性
 
-结果和状态由 `SystemCalibration` 持有，通过 `CAL STATUS`、`CAL DETAIL`、Calibration AIR status edge 和 SSLOG0 `CALIBRATION_RESULT`/事件路径暴露。诊断 reason 只在变化时发出；从非 NONE 恢复为 NONE 也发一次清除事件。
+结果和状态由 `SystemCalibration` 持有，通过 `CAL STATUS`、`CAL DETAIL`、Calibration AIR status edge 和飞行日志格式0.0的`CALIBRATION_RESULT`/事件路径暴露。诊断 reason 只在变化时发出；从非 NONE 恢复为 NONE 也发一次清除事件。
 
 ## 3. Initial Alignment 公共规则
 
@@ -215,7 +215,7 @@ START 前也不持续积分软件陀螺：attitude component 尚无有效冻结�
 - Alignment READY 权威切换仍主动安排现有 `PREFLIGHT_STATE` 26-byte固定包，回传冻结的final quaternion；没有新增yaw AIR字段，也没有改变type、长度、offset、token、字节序或CRC约定。
 - 有效冻结结果保持权威时，hardware quaternion不可用或变化均不影响`PREFLIGHT_STATE.q_nb`；一旦Alignment锁存STALE或该结果失效，预飞四元数权威立即切回hardware quaternion，历史final q只留作诊断。HARDWARE与ALIGNMENT之间的权威切换均应立即安排一帧`PREFLIGHT_STATE`，不等待完整5 Hz周期。
 - Console 的 `ALIGN STATUS`/`ALIGN DETAIL` 显示 algorithm、source、window、final quaternion、unified yaw 和配置；Euler 只可作为 diagnostic-only 文本。
-- SSLOG0 保持旧 header、record common header 和旧 record layout。既有 `CALIBRATION_RESULT`、`ALIGNMENT_RESULT` 保持原布局；每次 START 边沿追加 `MISSION_CONFIG`，保存本次 alignment/deploy/landing 配置。
+- 飞行日志格式0.0保持`SSLOG0` header magic、record common header和既有record layout。既有`CALIBRATION_RESULT`、`ALIGNMENT_RESULT`保持原布局；每次START边沿追加`MISSION_CONFIG`，保存本次alignment/deploy/landing配置。
 
 ## 8. 配置所有权
 

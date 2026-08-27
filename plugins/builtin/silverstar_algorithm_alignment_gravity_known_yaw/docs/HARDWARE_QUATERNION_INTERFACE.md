@@ -75,7 +75,11 @@ SystemDeviceResult SystemHardwareQuaternion_EffectiveConfigGet(
 
 System通过上述符号直接调用所选Device的唯一Adapter；不存在Ops对象或运行期注册。
 
-## 4. JY901B映射
+## 4. Canonical接口与实例诊断
+
+`SystemHardwareQuaternion_*`表示当前绑定ATTITUDE 0的硬件姿态能力；维护协议使用独立的`ATTITUDE <instance>`名称，不能归入IMU。`ProjectAttitudeInstance_CountGet()`及Info/Capabilities/Health/Sample/Config静态facade供ATTITUDE维护、Sensor Status与`HW_QUAT_NATIVE`日志读取；Native producer遍历全部启用实例并独立去重。当前只生成ATTITUDE 0，并以descriptor链接到JY901B物理设备；未来实例由FCCG生成direct case。该facade不授予任务期权威姿态资格，不实现姿态源选择，也不改变START后的软件传播。
+
+## 5. JY901B映射
 
 JY901B `0x59`帧提供四个有符号Q15值，顺序为W/X/Y/Z：
 
@@ -94,7 +98,7 @@ System姿态适配层负责：
 - 六轴/九轴模式标记；
 - 输出统一body-to-ENU `q_nb`。
 
-## 5. Alignment兼容模式与运行期边界
+## 6. Alignment兼容模式与运行期边界
 
 Hardware Quaternion Interface只为显式选择的`HW_QUAT_9AXIS`或`HW_QUAT_6AXIS_KNOWN_YAW`模式提供Alignment输入。两种模式都必须收集完整静态窗口，先处理`q/-q`双覆盖符号，再求均值、归一化并检查离散度；不得把最后一帧直接作为任务姿态。
 

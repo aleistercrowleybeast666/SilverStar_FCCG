@@ -4,7 +4,7 @@ import json
 import os
 from collections.abc import Callable
 from copy import deepcopy
-from dataclasses import fields
+from dataclasses import dataclass, fields
 from pathlib import Path
 
 from silverstar_fccg.build.runner import (
@@ -14,6 +14,10 @@ from silverstar_fccg.build.runner import (
     BuildRunner,
 )
 from silverstar_fccg.build.toolchain import ToolchainDetector, ToolchainResult
+from silverstar_fccg.app.source_export import (
+    SourcePackageExportResult,
+    SourcePackage_Export,
+)
 from silverstar_fccg.core.view_models import (
     BoardCompatibilityView,
     CapabilityUsageView,
@@ -25,6 +29,12 @@ from silverstar_fccg.core.view_models import (
 from silverstar_fccg.core.errors import FccgError
 from silverstar_fccg.core.workspace import WorkspacePolicy
 from silverstar_fccg.generator.assembler import ApplyResult, GenerationPlan, ProjectAssembler
+from silverstar_fccg.generator.log_decoder_profile import (
+    LogDecoderProfileHeader_Render,
+    LogDecoderProfileSource_Render,
+    Sha256_Get,
+)
+from silverstar_fccg.generator.render import LogDecoderProfile_Render
 from silverstar_fccg.generator.hardware_preparation import (
     HardwarePreparationFingerprint_Get,
 )
@@ -33,6 +43,7 @@ from silverstar_fccg.plugins.catalog import PluginCatalog
 from silverstar_fccg.plugins.installer import PluginInstaller
 from silverstar_fccg.plugins.manifest import PluginManifest
 from silverstar_fccg.project.model import (
+    DeviceInstance,
     HardwareConfiguration,
     ProjectModel,
     ProjectModel_Load,
@@ -47,6 +58,7 @@ from silverstar_fccg.project.capabilities import (
 from silverstar_fccg.project.configuration import (
     ProjectConfigurationResult,
     ProjectConfiguration_Reconcile,
+    SelectionAvailability,
 )
 from silverstar_fccg.project.lifecycle import (
     ProjectReadiness,
@@ -54,12 +66,23 @@ from silverstar_fccg.project.lifecycle import (
 )
 from silverstar_fccg.project.logging import LoggingProfile_Reconcile
 from silverstar_fccg.project.reference import ReferenceProject_Create
+from silverstar_fccg.project.quality_results import (
+    QualityResultRecord,
+    QualityResult_Save,
+    QualityResults_Load,
+)
 from silverstar_fccg.project.resources import (
     BoardCompatibility_Resolve,
     ResourceAssignmentResult,
     ResourceAssignments_Resolve,
     ResourceRequirementOptions_Get,
 )
+
+
+@dataclass(frozen=True, slots=True)
+class LogDecoderProfileExportResult:
+    destination: Path
+    package_sha256: str
 
 
 class FccgService:
@@ -115,12 +138,14 @@ class FccgService:
         project_root: Path,
         *,
         confirm_dangerous: bool = False,
+        progress_callback: Callable[[int, int, str, bool], None] | None = None,
     ) -> ApplyResult:
         """Validate and materialize a complete, buildable project."""
         return self.Project_EnsureBuildable(
             model,
             project_root,
             confirm_dangerous=confirm_dangerous,
+            progress_callback=progress_callback,
         )
 
     def ProjectReadiness_Get(
@@ -135,6 +160,7 @@ class FccgService:
         project_root: Path,
         *,
         confirm_dangerous: bool = False,
+        progress_callback: Callable[[int, int, str, bool], None] | None = None,
     ) -> ApplyResult:
         policy = self._OutputPolicy_Get(project_root)
         configuration = self.ProjectConfiguration_Reconcile(model)
@@ -178,8 +204,12 @@ class FccgService:
             candidate,
             plan,
             confirm_dangerous=confirm_dangerous,
+            progress_callback=progress_callback,
         )
-        final_readiness = ProjectReadiness_Inspect(candidate, policy.root, self.catalog)
+        written_model = ProjectModel_Load(policy.root / "SilverStar.ssproject")
+        final_readiness = ProjectReadiness_Inspect(
+            written_model, policy.root, self.catalog
+        )
         if not final_readiness.ready:
             details = (
                 *(f"missing: {path}" for path in final_readiness.missing),
@@ -190,7 +220,9 @@ class FccgService:
                 {},
                 "\n".join(details) or final_readiness.technical_detail,
             )
-        self._ProjectModel_Commit(model, candidate)
+        self._ProjectModel_Commit(model, written_model)
+        if progress_callback is not None:
+            progress_callback(7, 7, "integrity_check", True)
         return result
 
     def Project_HardwarePrepare(
@@ -199,12 +231,14 @@ class FccgService:
         project_root: Path,
         *,
         confirm_dangerous: bool = False,
+        progress_callback: Callable[[int, int, str, bool], None] | None = None,
     ) -> ApplyResult:
         """Prepare verified/imported hardware through the same atomic save path."""
         return self.Project_EnsureBuildable(
             model,
             project_root,
             confirm_dangerous=confirm_dangerous,
+            progress_callback=progress_callback,
         )
 
     def Project_HardwarePrepared_Is(
@@ -237,7 +271,14 @@ class FccgService:
         destination_root: Path,
         *,
         confirm_dangerous: bool = False,
+        progress_callback: Callable[[int, int, str, bool], None] | None = None,
     ) -> Path:
+        phases = ("copy_project", "validate_project", "commit_destination")
+
+        def progress(current: int, done: bool) -> None:
+            if progress_callback is not None:
+                progress_callback(current, len(phases), phases[current - 1], done)
+
         source = source_root.resolve() if source_root is not None else None
         destination = destination_root.resolve(strict=False)
         CapabilitySourceOverrides_Reconcile(model, self.catalog)
@@ -306,6 +347,7 @@ class FccgService:
         }
         try:
             staged_project = policy.Directory_Ensure(staging / "project")
+            progress(1, False)
             if source is not None and (source / "SilverStar.ssproject").is_file():
                 for current_name, directory_names, file_names in os.walk(
                     source, topdown=True, followlinks=False
@@ -347,7 +389,9 @@ class FccgService:
                             policy.File_Copy(
                                 source_path, staged_project / relative
                             )
+            progress(1, True)
 
+            progress(2, False)
             readiness = ProjectReadiness_Inspect(
                 model, staged_project, self.catalog
             )
@@ -391,9 +435,11 @@ class FccgService:
                     {},
                     "\n".join((*readiness.missing, *readiness.stale)),
                 )
+            progress(2, True)
 
             moved: list[Path] = []
             try:
+                progress(3, False)
                 for staged_path in sorted(
                     staged_project.iterdir(),
                     key=lambda item: (
@@ -404,6 +450,7 @@ class FccgService:
                     target = policy.root / staged_path.name
                     staged_path.replace(target)
                     moved.append(target)
+                progress(3, True)
             except Exception:
                 for target in reversed(moved):
                     if target.is_dir():
@@ -428,19 +475,51 @@ class FccgService:
         plan: GenerationPlan,
         *,
         confirm_dangerous: bool = False,
+        progress_callback: Callable[[int, int, str, bool], None] | None = None,
     ) -> ApplyResult:
-        return self._Assembler_Get(plan.project_root).Apply(
-            model, plan, confirm_dangerous=confirm_dangerous
+        result = self._Assembler_Get(plan.project_root).Apply(
+            model,
+            plan,
+            confirm_dangerous=confirm_dangerous,
+            progress_callback=progress_callback,
         )
+        written_model = ProjectModel_Load(
+            plan.project_root / "SilverStar.ssproject"
+        )
+        readiness = ProjectReadiness_Inspect(
+            written_model, plan.project_root, self.catalog
+        )
+        if not readiness.ready:
+            details = (
+                *(f"missing: {path}" for path in readiness.missing),
+                *(f"stale: {path}" for path in readiness.stale),
+            )
+            raise FccgError(
+                "error.project_not_ready",
+                {},
+                "\n".join(details) or readiness.technical_detail,
+            )
+        self._ProjectModel_Commit(model, written_model)
+        if progress_callback is not None:
+            progress_callback(7, 7, "integrity_check", True)
+        return result
 
-    def Plugin_Install(self, archive_path: Path) -> PluginManifest:
-        return self.installer.Install(archive_path)
+    def Plugin_Install(
+        self,
+        archive_path: Path,
+        progress_callback: Callable[[int, int, str, bool], None] | None = None,
+    ) -> PluginManifest:
+        return self.installer.Install(archive_path, progress_callback)
 
     def Plugin_Get(self, component_id: str) -> PluginManifest:
         return self.catalog.Component_Get(component_id)
 
-    def Plugin_Remove(self, component_id: str) -> PluginManifest:
-        return self.installer.Remove(component_id)
+    def Plugin_Remove(
+        self,
+        component_id: str,
+        progress_callback: Callable[[int, int, str, bool], None] | None = None,
+    ) -> PluginManifest:
+        return self.installer.Remove(component_id, progress_callback)
 
     def Plugins_Refresh(self) -> None:
         self.catalog.Scan()
@@ -460,9 +539,95 @@ class FccgService:
         return documentation_root
 
     def Toolchains_Detect(
-        self, tool_paths: dict[str, str] | None = None
+        self,
+        tool_paths: dict[str, str] | None = None,
+        progress_callback: Callable[[int, int, str, bool], None] | None = None,
     ) -> tuple[ToolchainResult, ...]:
-        return self.toolchain_detector.Detect(tool_paths)
+        return self.toolchain_detector.Detect(tool_paths, progress_callback)
+
+    def SourcePackage_Export(
+        self,
+        destination: Path,
+        progress_callback: Callable[[int, int, str, bool], None] | None = None,
+    ) -> SourcePackageExportResult:
+        return SourcePackage_Export(
+            self.workspace_root, destination, progress_callback
+        )
+
+    def LogDecoderProfile_Export(
+        self,
+        model: ProjectModel,
+        project_root: Path,
+        destination: Path,
+    ) -> LogDecoderProfileExportResult:
+        root = self._OutputPolicy_Get(project_root).root
+        readiness = ProjectReadiness_Inspect(model, root, self.catalog)
+        if not readiness.ready:
+            detail = "\n".join(
+                (
+                    *(f"missing: {path}" for path in readiness.missing),
+                    *(f"stale: {path}" for path in readiness.stale),
+                )
+            )
+            raise FccgError(
+                "error.log_decoder_profile_project_not_ready",
+                {},
+                detail or readiness.technical_detail,
+            )
+        package = LogDecoderProfile_Render(model, self.catalog)
+        reference = model.log_decoder_profile
+        if (
+            reference.relative_path != package.relative_path
+            or reference.generation_profile_sha256
+            != package.generation_profile_sha256
+            or reference.package_sha256 != package.package_sha256
+        ):
+            raise FccgError(
+                "error.log_decoder_profile_project_not_ready",
+                {},
+                "Saved decoder-profile reference does not match the current project",
+            )
+        generated_package = root.joinpath(*package.relative_path.split("/"))
+        if (
+            generated_package.is_symlink()
+            or not generated_package.is_file()
+            or Sha256_Get(generated_package.read_bytes()) != package.package_sha256
+        ):
+            raise FccgError(
+                "error.log_decoder_profile_project_not_ready",
+                {},
+                "Generated decoder-profile package is missing or does not match its descriptor",
+            )
+        expected_descriptor_files = {
+            root / "Generated" / "Inc" / "project_log_decoder_profile.h": (
+                LogDecoderProfileHeader_Render(package.Reference_Get()).encode(
+                    "utf-8"
+                )
+            ),
+            root / "Generated" / "Src" / "project_log_decoder_profile.c": (
+                LogDecoderProfileSource_Render(package).encode("utf-8")
+            ),
+        }
+        for descriptor_path, expected_content in expected_descriptor_files.items():
+            if (
+                descriptor_path.is_symlink()
+                or not descriptor_path.is_file()
+                or descriptor_path.read_bytes() != expected_content
+            ):
+                raise FccgError(
+                    "error.log_decoder_profile_project_not_ready",
+                    {},
+                    "Embedded decoder-profile descriptor does not match the current package",
+                )
+        selected = Path(destination).resolve(strict=False)
+        if selected.suffix.casefold() != ".ssdecoder":
+            selected = selected.with_suffix(".ssdecoder")
+        destination_policy = WorkspacePolicy(selected.parent)
+        written = destination_policy.Bytes_AtomicWrite(selected, package.content)
+        return LogDecoderProfileExportResult(
+            destination=written,
+            package_sha256=package.package_sha256,
+        )
 
     def Build_Run(
         self,
@@ -492,6 +657,28 @@ class FccgService:
             token,
             line_callback=line_callback,
             progress_callback=progress_callback,
+        )
+
+    def QualityResults_Get(
+        self, project_root: Path
+    ) -> tuple[QualityResultRecord, ...]:
+        return QualityResults_Load(project_root)
+
+    def QualityResult_Record(
+        self,
+        project_root: Path,
+        *,
+        task: str,
+        succeeded: bool,
+        duration: float,
+        summary: str,
+    ) -> QualityResultRecord:
+        return QualityResult_Save(
+            project_root,
+            task=task,
+            succeeded=succeeded,
+            duration=duration,
+            summary=summary,
         )
 
     def Resources_AutoAssign(self, model: ProjectModel) -> ResourceAssignmentResult:
@@ -539,6 +726,7 @@ class FccgService:
         model: ProjectModel,
         *,
         risk_acknowledged: bool,
+        progress_callback: Callable[[int, int, str, bool], None] | None = None,
     ) -> CubeMxImportResult:
         mcu = self.catalog.Component_Get(model.mcu)
         expected_mcu = str(mcu.metadata.get("mcu_model", mcu.name))
@@ -555,6 +743,7 @@ class FccgService:
             expected_mcu=expected_mcu,
             provider_id=providers[0].component_id,
             risk_acknowledged=risk_acknowledged,
+            progress_callback=progress_callback,
         )
 
     def HardwareProviderForMcu_Get(self, mcu_id: str) -> str:
@@ -680,6 +869,12 @@ class FccgService:
                 project_max=self.catalog.Component_Get(
                     instance.plugin
                 ).instance_policy.project_max,
+                plugin_max=self.catalog.Component_Get(
+                    instance.plugin
+                ).instance_policy.plugin_max,
+                class_max=self.catalog.Component_Get(
+                    instance.plugin
+                ).instance_policy.class_max,
                 same_plugin_multiple=self.catalog.Component_Get(
                     instance.plugin
                 ).instance_policy.same_plugin_multiple,
@@ -689,6 +884,17 @@ class FccgService:
             )
             for instance in model.device_instances
         )
+
+    def DeviceSelectionAvailabilities_Get(
+        self, model: ProjectModel
+    ) -> dict[str, SelectionAvailability]:
+        # A device manifest describes a selectable logical device.  Hardware and
+        # cross-device requirements are validated after selection and must never
+        # hide, disable, or delete a valid catalog entry on the Device page.
+        return {
+            manifest.component_id: SelectionAvailability(True)
+            for manifest in self.catalog.Type_Get("device")
+        }
 
     def CapabilityUsageViews_Get(
         self, model: ProjectModel, language: str = "zh_CN"
@@ -803,6 +1009,17 @@ class FccgService:
                     manifest.metadata.get("device_category", "")
                 ),
                 "logical_device": manifest.metadata.get("logical_device") is True,
+                "indicator_role": str(manifest.metadata.get("indicator_role", "")),
+                "device_group": str(manifest.metadata.get("device_group", "")),
+                "device_group_order": int(
+                    manifest.metadata.get("device_group_order", 100)
+                ),
+                "device_selection_style": str(
+                    manifest.metadata.get("device_selection_style", "toggle")
+                ),
+                "default_instance_id": str(
+                    manifest.metadata.get("default_instance_id", "")
+                ),
                 "selection_labels": (
                     manifest.selection.labels.get(language, {})
                     if manifest.selection is not None
@@ -859,6 +1076,8 @@ class FccgService:
             compatible_mcus=(manifest.board.compatible_mcus if manifest.board is not None else ()),
             cardinality=manifest.cardinality,
             project_max=manifest.instance_policy.project_max,
+            plugin_max=manifest.instance_policy.plugin_max,
+            class_max=manifest.instance_policy.class_max,
             same_plugin_multiple=manifest.instance_policy.same_plugin_multiple,
             multi_instance_ready=manifest.instance_policy.multi_instance_ready,
             vendor=str(manifest.metadata.get("vendor", "")),

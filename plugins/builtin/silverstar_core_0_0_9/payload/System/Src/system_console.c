@@ -5,6 +5,7 @@
 #include <stddef.h>
 #include <stdarg.h>
 #include "common_format.h"
+#include "project_device_instances.h"
 #include "silverstar_assert.h"
 #include <string.h>
 
@@ -83,6 +84,7 @@ static SystemAlignmentState s_console_alignment_state;
 static char s_async_event[320];
 
 #define SYSTEM_CONSOLE_MAX_READ_CHUNKS_PER_CYCLE 8U
+#define SYSTEM_CONSOLE_TOKEN_COUNT_MAX 5U
 
 typedef struct
 {
@@ -198,11 +200,14 @@ typedef struct
     SystemDeviceIoDiagnostics diagnostics;
     SystemImuIoDetail imu_detail;
     SystemGnssIoDetail gnss_detail;
+    uint16_t physical_device_id;
+    SystemDeviceClass owner_class;
+    uint8_t owner_instance_id;
     uint8_t valid;
 } SystemConsoleIoBaseline;
 
 static SystemConsoleIoBaseline
-    s_io_baselines[SYSTEM_CONSOLE_MODULE_INVALID];
+    s_io_baselines[SYSTEM_DESCRIPTOR_DEVICE_COUNT_MAX];
 
 static const char *SystemConsole_SensorStatusText(
     SystemConsoleSensorStatus status)
@@ -306,32 +311,86 @@ static unsigned long SystemConsole_TimestampDisplay(uint64_t timestamp_us)
         UINT32_MAX : (uint32_t)timestamp_us);
 }
 
-static SystemConsoleModule SystemConsole_ModuleParse(const char *module)
+static SystemConsoleModule SystemConsole_CapabilityModuleParse(
+    const char *module)
 {
-    if (strcmp(module, "SYSTEM") == 0) { return SYSTEM_CONSOLE_MODULE_SYSTEM; }
+    if (module == NULL) { return SYSTEM_CONSOLE_MODULE_INVALID; }
     if (strcmp(module, "IMU") == 0) { return SYSTEM_CONSOLE_MODULE_IMU; }
     if (strcmp(module, "GNSS") == 0) { return SYSTEM_CONSOLE_MODULE_GNSS; }
     if (strcmp(module, "BARO") == 0) { return SYSTEM_CONSOLE_MODULE_BARO; }
     if (strcmp(module, "MAG") == 0) { return SYSTEM_CONSOLE_MODULE_MAG; }
     if (strcmp(module, "ATTITUDE") == 0) { return SYSTEM_CONSOLE_MODULE_ATTITUDE; }
+    if (strcmp(module, "TELEMETRY") == 0) { return SYSTEM_CONSOLE_MODULE_TELEMETRY; }
+    if (strcmp(module, "POWER") == 0) { return SYSTEM_CONSOLE_MODULE_POWER; }
+    return SYSTEM_CONSOLE_MODULE_INVALID;
+}
+
+static SystemConsoleModule SystemConsole_ModuleParse(const char *module)
+{
+    SystemConsoleModule parsed;
+
+    if (module == NULL) { return SYSTEM_CONSOLE_MODULE_INVALID; }
+    parsed = SystemConsole_CapabilityModuleParse(module);
+    if (parsed != SYSTEM_CONSOLE_MODULE_INVALID) { return parsed; }
+    if (strcmp(module, "SYSTEM") == 0) { return SYSTEM_CONSOLE_MODULE_SYSTEM; }
     if (strcmp(module, "ESTIMATOR") == 0) { return SYSTEM_CONSOLE_MODULE_ESTIMATOR; }
     if (strcmp(module, "KF") == 0) { return SYSTEM_CONSOLE_MODULE_KF; }
     if (strcmp(module, "INS") == 0) { return SYSTEM_CONSOLE_MODULE_INS; }
     if (strcmp(module, "CAL") == 0) { return SYSTEM_CONSOLE_MODULE_CAL; }
     if (strcmp(module, "ALIGN") == 0) { return SYSTEM_CONSOLE_MODULE_ALIGN; }
-    if (strcmp(module, "TELEMETRY") == 0) { return SYSTEM_CONSOLE_MODULE_TELEMETRY; }
-    if (strcmp(module, "POWER") == 0) { return SYSTEM_CONSOLE_MODULE_POWER; }
     if (strcmp(module, "OUTPUT") == 0) { return SYSTEM_CONSOLE_MODULE_OUTPUT; }
     if (strcmp(module, "LOG") == 0) { return SYSTEM_CONSOLE_MODULE_LOG; }
     if (strcmp(module, "TIME") == 0) { return SYSTEM_CONSOLE_MODULE_TIME; }
     return SYSTEM_CONSOLE_MODULE_INVALID;
 }
 
+static uint8_t SystemConsole_ModuleIsIndexed(SystemConsoleModule module)
+{
+    return (uint8_t)((module == SYSTEM_CONSOLE_MODULE_IMU) ||
+        (module == SYSTEM_CONSOLE_MODULE_GNSS) ||
+        (module == SYSTEM_CONSOLE_MODULE_BARO) ||
+        (module == SYSTEM_CONSOLE_MODULE_MAG) ||
+        (module == SYSTEM_CONSOLE_MODULE_ATTITUDE) ||
+        (module == SYSTEM_CONSOLE_MODULE_TELEMETRY) ||
+        (module == SYSTEM_CONSOLE_MODULE_POWER));
+}
+
+static SystemDeviceClass SystemConsole_DeviceClassGet(
+    SystemConsoleModule module)
+{
+    SILVERSTAR_ASSERT_OBJECT(&module, SystemConsoleModule,
+        SILVERSTAR_ASSERT_MODULE_SYSTEM);
+    switch (module)
+    {
+        case SYSTEM_CONSOLE_MODULE_IMU: return SYSTEM_DEVICE_CLASS_IMU;
+        case SYSTEM_CONSOLE_MODULE_GNSS: return SYSTEM_DEVICE_CLASS_GNSS;
+        case SYSTEM_CONSOLE_MODULE_BARO: return SYSTEM_DEVICE_CLASS_BAROMETER;
+        case SYSTEM_CONSOLE_MODULE_MAG:
+            return SYSTEM_DEVICE_CLASS_MAGNETOMETER;
+        case SYSTEM_CONSOLE_MODULE_ATTITUDE:
+            return SYSTEM_DEVICE_CLASS_HARDWARE_QUATERNION;
+        case SYSTEM_CONSOLE_MODULE_TELEMETRY:
+            return SYSTEM_DEVICE_CLASS_TELEMETRY;
+        case SYSTEM_CONSOLE_MODULE_POWER: return SYSTEM_DEVICE_CLASS_POWER;
+        case SYSTEM_CONSOLE_MODULE_SYSTEM:
+        case SYSTEM_CONSOLE_MODULE_ESTIMATOR:
+        case SYSTEM_CONSOLE_MODULE_KF:
+        case SYSTEM_CONSOLE_MODULE_INS:
+        case SYSTEM_CONSOLE_MODULE_CAL:
+        case SYSTEM_CONSOLE_MODULE_ALIGN:
+        case SYSTEM_CONSOLE_MODULE_OUTPUT:
+        case SYSTEM_CONSOLE_MODULE_LOG:
+        case SYSTEM_CONSOLE_MODULE_TIME:
+        case SYSTEM_CONSOLE_MODULE_INVALID:
+        default: return SYSTEM_DEVICE_CLASS_TIME;
+    }
+}
+
 static const char *SystemConsole_DeviceErrorText(SystemDeviceResult result)
 {
     SILVERSTAR_ASSERT_OBJECT(&result, SystemDeviceResult,
         SILVERSTAR_ASSERT_MODULE_SYSTEM);
-    SILVERSTAR_ASSERT(result <= SYSTEM_DEVICE_INTERNAL_ERROR,
+    SILVERSTAR_ASSERT(result <= SYSTEM_DEVICE_NOT_PRESENT,
         SILVERSTAR_ASSERT_MODULE_SYSTEM,
         SILVERSTAR_ASSERT_REASON_ENUM_RANGE);
     switch (result)
@@ -351,6 +410,7 @@ static const char *SystemConsole_DeviceErrorText(SystemDeviceResult result)
         case SYSTEM_DEVICE_CONFIG_DELEGATED: return "DELEGATED";
         case SYSTEM_DEVICE_NOT_EXECUTED: return "NOT_EXECUTED";
         case SYSTEM_DEVICE_BUSY: return "BUSY";
+        case SYSTEM_DEVICE_NOT_PRESENT: return "NOT_PRESENT";
         case SYSTEM_DEVICE_INTERNAL_ERROR: return "INTERNAL";
         default: return "INTERNAL";
     }
@@ -472,7 +532,8 @@ static uint8_t SystemConsole_CommandIsInspection(const char *command)
                      (strcmp(command, "STATUS") == 0) ||
                      (strcmp(command, "CAPABILITIES") == 0) ||
                      (strcmp(command, "SAMPLE") == 0) ||
-                     (strcmp(command, "IO") == 0));
+                     (strcmp(command, "IO") == 0) ||
+                     (strcmp(command, "LIST") == 0));
 }
 
 static uint8_t SystemConsole_CommandAllowedInFlight(const char *module,
@@ -537,7 +598,7 @@ static uint8_t SystemConsole_CommandAllowedInFlight(const char *module,
 }
 
 static SystemDeviceResult SystemConsole_InfoGet(SystemConsoleModule module,
-                                                 SystemDeviceInfo *info)
+    uint8_t instance_id, SystemDeviceInfo *info)
 {
     if (info == NULL) { return SYSTEM_DEVICE_INVALID_ARGUMENT; }
     SILVERSTAR_ASSERT_OBJECT(info, SystemDeviceInfo,
@@ -545,19 +606,14 @@ static SystemDeviceResult SystemConsole_InfoGet(SystemConsoleModule module,
     switch (module)
     {
         case SYSTEM_CONSOLE_MODULE_IMU:
-            return SystemImu_InfoGet(info);
         case SYSTEM_CONSOLE_MODULE_GNSS:
-            return SystemGnss_InfoGet(info);
         case SYSTEM_CONSOLE_MODULE_BARO:
-            return SystemBarometer_InfoGet(info);
         case SYSTEM_CONSOLE_MODULE_MAG:
-            return SystemMagnetometer_InfoGet(info);
         case SYSTEM_CONSOLE_MODULE_ATTITUDE:
-            return SystemHardwareQuaternion_InfoGet(info);
         case SYSTEM_CONSOLE_MODULE_TELEMETRY:
-            return SystemTelemetry_InfoGet(info);
         case SYSTEM_CONSOLE_MODULE_POWER:
-            return SystemPower_InfoGet(info);
+            return ProjectDeviceInstance_InfoGet(
+                SystemConsole_DeviceClassGet(module), instance_id, info);
         case SYSTEM_CONSOLE_MODULE_LOG:
             info->device_name = SystemStorage_NameGet();
             info->model_name = "GENERIC_STORAGE";
@@ -581,6 +637,7 @@ static SystemDeviceResult SystemConsole_InfoGet(SystemConsoleModule module,
 
 static SystemDeviceResult SystemConsole_CapabilitiesGet(
     SystemConsoleModule module,
+    uint8_t instance_id,
     uint32_t *mask)
 {
     if (mask == NULL) { return SYSTEM_DEVICE_INVALID_ARGUMENT; }
@@ -589,19 +646,14 @@ static SystemDeviceResult SystemConsole_CapabilitiesGet(
     switch (module)
     {
         case SYSTEM_CONSOLE_MODULE_IMU:
-            return SystemImu_CapabilitiesGet(mask);
         case SYSTEM_CONSOLE_MODULE_GNSS:
-            return SystemGnss_CapabilitiesGet(mask);
         case SYSTEM_CONSOLE_MODULE_BARO:
-            return SystemBarometer_CapabilitiesGet(mask);
         case SYSTEM_CONSOLE_MODULE_MAG:
-            return SystemMagnetometer_CapabilitiesGet(mask);
         case SYSTEM_CONSOLE_MODULE_ATTITUDE:
-            return SystemHardwareQuaternion_CapabilitiesGet(mask);
         case SYSTEM_CONSOLE_MODULE_TELEMETRY:
-            return SystemTelemetry_CapabilitiesGet(mask);
         case SYSTEM_CONSOLE_MODULE_POWER:
-            return SystemPower_CapabilitiesGet(mask);
+            return ProjectDeviceInstance_CapabilitiesGet(
+                SystemConsole_DeviceClassGet(module), instance_id, mask);
         case SYSTEM_CONSOLE_MODULE_SYSTEM:
         case SYSTEM_CONSOLE_MODULE_ESTIMATOR:
         case SYSTEM_CONSOLE_MODULE_KF:
@@ -619,6 +671,7 @@ static SystemDeviceResult SystemConsole_CapabilitiesGet(
 
 static SystemDeviceResult SystemConsole_DeviceHealthGet(
     SystemConsoleModule module,
+    uint8_t instance_id,
     SystemDeviceHealth *health)
 {
     if (health == NULL) { return SYSTEM_DEVICE_INVALID_ARGUMENT; }
@@ -627,17 +680,13 @@ static SystemDeviceResult SystemConsole_DeviceHealthGet(
     switch (module)
     {
         case SYSTEM_CONSOLE_MODULE_IMU:
-            return SystemImu_HealthGet(health);
         case SYSTEM_CONSOLE_MODULE_GNSS:
-            return SystemGnss_HealthGet(health);
         case SYSTEM_CONSOLE_MODULE_BARO:
-            return SystemBarometer_HealthGet(health);
         case SYSTEM_CONSOLE_MODULE_MAG:
-            return SystemMagnetometer_HealthGet(health);
         case SYSTEM_CONSOLE_MODULE_ATTITUDE:
-            return SystemHardwareQuaternion_HealthGet(health);
         case SYSTEM_CONSOLE_MODULE_POWER:
-            return SystemPower_HealthGet(health);
+            return ProjectDeviceInstance_HealthGet(
+                SystemConsole_DeviceClassGet(module), instance_id, health);
         case SYSTEM_CONSOLE_MODULE_SYSTEM:
         case SYSTEM_CONSOLE_MODULE_ESTIMATOR:
         case SYSTEM_CONSOLE_MODULE_KF:
@@ -655,16 +704,18 @@ static SystemDeviceResult SystemConsole_DeviceHealthGet(
 }
 
 static SystemDeviceResult SystemConsole_TelemetryHealthWrite(
-    const char *command, char *response, uint16_t capacity)
+    uint8_t instance_id, const char *module_text, const char *command,
+    char *response, uint16_t capacity)
 {
     SystemTelemetryHealth health;
-    SystemDeviceResult result = SystemTelemetry_HealthGet(&health);
+    SystemDeviceResult result = ProjectTelemetryInstance_HealthGet(
+        instance_id, &health);
 
     if (result == SYSTEM_DEVICE_OK)
     {
         (void)CommonFormat_Print(response, capacity,
-            "OK TELEMETRY %s initialized=%u started=%u online=%u healthy=%u tx=%lu rx=%lu integrity_errors=%lu",
-            command, (unsigned int)health.initialized,
+            "OK %s %s initialized=%u started=%u online=%u healthy=%u tx=%lu rx=%lu integrity_errors=%lu",
+            module_text, command, (unsigned int)health.initialized,
             (unsigned int)health.started, (unsigned int)health.online,
             (unsigned int)health.healthy,
             (unsigned long)health.transmit_packet_count,
@@ -720,10 +771,12 @@ static SystemDeviceResult SystemConsole_OutputHealthWrite(
 
 static SystemDeviceResult SystemConsole_DeviceHealthWrite(
     SystemConsoleModule module, const char *module_text,
-    const char *command, char *response, uint16_t capacity)
+    uint8_t instance_id, const char *command,
+    char *response, uint16_t capacity)
 {
     SystemDeviceHealth health;
-    SystemDeviceResult result = SystemConsole_DeviceHealthGet(module, &health);
+    SystemDeviceResult result = SystemConsole_DeviceHealthGet(
+        module, instance_id, &health);
 
     if (result == SYSTEM_DEVICE_OK)
     {
@@ -741,6 +794,7 @@ static SystemDeviceResult SystemConsole_DeviceHealthWrite(
 static SystemConsoleExecuteResult SystemConsole_HealthExecute(
     SystemConsoleModule module,
     const char *module_text,
+    uint8_t instance_id,
     const char *command,
     char *response,
     uint16_t capacity)
@@ -751,8 +805,8 @@ static SystemConsoleExecuteResult SystemConsole_HealthExecute(
         SILVERSTAR_ASSERT_MODULE_SYSTEM);
     if (module == SYSTEM_CONSOLE_MODULE_TELEMETRY)
     {
-        result = SystemConsole_TelemetryHealthWrite(command, response,
-                                                    capacity);
+        result = SystemConsole_TelemetryHealthWrite(
+            instance_id, module_text, command, response, capacity);
     }
     else if (module == SYSTEM_CONSOLE_MODULE_LOG)
     {
@@ -765,7 +819,7 @@ static SystemConsoleExecuteResult SystemConsole_HealthExecute(
     else
     {
         result = SystemConsole_DeviceHealthWrite(
-            module, module_text, command, response, capacity);
+            module, module_text, instance_id, command, response, capacity);
     }
     if (result == SYSTEM_DEVICE_OK) { return SYSTEM_CONSOLE_EXECUTE_OK; }
     return SystemConsole_ErrorWrite(response, capacity, module_text, command,
@@ -777,16 +831,18 @@ static SystemConsoleExecuteResult SystemConsole_HealthExecute(
 }
 
 static SystemDeviceResult SystemConsole_ImuConfigShowWrite(
+    uint8_t instance_id, const char *module_text,
     char *response, uint16_t capacity)
 {
     SystemImuConfig config;
-    SystemDeviceResult result = SystemImu_EffectiveConfigGet(&config);
+    SystemDeviceResult result = ProjectImuInstance_EffectiveConfigGet(
+        instance_id, &config);
 
     if (result == SYSTEM_DEVICE_OK)
     {
         (void)CommonFormat_Print(response, capacity,
-            "OK IMU CONFIG SHOW mask=0x%08lX rate_hz=%u accel_bw_millihz=%ld gyro_bw_millihz=%ld accel_range_millig=%ld gyro_range_dps=%ld",
-            (unsigned long)config.requested_mask,
+            "OK %s CONFIG SHOW mask=0x%08lX rate_hz=%u accel_bw_millihz=%ld gyro_bw_millihz=%ld accel_range_millig=%ld gyro_range_dps=%ld",
+            module_text, (unsigned long)config.requested_mask,
             (unsigned int)config.output_rate_hz,
             (long)(config.accel_bandwidth_hz * 1000.0f),
             (long)(config.gyro_bandwidth_hz * 1000.0f),
@@ -797,16 +853,18 @@ static SystemDeviceResult SystemConsole_ImuConfigShowWrite(
 }
 
 static SystemDeviceResult SystemConsole_GnssConfigShowWrite(
+    uint8_t instance_id, const char *module_text,
     char *response, uint16_t capacity)
 {
     SystemGnssConfig config;
-    SystemDeviceResult result = SystemGnss_EffectiveConfigGet(&config);
+    SystemDeviceResult result = ProjectGnssInstance_EffectiveConfigGet(
+        instance_id, &config);
 
     if (result == SYSTEM_DEVICE_OK)
     {
         (void)CommonFormat_Print(response, capacity,
-            "OK GNSS CONFIG SHOW source=CACHE mask=0x%08lX rate_hz=%u constellations=0x%08lX dynamic_model=%u protocol=%u messages=0x%08lX",
-            (unsigned long)config.requested_mask,
+            "OK %s CONFIG SHOW source=CACHE mask=0x%08lX rate_hz=%u constellations=0x%08lX dynamic_model=%u protocol=%u messages=0x%08lX",
+            module_text, (unsigned long)config.requested_mask,
             (unsigned int)config.navigation_rate_hz,
             (unsigned long)config.constellation_mask,
             (unsigned int)config.dynamic_model,
@@ -817,32 +875,36 @@ static SystemDeviceResult SystemConsole_GnssConfigShowWrite(
 }
 
 static SystemDeviceResult SystemConsole_BarometerConfigShowWrite(
+    uint8_t instance_id, const char *module_text,
     char *response, uint16_t capacity)
 {
     SystemBarometerConfig config;
-    SystemDeviceResult result = SystemBarometer_EffectiveConfigGet(&config);
+    SystemDeviceResult result = ProjectBarometerInstance_EffectiveConfigGet(
+        instance_id, &config);
 
     if (result == SYSTEM_DEVICE_OK)
     {
         (void)CommonFormat_Print(response, capacity,
-            "OK BARO CONFIG SHOW mask=0x%08lX rate_hz=%u",
-            (unsigned long)config.requested_mask,
+            "OK %s CONFIG SHOW mask=0x%08lX rate_hz=%u",
+            module_text, (unsigned long)config.requested_mask,
             (unsigned int)config.output_rate_hz);
     }
     return result;
 }
 
 static SystemDeviceResult SystemConsole_MagnetometerConfigShowWrite(
+    uint8_t instance_id, const char *module_text,
     char *response, uint16_t capacity)
 {
     SystemMagnetometerConfig config;
-    SystemDeviceResult result = SystemMagnetometer_EffectiveConfigGet(&config);
+    SystemDeviceResult result =
+        ProjectMagnetometerInstance_EffectiveConfigGet(instance_id, &config);
 
     if (result == SYSTEM_DEVICE_OK)
     {
         (void)CommonFormat_Print(response, capacity,
-            "OK MAG CONFIG SHOW mask=0x%08lX rate_hz=%u range_milliuT=%ld",
-            (unsigned long)config.requested_mask,
+            "OK %s CONFIG SHOW mask=0x%08lX rate_hz=%u range_milliuT=%ld",
+            module_text, (unsigned long)config.requested_mask,
             (unsigned int)config.output_rate_hz,
             (long)(config.range_uT * 1000.0f));
     }
@@ -850,33 +912,37 @@ static SystemDeviceResult SystemConsole_MagnetometerConfigShowWrite(
 }
 
 static SystemDeviceResult SystemConsole_AttitudeConfigShowWrite(
+    uint8_t instance_id, const char *module_text,
     char *response, uint16_t capacity)
 {
     SystemHardwareQuaternionConfig config;
     SystemDeviceResult result =
-        SystemHardwareQuaternion_EffectiveConfigGet(&config);
+        ProjectAttitudeInstance_EffectiveConfigGet(instance_id, &config);
 
     if (result == SYSTEM_DEVICE_OK)
     {
         (void)CommonFormat_Print(response, capacity,
-            "OK ATTITUDE CONFIG SHOW mask=0x%08lX mode=%u rate_hz=%u",
-            (unsigned long)config.requested_mask, (unsigned int)config.mode,
+            "OK %s CONFIG SHOW mask=0x%08lX mode=%u rate_hz=%u",
+            module_text, (unsigned long)config.requested_mask,
+            (unsigned int)config.mode,
             (unsigned int)config.output_rate_hz);
     }
     return result;
 }
 
 static SystemDeviceResult SystemConsole_PowerConfigShowWrite(
+    uint8_t instance_id, const char *module_text,
     char *response, uint16_t capacity)
 {
     SystemPowerConfig config;
-    SystemDeviceResult result = SystemPower_EffectiveConfigGet(&config);
+    SystemDeviceResult result = ProjectPowerInstance_EffectiveConfigGet(
+        instance_id, &config);
 
     if (result == SYSTEM_DEVICE_OK)
     {
         (void)CommonFormat_Print(response, capacity,
-            "OK POWER CONFIG SHOW mask=0x%08lX voltage_scale_ppm=%ld voltage_offset_uv=%ld",
-            (unsigned long)config.requested_mask,
+            "OK %s CONFIG SHOW mask=0x%08lX voltage_scale_ppm=%ld voltage_offset_uv=%ld",
+            module_text, (unsigned long)config.requested_mask,
             (long)(config.voltage_scale * 1000000.0f),
             (long)(config.voltage_offset_v * 1000000.0f));
     }
@@ -884,24 +950,31 @@ static SystemDeviceResult SystemConsole_PowerConfigShowWrite(
 }
 
 static SystemDeviceResult SystemConsole_ConfigShowWrite(
-    SystemConsoleModule module, char *response, uint16_t capacity)
+    SystemConsoleModule module, uint8_t instance_id,
+    const char *module_text, char *response, uint16_t capacity)
 {
     SILVERSTAR_ASSERT_OBJECT(response, char,
         SILVERSTAR_ASSERT_MODULE_SYSTEM);
     switch (module)
     {
     case SYSTEM_CONSOLE_MODULE_IMU:
-        return SystemConsole_ImuConfigShowWrite(response, capacity);
+        return SystemConsole_ImuConfigShowWrite(
+            instance_id, module_text, response, capacity);
     case SYSTEM_CONSOLE_MODULE_GNSS:
-        return SystemConsole_GnssConfigShowWrite(response, capacity);
+        return SystemConsole_GnssConfigShowWrite(
+            instance_id, module_text, response, capacity);
     case SYSTEM_CONSOLE_MODULE_BARO:
-        return SystemConsole_BarometerConfigShowWrite(response, capacity);
+        return SystemConsole_BarometerConfigShowWrite(
+            instance_id, module_text, response, capacity);
     case SYSTEM_CONSOLE_MODULE_MAG:
-        return SystemConsole_MagnetometerConfigShowWrite(response, capacity);
+        return SystemConsole_MagnetometerConfigShowWrite(
+            instance_id, module_text, response, capacity);
     case SYSTEM_CONSOLE_MODULE_ATTITUDE:
-        return SystemConsole_AttitudeConfigShowWrite(response, capacity);
+        return SystemConsole_AttitudeConfigShowWrite(
+            instance_id, module_text, response, capacity);
     case SYSTEM_CONSOLE_MODULE_POWER:
-        return SystemConsole_PowerConfigShowWrite(response, capacity);
+        return SystemConsole_PowerConfigShowWrite(
+            instance_id, module_text, response, capacity);
     case SYSTEM_CONSOLE_MODULE_SYSTEM:
     case SYSTEM_CONSOLE_MODULE_ESTIMATOR:
     case SYSTEM_CONSOLE_MODULE_KF:
@@ -921,6 +994,7 @@ static SystemDeviceResult SystemConsole_ConfigShowWrite(
 static SystemConsoleExecuteResult SystemConsole_ConfigShowExecute(
     SystemConsoleModule module,
     const char *module_text,
+    uint8_t instance_id,
     char *response,
     uint16_t capacity)
 {
@@ -928,7 +1002,8 @@ static SystemConsoleExecuteResult SystemConsole_ConfigShowExecute(
 
     SILVERSTAR_ASSERT_OBJECT(module_text, char,
         SILVERSTAR_ASSERT_MODULE_SYSTEM);
-    result = SystemConsole_ConfigShowWrite(module, response, capacity);
+    result = SystemConsole_ConfigShowWrite(
+        module, instance_id, module_text, response, capacity);
     if (result == SYSTEM_DEVICE_OK) { return SYSTEM_CONSOLE_EXECUTE_OK; }
     return SystemConsole_ErrorWrite(response, capacity, module_text,
                                     "CONFIG_SHOW",
@@ -1110,29 +1185,59 @@ static const char *SystemConsole_IoTransportText(
     return "NONE";
 }
 
-static const char *SystemConsole_IoOwnerText(SystemDeviceIoOwner owner)
+static const char *SystemConsole_DeviceClassText(SystemDeviceClass owner)
 {
     switch (owner)
     {
-        case SYSTEM_DEVICE_IO_OWNER_IMU: return "IMU";
-        case SYSTEM_DEVICE_IO_OWNER_GNSS: return "GNSS";
-        case SYSTEM_DEVICE_IO_OWNER_TELEMETRY: return "TELEMETRY";
-        case SYSTEM_DEVICE_IO_OWNER_CONSOLE: return "CONSOLE";
-        case SYSTEM_DEVICE_IO_OWNER_SELF:
+        case SYSTEM_DEVICE_CLASS_IMU: return "IMU";
+        case SYSTEM_DEVICE_CLASS_GNSS: return "GNSS";
+        case SYSTEM_DEVICE_CLASS_BAROMETER: return "BARO";
+        case SYSTEM_DEVICE_CLASS_MAGNETOMETER: return "MAG";
+        case SYSTEM_DEVICE_CLASS_HARDWARE_QUATERNION: return "ATTITUDE";
+        case SYSTEM_DEVICE_CLASS_TELEMETRY: return "TELEMETRY";
+        case SYSTEM_DEVICE_CLASS_CONSOLE: return "CONSOLE";
+        case SYSTEM_DEVICE_CLASS_POWER: return "POWER";
+        case SYSTEM_DEVICE_CLASS_STORAGE: return "STORAGE";
+        case SYSTEM_DEVICE_CLASS_LOG_SINK: return "LOG_SINK";
+        case SYSTEM_DEVICE_CLASS_OUTPUT: return "OUTPUT";
+        case SYSTEM_DEVICE_CLASS_MISSION_ACTION: return "MISSION_ACTION";
+        case SYSTEM_DEVICE_CLASS_TIME: return "TIME";
         default: return "SELF";
     }
 }
 
-static SystemConsoleModule SystemConsole_IoBaselineModuleGet(
-    SystemConsoleModule module)
+static SystemConsoleIoBaseline *SystemConsole_IoBaselineFind(
+    uint16_t physical_device_id)
 {
-    if ((module == SYSTEM_CONSOLE_MODULE_BARO) ||
-        (module == SYSTEM_CONSOLE_MODULE_MAG) ||
-        (module == SYSTEM_CONSOLE_MODULE_ATTITUDE))
+    uint16_t index;
+
+    for (index = 0U; index < SYSTEM_DESCRIPTOR_DEVICE_COUNT_MAX; index++)
     {
-        return SYSTEM_CONSOLE_MODULE_IMU;
+        if ((s_io_baselines[index].valid != 0U) &&
+            (s_io_baselines[index].physical_device_id == physical_device_id))
+        {
+            return &s_io_baselines[index];
+        }
     }
-    return module;
+    return NULL;
+}
+
+static SystemConsoleIoBaseline *SystemConsole_IoBaselineSlotGet(
+    uint16_t physical_device_id)
+{
+    SystemConsoleIoBaseline *baseline =
+        SystemConsole_IoBaselineFind(physical_device_id);
+    uint16_t index;
+
+    if (baseline != NULL) { return baseline; }
+    for (index = 0U; index < SYSTEM_DESCRIPTOR_DEVICE_COUNT_MAX; index++)
+    {
+        if (s_io_baselines[index].valid == 0U)
+        {
+            return &s_io_baselines[index];
+        }
+    }
+    return NULL;
 }
 
 static void SystemConsole_IoDiagnosticsBaselineApply(
@@ -1172,108 +1277,101 @@ static void SystemConsole_IoDiagnosticsBaselineApply(
 
 static SystemDeviceResult SystemConsole_IoDiagnosticsRawGet(
     SystemConsoleModule module,
-    SystemDeviceIoDiagnostics *diagnostics)
+    uint8_t instance_id,
+    SystemDeviceIoDiagnostics *diagnostics,
+    SystemDeviceDescriptor *owner_descriptor)
 {
-    SystemDeviceResult result;
-
-    if (diagnostics == NULL) { return SYSTEM_DEVICE_INVALID_ARGUMENT; }
+    if ((diagnostics == NULL) || (owner_descriptor == NULL))
+    {
+        return SYSTEM_DEVICE_INVALID_ARGUMENT;
+    }
     SILVERSTAR_ASSERT_OBJECT(diagnostics, SystemDeviceIoDiagnostics,
         SILVERSTAR_ASSERT_MODULE_SYSTEM);
-    switch (module)
+    if (module == SYSTEM_CONSOLE_MODULE_SYSTEM)
     {
-        case SYSTEM_CONSOLE_MODULE_SYSTEM:
-            return SystemConsoleDevice_IoDiagnosticsGet(diagnostics);
-        case SYSTEM_CONSOLE_MODULE_IMU:
-            return SystemImu_IoDiagnosticsGet(diagnostics);
-        case SYSTEM_CONSOLE_MODULE_BARO:
-        case SYSTEM_CONSOLE_MODULE_MAG:
-        case SYSTEM_CONSOLE_MODULE_ATTITUDE:
-            result = SystemImu_IoDiagnosticsGet(diagnostics);
-            if (result != SYSTEM_DEVICE_OK)
-            {
-                return result;
-            }
-            diagnostics->owner = SYSTEM_DEVICE_IO_OWNER_IMU;
-            return SYSTEM_DEVICE_OK;
-        case SYSTEM_CONSOLE_MODULE_GNSS:
-            return SystemGnss_IoDiagnosticsGet(diagnostics);
-        case SYSTEM_CONSOLE_MODULE_TELEMETRY:
-            return SystemTelemetry_IoDiagnosticsGet(diagnostics);
-        case SYSTEM_CONSOLE_MODULE_ESTIMATOR:
-        case SYSTEM_CONSOLE_MODULE_KF:
-        case SYSTEM_CONSOLE_MODULE_INS:
-        case SYSTEM_CONSOLE_MODULE_CAL:
-        case SYSTEM_CONSOLE_MODULE_ALIGN:
-        case SYSTEM_CONSOLE_MODULE_POWER:
-        case SYSTEM_CONSOLE_MODULE_OUTPUT:
-        case SYSTEM_CONSOLE_MODULE_LOG:
-        case SYSTEM_CONSOLE_MODULE_TIME:
-        case SYSTEM_CONSOLE_MODULE_INVALID:
-        default:
-            return SYSTEM_DEVICE_UNSUPPORTED;
+        if (SystemDescriptor_DeviceFind(SYSTEM_DEVICE_CLASS_CONSOLE, 0U,
+            owner_descriptor) != SYSTEM_DEVICE_OK)
+        {
+            return SYSTEM_DEVICE_NOT_PRESENT;
+        }
+        return SystemConsoleDevice_IoDiagnosticsGet(diagnostics);
     }
+    if (SystemConsole_ModuleIsIndexed(module) == 0U)
+    {
+        return SYSTEM_DEVICE_UNSUPPORTED;
+    }
+    return ProjectDeviceInstance_IoDiagnosticsGet(
+        SystemConsole_DeviceClassGet(module), instance_id,
+        diagnostics, owner_descriptor);
 }
 
 static SystemDeviceResult SystemConsole_IoDiagnosticsGet(
     SystemConsoleModule module,
-    SystemDeviceIoDiagnostics *diagnostics)
+    uint8_t instance_id,
+    SystemDeviceIoDiagnostics *diagnostics,
+    SystemDeviceDescriptor *owner_descriptor)
 {
-    SystemConsoleModule baseline_module;
+    SystemConsoleIoBaseline *baseline;
     SystemDeviceResult result;
 
-    result = SystemConsole_IoDiagnosticsRawGet(module, diagnostics);
+    result = SystemConsole_IoDiagnosticsRawGet(
+        module, instance_id, diagnostics, owner_descriptor);
     if (result != SYSTEM_DEVICE_OK) { return result; }
-    baseline_module = SystemConsole_IoBaselineModuleGet(module);
-    if ((baseline_module < SYSTEM_CONSOLE_MODULE_INVALID) &&
-        (s_io_baselines[baseline_module].valid != 0U))
+    baseline = SystemConsole_IoBaselineFind(
+        owner_descriptor->physical_device_id);
+    if (baseline != NULL)
     {
         SystemConsole_IoDiagnosticsBaselineApply(
-            diagnostics,
-            &s_io_baselines[baseline_module].diagnostics);
+            diagnostics, &baseline->diagnostics);
     }
     return SYSTEM_DEVICE_OK;
 }
 
 static SystemDeviceResult SystemConsole_IoBaselineCapture(
-    SystemConsoleModule module)
+    SystemConsoleModule module, uint8_t instance_id)
 {
-    SystemConsoleModule baseline_module =
-        SystemConsole_IoBaselineModuleGet(module);
+    SystemDeviceDescriptor owner_descriptor;
+    SystemConsoleIoBaseline *slot;
     SystemConsoleIoBaseline baseline;
     SystemDeviceResult result;
 
-    if (baseline_module >= SYSTEM_CONSOLE_MODULE_INVALID)
-    {
-        return SYSTEM_DEVICE_UNSUPPORTED;
-    }
     (void)memset(&baseline, 0, sizeof(baseline));
     SILVERSTAR_ASSERT_OBJECT(&baseline, SystemConsoleIoBaseline,
         SILVERSTAR_ASSERT_MODULE_SYSTEM);
-    result = SystemConsole_IoDiagnosticsRawGet(module,
-                                                &baseline.diagnostics);
+    result = SystemConsole_IoDiagnosticsRawGet(
+        module, instance_id, &baseline.diagnostics, &owner_descriptor);
     if (result != SYSTEM_DEVICE_OK) { return result; }
-    if (baseline_module == SYSTEM_CONSOLE_MODULE_IMU)
+    baseline.physical_device_id = owner_descriptor.physical_device_id;
+    baseline.owner_class = owner_descriptor.device_class;
+    baseline.owner_instance_id = owner_descriptor.instance_id;
+    if (owner_descriptor.device_class == SYSTEM_DEVICE_CLASS_IMU)
     {
-        result = SystemImu_IoDetailGet(&baseline.imu_detail);
+        result = ProjectImuInstance_IoDetailGet(
+            owner_descriptor.instance_id, &baseline.imu_detail);
         if (result != SYSTEM_DEVICE_OK) { return result; }
     }
-    else if (baseline_module == SYSTEM_CONSOLE_MODULE_GNSS)
+    else if (owner_descriptor.device_class == SYSTEM_DEVICE_CLASS_GNSS)
     {
-        result = SystemGnss_IoDetailGet(&baseline.gnss_detail);
+        result = ProjectGnssInstance_IoDetailGet(
+            owner_descriptor.instance_id, &baseline.gnss_detail);
         if (result != SYSTEM_DEVICE_OK) { return result; }
     }
+    slot = SystemConsole_IoBaselineSlotGet(baseline.physical_device_id);
+    if (slot == NULL) { return SYSTEM_DEVICE_INTERNAL_ERROR; }
     baseline.valid = 1U;
-    s_io_baselines[baseline_module] = baseline;
+    *slot = baseline;
     return SYSTEM_DEVICE_OK;
 }
 
 static SystemConsoleExecuteResult SystemConsole_IoClearExecute(
     SystemConsoleModule module,
     const char *module_text,
+    uint8_t instance_id,
     char *response,
     uint16_t capacity)
 {
-    SystemDeviceResult result = SystemConsole_IoBaselineCapture(module);
+    SystemDeviceResult result = SystemConsole_IoBaselineCapture(
+        module, instance_id);
 
     if (result != SYSTEM_DEVICE_OK)
     {
@@ -1289,16 +1387,21 @@ static SystemConsoleExecuteResult SystemConsole_IoClearExecute(
 
 static int SystemConsole_IoDiagnosticsWrite(
     const SystemDeviceIoDiagnostics *diagnostics,
+    const SystemDeviceDescriptor *owner_descriptor,
     const char *module_text,
     char *response,
     uint16_t capacity)
 {
     SILVERSTAR_ASSERT_OBJECT(diagnostics, SystemDeviceIoDiagnostics,
         SILVERSTAR_ASSERT_MODULE_SYSTEM);
+    SILVERSTAR_ASSERT_OBJECT(owner_descriptor, SystemDeviceDescriptor,
+        SILVERSTAR_ASSERT_MODULE_SYSTEM);
     return CommonFormat_Print(response, capacity,
-        "OK %s IO transport=%s owner=%s supported_mask=0x%08lX valid_mask=0x%08lX rx_active=%u rx_bytes=%lu tx_bytes=%lu rx_events=%lu idle_events=%lu tc_events=%lu discarded=%lu ore=%lu framing=%lu noise=%lu parity=%lu dma_errors=%lu restarts=%lu restart_failures=%lu discontinuities=%lu integrity_errors=%lu timeouts=%lu transport_errors=%lu spi_errors=%lu spi_timeouts=%lu busy_timeouts=%lu",
+        "OK %s IO transport=%s owner=%s owner_instance=%u physical_device_id=%u supported_mask=0x%08lX valid_mask=0x%08lX rx_active=%u rx_bytes=%lu tx_bytes=%lu rx_events=%lu idle_events=%lu tc_events=%lu discarded=%lu ore=%lu framing=%lu noise=%lu parity=%lu dma_errors=%lu restarts=%lu restart_failures=%lu discontinuities=%lu integrity_errors=%lu timeouts=%lu transport_errors=%lu spi_errors=%lu spi_timeouts=%lu busy_timeouts=%lu",
         module_text, SystemConsole_IoTransportText(diagnostics->transport_type),
-        SystemConsole_IoOwnerText(diagnostics->owner),
+        SystemConsole_DeviceClassText(owner_descriptor->device_class),
+        (unsigned int)owner_descriptor->instance_id,
+        (unsigned int)owner_descriptor->physical_device_id,
         (unsigned long)diagnostics->supported_mask,
         (unsigned long)diagnostics->valid_mask,
         (unsigned int)diagnostics->rx_active,
@@ -1324,39 +1427,44 @@ static int SystemConsole_IoDiagnosticsWrite(
         (unsigned long)diagnostics->busy_timeout_count);
 }
 
-static void SystemConsole_GnssIoBaselineApply(SystemGnssIoDetail *detail)
+static void SystemConsole_GnssIoBaselineApply(
+    SystemGnssIoDetail *detail, const SystemConsoleIoBaseline *baseline)
 {
-    const SystemGnssIoDetail *baseline =
-        &s_io_baselines[SYSTEM_CONSOLE_MODULE_GNSS].gnss_detail;
-
-    if (s_io_baselines[SYSTEM_CONSOLE_MODULE_GNSS].valid == 0U) { return; }
-    detail->ubx_frame_count -= baseline->ubx_frame_count;
-    detail->ubx_checksum_error_count -= baseline->ubx_checksum_error_count;
-    detail->nmea_sentence_count -= baseline->nmea_sentence_count;
-    detail->nmea_checksum_ok_count -= baseline->nmea_checksum_ok_count;
-    detail->nmea_checksum_error_count -= baseline->nmea_checksum_error_count;
-    detail->unknown_byte_count -= baseline->unknown_byte_count;
-    detail->parser_resync_count -= baseline->parser_resync_count;
+    if (baseline == NULL) { return; }
+    detail->ubx_frame_count -= baseline->gnss_detail.ubx_frame_count;
+    detail->ubx_checksum_error_count -=
+        baseline->gnss_detail.ubx_checksum_error_count;
+    detail->nmea_sentence_count -= baseline->gnss_detail.nmea_sentence_count;
+    detail->nmea_checksum_ok_count -= baseline->gnss_detail.nmea_checksum_ok_count;
+    detail->nmea_checksum_error_count -=
+        baseline->gnss_detail.nmea_checksum_error_count;
+    detail->unknown_byte_count -= baseline->gnss_detail.unknown_byte_count;
+    detail->parser_resync_count -= baseline->gnss_detail.parser_resync_count;
 }
 
-static void SystemConsole_ImuIoBaselineApply(SystemImuIoDetail *detail)
+static void SystemConsole_ImuIoBaselineApply(
+    SystemImuIoDetail *detail, const SystemConsoleIoBaseline *baseline)
 {
-    const SystemImuIoDetail *baseline =
-        &s_io_baselines[SYSTEM_CONSOLE_MODULE_IMU].imu_detail;
-
-    if (s_io_baselines[SYSTEM_CONSOLE_MODULE_IMU].valid == 0U) { return; }
-    detail->valid_frame_count -= baseline->valid_frame_count;
-    detail->checksum_error_count -= baseline->checksum_error_count;
-    detail->parser_resync_count -= baseline->parser_resync_count;
+    if (baseline == NULL) { return; }
+    detail->valid_frame_count -= baseline->imu_detail.valid_frame_count;
+    detail->checksum_error_count -= baseline->imu_detail.checksum_error_count;
+    detail->parser_resync_count -= baseline->imu_detail.parser_resync_count;
 }
 
 static void SystemConsole_GnssIoDetailAppend(
-    char *response, uint16_t capacity, uint16_t used)
+    uint8_t instance_id,
+    const SystemConsoleIoBaseline *baseline,
+    char *response,
+    uint16_t capacity,
+    uint16_t used)
 {
     SystemGnssIoDetail detail;
 
-    if (SystemGnss_IoDetailGet(&detail) != SYSTEM_DEVICE_OK) { return; }
-    SystemConsole_GnssIoBaselineApply(&detail);
+    SILVERSTAR_ASSERT_OBJECT(response, char,
+        SILVERSTAR_ASSERT_MODULE_SYSTEM);
+    if (ProjectGnssInstance_IoDetailGet(instance_id, &detail) !=
+        SYSTEM_DEVICE_OK) { return; }
+    SystemConsole_GnssIoBaselineApply(&detail, baseline);
     (void)CommonFormat_Print(&response[used], (uint16_t)(capacity - used),
         " ubx_frames=%lu ubx_checksum_errors=%lu nmea_sentences=%lu nmea_checksum_ok=%lu nmea_checksum_errors=%lu unknown_bytes=%lu parser_resyncs=%lu",
         (unsigned long)detail.ubx_frame_count,
@@ -1369,12 +1477,17 @@ static void SystemConsole_GnssIoDetailAppend(
 }
 
 static void SystemConsole_ImuIoDetailAppend(
-    char *response, uint16_t capacity, uint16_t used)
+    uint8_t instance_id,
+    const SystemConsoleIoBaseline *baseline,
+    char *response,
+    uint16_t capacity,
+    uint16_t used)
 {
     SystemImuIoDetail detail;
 
-    if (SystemImu_IoDetailGet(&detail) != SYSTEM_DEVICE_OK) { return; }
-    SystemConsole_ImuIoBaselineApply(&detail);
+    if (ProjectImuInstance_IoDetailGet(instance_id, &detail) !=
+        SYSTEM_DEVICE_OK) { return; }
+    SystemConsole_ImuIoBaselineApply(&detail, baseline);
     (void)CommonFormat_Print(&response[used], (uint16_t)(capacity - used),
         " valid_frames=%lu checksum_errors=%lu parser_resyncs=%lu",
         (unsigned long)detail.valid_frame_count,
@@ -1385,17 +1498,24 @@ static void SystemConsole_ImuIoDetailAppend(
 static SystemConsoleExecuteResult SystemConsole_IoExecute(
     SystemConsoleModule module,
     const char *module_text,
+    uint8_t instance_id,
     char *response,
     uint16_t capacity)
 {
     SystemDeviceIoDiagnostics diagnostics;
+    SystemDeviceDescriptor owner_descriptor;
+    SystemConsoleIoBaseline *baseline;
     SystemDeviceResult result;
     int used;
 
     (void)memset(&diagnostics, 0, sizeof(diagnostics));
+    (void)memset(&owner_descriptor, 0, sizeof(owner_descriptor));
     SILVERSTAR_ASSERT_OBJECT(&diagnostics, SystemDeviceIoDiagnostics,
         SILVERSTAR_ASSERT_MODULE_SYSTEM);
-    result = SystemConsole_IoDiagnosticsGet(module, &diagnostics);
+    SILVERSTAR_ASSERT_OBJECT(&owner_descriptor, SystemDeviceDescriptor,
+        SILVERSTAR_ASSERT_MODULE_SYSTEM);
+    result = SystemConsole_IoDiagnosticsGet(
+        module, instance_id, &diagnostics, &owner_descriptor);
     if (result != SYSTEM_DEVICE_OK)
     {
         return SystemConsole_ErrorWrite(response, capacity, module_text, "IO",
@@ -1405,18 +1525,22 @@ static SystemConsoleExecuteResult SystemConsole_IoExecute(
                 SYSTEM_CONSOLE_EXECUTE_FAILED);
     }
     used = SystemConsole_IoDiagnosticsWrite(
-        &diagnostics, module_text, response, capacity);
+        &diagnostics, &owner_descriptor, module_text, response, capacity);
     if ((used <= 0) || ((uint16_t)used >= capacity))
     {
         return SYSTEM_CONSOLE_EXECUTE_OK;
     }
-    if (module == SYSTEM_CONSOLE_MODULE_GNSS)
+    baseline = SystemConsole_IoBaselineFind(
+        owner_descriptor.physical_device_id);
+    if (owner_descriptor.device_class == SYSTEM_DEVICE_CLASS_GNSS)
     {
-        SystemConsole_GnssIoDetailAppend(response, capacity, (uint16_t)used);
+        SystemConsole_GnssIoDetailAppend(owner_descriptor.instance_id,
+            baseline, response, capacity, (uint16_t)used);
     }
-    else if (module == SYSTEM_CONSOLE_MODULE_IMU)
+    else if (owner_descriptor.device_class == SYSTEM_DEVICE_CLASS_IMU)
     {
-        SystemConsole_ImuIoDetailAppend(response, capacity, (uint16_t)used);
+        SystemConsole_ImuIoDetailAppend(owner_descriptor.instance_id,
+            baseline, response, capacity, (uint16_t)used);
     }
     return SYSTEM_CONSOLE_EXECUTE_OK;
 }
@@ -1474,7 +1598,7 @@ static SystemConsoleExecuteResult SystemConsole_SystemConsoleExecute(
     if ((subcommand != NULL) && (strcmp(subcommand, "IO") == 0))
     {
         return SystemConsole_IoExecute(SYSTEM_CONSOLE_MODULE_SYSTEM,
-            "SYSTEM CONSOLE", response, capacity);
+            "SYSTEM CONSOLE", 0U, response, capacity);
     }
     return SystemConsole_ErrorWrite(response, capacity, "SYSTEM",
         "CONSOLE", "BAD_COMMAND", "UNKNOWN_SUBCOMMAND",
@@ -2203,6 +2327,8 @@ static SystemConsoleExecuteResult SystemConsole_AlignmentExecute(
 }
 
 static SystemConsoleExecuteResult SystemConsole_GnssConfigReadExecute(
+    uint8_t instance_id,
+    const char *module_text,
     char *response,
     uint16_t capacity)
 {
@@ -2212,9 +2338,10 @@ static SystemConsoleExecuteResult SystemConsole_GnssConfigReadExecute(
     (void)memset(&config, 0, sizeof(config));
     SILVERSTAR_ASSERT_OBJECT(&config, SystemGnssHardwareConfig,
         SILVERSTAR_ASSERT_MODULE_SYSTEM);
-    result = SystemGnss_HardwareConfigRead(&config);
+    result = ProjectGnssInstance_HardwareConfigRead(instance_id, &config);
     (void)CommonFormat_Print(response, capacity,
-        "OK GNSS CONFIG READ source=HARDWARE read_result=%s valid_mask=0x%08lX baudrate=%lu protocol=%u protocol_in=0x%02X nav_pvt_rate=%u nav_pvt_known=%u navigation_rate=%u dynamic_model=%u constellation_mask=0x%08lX elapsed_ms=%lu response_result=%s failed_group=%s failed_key=0x%08lX nak_class=0x%02X nak_id=0x%02X response_length=%u transaction_id=%lu detailed_result=%s expected_class=0x%02X expected_id=0x%02X received_class=0x%02X received_id=0x%02X response_version=%u unsupported_mask=0x%08lX",
+        "OK %s CONFIG READ source=HARDWARE read_result=%s valid_mask=0x%08lX baudrate=%lu protocol=%u protocol_in=0x%02X nav_pvt_rate=%u nav_pvt_known=%u navigation_rate=%u dynamic_model=%u constellation_mask=0x%08lX elapsed_ms=%lu response_result=%s failed_group=%s failed_key=0x%08lX nak_class=0x%02X nak_id=0x%02X response_length=%u transaction_id=%lu detailed_result=%s expected_class=0x%02X expected_id=0x%02X received_class=0x%02X received_id=0x%02X response_version=%u unsupported_mask=0x%08lX",
+        module_text,
         SystemConsole_DeviceErrorText(result),
         (unsigned long)config.valid_mask,
         (unsigned long)config.baudrate,
@@ -2244,6 +2371,8 @@ static SystemConsoleExecuteResult SystemConsole_GnssConfigReadExecute(
 }
 
 static SystemConsoleExecuteResult SystemConsole_GnssNavSatExecute(
+    uint8_t instance_id,
+    const char *module_text,
     char *response,
     uint16_t capacity)
 {
@@ -2253,9 +2382,11 @@ static SystemConsoleExecuteResult SystemConsole_GnssNavSatExecute(
     (void)memset(&diagnostics, 0, sizeof(diagnostics));
     SILVERSTAR_ASSERT_OBJECT(&diagnostics, SystemGnssSatelliteDiagnostics,
         SILVERSTAR_ASSERT_MODULE_SYSTEM);
-    result = SystemGnss_SatelliteDiagnosticsRead(&diagnostics);
+    result = ProjectGnssInstance_SatelliteDiagnosticsRead(
+        instance_id, &diagnostics);
     (void)CommonFormat_Print(response, capacity,
-        "OK GNSS NAV SAT read_result=%s supported_mask=0x%08lX valid_mask=0x%08lX sequence=%lu satellite_count=%u used_count=%u average_cno_dbhz=%u maximum_cno_dbhz=%u average_quality=%u fresh=%u transaction_id=%lu response_result=%s detailed_result=%s response_length=%u expected_class=0x%02X expected_id=0x%02X received_class=0x%02X received_id=0x%02X expected_ck_a=0x%02X expected_ck_b=0x%02X received_ck_a=0x%02X received_ck_b=0x%02X",
+        "OK %s NAV SAT read_result=%s supported_mask=0x%08lX valid_mask=0x%08lX sequence=%lu satellite_count=%u used_count=%u average_cno_dbhz=%u maximum_cno_dbhz=%u average_quality=%u fresh=%u transaction_id=%lu response_result=%s detailed_result=%s response_length=%u expected_class=0x%02X expected_id=0x%02X received_class=0x%02X received_id=0x%02X expected_ck_a=0x%02X expected_ck_b=0x%02X received_ck_a=0x%02X received_ck_b=0x%02X",
+        module_text,
         SystemConsole_DeviceErrorText(result),
         (unsigned long)diagnostics.supported_fields,
         (unsigned long)diagnostics.valid_fields,
@@ -2283,6 +2414,8 @@ static SystemConsoleExecuteResult SystemConsole_GnssNavSatExecute(
 }
 
 static SystemConsoleExecuteResult SystemConsole_GnssMonRfExecute(
+    uint8_t instance_id,
+    const char *module_text,
     char *response,
     uint16_t capacity)
 {
@@ -2292,9 +2425,11 @@ static SystemConsoleExecuteResult SystemConsole_GnssMonRfExecute(
     (void)memset(&diagnostics, 0, sizeof(diagnostics));
     SILVERSTAR_ASSERT_OBJECT(&diagnostics, SystemGnssRfDiagnostics,
         SILVERSTAR_ASSERT_MODULE_SYSTEM);
-    result = SystemGnss_RfDiagnosticsRead(&diagnostics);
+    result = ProjectGnssInstance_RfDiagnosticsRead(
+        instance_id, &diagnostics);
     (void)CommonFormat_Print(response, capacity,
-        "OK GNSS MON RF read_result=%s supported_mask=0x%08lX valid_mask=0x%08lX sequence=%lu rf_block_count=%u antenna_status=%u antenna_power=%u jamming_indicator=%u noise_per_ms=%u agc_count=%u fresh=%u transaction_id=%lu response_result=%s detailed_result=%s response_length=%u jamming_state=%u cw_suppression=%u",
+        "OK %s MON RF read_result=%s supported_mask=0x%08lX valid_mask=0x%08lX sequence=%lu rf_block_count=%u antenna_status=%u antenna_power=%u jamming_indicator=%u noise_per_ms=%u agc_count=%u fresh=%u transaction_id=%lu response_result=%s detailed_result=%s response_length=%u jamming_state=%u cw_suppression=%u",
+        module_text,
         SystemConsole_DeviceErrorText(result),
         (unsigned long)diagnostics.supported_fields,
         (unsigned long)diagnostics.valid_fields,
@@ -2339,7 +2474,8 @@ static SystemConsoleExecuteResult SystemConsole_TimeExecute(
 
 static SystemConsoleExecuteResult SystemConsole_DeviceConfigExecute(
     SystemConsoleModule module, const char *module_text,
-    const char *subcommand, char *response, uint16_t capacity)
+    uint8_t instance_id, const char *subcommand,
+    char *response, uint16_t capacity)
 {
     SILVERSTAR_ASSERT_OBJECT(module_text, char,
         SILVERSTAR_ASSERT_MODULE_SYSTEM);
@@ -2352,11 +2488,14 @@ static SystemConsoleExecuteResult SystemConsole_DeviceConfigExecute(
     if (strcmp(subcommand, "SHOW") == 0)
     {
         return SystemConsole_ConfigShowExecute(
-            module, module_text, response, capacity);
+            module, module_text, instance_id, response, capacity);
     }
     if ((module == SYSTEM_CONSOLE_MODULE_GNSS) &&
         (strcmp(subcommand, "READ") == 0))
-    { return SystemConsole_GnssConfigReadExecute(response, capacity); }
+    {
+        return SystemConsole_GnssConfigReadExecute(
+            instance_id, module_text, response, capacity);
+    }
     if (strcmp(subcommand, "READ") == 0)
     {
         return SystemConsole_ErrorWrite(response, capacity, module_text,
@@ -2379,14 +2518,15 @@ static SystemConsoleExecuteResult SystemConsole_DeviceConfigExecute(
 
 static SystemConsoleExecuteResult SystemConsole_DeviceIoExecute(
     SystemConsoleModule module, const char *module_text,
-    const char *subcommand, char *response, uint16_t capacity)
+    uint8_t instance_id, const char *subcommand,
+    char *response, uint16_t capacity)
 {
     SILVERSTAR_ASSERT_OBJECT(module_text, char,
         SILVERSTAR_ASSERT_MODULE_SYSTEM);
     if ((subcommand != NULL) && (strcmp(subcommand, "CLEAR") == 0))
     {
         return SystemConsole_IoClearExecute(
-            module, module_text, response, capacity);
+            module, module_text, instance_id, response, capacity);
     }
     if (subcommand != NULL)
     {
@@ -2394,12 +2534,14 @@ static SystemConsoleExecuteResult SystemConsole_DeviceIoExecute(
             "IO", "BAD_FORMAT", "TOKEN_COUNT",
             SYSTEM_CONSOLE_EXECUTE_BAD_ARGUMENT);
     }
-    return SystemConsole_IoExecute(module, module_text, response, capacity);
+    return SystemConsole_IoExecute(
+        module, module_text, instance_id, response, capacity);
 }
 
 static SystemConsoleExecuteResult SystemConsole_DeviceInfoExecute(
     SystemConsoleModule module, const char *module_text,
-    const char *subcommand, char *response, uint16_t capacity)
+    uint8_t instance_id, const char *subcommand,
+    char *response, uint16_t capacity)
 {
     SystemDeviceInfo info;
     SystemDeviceResult result;
@@ -2412,7 +2554,7 @@ static SystemConsoleExecuteResult SystemConsole_DeviceInfoExecute(
             "INFO", "BAD_FORMAT", "TOKEN_COUNT",
             SYSTEM_CONSOLE_EXECUTE_BAD_ARGUMENT);
     }
-    result = SystemConsole_InfoGet(module, &info);
+    result = SystemConsole_InfoGet(module, instance_id, &info);
     if (result == SYSTEM_DEVICE_OK)
     {
         (void)CommonFormat_Print(response, capacity,
@@ -2429,7 +2571,8 @@ static SystemConsoleExecuteResult SystemConsole_DeviceInfoExecute(
 
 static SystemConsoleExecuteResult SystemConsole_DeviceCapabilitiesExecute(
     SystemConsoleModule module, const char *module_text,
-    const char *subcommand, char *response, uint16_t capacity)
+    uint8_t instance_id, const char *subcommand,
+    char *response, uint16_t capacity)
 {
     uint32_t capability_mask;
     SystemDeviceResult result;
@@ -2442,7 +2585,8 @@ static SystemConsoleExecuteResult SystemConsole_DeviceCapabilitiesExecute(
             "CAPABILITIES", "BAD_FORMAT", "TOKEN_COUNT",
             SYSTEM_CONSOLE_EXECUTE_BAD_ARGUMENT);
     }
-    result = SystemConsole_CapabilitiesGet(module, &capability_mask);
+    result = SystemConsole_CapabilitiesGet(
+        module, instance_id, &capability_mask);
     if (result == SYSTEM_DEVICE_OK)
     {
         (void)CommonFormat_Print(response, capacity,
@@ -2459,6 +2603,7 @@ static SystemConsoleExecuteResult SystemConsole_DeviceCapabilitiesExecute(
 static SystemConsoleExecuteResult SystemConsole_DeviceExecute(
     SystemConsoleModule module,
     const char *module_text,
+    uint8_t instance_id,
     const char *command,
     const char *subcommand,
     char *response,
@@ -2475,27 +2620,27 @@ static SystemConsoleExecuteResult SystemConsole_DeviceExecute(
                 SYSTEM_CONSOLE_EXECUTE_BAD_ARGUMENT);
         }
         return SystemConsole_HealthExecute(
-            module, module_text, command, response, capacity);
+            module, module_text, instance_id, command, response, capacity);
     }
     if (strcmp(command, "CONFIG") == 0)
     {
         return SystemConsole_DeviceConfigExecute(
-            module, module_text, subcommand, response, capacity);
+            module, module_text, instance_id, subcommand, response, capacity);
     }
     if (strcmp(command, "IO") == 0)
     {
         return SystemConsole_DeviceIoExecute(
-            module, module_text, subcommand, response, capacity);
+            module, module_text, instance_id, subcommand, response, capacity);
     }
     if (strcmp(command, "INFO") == 0)
     {
         return SystemConsole_DeviceInfoExecute(
-            module, module_text, subcommand, response, capacity);
+            module, module_text, instance_id, subcommand, response, capacity);
     }
     if (strcmp(command, "CAPABILITIES") == 0)
     {
         return SystemConsole_DeviceCapabilitiesExecute(
-            module, module_text, subcommand, response, capacity);
+            module, module_text, instance_id, subcommand, response, capacity);
     }
     if (strcmp(command, "SELFTEST") == 0)
     {
@@ -2618,13 +2763,15 @@ static void SystemConsole_GnssSampleDetailWrite(
     const SystemDeviceInfo *info,
     const SystemGnssSample *sample,
     const SystemConsoleGnssSampleFields *fields,
+    const char *module_text,
     char *response,
     uint16_t capacity)
 {
     SILVERSTAR_ASSERT_OBJECT(sample, SystemGnssSample,
         SILVERSTAR_ASSERT_MODULE_SYSTEM);
     (void)CommonFormat_Print(response, capacity,
-        "OK GNSS SAMPLE DETAIL device=%s model=%s supported_mask=0x%08lX valid_mask=0x%08lX fix_type=%s fix_ok=%s num_sv=%s lat_e7=%s lon_e7=%s height_mm=%s hacc_mm=%s vacc_mm=%s sacc_mmps=%s age_ms=%s position_usable=%u velocity_mask=0x%02X position_reject_mask=0x%08lX velocity_reject_mask=0x%08lX quality_degraded=%u",
+        "OK %s SAMPLE DETAIL device=%s model=%s supported_mask=0x%08lX valid_mask=0x%08lX fix_type=%s fix_ok=%s num_sv=%s lat_e7=%s lon_e7=%s height_mm=%s hacc_mm=%s vacc_mm=%s sacc_mmps=%s age_ms=%s position_usable=%u velocity_mask=0x%02X position_reject_mask=0x%08lX velocity_reject_mask=0x%08lX quality_degraded=%u",
+        module_text,
         (info->device_name != NULL) ? info->device_name : "UNKNOWN",
         (info->model_name != NULL) ? info->model_name : "UNKNOWN",
         (unsigned long)sample->supported_fields,
@@ -2640,6 +2787,8 @@ static void SystemConsole_GnssSampleDetailWrite(
 }
 
 static SystemConsoleExecuteResult SystemConsole_GnssSampleDetailExecute(
+    uint8_t instance_id,
+    const char *module_text,
     char *response,
     uint16_t capacity)
 {
@@ -2652,18 +2801,19 @@ static SystemConsoleExecuteResult SystemConsole_GnssSampleDetailExecute(
     (void)memset(&fields, 0, sizeof(fields));
     SILVERSTAR_ASSERT_OBJECT(&fields, SystemConsoleGnssSampleFields,
         SILVERSTAR_ASSERT_MODULE_SYSTEM);
-    (void)SystemGnss_InfoGet(&info);
-    result = SystemGnss_LatestSampleGet(&sample);
+    (void)ProjectDeviceInstance_InfoGet(
+        SYSTEM_DEVICE_CLASS_GNSS, instance_id, &info);
+    result = ProjectGnssInstance_LatestSampleGet(instance_id, &sample);
     if (result != SYSTEM_DEVICE_OK)
     {
         return SystemConsole_ErrorWrite(
-            response, capacity, "GNSS", "SAMPLE_DETAIL",
+            response, capacity, module_text, "SAMPLE_DETAIL",
             SystemConsole_DeviceErrorText(result), "DEVICE",
             SYSTEM_CONSOLE_EXECUTE_FAILED);
     }
     SystemConsole_GnssSampleFieldsFormat(&sample, &fields);
     SystemConsole_GnssSampleDetailWrite(
-        &info, &sample, &fields, response, capacity);
+        &info, &sample, &fields, module_text, response, capacity);
     return SYSTEM_CONSOLE_EXECUTE_OK;
 }
 
@@ -2671,7 +2821,6 @@ typedef struct
 {
     SystemDeviceInfo info;
     SystemDeviceHealth health;
-    SystemHealthSnapshot system_health;
     SystemBarometerSample sample;
     SystemDeviceResult sample_result;
     SystemDeviceResult health_result;
@@ -2737,7 +2886,7 @@ static void SystemConsole_BarometerSampleStateUpdate(
 }
 
 static void SystemConsole_BarometerSampleCollect(
-    SystemConsoleBarometerSampleView *view)
+    uint8_t instance_id, SystemConsoleBarometerSampleView *view)
 {
     SystemDeviceResult capability_result;
 
@@ -2746,9 +2895,9 @@ static void SystemConsole_BarometerSampleCollect(
         SILVERSTAR_ASSERT_MODULE_SYSTEM);
     view->now_us = SystemTime_GetMonotonicUs();
     view->age_ms = UINT64_MAX;
-    SystemHealth_GetSnapshot(&view->system_health);
-    capability_result =
-        SystemBarometer_CapabilitiesGet(&view->supported_fields);
+    capability_result = ProjectDeviceInstance_CapabilitiesGet(
+        SYSTEM_DEVICE_CLASS_BAROMETER, instance_id,
+        &view->supported_fields);
     view->supported = (uint8_t)(capability_result == SYSTEM_DEVICE_OK);
     if (view->supported == 0U)
     {
@@ -2757,13 +2906,13 @@ static void SystemConsole_BarometerSampleCollect(
         view->health_result = SYSTEM_DEVICE_UNSUPPORTED;
         return;
     }
-    (void)SystemBarometer_InfoGet(&view->info);
-    view->health_result = SystemBarometer_HealthGet(&view->health);
-    view->sample_result = SystemBarometer_LatestSampleGet(&view->sample);
-    view->present = (uint8_t)(
-        ((view->system_health.capabilities.present_mask &
-          SYSTEM_CAPABILITY_BAROMETER) != 0U) ||
-        (view->health.online != 0U));
+    (void)ProjectDeviceInstance_InfoGet(
+        SYSTEM_DEVICE_CLASS_BAROMETER, instance_id, &view->info);
+    view->health_result = ProjectDeviceInstance_HealthGet(
+        SYSTEM_DEVICE_CLASS_BAROMETER, instance_id, &view->health);
+    view->sample_result = ProjectBarometerInstance_LatestSampleGet(
+        instance_id, &view->sample);
+    view->present = 1U;
     view->configured = (uint8_t)((view->health.initialized != 0U) &&
                                  (view->health.started != 0U));
     SystemConsole_BarometerSampleFreshnessUpdate(view);
@@ -2797,13 +2946,15 @@ static void SystemConsole_BarometerSampleFieldsFormat(
 
 static void SystemConsole_BarometerSampleDetailWrite(
     const SystemConsoleBarometerSampleView *view,
+    const char *module_text,
     char *response,
     uint16_t capacity)
 {
     SILVERSTAR_ASSERT_OBJECT(view, SystemConsoleBarometerSampleView,
         SILVERSTAR_ASSERT_MODULE_SYSTEM);
     (void)CommonFormat_Print(response, capacity,
-        "OK BARO SAMPLE DETAIL device=%s model=%s supported=%u present=%u configured=%u supported_mask=0x%08lX valid_mask=0x%08lX sample_valid=%u sample_fresh=%u sample_age_ms=%s pressure_pa=%s temperature_c=%s altitude_m=%s status=%s",
+        "OK %s SAMPLE DETAIL device=%s model=%s supported=%u present=%u configured=%u supported_mask=0x%08lX valid_mask=0x%08lX sample_valid=%u sample_fresh=%u sample_age_ms=%s pressure_pa=%s temperature_c=%s altitude_m=%s status=%s",
+        module_text,
         (view->info.device_name != NULL) ? view->info.device_name : "NONE",
         (view->info.model_name != NULL) ? view->info.model_name : "NONE",
         (unsigned int)view->supported, (unsigned int)view->present,
@@ -2817,14 +2968,17 @@ static void SystemConsole_BarometerSampleDetailWrite(
 }
 
 static SystemConsoleExecuteResult SystemConsole_BarometerSampleDetailExecute(
+    uint8_t instance_id,
+    const char *module_text,
     char *response,
     uint16_t capacity)
 {
     SystemConsoleBarometerSampleView view;
 
-    SystemConsole_BarometerSampleCollect(&view);
+    SystemConsole_BarometerSampleCollect(instance_id, &view);
     SystemConsole_BarometerSampleFieldsFormat(&view);
-    SystemConsole_BarometerSampleDetailWrite(&view, response, capacity);
+    SystemConsole_BarometerSampleDetailWrite(
+        &view, module_text, response, capacity);
     return SYSTEM_CONSOLE_EXECUTE_OK;
 }
 
@@ -3258,15 +3412,18 @@ static SystemConsoleExecuteResult SystemConsole_InsStatusExecute(
 }
 
 static SystemDeviceResult SystemConsole_ImuSampleWrite(
+    uint8_t instance_id, const char *module_text,
     char *response, uint16_t capacity)
 {
     SystemImuSample sample;
-    SystemDeviceResult result = SystemImu_LatestSampleGet(&sample);
+    SystemDeviceResult result = ProjectImuInstance_LatestSampleGet(
+        instance_id, &sample);
 
     if (result == SYSTEM_DEVICE_OK)
     {
         (void)CommonFormat_Print(response, capacity,
-            "OK IMU SAMPLE seq=%lu sample_us=%lu receive_us=%lu valid=0x%08lX",
+            "OK %s SAMPLE seq=%lu sample_us=%lu receive_us=%lu valid=0x%08lX",
+            module_text,
             (unsigned long)sample.sequence,
             SystemConsole_TimestampDisplay(sample.sample_timestamp_us),
             SystemConsole_TimestampDisplay(sample.receive_timestamp_us),
@@ -3276,15 +3433,18 @@ static SystemDeviceResult SystemConsole_ImuSampleWrite(
 }
 
 static SystemDeviceResult SystemConsole_GnssSampleWrite(
+    uint8_t instance_id, const char *module_text,
     char *response, uint16_t capacity)
 {
     SystemGnssSample sample;
-    SystemDeviceResult result = SystemGnss_LatestSampleGet(&sample);
+    SystemDeviceResult result = ProjectGnssInstance_LatestSampleGet(
+        instance_id, &sample);
 
     if (result == SYSTEM_DEVICE_OK)
     {
         (void)CommonFormat_Print(response, capacity,
-            "OK GNSS SAMPLE seq=%lu lat_e7=%ld lon_e7=%ld fix=%u position_usable=%u velocity_mask=0x%02X",
+            "OK %s SAMPLE seq=%lu lat_e7=%ld lon_e7=%ld fix=%u position_usable=%u velocity_mask=0x%02X",
+            module_text,
             (unsigned long)sample.sequence, (long)sample.latitude_e7,
             (long)sample.longitude_e7, (unsigned int)sample.fix_type,
             (unsigned int)sample.position_usable,
@@ -3294,15 +3454,18 @@ static SystemDeviceResult SystemConsole_GnssSampleWrite(
 }
 
 static SystemDeviceResult SystemConsole_BarometerSampleWrite(
+    uint8_t instance_id, const char *module_text,
     char *response, uint16_t capacity)
 {
     SystemBarometerSample sample;
-    SystemDeviceResult result = SystemBarometer_LatestSampleGet(&sample);
+    SystemDeviceResult result = ProjectBarometerInstance_LatestSampleGet(
+        instance_id, &sample);
 
     if (result == SYSTEM_DEVICE_OK)
     {
         (void)CommonFormat_Print(response, capacity,
-            "OK BARO SAMPLE seq=%lu pressure_pa=%ld altitude_cm=%ld valid=0x%08lX",
+            "OK %s SAMPLE seq=%lu pressure_pa=%ld altitude_cm=%ld valid=0x%08lX",
+            module_text,
             (unsigned long)sample.sequence, (long)sample.pressure_raw_pa,
             (long)sample.altitude_raw_cm, (unsigned long)sample.valid_mask);
     }
@@ -3310,15 +3473,18 @@ static SystemDeviceResult SystemConsole_BarometerSampleWrite(
 }
 
 static SystemDeviceResult SystemConsole_MagnetometerSampleWrite(
+    uint8_t instance_id, const char *module_text,
     char *response, uint16_t capacity)
 {
     SystemMagnetometerSample sample;
-    SystemDeviceResult result = SystemMagnetometer_LatestSampleGet(&sample);
+    SystemDeviceResult result = ProjectMagnetometerInstance_LatestSampleGet(
+        instance_id, &sample);
 
     if (result == SYSTEM_DEVICE_OK)
     {
         (void)CommonFormat_Print(response, capacity,
-            "OK MAG SAMPLE seq=%lu raw=%ld,%ld,%ld physical_valid=%u calibration_valid=%u",
+            "OK %s SAMPLE seq=%lu raw=%ld,%ld,%ld physical_valid=%u calibration_valid=%u",
+            module_text,
             (unsigned long)sample.sequence, (long)sample.raw[0],
             (long)sample.raw[1], (long)sample.raw[2],
             (unsigned int)((sample.valid_mask &
@@ -3329,16 +3495,18 @@ static SystemDeviceResult SystemConsole_MagnetometerSampleWrite(
 }
 
 static SystemDeviceResult SystemConsole_AttitudeSampleWrite(
+    uint8_t instance_id, const char *module_text,
     char *response, uint16_t capacity)
 {
     SystemHardwareQuaternionSample sample;
     SystemDeviceResult result =
-        SystemHardwareQuaternion_LatestSampleGet(&sample);
+        ProjectAttitudeInstance_LatestSampleGet(instance_id, &sample);
 
     if (result == SYSTEM_DEVICE_OK)
     {
         (void)CommonFormat_Print(response, capacity,
-            "OK ATTITUDE SAMPLE seq=%lu mode=%u normalized=%u valid=%u",
+            "OK %s SAMPLE seq=%lu mode=%u normalized=%u valid=%u",
+            module_text,
             (unsigned long)sample.sequence, (unsigned int)sample.mode,
             (unsigned int)sample.normalized, (unsigned int)sample.valid);
     }
@@ -3346,15 +3514,18 @@ static SystemDeviceResult SystemConsole_AttitudeSampleWrite(
 }
 
 static SystemDeviceResult SystemConsole_PowerSampleWrite(
+    uint8_t instance_id, const char *module_text,
     char *response, uint16_t capacity)
 {
     SystemPowerSample sample;
-    SystemDeviceResult result = SystemPower_LatestSampleGet(&sample);
+    SystemDeviceResult result = ProjectPowerInstance_LatestSampleGet(
+        instance_id, &sample);
 
     if (result == SYSTEM_DEVICE_OK)
     {
         (void)CommonFormat_Print(response, capacity,
-            "OK POWER SAMPLE seq=%lu millivolts=%ld valid=0x%08lX sample_us=%lu receive_us=%lu",
+            "OK %s SAMPLE seq=%lu millivolts=%ld valid=0x%08lX sample_us=%lu receive_us=%lu",
+            module_text,
             (unsigned long)sample.sequence,
             (long)(sample.voltage_v * 1000.0f),
             (unsigned long)sample.valid_mask,
@@ -3365,24 +3536,31 @@ static SystemDeviceResult SystemConsole_PowerSampleWrite(
 }
 
 static SystemDeviceResult SystemConsole_SampleWrite(
-    SystemConsoleModule module, char *response, uint16_t capacity)
+    SystemConsoleModule module, uint8_t instance_id,
+    const char *module_text, char *response, uint16_t capacity)
 {
     SILVERSTAR_ASSERT_OBJECT(response, char,
         SILVERSTAR_ASSERT_MODULE_SYSTEM);
     switch (module)
     {
     case SYSTEM_CONSOLE_MODULE_IMU:
-        return SystemConsole_ImuSampleWrite(response, capacity);
+        return SystemConsole_ImuSampleWrite(
+            instance_id, module_text, response, capacity);
     case SYSTEM_CONSOLE_MODULE_GNSS:
-        return SystemConsole_GnssSampleWrite(response, capacity);
+        return SystemConsole_GnssSampleWrite(
+            instance_id, module_text, response, capacity);
     case SYSTEM_CONSOLE_MODULE_BARO:
-        return SystemConsole_BarometerSampleWrite(response, capacity);
+        return SystemConsole_BarometerSampleWrite(
+            instance_id, module_text, response, capacity);
     case SYSTEM_CONSOLE_MODULE_MAG:
-        return SystemConsole_MagnetometerSampleWrite(response, capacity);
+        return SystemConsole_MagnetometerSampleWrite(
+            instance_id, module_text, response, capacity);
     case SYSTEM_CONSOLE_MODULE_ATTITUDE:
-        return SystemConsole_AttitudeSampleWrite(response, capacity);
+        return SystemConsole_AttitudeSampleWrite(
+            instance_id, module_text, response, capacity);
     case SYSTEM_CONSOLE_MODULE_POWER:
-        return SystemConsole_PowerSampleWrite(response, capacity);
+        return SystemConsole_PowerSampleWrite(
+            instance_id, module_text, response, capacity);
     case SYSTEM_CONSOLE_MODULE_SYSTEM:
     case SYSTEM_CONSOLE_MODULE_ESTIMATOR:
     case SYSTEM_CONSOLE_MODULE_KF:
@@ -3402,11 +3580,13 @@ static SystemDeviceResult SystemConsole_SampleWrite(
 static SystemConsoleExecuteResult SystemConsole_SampleExecute(
     SystemConsoleModule module,
     const char *module_text,
+    uint8_t instance_id,
     char *response,
     uint16_t capacity)
 {
     SystemDeviceResult result =
-        SystemConsole_SampleWrite(module, response, capacity);
+        SystemConsole_SampleWrite(
+            module, instance_id, module_text, response, capacity);
 
     if (result == SYSTEM_DEVICE_OK) { return SYSTEM_CONSOLE_EXECUTE_OK; }
     return SystemConsole_ErrorWrite(response, capacity, module_text, "SAMPLE",
@@ -3800,23 +3980,146 @@ static char *SystemConsole_TokenNext(SystemConsoleTokenCursor *cursor)
 typedef struct
 {
     char storage[SYSTEM_CONSOLE_LINE_CAPACITY];
+    char *tokens[SYSTEM_CONSOLE_TOKEN_COUNT_MAX];
+    char addressed_module[32];
+    char *module_token;
     char *module_text;
     char *command;
     char *subcommand;
     char *extra;
     SystemConsoleModule module;
+    uint8_t token_count;
+    uint8_t instance_id;
+    uint8_t list_requested;
 } SystemConsoleCommand;
 
-static uint8_t SystemConsole_ExtraTokensValid(
-    const SystemConsoleCommand *parsed, const char *overflow)
+static SystemConsoleExecuteResult SystemConsole_InstanceParseErrorWrite(
+    const SystemConsoleCommand *parsed,
+    const char *reason,
+    char *response,
+    uint16_t capacity)
 {
-    if (parsed->extra == NULL) { return 1U; }
-    return (uint8_t)((overflow == NULL) &&
-        (strcmp(parsed->module_text, "SYSTEM") == 0) &&
-        (strcmp(parsed->command, "CONSOLE") == 0) &&
-        (parsed->subcommand != NULL) &&
-        (strcmp(parsed->subcommand, "IO") == 0) &&
-        (strcmp(parsed->extra, "CLEAR") == 0));
+    return SystemConsole_ErrorWrite(response, capacity,
+        parsed->module_token, parsed->tokens[1], "BAD_INSTANCE", reason,
+        SYSTEM_CONSOLE_EXECUTE_BAD_ARGUMENT);
+}
+
+static SystemConsoleExecuteResult SystemConsole_InstanceParse(
+    SystemConsoleCommand *parsed, char *response, uint16_t capacity)
+{
+    uint32_t value = 0U;
+    uint16_t index;
+    char *instance_text = parsed->tokens[1];
+
+    SILVERSTAR_ASSERT_OBJECT(parsed, SystemConsoleCommand,
+        SILVERSTAR_ASSERT_MODULE_SYSTEM);
+    for (index = 0U; index < SYSTEM_CONSOLE_LINE_CAPACITY; index++)
+    {
+        char character = instance_text[index];
+
+        if (character == '\0') { break; }
+        if ((character < '0') || (character > '9'))
+        {
+            return SystemConsole_InstanceParseErrorWrite(
+                parsed, "FORMAT", response, capacity);
+        }
+        value = (value * 10U) + (uint32_t)(character - '0');
+        if (value > UINT8_MAX)
+        {
+            return SystemConsole_InstanceParseErrorWrite(
+                parsed, "RANGE", response, capacity);
+        }
+    }
+    if ((index == 0U) || (index >= SYSTEM_CONSOLE_LINE_CAPACITY))
+    {
+        return SystemConsole_InstanceParseErrorWrite(
+            parsed, "FORMAT", response, capacity);
+    }
+    parsed->instance_id = (uint8_t)value;
+    (void)CommonFormat_Print(parsed->addressed_module,
+        sizeof(parsed->addressed_module), "%s %u", parsed->module_token,
+        (unsigned int)parsed->instance_id);
+    parsed->module_text = parsed->addressed_module;
+    return SYSTEM_CONSOLE_EXECUTE_OK;
+}
+
+static SystemConsoleExecuteResult SystemConsole_IndexedCommandParse(
+    SystemConsoleCommand *parsed, char *response, uint16_t capacity)
+{
+    SystemDeviceDescriptor descriptor;
+    SystemConsoleExecuteResult result;
+
+    SILVERSTAR_ASSERT_OBJECT(parsed, SystemConsoleCommand,
+        SILVERSTAR_ASSERT_MODULE_SYSTEM);
+    if ((parsed->token_count == 2U) &&
+        (strcmp(parsed->tokens[1], "LIST") == 0))
+    {
+        parsed->list_requested = 1U;
+        parsed->command = parsed->tokens[1];
+        return SYSTEM_CONSOLE_EXECUTE_OK;
+    }
+    if (parsed->token_count < 3U)
+    {
+        return SystemConsole_ErrorWrite(response, capacity,
+            parsed->module_token,
+            (parsed->token_count == 2U) ? parsed->tokens[1] : "PARSE",
+            "BAD_FORMAT", "INSTANCE_REQUIRED",
+            SYSTEM_CONSOLE_EXECUTE_BAD_ARGUMENT);
+    }
+    if (parsed->token_count > 4U)
+    {
+        return SystemConsole_ErrorWrite(response, capacity,
+            parsed->module_token, parsed->tokens[2],
+            "BAD_FORMAT", "TOKEN_COUNT",
+            SYSTEM_CONSOLE_EXECUTE_BAD_ARGUMENT);
+    }
+    result = SystemConsole_InstanceParse(parsed, response, capacity);
+    if (result != SYSTEM_CONSOLE_EXECUTE_OK) { return result; }
+    parsed->command = parsed->tokens[2];
+    if (parsed->token_count == 4U) { parsed->subcommand = parsed->tokens[3]; }
+    if (ProjectDeviceInstance_DescriptorGet(
+            SystemConsole_DeviceClassGet(parsed->module),
+            parsed->instance_id, &descriptor) != SYSTEM_DEVICE_OK)
+    {
+        return SystemConsole_ErrorWrite(response, capacity,
+            parsed->module_text, parsed->command, "NOT_PRESENT", "INSTANCE",
+            SYSTEM_CONSOLE_EXECUTE_FAILED);
+    }
+    return SYSTEM_CONSOLE_EXECUTE_OK;
+}
+
+static SystemConsoleExecuteResult SystemConsole_SystemCommandParse(
+    SystemConsoleCommand *parsed, char *response, uint16_t capacity)
+{
+    SILVERSTAR_ASSERT_OBJECT(parsed, SystemConsoleCommand,
+        SILVERSTAR_ASSERT_MODULE_SYSTEM);
+    if (parsed->token_count < 2U)
+    {
+        return SystemConsole_ErrorWrite(response, capacity, "SYSTEM", "PARSE",
+            "BAD_FORMAT", "TOKEN_COUNT", SYSTEM_CONSOLE_EXECUTE_BAD_ARGUMENT);
+    }
+    if (parsed->token_count > 4U)
+    {
+        return SystemConsole_ErrorWrite(response, capacity,
+            parsed->module_token, parsed->tokens[1],
+            "BAD_FORMAT", "TOKEN_COUNT",
+            SYSTEM_CONSOLE_EXECUTE_BAD_ARGUMENT);
+    }
+    parsed->command = parsed->tokens[1];
+    if (parsed->token_count >= 3U) { parsed->subcommand = parsed->tokens[2]; }
+    if (parsed->token_count == 4U) { parsed->extra = parsed->tokens[3]; }
+    if ((parsed->extra != NULL) &&
+        ((parsed->module != SYSTEM_CONSOLE_MODULE_SYSTEM) ||
+         (strcmp(parsed->command, "CONSOLE") != 0) ||
+         (strcmp(parsed->subcommand, "IO") != 0) ||
+         (strcmp(parsed->extra, "CLEAR") != 0)))
+    {
+        return SystemConsole_ErrorWrite(response, capacity,
+            parsed->module_token, parsed->command,
+            "BAD_FORMAT", "TOKEN_COUNT",
+            SYSTEM_CONSOLE_EXECUTE_BAD_ARGUMENT);
+    }
+    return SYSTEM_CONSOLE_EXECUTE_OK;
 }
 
 static SystemConsoleExecuteResult SystemConsole_CommandParse(
@@ -3826,6 +4129,7 @@ static SystemConsoleExecuteResult SystemConsole_CommandParse(
     SystemConsoleTokenCursor cursor;
     char *overflow;
     uint16_t line_length;
+    uint8_t index;
 
     if ((line == NULL) || (parsed == NULL) ||
         (response == NULL) || (capacity == 0U))
@@ -3839,30 +4143,41 @@ static SystemConsoleExecuteResult SystemConsole_CommandParse(
     (void)memcpy(parsed->storage, line, (size_t)line_length + 1U);
     cursor.scan = parsed->storage;
     cursor.remaining = (uint16_t)(line_length + 1U);
-    parsed->module_text = SystemConsole_TokenNext(&cursor);
-    parsed->command = SystemConsole_TokenNext(&cursor);
-    parsed->subcommand = SystemConsole_TokenNext(&cursor);
-    parsed->extra = SystemConsole_TokenNext(&cursor);
+    for (index = 0U; index < SYSTEM_CONSOLE_TOKEN_COUNT_MAX; index++)
+    {
+        parsed->tokens[index] = SystemConsole_TokenNext(&cursor);
+        if (parsed->tokens[index] == NULL) { break; }
+        parsed->token_count++;
+    }
     overflow = SystemConsole_TokenNext(&cursor);
-    if ((parsed->module_text == NULL) || (parsed->command == NULL))
+    if (parsed->token_count == 0U)
     {
         return SystemConsole_ErrorWrite(response, capacity, "SYSTEM", "PARSE",
             "BAD_FORMAT", "TOKEN_COUNT", SYSTEM_CONSOLE_EXECUTE_BAD_ARGUMENT);
     }
-    if (SystemConsole_ExtraTokensValid(parsed, overflow) == 0U)
-    {
-        return SystemConsole_ErrorWrite(response, capacity,
-            parsed->module_text, parsed->command, "BAD_FORMAT", "TOKEN_COUNT",
-            SYSTEM_CONSOLE_EXECUTE_BAD_ARGUMENT);
-    }
-    parsed->module = SystemConsole_ModuleParse(parsed->module_text);
+    parsed->module_token = parsed->tokens[0];
+    parsed->module_text = parsed->module_token;
+    parsed->module = SystemConsole_ModuleParse(parsed->module_token);
     if (parsed->module == SYSTEM_CONSOLE_MODULE_INVALID)
     {
         return SystemConsole_ErrorWrite(response, capacity,
-            parsed->module_text, parsed->command, "BAD_MODULE", "UNKNOWN",
-            SYSTEM_CONSOLE_EXECUTE_BAD_MODULE);
+            parsed->module_token,
+            (parsed->token_count >= 2U) ? parsed->tokens[1] : "PARSE",
+            "BAD_MODULE", "UNKNOWN", SYSTEM_CONSOLE_EXECUTE_BAD_MODULE);
     }
-    return SYSTEM_CONSOLE_EXECUTE_OK;
+    if (overflow != NULL)
+    {
+        return SystemConsole_ErrorWrite(response, capacity,
+            parsed->module_token,
+            (parsed->token_count >= 2U) ? parsed->tokens[1] : "PARSE",
+            "BAD_FORMAT", "TOKEN_COUNT",
+            SYSTEM_CONSOLE_EXECUTE_BAD_ARGUMENT);
+    }
+    if (SystemConsole_ModuleIsIndexed(parsed->module) != 0U)
+    {
+        return SystemConsole_IndexedCommandParse(parsed, response, capacity);
+    }
+    return SystemConsole_SystemCommandParse(parsed, response, capacity);
 }
 
 static SystemConsoleExecuteResult SystemConsole_CommandValidate(
@@ -3881,11 +4196,50 @@ static SystemConsoleExecuteResult SystemConsole_CommandValidate(
     }
     if ((SystemLifecycle_IsConfigurationLocked() != 0U) &&
         (SystemConsole_CommandAllowedInFlight(
-            parsed->module_text, parsed->command, parsed->subcommand) == 0U))
+            parsed->module_token, parsed->command, parsed->subcommand) == 0U))
     {
         return SystemConsole_ErrorWrite(response, capacity, "SYSTEM",
             parsed->command, "LOCKED", "FLIGHT",
             SYSTEM_CONSOLE_EXECUTE_LOCKED);
+    }
+    return SYSTEM_CONSOLE_EXECUTE_OK;
+}
+
+static SystemConsoleExecuteResult SystemConsole_ListExecute(
+    const SystemConsoleCommand *parsed, char *response, uint16_t capacity)
+{
+    SystemDeviceDescriptor descriptor;
+    SystemDeviceInfo info;
+    SystemDeviceClass device_class = SystemConsole_DeviceClassGet(
+        parsed->module);
+    uint16_t device_count = SystemDescriptor_DeviceCountGet();
+    uint16_t index;
+
+    SILVERSTAR_ASSERT_OBJECT(parsed, SystemConsoleCommand,
+        SILVERSTAR_ASSERT_MODULE_SYSTEM);
+    SILVERSTAR_ASSERT_OBJECT(response, char,
+        SILVERSTAR_ASSERT_MODULE_SYSTEM);
+    (void)CommonFormat_Print(response, capacity, "OK %s LIST count=%u",
+        parsed->module_token,
+        (unsigned int)ProjectDeviceInstance_CountGet(device_class));
+    for (index = 0U; index < SYSTEM_DESCRIPTOR_DEVICE_COUNT_MAX; index++)
+    {
+        if (index >= device_count) { break; }
+        if (SystemDescriptor_DeviceGet(index, &descriptor) != SYSTEM_DEVICE_OK)
+        { return SYSTEM_CONSOLE_EXECUTE_FAILED; }
+        if (descriptor.device_class != device_class) { continue; }
+        (void)memset(&info, 0, sizeof(info));
+        (void)ProjectDeviceInstance_InfoGet(
+            device_class, descriptor.instance_id, &info);
+        SystemConsole_TextAppend(response, capacity,
+            " DATA instance=%u descriptor_id=%u physical_device_id=%u shared=%u device=%s model=%s",
+            (unsigned int)descriptor.instance_id,
+            (unsigned int)descriptor.descriptor_id,
+            (unsigned int)descriptor.physical_device_id,
+            (unsigned int)((descriptor.flags &
+                SYSTEM_DESCRIPTOR_FLAG_SHARED_PHYSICAL) != 0U),
+            (info.device_name != NULL) ? info.device_name : "UNKNOWN",
+            (info.model_name != NULL) ? info.model_name : "UNKNOWN");
     }
     return SYSTEM_CONSOLE_EXECUTE_OK;
 }
@@ -3942,9 +4296,15 @@ static SystemConsoleExecuteResult SystemConsole_SampleCommandExecute(
         (strcmp(parsed->subcommand, "DETAIL") == 0))
     {
         if (parsed->module == SYSTEM_CONSOLE_MODULE_GNSS)
-        { return SystemConsole_GnssSampleDetailExecute(response, capacity); }
+        {
+            return SystemConsole_GnssSampleDetailExecute(
+                parsed->instance_id, parsed->module_text, response, capacity);
+        }
         if (parsed->module == SYSTEM_CONSOLE_MODULE_BARO)
-        { return SystemConsole_BarometerSampleDetailExecute(response, capacity); }
+        {
+            return SystemConsole_BarometerSampleDetailExecute(
+                parsed->instance_id, parsed->module_text, response, capacity);
+        }
     }
     if (parsed->subcommand != NULL)
     {
@@ -3953,7 +4313,8 @@ static SystemConsoleExecuteResult SystemConsole_SampleCommandExecute(
             SYSTEM_CONSOLE_EXECUTE_BAD_COMMAND);
     }
     return SystemConsole_SampleExecute(
-        parsed->module, parsed->module_text, response, capacity);
+        parsed->module, parsed->module_text, parsed->instance_id,
+        response, capacity);
 }
 
 static uint8_t SystemConsole_DiagnosticsTryExecute(
@@ -3986,12 +4347,18 @@ static uint8_t SystemConsole_DiagnosticsTryExecute(
              (strcmp(parsed->command, "NAV") == 0) &&
              (parsed->subcommand != NULL) &&
              (strcmp(parsed->subcommand, "SAT") == 0))
-    { *result = SystemConsole_GnssNavSatExecute(response, capacity); }
+    {
+        *result = SystemConsole_GnssNavSatExecute(
+            parsed->instance_id, parsed->module_text, response, capacity);
+    }
     else if ((parsed->module == SYSTEM_CONSOLE_MODULE_GNSS) &&
              (strcmp(parsed->command, "MON") == 0) &&
              (parsed->subcommand != NULL) &&
              (strcmp(parsed->subcommand, "RF") == 0))
-    { *result = SystemConsole_GnssMonRfExecute(response, capacity); }
+    {
+        *result = SystemConsole_GnssMonRfExecute(
+            parsed->instance_id, parsed->module_text, response, capacity);
+    }
     else
     { return 0U; }
     return 1U;
@@ -4010,10 +4377,12 @@ SystemConsoleExecuteResult SystemConsole_ExecuteLine(const char *line,
         SILVERSTAR_ASSERT_MODULE_SYSTEM);
     result = SystemConsole_CommandValidate(&parsed, response, capacity);
     if (result != SYSTEM_CONSOLE_EXECUTE_OK) { return result; }
+    if (parsed.list_requested != 0U)
+    { return SystemConsole_ListExecute(&parsed, response, capacity); }
     if (parsed.extra != NULL)
     {
         return SystemConsole_IoClearExecute(SYSTEM_CONSOLE_MODULE_SYSTEM,
-            "SYSTEM CONSOLE", response, capacity);
+            "SYSTEM CONSOLE", 0U, response, capacity);
     }
     if (SystemConsole_CoreModuleTryExecute(
             &parsed, response, capacity, &result) != 0U)
@@ -4023,7 +4392,8 @@ SystemConsoleExecuteResult SystemConsole_ExecuteLine(const char *line,
     if (SystemConsole_DiagnosticsTryExecute(
             &parsed, response, capacity, &result) != 0U)
     { return result; }
-    return SystemConsole_DeviceExecute(parsed.module, parsed.module_text,
+    return SystemConsole_DeviceExecute(
+        parsed.module, parsed.module_text, parsed.instance_id,
         parsed.command, parsed.subcommand, response, capacity);
 }
 

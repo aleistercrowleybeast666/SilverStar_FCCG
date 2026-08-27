@@ -54,31 +54,34 @@ mingw32-make TARGET_PROFILE=SilverStar_F407 CONFIG=Debug all
 mingw32-make TARGET_PROFILE=SilverStar_F407 CONFIG=Release all
 mingw32-make TARGET_PROFILE=SilverStar_F407 CONFIG=Debug clean
 mingw32-make TARGET_PROFILE=SilverStar_F407 CONFIG=Debug artifact-check
+mingw32-make "HOST_CC=D:\msys64\ucrt64\bin\gcc.exe" host-tests
 mingw32-make list-sources
 mingw32-make power10-check
 mingw32-make static-analysis
 mingw32-make memory-report
 ```
 
-Debug使用`-Og -g`，Release使用`-O2`。两者都启用section GC、基础warning和关键`-Werror`。正式工具链前缀为`arm-none-eabi-`，可用`GCC_PATH`指定目录。
+Debug使用`-Og -g`，Release使用`-O2`。两者都启用section GC、基础warning和关键`-Werror`。固件工具链前缀为`arm-none-eabi-`，可用`GCC_PATH`指定目录。Host Test使用独立的Windows本机GCC，由`HOST_CC`传入完整可执行文件路径；路径可以含空格，不能传入Arm交叉编译器。
 
-SSLOG Record ID、metadata和逐字段little-endian serializer/deserializer是`Protocol/SSLOG/Inc/sslog_records.h`与`Protocol/SSLOG/Src/sslog_records.c`中的普通受控源码。authoritative firmware build直接编译它们，不运行Python或代码生成器；`Protocol/SSLOG/schema/`仅保存离线解析器参考资料，不是固件构建输入。
+飞行日志格式0.0的Record ID、metadata和逐字段little-endian serializer/deserializer是`Protocol/SSLOG/Inc/sslog_records.h`与`Protocol/SSLOG/Src/sslog_records.c`中的普通受控源码，现有wire magic仍为`SSLOG0`。authoritative firmware build直接编译它们，不运行Python或代码生成器；`Protocol/SSLOG/schema/`仅保存离线解析器参考资料，不是固件构建输入。
+
+`Generated/Src/project_metadata.c`与`project_device_instances.c`分别是当前project descriptor和按实例direct facade；两者进入authoritative Make及EIDE镜像，不是运行期插件表。未来FCCG可按Physical Device/Capability Endpoint组合重写它们，但必须保留静态有界调用、连续class instance编号和显式`physical_device_id`。
 
 ## 4. 输出
 
 ```text
-build/SilverStar_F407/Debug/
-build/SilverStar_F407/Release/
-build/SilverStar_F407/StaticAnalysis/Debug/
-build/EIDE/SilverStar_F407/Debug/
-build/Host/Tests/
+build/FCCG/SilverStar_F407/Debug/
+build/FCCG/SilverStar_F407/Release/
+build/FCCG/SilverStar_F407/StaticAnalysis/Debug/
+build/FCCG/SilverStar_F407/EIDE/
+build/FCCG/Host/Tests/
 ```
 
 目标产物名为`SilverStar_0_0_9.elf/.map/.hex/.bin`。C对象由源码相对路径派生，例如：
 
 ```text
-build/SilverStar_F407/Debug/Platform/STM32F4/Src/platform_uart_stm32f4.o
-build/SilverStar_F407/Debug/Devices/IMU/JY901B/Src/jy901b_device.o
+build/FCCG/SilverStar_F407/Debug/Platform/STM32F4/Src/platform_uart_stm32f4.o
+build/FCCG/SilverStar_F407/Debug/Devices/IMU/JY901B/Src/jy901b_device.o
 ```
 
 不允许使用`$(notdir ...)`压平对象名。
@@ -98,7 +101,7 @@ ThirdParty/FreeRTOS-Kernel/portable/GCC/ARM_CM4F/port.c
 
 ## 6. EIDE、VS Code与CubeMX
 
-`.eide/eide.yml`恢复为当前F407可直接调用Arm GNU Toolchain的开发镜像。它只列出Make正式选择的目录和显式virtual sources，使用Cortex-M4F、single-precision FPU、hard-float、C11、`STM32F407XX_FLASH.ld`和`platform_memory_target.h` forced include，输出隔离在`build/EIDE/SilverStar_F407/Debug`。
+`.eide/eide.yml`恢复为当前F407可直接调用Arm GNU Toolchain的开发镜像。它只列出Make正式选择的目录和显式virtual sources，使用Cortex-M4F、single-precision FPU、hard-float、C11、`STM32F407XX_FLASH.ld`和`platform_memory_target.h` forced include，输出隔离在`build/FCCG/SilverStar_F407/EIDE`。
 
 Make manifest仍是唯一权威source graph。`architecture-check`枚举EIDE实际C/S集合并与`make list-sources`比较，同时逐项比较include和define；任何漂移都失败。当前YML为可手工维护镜像，不允许反向驱动Make。未来FCCG可以从`SilverStar.ssproject`生成/覆盖该镜像、Target/Board选择和`Generated/`薄胶水。
 
@@ -113,13 +116,14 @@ CubeMX只生成F407 HAL/外设初始化。`.ioc`不管理FreeRTOS和APP任务。
 
 ```powershell
 mingw32-make host-tests
+mingw32-make "HOST_CC=C:\path with spaces\gcc.exe" host-tests
 mingw32-make architecture-check
 mingw32-make power10-check
 mingw32-make static-analysis
 mingw32-make TARGET_PROFILE=SilverStar_F407 CONFIG=Debug artifact-check
 ```
 
-`architecture-check`同时评估manifest/EIDE镜像源集、文件存在性、重复源、目标backend、FreeRTOS精简源集、无heap/CMSIS、SSLOG普通源码的双向endian codec、禁止struct直写wire，以及authoritative manifest不调用Python/生成器。`power10-check`对第一方代码执行10条硬门禁；`static-analysis`在隔离输出目录对第一方启用`-fanalyzer`。`artifact-check`检查ELF/MAP/HEX/BIN、CCMRAM/主SRAM归属和预算，并拒绝allocator或旧OS/heap object。
+`host-tests`先输出所选编译器的`--version`和`-dumpmachine`，只接受能在当前Windows生成并运行EXE的GCC；脚本统一UTF-8输出，普通编译失败会保留完整命令参数与stdout/stderr，预期编译失败至少保留实际GCC错误原因。`architecture-check`同时评估manifest/EIDE镜像源集、文件存在性、重复源、目标backend、FreeRTOS精简源集、无heap/CMSIS、飞行日志普通源码的双向endian codec、禁止struct直写wire，以及authoritative manifest不调用Python/生成器。`power10-check`对第一方代码执行10条硬门禁；`static-analysis`在隔离输出目录对第一方启用`-fanalyzer`。`artifact-check`检查ELF/MAP/HEX/BIN、CCMRAM/主SRAM归属和预算，并拒绝allocator或旧OS/heap object。
 
 ## 8. Strategy source graph
 

@@ -620,7 +620,7 @@ KF_6
 GNSS
 NIS
 CRC
-SSLOG0
+飞行日志格式 0.0
 ```
 
 Human-readable nouns should be localized:
@@ -1457,4 +1457,3 @@ Reuse:
 Do **not** force unrelated applications to copy the same page structure or domain workflow.
 
 The standard is a common engineering UI language, not a rigid template.
-

@@ -4,7 +4,7 @@
 
 The selected components and project model resolve to explicit C/ASM sources, includes, defines, forced includes, exclusions, linker script, CPU/FPU flags, specs, libraries, and toolchain prefix. No renderer scans the project with wildcards.
 
-The current reference graph has 134 C sources and one startup assembly source. It includes only the selected Alignment/INS/Estimator/Landing strategies, the FreeRTOS static kernel subset/CM4F port, and four FCCG-generated C files. `Core/Src/sysmem.c` is excluded; both target memory and generated flight-configuration headers are forced includes, keeping deployment parameters identical across Make/EIDE.
+The current reference graph has 136 C sources and one startup assembly source. It includes only the selected Alignment/INS/Estimator/Landing strategies, the FreeRTOS static kernel subset/CM4F port, and five FCCG-generated C files. `Core/Src/sysmem.c` is excluded; both target memory and generated flight-configuration headers are forced includes, keeping deployment parameters identical across Make/EIDE.
 
 ## Make
 
@@ -24,32 +24,84 @@ Warnings are classified:
 - third-party/vendor/HAL and `HardwareGenerated`: controlled warning policy;
 - static analysis: GCC `-fanalyzer` in a separate build tree.
 
-Targets include `all`, `clean`, `host-tests`, `architecture-check`, `power10-check`, `static-analysis`, `artifact-check`, and `memory-report`. No flash target is generated because the current Board and Environment plugins do not jointly declare a validated flash capability.
+Targets include `all`, `clean`, `clean-all`, `host-tests`, `architecture-check`, `power10-check`, `static-analysis`, `artifact-check`, and `memory-report`. No flash target is generated because the current Board and Environment plugins do not jointly declare a validated flash capability.
 
 ## VS Code
 
-`<ProjectName>.code-workspace` and project-local `.vscode/tasks.json`, `settings.json`, and `extensions.json` are generated. The Release task is the default `Ctrl+Shift+B` task; explicit Debug/Release Build and Clean entries plus Host Tests, Architecture Check, Power of Ten Check, Static Analysis, and Artifact Check remain available. They invoke the generated Make project and do not own another source list or modify global VS Code settings.
+`<ProjectName>.code-workspace` and project-local `.vscode/tasks.json`, `settings.json`, and `extensions.json` are generated. The Release task is the default `Ctrl+Shift+B` task; explicit Debug/Release Build, **Clean FCCG Build Outputs**, **Clean All Build Outputs**, Host Tests, Architecture Check, Power of Ten Check, Static Analysis, and Firmware Artifact Check remain available. They invoke the generated Make project and do not own another source list or modify global VS Code settings.
 
-The GUI prefers a discovered or known-installation `Code.exe` and invokes it with `--new-window` plus the absolute workspace path. A `code.cmd` discovery is also used to locate its sibling GUI executable before the batch launcher is attempted. The OS file association remains the final fallback. A process that fails immediately is not reported as opened; localized failure details include the absolute path and the exact launcher, exit-code, operating-system, or association reason.
+Before launch, the GUI requires an existing parseable workspace whose `folders[0].path` resolves to the project directory and whose `.eide/eide.yml` exists. Launcher order is `code.cmd`, `code.exe`, `code`, known installation paths, then the OS file association. CLI launchers always receive `--new-window` and the absolute workspace path. The process is observed briefly; an immediate nonzero exit is failure, while a still-running or zero-exit CLI means only that VS Code accepted the request. Technical command/cwd/return/stderr details are logged. The user sees one localized OK-only failure dialog with the workspace path for manual opening; a later EIDE extension/load error is classified separately from VS Code launch.
 
 ## EIDE native build
 
 The Environment plugin stores verbatim copies of the read-only firmware's `.eide/eide.yml`, `.eide/files.options.yml`, root workspace, and VS Code task template. `.vscode/settings.json` and `extensions.json` were not standalone files in that reference, so FCCG derives them from the reference workspace and records that fact in the template inventory.
 
-The rendered `.eide/eide.yml` keeps the reference schema/target/upload structure while replacing the resolved project graph: Release first/default and Debug retained, non-empty `srcDirs`, explicit virtual source files, include/define lists, excludes, forced includes, linker, CPU/FPU/toolchain flags, libraries, and `build\EIDE\SilverStar_F407` output. Because no CMSIS Pack is bound, both `deviceName` and `packDir` are `null`. The retained template selects OpenOCD rather than J-Link, but FCCG does not expose a flash operation or claim that OpenOCD, J-Link, ST-Link, or hardware programming was validated.
+The rendered `.eide/eide.yml` keeps the reference schema/target/upload structure while replacing the resolved project graph: Release first/default and Debug retained, non-empty `srcDirs`, explicit virtual source files, include/define lists, excludes, forced includes, linker, CPU/FPU/toolchain flags, libraries, and `build\FCCG\SilverStar_F407\EIDE` output. Because no CMSIS Pack is bound, both `deviceName` and `packDir` are `null`. The retained template selects OpenOCD rather than J-Link, but FCCG does not expose a flash operation or claim that OpenOCD, J-Link, ST-Link, or hardware programming was validated.
 
-`.eide/eide.yml` is FCCG-managed. If its previous generated hash no longer matches the file, Save marks replacement dangerous and asks the user to continue or cancel; no three-way merge is attempted.
+`.eide/eide.yml` has shared ownership. FCCG parses YAML and fingerprints only the build-critical source graph, exclusions, includes, defines, CPU/FPU/ABI, linker/startup, selected toolchain configuration, Debug/Release flags, and output paths. EIDE-owned target selection, UI/uploader/debugger state, added compatibility fields, field order, and formatting are preserved and do not trigger a warning. Save reports a dangerous change only when an FCCG-owned field differs from its recorded normalized value, and the confirmation lists the exact field paths before FCCG merges its desired build fields into the current document.
+
+The authoritative graph explicitly includes
+`Generated/Src/project_log_decoder_profile.c`. Release, Debug, static analysis, native EIDE, and
+VS Code therefore cannot disagree about the firmware-embedded decoder-profile identity.
 
 ## Tools and safety
 
-The normal page displays only Arm GNU GCC and GNU Make. Selecting the compiler derives `arm-none-eabi-objcopy` and `arm-none-eabi-size` from the same `bin` directory. Host GCC appears only under advanced quality checks, and static analysis reuses Arm GCC rather than presenting a second analyzer compiler. Browse choices are stored only in `build.tool_paths` inside the project. FCCG never changes PATH, registry, global IDE settings, or the global Python environment.
+The normal page has no duplicate tool-status pill or table; it shows only target and development environment. Advanced details separate **Firmware Build Environment** (Arm GNU Toolchain and GNU Make) from **Host Test Environment** (Host GCC). Arm GNU is the only supported firmware compiler. Selecting its compiler executable derives `arm-none-eabi-objcopy` and `arm-none-eabi-size` from the same `bin` directory. GNU Make is an orchestrator, not a compiler. Host GCC only builds/runs computer-side unit tests and cannot generate STM32 BIN/HEX. Browse choices stay in `build.tool_paths`; they do not enter the generation fingerprint or generated VS Code task command.
+
+Missing Arm GNU disables FCCG firmware build and static analysis but never Generate Code. Missing Make disables Make-driven build/check actions. Missing Host GCC disables Host Tests only. A localized Installation Guide explains Arm GNU, GNU Make, and Host GCC, including the reference-validated Arm GNU 14.3.1 version, without claiming other versions are impossible. FCCG never downloads installers or changes PATH, registry, global IDE settings, or the global Python environment.
 
 Build subprocesses receive argument arrays and an explicit project working directory that must resolve below the exact user-selected project root. The current GUI, Makefile, VS Code tasks, and EIDE metadata expose no upload action. A successful artifact check is not a hardware-flash or electrical-validation claim.
 
-The **Code Generation & Build** workflow is Generate/Apply → Open VS Code Workspace/Project Folder → build in VS Code/EIDE. FCCG has no separate Build Release button. Advanced **Open Firmware Output** is gated by a real ELF/HEX/BIN/MAP artifact. **Validation Build** invokes Make with `CONFIG=Release`; Clean and quality checks remain explicit advanced actions. Generate/Apply never runs them.
+The **Code Generation & Build** workflow is Generate Code → Open VS Code Workspace/Project Folder → build in VS Code/EIDE. FCCG has no separate Build Release button. Advanced **Open Firmware Output** is gated by a real ELF/HEX/BIN/MAP artifact. **Build Firmware in FCCG** invokes Make with `CONFIG=Release`; Clean and quality checks remain explicit advanced actions. Generate Code never runs them.
 
-Before an advanced validation build, `BuildRunner` invokes Make with `-n` and counts structured `FCCG_PROGRESS` markers for pending compile, link, size, HEX, and BIN steps. Output is delivered to the GUI one line at a time. Reapplying an unchanged FCCG model does not rewrite equal managed files, remove `.d` files, or clean `build/`, so normal Make/EIDE incremental compilation remains effective.
+Before an advanced validation build, `BuildRunner` invokes Make with `-n` and counts structured
+compile/link/size/HEX/BIN markers. It also consumes the reusable
+`FCCG_PROGRESS|<TASK>|PLAN|<total>` and paired BEGIN/DONE protocol emitted by Host tests and quality
+scripts. BEGIN announces work but does not increase completion; DONE does. Architecture reports
+source graph, directory boundaries, EIDE consistency, FreeRTOS, protocol, and summary. Power of Ten
+reports each first-party C file plus function/build policy. Artifact checking reports ELF, MAP,
+FLASH, main SRAM, CCMRAM, heap, BIN/HEX, and summary. Static analysis labels only first-party
+`-fanalyzer` compilation as analysis and labels HAL/FatFs/FreeRTOS work as dependency compilation.
+Output is delivered to the GUI one line at a time. Reapplying an unchanged FCCG model does not
+rewrite equal managed files, remove `.d` files, or clean `build/`, so normal Make/EIDE incremental
+compilation remains effective.
 
 `power10-check` executes the project script and fails nonzero on violations; it is an automatic project compliance gate, not formal proof, NASA certification, or third-party safety certification. `static-analysis` performs a separate-output Arm GCC build with the real path-sensitive `-fanalyzer` and warnings-as-errors over first-party sources. Neither check is run automatically during generation.
 
 The default Environment plugin is VS Code + EIDE + Arm GNU Toolchain. The manifest architecture can later add trusted Keil/IAR/CMake/pure-Make renderers, but no unvalidated project format is fabricated now.
+
+## Output, feedback, and cleanup
+
+Make writes firmware to `build/FCCG/<target>/<config>`, static analysis to
+`build/FCCG/<target>/StaticAnalysis/<config>`, Host tests to `build/FCCG/Host/Tests`, and EIDE to
+`build/FCCG/<target>/EIDE`. `LISTING ?= 0`; `.lst` files are emitted only with `LISTING=1`.
+Normal `clean` removes the complete generated-project `build/FCCG` tree. Generated-project
+`clean-all` removes `build/FCCG`, `.eide/build`, and `.eide/.cache`, while repository
+`python tools/clean_all.py` validates the workspace boundary
+before removing build, acceptance/reference-copy, pytest, temporary generation, and Python-cache
+targets. Both generated-project cleanup targets use direct literal paths with no nested shell
+variables, emit determinate PLAN/BEGIN/DONE progress, and never target source tests.
+
+Only firmware Build shows a compile/link plan. Host, architecture, Power of Ten, static analysis,
+and artifact checks use task-specific status. Static analysis performs an equivalent dry-run to
+count stages and advances compile progress only on `COMPILE_DONE`; link/size/HEX/BIN occupy the
+final progress bands. Success updates persistent green results without a modal dialog; failures
+expand raw logs and show one localized summary with the complete Make output in dialog details.
+Host GCC is validated with `--version` and `-dumpmachine`, passed as an explicit command-line
+`HOST_CC` (configured absolute path or deterministic `gcc` fallback), and kept separate from Arm
+GNU. On Windows the runner discards inherited `SHELL`/`MAKESHELL` values so a parent MSYS,
+PowerShell, or Git Bash session cannot silently change `mingw32-make` recipe semantics. It also
+places the resolved Host GCC directory first in the child `PATH` and clears inherited GCC search
+overrides. The generated Host Test script repeats this isolation after resolving `HOST_CC`, so an
+EIDE/Arm launcher cannot inject an incompatible MinGW runtime DLL into `cc1.exe` or the binutils.
+The 2026-08-28 default-project validation completed 52 Host executables and 8,784 checks with this
+isolation, including the C-codec Golden generator.
+
+Host Test first collects runnable executables, expected-pass compile cases, and expected-rejection
+cases, then emits actual totals. A configuration gate that rejects an illegal build is a neutral
+success, not a red error. The normal log shows a localized summary; GCC diagnostics are retained in
+the expandable detailed log and `build/FCCG/Host/Tests/host-tests-detail.log`. A missing expected
+rejection, an unexpected non-gate compiler error, a failed expected-pass compile, or a nonzero test
+executable is a real failure. Any failed/cancelled task retains its last completed progress rather
+than being forced to 100%. Both cleanup actions use determinate progress rather than a cycling
+indicator.

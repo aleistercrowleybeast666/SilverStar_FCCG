@@ -40,9 +40,9 @@ def test_deployment_parameters_and_protocol_profiles_reach_all_outputs(
     assert model.modes["calibration"] == ["Existing", "OneFace", "SixFace"]
     assert model.modes["deployment"] == ["ApogeeVerticalVelocity", "Tilt"]
     assert model.protocol_profiles == {
-        "telemetry": "air.compact.v0",
-        "maintenance": "maintenance.v0_0",
-        "logging": "sslog0",
+        "telemetry": "air.m0",
+        "maintenance": "maintenance.serial.0_0",
+        "logging": "flight_log.0_0",
     }
 
     model.modes["deployment"].append("Delay")
@@ -73,16 +73,20 @@ def test_deployment_parameters_and_protocol_profiles_reach_all_outputs(
     assert "SYSTEM_FLIGHT_TILT_THRESHOLD_DEG" in header and "72.5f" in header
     assert "SYSTEM_FLIGHT_DEPLOY_DELAY_MS" in header and "12345U" in header
 
+    live_model_before_render = model.Dictionary_Get()
     metadata = MetadataFiles_Render(model, builtin_catalog, graph)
+    assert model.Dictionary_Get() == live_model_before_render
+    written_model = json.loads(metadata["SilverStar.ssproject"])
+    assert written_model["component_provenance"]
     summary = metadata["SilverStar_Configuration.md"].decode("utf-8")
     assert "deployment.Delay` (active)" in summary
     assert "delay=12.345" in summary
-    assert "`telemetry`: `air.compact.v0`" in summary
-    assert "`maintenance`: `maintenance.v0_0`" in summary
-    assert "`logging`: `sslog0`" in summary
+    assert "AIR Telemetry Protocol M0 (`air.m0`)" in summary
+    assert "Serial Maintenance Protocol 0.0 (`maintenance.serial.0_0`)" in summary
+    assert "Flight Log Format 0.0 (`flight_log.0_0`)" in summary
 
     with zipfile.ZipFile(io.BytesIO(metadata["FlightConfigurationContract.ssdecoder"])) as archive:
-        profile = json.loads(archive.read("project_profile.json"))
+        profile = json.loads(archive.read("project_semantics.json"))
     assert profile["mode_parameters"] == model.mode_parameters
     assert profile["protocol_profiles"] == model.protocol_profiles
     assert ProjectModel_Parse(model.Dictionary_Get()).Dictionary_Get() == (
@@ -237,23 +241,24 @@ def test_protocol_controls_artifact_gate_and_assignment_fingerprint(
 ) -> None:
     window = MainWindow(SettingsStore(tmp_path / "profiles-and-artifacts.ini"))
     try:
+        assert set(window.flight_configuration_page.protocol_combos) == {
+            "telemetry",
+            "maintenance",
+            "logging",
+        }
         assert {
-            category: combo.currentData()
+            category: (combo.count(), combo.currentText())
             for category, combo in window.flight_configuration_page.protocol_combos.items()
         } == {
-            "telemetry": "air.compact.v0",
-            "maintenance": "maintenance.v0_0",
-            "logging": "sslog0",
+            "telemetry": (1, "AIR遥测协议 M0"),
+            "maintenance": (1, "串口维护协议 0.0"),
+            "logging": (1, "飞行日志格式 0.0"),
         }
-        assert all(
-            combo.count() == 1 and not combo.isEnabled()
-            for combo in window.flight_configuration_page.protocol_combos.values()
-        )
 
         project_root = tmp_path / "GeneratedProject"
         window._project_root = project_root
         assert window._FirmwareArtifact_Get(window._model) == (None, "")
-        non_artifact = project_root / "build" / window._model.build.target_profile / "Release" / "notes.txt"
+        non_artifact = project_root / "build" / "FCCG" / window._model.build.target_profile / "Release" / "notes.txt"
         non_artifact.parent.mkdir(parents=True)
         non_artifact.write_text("not firmware", encoding="utf-8")
         assert window._FirmwareArtifact_Get(window._model) == (None, "")

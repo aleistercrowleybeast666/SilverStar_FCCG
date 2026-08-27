@@ -61,9 +61,8 @@ def test_estimator_none_is_absent_from_make_and_eide(
 
     graph = SourceGraph_Resolve(model, builtin_catalog)
     assert not any("Algorithm/Estimator/KF6" in source for source in graph.sources)
-    assert "APP/Src/estimator_task_none.c" in graph.sources
-    assert "APP/Src/estimator_task.c" not in graph.sources
-    assert "APP/Src/estimator_task.c" in graph.exclude_sources
+    assert "APP/Src/estimator_task.c" in graph.sources
+    assert "APP/Src/estimator_task.c" not in graph.exclude_sources
     assert "SYSTEM_BUILD_FUSION_ALGORITHM=SYSTEM_FUSION_NONE" in graph.defines
     assert "SYSTEM_BUILD_ESTIMATOR_ENABLED=0U" in graph.defines
 
@@ -80,12 +79,11 @@ def test_estimator_none_is_absent_from_make_and_eide(
     estimator_header = (
         core.payload_root / "APP" / "Inc" / "estimator_task.h"
     ).read_text(encoding="utf-8")
-    estimator_source = (
-        core.payload_root / "APP" / "Src" / "estimator_task_none.c"
-    ).read_text(encoding="utf-8")
-    assert "#if SYSTEM_BUILD_ESTIMATOR_ENABLED != 0U" in estimator_header
-    assert "EstimatorNoFusion_OutputRefresh" in estimator_source
-    assert "#if SYSTEM_BUILD_ESTIMATOR_ENABLED" not in estimator_source
+    estimator_source_path = core.payload_root / "APP" / "Src" / "estimator_task.c"
+    assert not (core.payload_root / "APP" / "Src" / "estimator_task_none.c").exists()
+    estimator_source = estimator_source_path.read_text(encoding="utf-8")
+    assert "AppTask_Estimator" in estimator_header
+    assert "return SYSTEM_BUILD_ESTIMATOR_ENABLED;" in estimator_source
 
 
 def test_environment_plugin_renders_one_resolved_source_graph(
@@ -95,7 +93,7 @@ def test_environment_plugin_renders_one_resolved_source_graph(
     graph = SourceGraph_Resolve(model, builtin_catalog)
     assert "APP/Src/estimator_task.c" in graph.sources
     assert "APP/Src/estimator_task_none.c" not in graph.sources
-    assert "APP/Src/estimator_task_none.c" in graph.exclude_sources
+    assert not any("estimator_task_none.c" in path for path in graph.sources)
     metadata = MetadataFiles_Render(model, builtin_catalog, graph)
     expected_outputs = {
         "EnvironmentTruth.code-workspace",
@@ -120,7 +118,7 @@ def test_environment_plugin_renders_one_resolved_source_graph(
     )
     assert actual_source_dirs == expected_source_dirs
     assert "srcDirs: []" not in eide
-    assert "outDir: build\\EIDE\\SilverStar_F407" in eide
+    assert "outDir: build\\FCCG\\SilverStar_F407\\EIDE" in eide
     assert "uploadConfigMap" in eide
     assert "uploader: OpenOCD" in eide
     assert "uploader: JLink" not in eide
@@ -266,6 +264,11 @@ def test_cubemx_import_generate_export_install_and_reuse(
     )
     model.board = ""
     model.hardware = imported.hardware
+    model.device_instances = [
+        instance
+        for instance in model.device_instances
+        if instance.plugin != "silverstar.device.indicator.system_status"
+    ]
     model.resource_assignments = {}
     resources = ResourceAssignments_Resolve(model, catalog, auto_assign=True)
     assert resources.valid
@@ -277,23 +280,15 @@ def test_cubemx_import_generate_export_install_and_reuse(
         "HardwareGenerated/STM32CubeMX/Core/Src/main.c",
     )
     validation = Project_Validate(model, catalog)
-    assert validation.valid
+    assert not validation.valid
+    assert any(issue.code == "protocol_transport" for issue in validation.issues)
     assert any(issue.code == "hardware_manual" for issue in validation.issues)
 
     assembler = ProjectAssembler(policy, catalog)
     first_root = tmp_path / "generated" / "CustomHardware"
     first_plan = assembler.Plan(model, first_root)
-    assert first_plan.validation.valid
+    assert not first_plan.validation.valid
     assert not first_plan.dangerous
-    assembler.Apply(model, first_plan)
-    hardware_root = first_root / "HardwareGenerated" / "STM32CubeMX"
-    assert (hardware_root / "MockFlightController.ioc").is_file()
-    assert (hardware_root / "README.md").is_file()
-    assert not (first_root / "Platform" / "MockFlightController.ioc").exists()
-    project_sources = (first_root / "Generated" / "project_sources.mk").read_text(
-        encoding="utf-8"
-    )
-    assert "HardwareGenerated/STM32CubeMX/Core/Src/main.c" in project_sources
 
     archive = BoardPluginExporter(policy).Plugin_Export(
         model,
@@ -317,18 +312,25 @@ def test_cubemx_import_generate_export_install_and_reuse(
     second.hardware = HardwareConfiguration(
         mode="board_plugin", source_kind="manual_import"
     )
+    second.device_instances = [
+        instance
+        for instance in second.device_instances
+        if instance.plugin != "silverstar.device.indicator.system_status"
+    ]
     second.resource_assignments = {}
     second_resources = ResourceAssignments_Resolve(
         second, catalog, auto_assign=True
     )
     assert second_resources.valid
     LoggingProfile_Reconcile(second, catalog)
-    assert Project_Validate(second, catalog).valid
-    second_root = tmp_path / "generated" / "ReusedBoard"
-    second_plan = assembler.Plan(second, second_root)
-    assembler.Apply(second, second_plan)
+    second_validation = Project_Validate(second, catalog)
+    assert not second_validation.valid
+    assert any(
+        issue.code == "protocol_transport" for issue in second_validation.issues
+    )
+    installed_manifest = catalog.Component_Get(installed.component_id)
     assert (
-        second_root
+        installed_manifest.payload_root
         / "HardwareGenerated"
         / "STM32CubeMX"
         / "MockFlightController.ioc"

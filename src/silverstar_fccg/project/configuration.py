@@ -517,6 +517,14 @@ def _RequiredLogicalDevices_Reconcile(
     return tuple(notices)
 
 
+def _UnavailableOptionalDevices_Reconcile(
+    model: ProjectModel, catalog: PluginCatalog
+) -> tuple[ConfigurationNotice, ...]:
+    """Retain user-selected devices; strict validation reports incompatibility."""
+    del model, catalog
+    return ()
+
+
 def _LegacyLandingStrategy_Reconcile(model: ProjectModel) -> None:
     legacy_component = "silverstar.flight_logic.landing.baro_imu_window"
     if model.strategies.get("landing") == legacy_component:
@@ -532,6 +540,7 @@ def ProjectConfiguration_Reconcile(
     _LegacyLandingStrategy_Reconcile(candidate)
     _RequiredDependencies_Reconcile(candidate, catalog)
     notices = [*_Hardware_Reconcile(candidate, catalog)]
+    notices.extend(_UnavailableOptionalDevices_Reconcile(candidate, catalog))
     notices.extend(_Strategies_Reconcile(candidate, catalog))
     notices.extend(_Modes_Reconcile(candidate, catalog))
     notices.extend(_RequiredLogicalDevices_Reconcile(candidate, catalog))

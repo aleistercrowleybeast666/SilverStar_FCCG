@@ -5,6 +5,7 @@
 
 #include "common_spsc_queue.h"
 #include "platform_critical.h"
+#include "project_log_decoder_profile.h"
 #include "silverstar_assert.h"
 #include "system_descriptor_if.h"
 #include "system_estimator_profile.h"
@@ -22,7 +23,7 @@
 _Static_assert(FLIGHT_LOG_MAX_PAYLOAD_SIZE >=
                FLIGHT_LOG_SAMPLE_PAYLOAD_SIZE,
                "SSLOG payload capacity is too small");
-_Static_assert(FLIGHT_LOG_RECORD_LOG_STREAM_DESCRIPTOR <= 0xFFU,
+_Static_assert(FLIGHT_LOG_RECORD_DECODER_PROFILE_DESCRIPTOR <= 0xFFU,
                "SSLOG0 record type must fit in one byte");
 static CommonSpscQueue s_logger_queue;
 static FlightLogRecord s_logger_storage[LOGGER_RECORD_QUEUE_DEPTH];
@@ -194,7 +195,7 @@ LoggerBusResult LoggerBus_EventPush(
     FlightLogEventRecord record;
 
     if ((event_id < FLIGHT_LOG_EVENT_BOOT) ||
-        (event_id > FLIGHT_LOG_EVENT_LANDING_IMPACT))
+        (event_id > FLIGHT_LOG_EVENT_SENSOR_SOURCE_CHANGE))
     {
         return LOGGER_BUS_RESULT_BAD_PARAM;
     }
@@ -324,6 +325,7 @@ static LoggerBusResult LoggerBus_DeviceDescriptorsPush(
         }
         (void)memset(&record, 0, sizeof(record));
         record.descriptor_id = descriptor.descriptor_id;
+        record.physical_device_id = descriptor.physical_device_id;
         record.device_class = (uint8_t)descriptor.device_class;
         record.instance_id = descriptor.instance_id;
         record.driver_id = descriptor.driver_id;
@@ -521,6 +523,42 @@ LoggerBusResult LoggerBus_MissionConfigPush(uint64_t timestamp_us)
     return LoggerBus_ConfiguredRecordPush(
         FLIGHT_LOG_RECORD_MISSION_CONFIG, timestamp_us, 0U,
         &record, sizeof(record), 0U);
+}
+
+static void LoggerBus_DecoderProfileRecordBuild(
+    const ProjectLogDecoderProfile *profile,
+    FlightLogDecoderProfileDescriptorRecord *record)
+{
+    SILVERSTAR_ASSERT_OBJECT(profile, ProjectLogDecoderProfile,
+        SILVERSTAR_ASSERT_MODULE_APP);
+    SILVERSTAR_ASSERT_OBJECT(record, FlightLogDecoderProfileDescriptorRecord,
+        SILVERSTAR_ASSERT_MODULE_APP);
+    (void)memset(record, 0, sizeof(*record));
+    record->package_schema_major = profile->package_schema_major;
+    record->package_schema_minor = profile->package_schema_minor;
+    record->container_format_major = profile->container_format_major;
+    record->container_format_minor = profile->container_format_minor;
+    (void)memcpy(record->record_catalog_hash_128,
+        profile->record_catalog_hash_128,
+        sizeof(record->record_catalog_hash_128));
+    (void)memcpy(record->project_semantics_hash_128,
+        profile->project_semantics_hash_128,
+        sizeof(record->project_semantics_hash_128));
+    (void)memcpy(record->generation_profile_hash_128,
+        profile->generation_profile_hash_128,
+        sizeof(record->generation_profile_hash_128));
+}
+
+LoggerBusResult LoggerBus_DecoderProfileDescriptorPush(uint64_t timestamp_us)
+{
+    ProjectLogDecoderProfile profile;
+    FlightLogDecoderProfileDescriptorRecord record;
+
+    ProjectLogDecoderProfile_Get(&profile);
+    LoggerBus_DecoderProfileRecordBuild(&profile, &record);
+    return LoggerBus_ConfiguredRecordPush(
+        FLIGHT_LOG_RECORD_DECODER_PROFILE_DESCRIPTOR,
+        timestamp_us, 0U, &record, sizeof(record), 0U);
 }
 
 LoggerBusResult LoggerBus_RawSensorPush(

@@ -4,6 +4,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+import time
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
@@ -118,7 +119,7 @@ class WorkspacePolicy:
                 stream.write(text)
                 stream.flush()
                 os.fsync(stream.fileno())
-            os.replace(temporary, target)
+            self.Path_Replace(temporary, target)
         except Exception:
             temporary.unlink(missing_ok=True)
             raise
@@ -136,7 +137,7 @@ class WorkspacePolicy:
                 stream.write(content)
                 stream.flush()
                 os.fsync(stream.fileno())
-            os.replace(temporary, target)
+            self.Path_Replace(temporary, target)
         except Exception:
             temporary.unlink(missing_ok=True)
             raise
@@ -149,6 +150,31 @@ class WorkspacePolicy:
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, target)
         return target
+
+    def Path_Replace(
+        self,
+        source: str | Path,
+        destination: str | Path,
+        *,
+        attempts: int = 5,
+    ) -> Path:
+        """Atomically replace one validated path, tolerating short Windows locks."""
+        if attempts < 1:
+            raise ValueError("Path replacement attempts must be positive")
+        source_path = self.Path_Resolve(source, allow_root=False)
+        destination_path = self.Path_Resolve(destination, allow_root=False)
+        last_error: OSError | None = None
+        for attempt in range(attempts):
+            try:
+                os.replace(source_path, destination_path)
+                return destination_path
+            except OSError as error:
+                last_error = error
+                if attempt + 1 == attempts:
+                    raise
+                time.sleep(0.1 * (attempt + 1))
+        assert last_error is not None
+        raise last_error
 
     def Tree_Remove(self, path: str | Path) -> None:
         target = self.Path_Resolve(path, allow_root=False)

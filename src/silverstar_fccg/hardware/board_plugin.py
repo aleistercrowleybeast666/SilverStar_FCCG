@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 import re
 import zipfile
 from pathlib import Path
@@ -101,7 +100,7 @@ class BoardPluginExporter:
                     if relative == model.hardware.ioc_file:
                         archive.write(source, f"hardware/{source.name}")
             output.parent.mkdir(parents=True, exist_ok=True)
-            os.replace(staged_archive, output)
+            self.output_policy.Path_Replace(staged_archive, output)
             return output
         finally:
             if stage.exists():

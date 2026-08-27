@@ -1,7 +1,13 @@
+param(
+    [string]$HostCompiler = 'gcc'
+)
+
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+$OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 $ErrorActionPreference = 'Stop'
 
 $repoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..\..')).Path
-$outputDir = Join-Path $repoRoot 'build\Host\Tests'
+$outputDir = Join-Path $repoRoot 'build\FCCG\Host\Tests'
 New-Item -ItemType Directory -Force -Path $outputDir | Out-Null
 
 $script:hostExecutableCount = 0
@@ -9,7 +15,18 @@ $script:hostCheckCount = 0
 $script:hostFailureCount = 0
 $script:compilePassCaseCount = 0
 $script:expectedCompileFailureCount = 0
+$script:collectHostJobs = $true
+$script:hostJobs = [System.Collections.Generic.List[object]]::new()
+$script:progressCompleted = @{}
+$script:progressTotals = @{}
+$script:hostCompilerPath = ''
+$script:hostCompilerVersion = ''
+$script:hostCompilerTarget = ''
 $silverstarAssertSource = "$repoRoot\Common\Src\silverstar_assert.c"
+$detailLogPath = Join-Path $outputDir 'host-tests-detail.log'
+if (Test-Path -LiteralPath $detailLogPath) {
+    Remove-Item -LiteralPath $detailLogPath -Force
+}
 
 $includeArgs = @(
     "-I$repoRoot\Tests\Host",
@@ -45,12 +62,183 @@ $includeArgs = @(
     "-I$repoRoot\Middlewares\Third_Party\SX1280lib"
 )
 
+function Invoke-HostCompiler {
+    param(
+        [Parameter(Mandatory = $true)][string[]]$CompilerArgs
+    )
+
+    $previousPreference = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $compilerOutput = @(& $script:hostCompilerPath @CompilerArgs 2>&1)
+        $compileExit = $LASTEXITCODE
+    }
+    finally {
+        $ErrorActionPreference = $previousPreference
+    }
+    if ($null -eq $compileExit) {
+        $compileExit = -1
+    }
+    return [pscustomobject]@{
+        Output = $compilerOutput
+        ExitCode = $compileExit
+    }
+}
+
+function Write-HostCompileDiagnostic {
+    param(
+        [Parameter(Mandatory = $true)][string]$Name,
+        [Parameter(Mandatory = $true)][string[]]$CompilerArgs,
+        [Parameter(Mandatory = $true)][int]$ExitCode,
+        [object[]]$CompilerOutput = @()
+    )
+
+    Write-Output "Host test compile diagnostic: name=$Name"
+    Write-Output "Host compiler path: $($script:hostCompilerPath)"
+    Write-Output "Host compiler version: $($script:hostCompilerVersion)"
+    Write-Output "Host compiler target: $($script:hostCompilerTarget)"
+    Write-Output "Host compiler return code: $ExitCode"
+    Write-Output 'Host compiler arguments:'
+    foreach ($argument in $CompilerArgs) {
+        Write-Output "  $argument"
+    }
+    Write-Output 'GCC stdout/stderr:'
+    if ($CompilerOutput.Count -eq 0) {
+        Write-Output '  <empty>'
+    }
+    else {
+        $CompilerOutput | Write-Output
+    }
+}
+
+function Initialize-HostCompiler {
+    if ([string]::IsNullOrWhiteSpace($HostCompiler)) {
+        throw 'Host compiler path must not be empty.'
+    }
+    try {
+        $compilerCommand = Get-Command -Name $HostCompiler `
+            -CommandType Application -ErrorAction Stop | Select-Object -First 1
+    }
+    catch {
+        throw "Host compiler is not executable: $HostCompiler. $($_.Exception.Message)"
+    }
+    $script:hostCompilerPath = $compilerCommand.Path
+    $hostCompilerDirectory = Split-Path -Parent $script:hostCompilerPath
+    Write-Output "Host compiler runtime directory: $hostCompilerDirectory"
+    $env:PATH = $hostCompilerDirectory + [System.IO.Path]::PathSeparator + `
+        $env:PATH
+    foreach ($variableName in @(
+        'GCC_EXEC_PREFIX',
+        'COMPILER_PATH',
+        'CPATH',
+        'C_INCLUDE_PATH',
+        'CPLUS_INCLUDE_PATH',
+        'OBJC_INCLUDE_PATH',
+        'LIBRARY_PATH',
+        'DEPENDENCIES_OUTPUT',
+        'SUNPRO_DEPENDENCIES'
+    )) {
+        $environmentPath = "Env:$variableName"
+        if (Test-Path -LiteralPath $environmentPath) {
+            Remove-Item -LiteralPath $environmentPath -Force
+        }
+    }
+
+    Write-Output "Host compiler command: `"$($script:hostCompilerPath)`" --version"
+    $versionResult = Invoke-HostCompiler -CompilerArgs @('--version')
+    $versionResult.Output | Write-Output
+    if ($versionResult.ExitCode -ne 0) {
+        throw "Host compiler --version failed: $($script:hostCompilerPath)"
+    }
+    $script:hostCompilerVersion = [string]$versionResult.Output[0]
+
+    Write-Output "Host compiler command: `"$($script:hostCompilerPath)`" -dumpmachine"
+    $targetResult = Invoke-HostCompiler -CompilerArgs @('-dumpmachine')
+    $targetResult.Output | Write-Output
+    if (($targetResult.ExitCode -ne 0) -or ($targetResult.Output.Count -eq 0)) {
+        throw "Host compiler -dumpmachine failed: $($script:hostCompilerPath)"
+    }
+    $script:hostCompilerTarget = ([string]$targetResult.Output[0]).Trim()
+    if ($script:hostCompilerTarget -notmatch '(?i)(mingw|windows|cygwin|msys)') {
+        throw ("Host compiler target is not runnable on this Windows host: " +
+            "compiler=$($script:hostCompilerPath) " +
+            "target=$($script:hostCompilerTarget)")
+    }
+}
+
+function Invoke-RecordCatalogValidator {
+    $validator = Join-Path $repoRoot `
+        'Tools\validate_sslog_record_catalog.py'
+    try {
+        $pythonCommand = Get-Command -Name 'python' `
+            -CommandType Application -ErrorAction Stop | Select-Object -First 1
+    }
+    catch {
+        throw ("Python is required for the offline SSLOG Record Catalog " +
+            "Host validator. $($_.Exception.Message)")
+    }
+    $validatorOutput = @(& $pythonCommand.Path $validator 2>&1)
+    $validatorExit = $LASTEXITCODE
+    $validatorOutput | Write-Output
+    if ($validatorExit -ne 0) {
+        throw "SSLOG Record Catalog Host validation failed."
+    }
+    $script:hostCheckCount++
+}
+
+function Write-FccgProgressBegin {
+    param(
+        [Parameter(Mandatory = $true)][string]$Task,
+        [Parameter(Mandatory = $true)][string]$Subject
+    )
+
+    $current = [int]$script:progressCompleted[$Task] + 1
+    $total = [int]$script:progressTotals[$Task]
+    Write-Output "FCCG_PROGRESS|$Task|BEGIN|$current|$total|$Subject"
+}
+
+function Write-FccgProgressDone {
+    param(
+        [Parameter(Mandatory = $true)][string]$Task,
+        [Parameter(Mandatory = $true)][string]$Subject
+    )
+
+    $script:progressCompleted[$Task] = `
+        [int]$script:progressCompleted[$Task] + 1
+    $current = [int]$script:progressCompleted[$Task]
+    $total = [int]$script:progressTotals[$Task]
+    Write-Output "FCCG_PROGRESS|$Task|DONE|$current|$total|$Subject"
+}
+
+function Write-HostTestDetail {
+    param([Parameter(Mandatory = $true)][string]$Text)
+
+    [System.IO.File]::AppendAllText(
+        $detailLogPath,
+        $Text + [Environment]::NewLine,
+        [System.Text.UTF8Encoding]::new($false)
+    )
+    Write-Output "FCCG_DETAIL|$Text"
+}
+
 function Invoke-HostTest {
     param(
         [Parameter(Mandatory = $true)][string]$Name,
         [Parameter(Mandatory = $true)][string[]]$Sources,
         [string[]]$ExtraCompilerArgs = @()
     )
+
+    if ($script:collectHostJobs) {
+        $script:hostJobs.Add([pscustomobject]@{
+            Kind = 'HOST_TEST'
+            Name = $Name
+            Sources = @($Sources)
+            ExtraCompilerArgs = @($ExtraCompilerArgs)
+        })
+        return
+    }
+
+    Write-FccgProgressBegin -Task 'HOST_TEST' -Subject $Name
 
     # A generated FCCG project contains only its selected component payloads.
     $fccgMissingSources = @($Sources | Where-Object {
@@ -67,10 +255,13 @@ function Invoke-HostTest {
     ) + $ExtraCompilerArgs + $includeArgs + $Sources + @(
         $silverstarAssertSource, '-lm', '-o', $executable)
 
-    & gcc @compilerArgs
-    if ($LASTEXITCODE -ne 0) {
+    $compileResult = Invoke-HostCompiler -CompilerArgs $compilerArgs
+    if ($compileResult.ExitCode -ne 0) {
+        Write-HostCompileDiagnostic -Name $Name -CompilerArgs $compilerArgs `
+            -ExitCode $compileResult.ExitCode -CompilerOutput $compileResult.Output
         throw "Host test compile failed: $Name"
     }
+    $compileResult.Output | Write-Output
     $testOutput = @(& $executable)
     $testExit = $LASTEXITCODE
     $testOutput | Write-Output
@@ -84,6 +275,7 @@ function Invoke-HostTest {
         throw "Host test failed: $Name"
     }
     $script:hostExecutableCount++
+    Write-FccgProgressDone -Task 'HOST_TEST' -Subject $Name
 }
 
 function Invoke-ExpectedCompileFailure {
@@ -93,19 +285,44 @@ function Invoke-ExpectedCompileFailure {
         [string[]]$ExtraCompilerArgs = @()
     )
 
+    if ($script:collectHostJobs) {
+        $script:hostJobs.Add([pscustomobject]@{
+            Kind = 'HOST_EXPECTED_FAILURE'
+            Name = $Name
+            Source = $Source
+            ExtraCompilerArgs = @($ExtraCompilerArgs)
+        })
+        return
+    }
+
+    Write-FccgProgressBegin -Task 'HOST_EXPECTED_FAILURE' -Subject $Name
+
     $compilerArgs = @(
         '-std=c11', '-Wall', '-Wextra', '-Werror', '-pedantic', '-fsyntax-only'
     ) + $ExtraCompilerArgs + $includeArgs + @($Source)
-    $previousPreference = $ErrorActionPreference
-    $ErrorActionPreference = 'Continue'
-    & gcc @compilerArgs 2>$null
-    $compileExit = $LASTEXITCODE
-    $ErrorActionPreference = $previousPreference
-    if ($compileExit -eq 0) {
+    $compileResult = Invoke-HostCompiler -CompilerArgs $compilerArgs
+    if ($compileResult.ExitCode -eq 0) {
+        Write-HostCompileDiagnostic -Name $Name -CompilerArgs $compilerArgs `
+            -ExitCode $compileResult.ExitCode -CompilerOutput $compileResult.Output
         throw "Expected host compile failure did not occur: $Name"
     }
+    $diagnosticLine = $compileResult.Output | Where-Object {
+        ([string]$_) -match '(?i)(static assertion failed|#error)'
+    } | Select-Object -First 1
+    if ($null -eq $diagnosticLine) {
+        Write-HostCompileDiagnostic -Name $Name -CompilerArgs $compilerArgs `
+            -ExitCode $compileResult.ExitCode -CompilerOutput $compileResult.Output
+        throw "Expected host compile failure did not match a configuration gate: $Name"
+    }
     $script:expectedCompileFailureCount++
-    Write-Output "Expected host compile failure passed: $Name"
+    Write-Output "FCCG_EXPECTED_REJECTION|$Name"
+    Write-HostTestDetail -Text ("Expected compile rejection: {0}" -f $Name)
+    Write-HostTestDetail -Text ("Compiler: {0}" -f $script:hostCompilerPath)
+    Write-HostTestDetail -Text ("Target: {0}" -f $script:hostCompilerTarget)
+    foreach ($diagnostic in $compileResult.Output) {
+        Write-HostTestDetail -Text ([string]$diagnostic)
+    }
+    Write-FccgProgressDone -Task 'HOST_EXPECTED_FAILURE' -Subject $Name
 }
 
 function Invoke-ExpectedCompileSuccess {
@@ -115,16 +332,42 @@ function Invoke-ExpectedCompileSuccess {
         [string[]]$ExtraCompilerArgs = @()
     )
 
+    if ($script:collectHostJobs) {
+        $script:hostJobs.Add([pscustomobject]@{
+            Kind = 'HOST_COMPILE_PASS'
+            Name = $Name
+            Source = $Source
+            ExtraCompilerArgs = @($ExtraCompilerArgs)
+        })
+        return
+    }
+
+    Write-FccgProgressBegin -Task 'HOST_COMPILE_PASS' -Subject $Name
+
     $compilerArgs = @(
         '-std=c11', '-Wall', '-Wextra', '-Werror', '-pedantic', '-fsyntax-only'
     ) + $ExtraCompilerArgs + $includeArgs + @($Source)
-    & gcc @compilerArgs
-    if ($LASTEXITCODE -ne 0) {
+    $compileResult = Invoke-HostCompiler -CompilerArgs $compilerArgs
+    if ($compileResult.ExitCode -ne 0) {
+        Write-HostCompileDiagnostic -Name $Name -CompilerArgs $compilerArgs `
+            -ExitCode $compileResult.ExitCode -CompilerOutput $compileResult.Output
         throw "Expected host compile success failed: $Name"
     }
+    $compileResult.Output | Write-Output
     $script:compilePassCaseCount++
     Write-Output "Expected host compile success passed: $Name"
+    Write-FccgProgressDone -Task 'HOST_COMPILE_PASS' -Subject $Name
 }
+
+Initialize-HostCompiler
+Invoke-RecordCatalogValidator
+
+$projectDocument = Get-Content -Raw -Encoding UTF8 -LiteralPath `
+    (Join-Path $repoRoot 'SilverStar.ssproject') | ConvertFrom-Json
+$goldenDirectory = Join-Path $repoRoot 'Logs\Golden'
+New-Item -ItemType Directory -Force -Path $goldenDirectory | Out-Null
+$goldenFilename = ([string]$projectDocument.project.name) + '_golden.sslog'
+$env:SILVERSTAR_GOLDEN_OUTPUT = Join-Path $goldenDirectory $goldenFilename
 
 $hostPlatformMock = "$repoRoot\Tests\Host\host_platform_mock.c"
 $sslogSources = @(
@@ -246,7 +489,9 @@ Invoke-HostTest -Name 'system_inertial' -Sources @(
     "$repoRoot\System\User\system_user_inertial_config.c"
 )
 
-Invoke-HostTest -Name 'system_indicator' -Sources @(
+Invoke-HostTest -Name 'system_indicator' -ExtraCompilerArgs @(
+    '-DSYSTEM_INDICATOR_GNSS_ENABLE=1U'
+) -Sources @(
     "$repoRoot\Tests\Host\test_system_indicator.c",
     "$repoRoot\System\Indicator\Src\system_indicator.c"
 )
@@ -445,6 +690,10 @@ Invoke-HostTest -Name 'sensor_status' -Sources @(
     $hostPlatformMock,
     "$repoRoot\System\Src\system_sensor_status.c"
 )
+Invoke-HostTest -Name 'device_native_log' -Sources (@(
+    "$repoRoot\Tests\Host\test_device_native_log.c",
+    "$repoRoot\APP\Src\device_native_log.c"
+) + $sslogSources)
 Invoke-HostTest -Name 'lifecycle' -Sources @(
     "$repoRoot\Tests\Host\test_lifecycle.c",
     $hostPlatformMock,
@@ -575,7 +824,8 @@ Invoke-HostTest -Name 'console' -Sources @(
     "$repoRoot\System\Src\system_console.c",
     "$repoRoot\System\Src\system_barometer.c",
     "$repoRoot\System\Src\system_estimator_diagnostics.c",
-    "$repoRoot\System\Alignment\Src\system_alignment_source.c"
+    "$repoRoot\System\Alignment\Src\system_alignment_source.c",
+    "$repoRoot\Tests\Host\Fixtures\multi_instance_project_fixture.c"
 )
 Invoke-HostTest -Name 'telemetry' -Sources @(
     "$repoRoot\Tests\Host\test_telemetry.c",
@@ -587,6 +837,7 @@ Invoke-HostTest -Name 'telemetry' -Sources @(
 $loggerSources = @(
     "$repoRoot\Tests\Host\test_logger.c",
     $hostPlatformMock,
+    "$repoRoot\APP\Src\diagnostic_log.c",
     "$repoRoot\APP\Src\logger_bus.c",
     "$repoRoot\Common\Src\common_spsc_queue.c",
     "$repoRoot\System\Src\system_log_policy.c",
@@ -594,11 +845,61 @@ $loggerSources = @(
     "$repoRoot\System\Src\system_navigation_profile.c",
     "$repoRoot\System\Src\system_estimator_profile.c",
     "$repoRoot\Generated\Src\project_metadata.c",
+    "$repoRoot\Generated\Src\project_log_decoder_profile.c",
     "$repoRoot\Generated\Src\project_log_config.c"
 ) + $sslogSources
 Invoke-HostTest -Name 'logger' -Sources $loggerSources
 Invoke-HostTest -Name 'logger_estimator_noise_overrides' `
     -ExtraCompilerArgs $estimatorNoiseOverrideArgs -Sources $loggerSources
+
+Invoke-HostTest -Name 'golden_sample' -Sources (@(
+    "$repoRoot\Tests\Host\generate_golden_sample.c",
+    "$repoRoot\Generated\Src\project_log_decoder_profile.c"
+) + $sslogSources)
+
+$script:collectHostJobs = $false
+$plannedJobs = @($script:hostJobs | Where-Object {
+    (($_.Kind -eq 'HOST_TEST') -and
+        (@($_.Sources | Where-Object { -not (Test-Path -LiteralPath $_) }).Count -eq 0)) -or
+    (($_.Kind -ne 'HOST_TEST') -and (Test-Path -LiteralPath $_.Source))
+})
+foreach ($taskKind in @(
+    'HOST_TEST',
+    'HOST_COMPILE_PASS',
+    'HOST_EXPECTED_FAILURE'
+)) {
+    $total = @($plannedJobs | Where-Object { $_.Kind -eq $taskKind }).Count
+    $script:progressCompleted[$taskKind] = 0
+    $script:progressTotals[$taskKind] = $total
+    if ($total -gt 0) {
+        Write-Output "FCCG_PROGRESS|$taskKind|PLAN|$total"
+    }
+}
+foreach ($skippedJob in @($script:hostJobs | Where-Object {
+    ($_.Kind -eq 'HOST_TEST') -and
+    (@($_.Sources | Where-Object { -not (Test-Path -LiteralPath $_) }).Count -ne 0)
+})) {
+    Write-Output ("Skipped host test {0}: unselected component sources" -f `
+        $skippedJob.Name)
+}
+foreach ($job in $plannedJobs) {
+    switch ($job.Kind) {
+        'HOST_TEST' {
+            Invoke-HostTest -Name $job.Name -Sources $job.Sources `
+                -ExtraCompilerArgs $job.ExtraCompilerArgs
+        }
+        'HOST_COMPILE_PASS' {
+            Invoke-ExpectedCompileSuccess -Name $job.Name `
+                -Source $job.Source `
+                -ExtraCompilerArgs $job.ExtraCompilerArgs
+        }
+        'HOST_EXPECTED_FAILURE' {
+            Invoke-ExpectedCompileFailure -Name $job.Name `
+                -Source $job.Source `
+                -ExtraCompilerArgs $job.ExtraCompilerArgs
+        }
+    }
+}
 
 $alignmentRuntimeFiles = @(
     "$repoRoot\Modules\Src\telemetry_service.c",

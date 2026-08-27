@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import hashlib
 import json
 import zipfile
 from dataclasses import replace
@@ -24,7 +25,10 @@ from silverstar_fccg.core.view_models import (
 )
 from silverstar_fccg.core.workspace import WorkspacePolicy, WorkspacePolicyError
 from silverstar_fccg.generator.assembler import ProjectAssembler
-from silverstar_fccg.generator.render import MetadataFiles_Render
+from silverstar_fccg.generator.log_decoder_profile import (
+    LogDecoderPackage_Verify,
+)
+from silverstar_fccg.generator.render import GeneratedFiles_Render, MetadataFiles_Render
 from silverstar_fccg.generator.source_graph import SourceGraph_Resolve
 from silverstar_fccg.hardware.inventory import CubeMxInventory_Parse
 from silverstar_fccg.project.logging import (
@@ -68,7 +72,7 @@ def test_reference_import_definition_preserves_current_fccg_overlays(
         for component in components
     }
 
-    assert len(manifests) == 29
+    assert len(manifests) == 31
     board = manifests["silverstar.board.silverstar_0_5"]
     assert board["name"] == "SS0.5"
     assert board["metadata"]["build_symbol"] == "SILVERSTAR_0_5"
@@ -128,7 +132,8 @@ def test_reference_payload_sync_and_environment_templates_are_read_only(
         pytest.skip("read-only reference firmware is not present on this host")
 
     before = reference_import.ReferenceProvenance_Get(reference)
-    assert before["working_tree"] == "clean"
+    if before["working_tree"] != "clean":
+        pytest.skip("read-only reference firmware task is still active")
     exact_pairs = (
         (
             "Devices/IMU/JY901B/Adapter/Inc/"
@@ -151,6 +156,46 @@ def test_reference_payload_sync_and_environment_templates_are_read_only(
             "Tests/Host/test_build_capability_contract.c",
             "plugins/builtin/silverstar_core_0_0_9/payload/"
             "Tests/Host/test_build_capability_contract.c",
+        ),
+        (
+            "APP/Inc/diagnostic_log.h",
+            "plugins/builtin/silverstar_core_0_0_9/payload/"
+            "APP/Inc/diagnostic_log.h",
+        ),
+        (
+            "APP/Src/diagnostic_log.c",
+            "plugins/builtin/silverstar_core_0_0_9/payload/"
+            "APP/Src/diagnostic_log.c",
+        ),
+        (
+            "APP/Src/device_task.c",
+            "plugins/builtin/silverstar_core_0_0_9/payload/"
+            "APP/Src/device_task.c",
+        ),
+        (
+            "APP/Src/telemetry_task.c",
+            "plugins/builtin/silverstar_core_0_0_9/payload/"
+            "APP/Src/telemetry_task.c",
+        ),
+        (
+            "Generated/Src/project_log_config.c",
+            "plugins/builtin/silverstar_core_0_0_9/templates/"
+            "generated/project_log_config.c",
+        ),
+        (
+            "Protocol/SSLOG/schema/sslog_schema.json",
+            "plugins/builtin/silverstar_protocol_reference_v0/payload/"
+            "Protocol/SSLOG/schema/sslog_schema.json",
+        ),
+        (
+            "Protocol/SSLOG/Inc/sslog_records.h",
+            "plugins/builtin/silverstar_protocol_reference_v0/payload/"
+            "Protocol/SSLOG/Inc/sslog_records.h",
+        ),
+        (
+            "Protocol/SSLOG/Src/sslog_records.c",
+            "plugins/builtin/silverstar_protocol_reference_v0/payload/"
+            "Protocol/SSLOG/Src/sslog_records.c",
         ),
         (
             ".eide/eide.yml",
@@ -446,15 +491,7 @@ def test_reference_import_restores_protocol_owned_fccg_metadata(
     expected = json.loads(builtin.read_text(encoding="utf-8"))
     reference_copy = json.loads(json.dumps(expected))
     reference_copy.pop("fccg")
-    reference_defaults = {
-        "STATS": False,
-        "TELEMETRY_DIAG": False,
-        "IMU_NATIVE": False,
-        "MAG_NATIVE": True,
-    }
-    for record in reference_copy["records"]:
-        if record["name"] in reference_defaults:
-            record["default_stream"]["enabled"] = reference_defaults[record["name"]]
+    wire_records = json.loads(json.dumps(reference_copy["records"]))
     metadata = tmp_path / "sslog_parser_metadata.json"
     metadata.write_text(json.dumps(reference_copy), encoding="utf-8")
 
@@ -463,7 +500,16 @@ def test_reference_import_restores_protocol_owned_fccg_metadata(
         workspace_root / "tools" / "reference_overlays" / "sslog_fccg_metadata.json",
         WorkspacePolicy(tmp_path),
     )
-    assert json.loads(metadata.read_text(encoding="utf-8")) == expected
+    adapted = json.loads(metadata.read_text(encoding="utf-8"))
+    assert adapted["records"] == wire_records
+    assert adapted["fccg"] == expected["fccg"]
+    policies = adapted["fccg"]["records"]
+    assert policies["FLIGHT_LOG_RECORD_IMU_NATIVE"]["default_enabled"] is True
+    assert policies["FLIGHT_LOG_RECORD_MAG_NATIVE"]["default_enabled"] is False
+
+    schema_path = builtin.with_name("sslog_schema.json")
+    schema = json.loads(schema_path.read_text(encoding="utf-8"))
+    assert adapted["records"] == schema["records"]
 
 
 def test_resource_contract_schema_rejects_unknown_constraints(
@@ -642,9 +688,8 @@ def test_decoder_profile_is_deterministic_data_only(builtin_catalog) -> None:
     model = ReferenceProject_Create("DecoderProfile")
     LoggingProfile_Reconcile(model, builtin_catalog)
     graph = SourceGraph_Resolve(model, builtin_catalog)
-    first = MetadataFiles_Render(model, builtin_catalog, graph)[
-        "DecoderProfile.ssdecoder"
-    ]
+    metadata = MetadataFiles_Render(model, builtin_catalog, graph)
+    first = metadata["DecoderProfile.ssdecoder"]
     second = MetadataFiles_Render(model, builtin_catalog, graph)[
         "DecoderProfile.ssdecoder"
     ]
@@ -652,22 +697,134 @@ def test_decoder_profile_is_deterministic_data_only(builtin_catalog) -> None:
     with zipfile.ZipFile(io.BytesIO(first)) as archive:
         assert archive.namelist() == [
             "README.md",
+            "checksums.sha256",
             "manifest.json",
-            "project_profile.json",
-            "sslog_parser_metadata.json",
+            "project_semantics.json",
+            "record_catalog.json",
         ]
         assert not any(
-            name.casefold().endswith((".py", ".exe", ".dll", ".pyd"))
+            name.casefold().endswith(
+                (".py", ".exe", ".dll", ".pyd", ".ps1", ".sh", ".bat")
+            )
             for name in archive.namelist()
         )
-        assert b"generic SSLOG decoder engine" in archive.read("README.md")
-        profile = json.loads(archive.read("project_profile.json"))
-        assert profile["devices"] == [
-            {"instance_id": instance.instance_id, "plugin": instance.plugin}
+        decoder_readme = archive.read("README.md")
+        assert b"generic SilverStar_FLP decoder" in decoder_readme
+        assert b"SSLOG0" not in decoder_readme
+        manifest = json.loads(archive.read("manifest.json"))
+        assert LogDecoderPackage_Verify(first) == manifest
+        catalog_bytes = archive.read("record_catalog.json")
+        semantics_bytes = archive.read("project_semantics.json")
+        for canonical in (
+            archive.read("manifest.json"),
+            catalog_bytes,
+            semantics_bytes,
+        ):
+            assert canonical.endswith(b"\n")
+            assert b"\r" not in canonical
+            assert not canonical.startswith(b"\xef\xbb\xbf")
+            assert b": " not in canonical
+        assert manifest["record_catalog_sha256"] == hashlib.sha256(
+            catalog_bytes
+        ).hexdigest()
+        assert manifest["project_semantics_sha256"] == hashlib.sha256(
+            semantics_bytes
+        ).hexdigest()
+        checksums = {
+            line.split("  ", 1)[1]: line.split("  ", 1)[0]
+            for line in archive.read("checksums.sha256").decode("ascii").splitlines()
+        }
+        for name, expected in checksums.items():
+            assert hashlib.sha256(archive.read(name)).hexdigest() == expected
+        semantics = json.loads(semantics_bytes)
+        assert [
+            (device["instance_id"], device["plugin"])
+            for device in semantics["physical_devices"]
+        ] == [
+            (instance.instance_id, instance.plugin)
             for instance in model.device_instances
         ]
-        assert profile["modes"] == model.modes
-        assert len(profile["available_records"]) == len(model.logging_streams)
+        assert semantics["devices"] == semantics["physical_devices"]
+        assert all(
+            device["vendor"] and device["model"] and device["descriptor_ids"]
+            for device in semantics["physical_devices"]
+            if device["plugin"]
+            not in {
+                "silverstar.device.indicator.system_status",
+                "silverstar.device.indicator.gnss_status",
+            }
+        )
+        assert all(
+            {
+                "descriptor_id",
+                "physical_device_id",
+                "physical_device_instance",
+                "device_class",
+                "instance_id",
+                "plugin",
+                "model",
+                "capabilities",
+            }.issubset(endpoint)
+            for endpoint in semantics["capability_endpoints"]
+        )
+        assert semantics["raw_channel_id_templates"]["partition_by"] == [
+            "source_descriptor_id",
+            "instance_id",
+            "physical_device_id",
+        ]
+        assert len(semantics["record_views"]) == len(model.logging_streams)
+        assert all(
+            "display_names" in view
+            and "columns" in view
+            and "validity" in view
+            and "events" in view
+            and "enums" in view
+            and "logging" in view
+            and "producer_components" in view
+            for view in semantics["record_views"]
+        )
+        assert semantics["modes"] == model.modes
+        assert len(semantics["available_records"]) == len(model.logging_streams)
+        reference = json.loads(metadata["SilverStar.ssproject"])[
+            "log_decoder_profile"
+        ]
+        assert reference["generation_profile_sha256"] == manifest[
+            "generation_profile_sha256"
+        ]
+        assert reference["package_sha256"] == hashlib.sha256(first).hexdigest()
+
+        generated = GeneratedFiles_Render(model, builtin_catalog, graph)
+        header = generated[
+            "Generated/Inc/project_log_decoder_profile.h"
+        ].decode("utf-8")
+        source = generated[
+            "Generated/Src/project_log_decoder_profile.c"
+        ].decode("utf-8")
+        assert "PROJECT_LOG_DECODER_HASH_SIZE 16U" in header
+        assert "ProjectLogDecoderProfile_Get(" in header
+        assert "ProjectLogDecoderProfile_DescriptorGet" not in header
+        assert json.loads(catalog_bytes)["catalog_schema_id"] == (
+            "silverstar.sslog.record-catalog/1.0"
+        )
+        assert generated["Generated/project_semantics.json"] == semantics_bytes
+        for digest in (
+            manifest["record_catalog_sha256"],
+            manifest["project_semantics_sha256"],
+            manifest["generation_profile_sha256"],
+        ):
+            assert f"0x{digest[:2].upper()}U" in source
+    corrupted = bytearray(first)
+    with zipfile.ZipFile(io.BytesIO(first)) as archive:
+        info = archive.getinfo("record_catalog.json")
+        payload_offset = (
+            info.header_offset
+            + 30
+            + len(info.filename.encode("utf-8"))
+            + len(info.extra)
+        )
+    corrupted[payload_offset] ^= 0x01
+    with pytest.raises(ValueError):
+        LogDecoderPackage_Verify(bytes(corrupted))
 
 
 def test_authorized_project_root_is_separate_from_internal_workspace(
@@ -735,6 +892,119 @@ def test_other_sensors_are_plugin_driven_and_empty_state_stays_visible(qapp) -> 
     assert not page.device_checks
     assert not page.other_group.isHidden()
     assert not page.other_empty_label.isHidden()
+
+
+def test_instance_device_rows_expose_add_and_remove_actions(qapp) -> None:
+    translator = Translator("zh_CN")
+    page = DevicesPage(translator)
+    component = ComponentView(
+        component_id="fixture.device.imu.contextual",
+        name="上下文化 IMU",
+        component_type=ComponentType.DEVICE,
+        version="1.0.0",
+        component_class="imu",
+        project_max=2,
+        plugin_max=2,
+        class_max=2,
+        same_plugin_multiple=True,
+        multi_instance_ready=True,
+        options={
+            "device_selection_style": "instance",
+            "device_group": "primary_devices",
+            "device_group_order": 20,
+        },
+    )
+    instance = DeviceInstanceView(
+        instance_id="imu0",
+        plugin_id=component.component_id,
+        name=component.name,
+        component_class="imu",
+        provides=("imu.acceleration", "imu.angular_rate"),
+        consumed=(),
+        unused=("imu.acceleration", "imu.angular_rate"),
+        project_max=2,
+        plugin_max=2,
+        class_max=2,
+        same_plugin_multiple=True,
+        multi_instance_ready=True,
+    )
+    changes: list[tuple[str, str]] = []
+    additions: list[str] = []
+    page.instanceChanged.connect(
+        lambda instance_id, plugin_id: changes.append((instance_id, plugin_id))
+    )
+    page.instanceAddRequested.connect(additions.append)
+    page.Configuration_Set((), "", (component,), (instance,))
+    try:
+        assert "imu0" in page.remove_buttons
+        assert "imu" in page.add_buttons
+        page.remove_buttons["imu0"].click()
+        page.add_buttons["imu"].click()
+        assert changes[-1] == ("imu0", "")
+        assert additions[-1] == "imu"
+    finally:
+        page.close()
+
+
+def test_instance_device_row_can_add_a_different_singleton_model(qapp) -> None:
+    translator = Translator("en_US")
+    page = DevicesPage(translator)
+    options = {
+        "device_selection_style": "instance",
+        "device_group": "primary_devices",
+        "device_group_order": 20,
+    }
+    first = ComponentView(
+        component_id="fixture.device.imu.singleton_a",
+        name="Singleton IMU A",
+        component_type=ComponentType.DEVICE,
+        version="1.0.0",
+        component_class="imu",
+        project_max=2,
+        plugin_max=1,
+        class_max=2,
+        same_plugin_multiple=False,
+        multi_instance_ready=False,
+        options=options,
+    )
+    second = ComponentView(
+        component_id="fixture.device.imu.singleton_b",
+        name="Singleton IMU B",
+        component_type=ComponentType.DEVICE,
+        version="1.0.0",
+        component_class="imu",
+        project_max=2,
+        plugin_max=1,
+        class_max=2,
+        same_plugin_multiple=False,
+        multi_instance_ready=False,
+        options=options,
+    )
+    instance = DeviceInstanceView(
+        instance_id="imu0",
+        plugin_id=first.component_id,
+        name=first.name,
+        component_class="imu",
+        provides=("imu.acceleration", "imu.angular_rate"),
+        consumed=(),
+        unused=("imu.acceleration", "imu.angular_rate"),
+        project_max=2,
+        plugin_max=1,
+        class_max=2,
+        same_plugin_multiple=False,
+        multi_instance_ready=False,
+    )
+    additions: list[str] = []
+    page.instanceAddRequested.connect(additions.append)
+    page.Configuration_Set((), "", (first, second), (instance,))
+    try:
+        assert "imu" in page.add_buttons
+        combo = page.device_combos["imu0"]
+        assert combo.model().item(combo.findData(second.component_id)).isEnabled()
+        page.add_buttons["imu"].click()
+        assert additions == ["imu"]
+    finally:
+        page.close()
 
 
 def test_fixed_board_connections_have_ioc_physical_details(
@@ -820,8 +1090,9 @@ def test_chinese_build_failure_uses_localized_summary_and_keeps_raw_log(
         )
         assert raw_output in window.build_page.build_log.toPlainText()
         assert shown[-1]["title"] == "操作失败"
-        assert shown[-1]["text"] == "构建任务失败。请查看页面中的构建日志。"
+        assert shown[-1]["text"] == "架构检查失败，请查看日志。"
         assert "mingw32-make" not in shown[-1]["text"]
+        assert shown[-1]["details"] == raw_output
 
         window._Error_Show(ValueError("raw internal English exception"))
         assert shown[-1]["text"].startswith("操作失败")

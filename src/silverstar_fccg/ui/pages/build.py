@@ -18,15 +18,11 @@ from silverstar_fccg.core.view_models import ToolchainToolView
 from silverstar_fccg.ui.pages.base import ScrollableLocalizedPage
 from silverstar_fccg.ui.widgets import (
     CollapsibleSection,
-    EngineeringTable,
-    StandardComboBox,
-    StatusPill,
 )
 
 
 class BuildPage(ScrollableLocalizedPage):
     detectionRequested = Signal()
-    browseRequested = Signal(str)
     actionRequested = Signal(str)
 
     _PRIMARY_ACTIONS = (
@@ -41,12 +37,6 @@ class BuildPage(ScrollableLocalizedPage):
         ("static_analysis", "action.static_analysis"),
         ("artifact_check", "action.artifact_check"),
     )
-    _TOOL_OPTIONS = (
-        ("compiler", "tool.compiler"),
-        ("make", "tool.make"),
-        ("host_gcc", "tool.host_gcc"),
-    )
-
     def __init__(self, translator: Translator) -> None:
         super().__init__(translator, "page.build", "page.build.description")
         summary_form = QFormLayout()
@@ -58,19 +48,8 @@ class BuildPage(ScrollableLocalizedPage):
         self.Text_Register(self.environment_label, "field.development_environment")
         self.environment_value = QLabel("VS Code + EIDE")
         summary_form.addRow(self.environment_label, self.environment_value)
-        self.toolchain_label = QLabel()
-        self.Text_Register(self.toolchain_label, "field.toolchain_status")
-        self.toolchain_status = StatusPill()
-        summary_form.addRow(self.toolchain_label, self.toolchain_status)
         summary_layout = QVBoxLayout()
         summary_layout.addLayout(summary_form)
-        self.tool_table = self.Table_Register(
-            EngineeringTable(
-                ("column.tool", "column.path", "column.version", "column.status")
-            )
-        )
-        self.tool_table.setMinimumHeight(105)
-        summary_layout.addWidget(self.tool_table)
         self.root_layout.addWidget(
             self.Group_Create("group.build_configuration", summary_layout)
         )
@@ -90,6 +69,11 @@ class BuildPage(ScrollableLocalizedPage):
         verification_label.setObjectName("sectionLabel")
         self.Text_Register(verification_label, "build.section.verification")
         advanced_layout.addWidget(verification_label)
+        verification_help = QLabel()
+        verification_help.setWordWrap(True)
+        verification_help.setProperty("muted", True)
+        self.Text_Register(verification_help, "build.help.verification")
+        advanced_layout.addWidget(verification_help)
         verification_row = QHBoxLayout()
         verification_button = self._ActionButton_Create(
             "build", "action.validation_build"
@@ -99,6 +83,11 @@ class BuildPage(ScrollableLocalizedPage):
         clean_button = self._ActionButton_Create("clean", "action.clean")
         clean_button.setMinimumWidth(120)
         verification_row.addWidget(clean_button)
+        clean_all_button = self._ActionButton_Create(
+            "clean_all", "action.clean_all"
+        )
+        clean_all_button.setMinimumWidth(120)
+        verification_row.addWidget(clean_all_button)
         verification_row.addStretch(1)
         advanced_layout.addLayout(verification_row)
 
@@ -106,13 +95,25 @@ class BuildPage(ScrollableLocalizedPage):
         quality_label.setObjectName("sectionLabel")
         self.Text_Register(quality_label, "build.section.quality")
         advanced_layout.addWidget(quality_label)
+        quality_help = QLabel()
+        quality_help.setWordWrap(True)
+        quality_help.setProperty("muted", True)
+        self.Text_Register(quality_help, "build.help.quality")
+        advanced_layout.addWidget(quality_help)
         quality_grid = QGridLayout()
-        quality_grid.setColumnStretch(0, 1)
+        quality_grid.setColumnStretch(0, 0)
         quality_grid.setColumnStretch(1, 1)
+        self.quality_result_labels: dict[str, QLabel] = {}
         for index, (action_id, key) in enumerate(self._QUALITY_ACTIONS):
             button = self._ActionButton_Create(action_id, key)
             button.setMinimumWidth(180)
-            quality_grid.addWidget(button, index // 2, index % 2)
+            result_label = QLabel()
+            result_label.setObjectName("statusPill")
+            result_label.setProperty("statusLevel", "info")
+            result_label.setWordWrap(True)
+            self.quality_result_labels[action_id] = result_label
+            quality_grid.addWidget(button, index, 0)
+            quality_grid.addWidget(result_label, index, 1)
         advanced_layout.addLayout(quality_grid)
 
         output_form = QFormLayout()
@@ -136,39 +137,59 @@ class BuildPage(ScrollableLocalizedPage):
         firmware_output_button.setMinimumWidth(180)
         advanced_layout.addWidget(firmware_output_button)
 
-        tools_label = QLabel()
-        tools_label.setObjectName("sectionLabel")
-        self.Text_Register(tools_label, "build.section.toolchain")
-        advanced_layout.addWidget(tools_label)
-        detect_row = QGridLayout()
-        self.tool_path_combo = StandardComboBox()
-        self.tool_path_combo.setMinimumWidth(220)
-        self.browse_button = QPushButton()
-        self.browse_button.setMinimumWidth(100)
-        self.Text_Register(self.browse_button, "action.browse")
-        self.browse_button.clicked.connect(
-            lambda: self.browseRequested.emit(
-                str(self.tool_path_combo.currentData() or "")
-            )
+        tool_status_layout = QGridLayout()
+        tool_status_layout.setColumnStretch(0, 0)
+        tool_status_layout.setColumnStretch(1, 1)
+        firmware_tools_label = QLabel()
+        firmware_tools_label.setObjectName("sectionLabel")
+        self.Text_Register(
+            firmware_tools_label, "build.section.firmware_environment"
         )
+        tool_status_layout.addWidget(firmware_tools_label, 0, 0, 1, 2)
+        self.tool_name_labels: dict[str, QLabel] = {}
+        self.tool_status_labels: dict[str, QLabel] = {}
+        for row, tool_id in enumerate(("compiler", "make"), start=1):
+            name_label = QLabel()
+            self.Text_Register(name_label, f"tool.{tool_id}")
+            status_label = QLabel()
+            status_label.setObjectName("statusPill")
+            status_label.setProperty("statusLevel", "info")
+            self.tool_name_labels[tool_id] = name_label
+            self.tool_status_labels[tool_id] = status_label
+            tool_status_layout.addWidget(name_label, row, 0)
+            tool_status_layout.addWidget(status_label, row, 1)
+        host_tools_label = QLabel()
+        host_tools_label.setObjectName("sectionLabel")
+        self.Text_Register(host_tools_label, "build.section.host_environment")
+        tool_status_layout.addWidget(host_tools_label, 3, 0, 1, 2)
+        host_name_label = QLabel()
+        self.Text_Register(host_name_label, "tool.host_gcc")
+        host_status_label = QLabel()
+        host_status_label.setObjectName("statusPill")
+        host_status_label.setProperty("statusLevel", "info")
+        self.tool_name_labels["host_gcc"] = host_name_label
+        self.tool_status_labels["host_gcc"] = host_status_label
+        tool_status_layout.addWidget(host_name_label, 4, 0)
+        tool_status_layout.addWidget(host_status_label, 4, 1)
+        self.tool_status_group = self.Group_Create(
+            "build.section.toolchain", tool_status_layout
+        )
+        advanced_layout.addWidget(self.tool_status_group)
+        detect_row = QHBoxLayout()
         self.detect_button = QPushButton()
         self.detect_button.setMinimumWidth(120)
         self.Text_Register(self.detect_button, "action.detect_toolchain")
         self.detect_button.clicked.connect(
             lambda _checked=False: self.detectionRequested.emit()
         )
-        detect_row.addWidget(self.tool_path_combo, 0, 0)
-        detect_row.addWidget(self.browse_button, 0, 1)
-        detect_row.addWidget(self.detect_button, 0, 2)
-        detect_row.setColumnStretch(0, 1)
-        advanced_layout.addLayout(detect_row)
-        self.quality_tool_table = self.Table_Register(
-            EngineeringTable(
-                ("column.tool", "column.path", "column.version", "column.status")
-            )
+        detect_row.addWidget(self.detect_button)
+        self.install_guide_button = self._ActionButton_Create(
+            "tool_install_guide", "action.install_guide"
         )
-        self.quality_tool_table.setMinimumHeight(88)
-        advanced_layout.addWidget(self.quality_tool_table)
+        self.install_guide_button.setMinimumWidth(120)
+        detect_row.addWidget(self.install_guide_button)
+        detect_row.addStretch(1)
+        advanced_layout.addLayout(detect_row)
         self.advanced_section = CollapsibleSection(expanded=False)
         self.advanced_section.BodyLayout_Set(advanced_layout)
         self.advanced_group = self.advanced_section
@@ -182,10 +203,33 @@ class BuildPage(ScrollableLocalizedPage):
         self.build_log.setMinimumHeight(220)
         log_layout.addWidget(self.build_log)
         advanced_layout.addWidget(self.Group_Create("group.build_log", log_layout))
+        detail_layout = QVBoxLayout()
+        self.build_detail_log = QPlainTextEdit()
+        self.build_detail_log.setObjectName("buildDetailLog")
+        self.build_detail_log.setReadOnly(True)
+        self.build_detail_log.setMaximumBlockCount(20_000)
+        self.build_detail_log.setMinimumHeight(180)
+        detail_layout.addWidget(self.build_detail_log)
+        self.build_detail_section = CollapsibleSection(expanded=False)
+        self.build_detail_section.BodyLayout_Set(detail_layout)
+        advanced_layout.addWidget(self.build_detail_section)
         self.root_layout.addStretch(1)
         self._tools: tuple[ToolchainToolView, ...] = ()
+        self._action_keys = {
+            action_id: key
+            for action_id, key in (
+                *self._PRIMARY_ACTIONS,
+                *self._QUALITY_ACTIONS,
+                ("build", "action.validation_build"),
+                ("clean", "action.clean"),
+                ("clean_all", "action.clean_all"),
+                ("open_firmware_output", "action.open_firmware_output"),
+                ("tool_install_guide", "action.install_guide"),
+            )
+        }
         self.Language_Apply(translator)
         self.Tools_Set(())
+        self.QualityResults_Set(())
         self.GeneratedProject_Set(False)
         self.FirmwareArtifact_Set("", "")
 
@@ -203,50 +247,131 @@ class BuildPage(ScrollableLocalizedPage):
 
     def Tools_Set(self, tools: Iterable[ToolchainToolView]) -> None:
         self._tools = tuple(tools)
-        self.tool_table.Rows_Set(
-            (
-                self._translator.Text_Get(f"tool.{tool.tool_id}"),
-                tool.path or tool.command,
-                tool.version or "—",
-                self._translator.Text_Get(f"tool.status.{tool.status}"),
+        by_id = {tool.tool_id: tool for tool in self._tools}
+        for tool_id, label in self.tool_status_labels.items():
+            tool = by_id.get(tool_id)
+            status = tool.status if tool is not None else "not_checked"
+            status_text = self._translator.Text_Get(f"tool.status.{status}")
+            version = tool.version if tool is not None else ""
+            label.setText(
+                " · ".join(value for value in (version, status_text) if value)
             )
-            for tool in self._tools
-            if tool.tool_id in {"compiler", "make"}
-        )
-        self.quality_tool_table.Rows_Set(
-            (
-                self._translator.Text_Get(f"tool.{tool.tool_id}"),
-                tool.path or tool.command,
-                tool.version or "—",
-                self._translator.Text_Get(f"tool.status.{tool.status}"),
+            label.setToolTip(
+                "\n".join(
+                    value
+                    for value in (
+                        tool.path if tool is not None else "",
+                        getattr(tool, "target", "") if tool is not None else "",
+                    )
+                    if value
+                )
             )
-            for tool in self._tools
-            if tool.tool_id == "host_gcc"
-        )
-        compiler = next(
-            (tool for tool in self._tools if tool.tool_id == "compiler"), None
-        )
-        make = next(
-            (tool for tool in self._tools if tool.tool_id == "make"), None
-        )
-        if compiler is None or compiler.status == "not_checked":
-            key, level = "toolchain.not_checked", "info"
-        elif (
-            compiler.status == "found"
-            and make is not None
-            and make.status == "found"
-        ):
-            version = compiler.version or compiler.path
-            self.toolchain_status.Status_Set(
-                self._translator.Text_Get(
-                    "toolchain.compiler_found", version=version
-                ),
-                "success",
+            label.setProperty(
+                "statusLevel",
+                "success"
+                if status == "found"
+                else "error" if status in {"invalid", "not_found"} else "info",
             )
+            label.style().unpolish(label)
+            label.style().polish(label)
+        status = {tool.tool_id: tool.status for tool in self._tools}
+        compiler_found = status.get("compiler") == "found"
+        make_found = status.get("make") == "found"
+        host_found = status.get("host_gcc") == "found"
+        enabled_by_action = {
+            "build": compiler_found and make_found,
+            "clean": make_found,
+            "clean_all": make_found,
+            "host_tests": host_found and make_found,
+            "architecture_check": make_found,
+            "power10_check": make_found,
+            "static_analysis": compiler_found and make_found,
+            "artifact_check": compiler_found and make_found,
+        }
+        for action_id, enabled in enabled_by_action.items():
+            self.action_buttons[action_id].setEnabled(enabled)
+        self._ActionTooltips_Apply()
+
+    def QualityResults_Set(self, records: Iterable[object]) -> None:
+        self._quality_records = tuple(records)
+        by_task = {
+            str(getattr(record, "task", "")): record
+            for record in self._quality_records
+        }
+        for task, label in self.quality_result_labels.items():
+            record = by_task.get(task)
+            if record is None:
+                label.setText(self._translator.Text_Get("quality.result.not_run"))
+                label.setProperty("statusLevel", "info")
+                label.setToolTip("")
+            else:
+                passed = getattr(record, "result", "") == "passed"
+                status = self._translator.Text_Get(
+                    "quality.result.passed" if passed else "quality.result.failed"
+                )
+                summary = str(getattr(record, "summary", "")).strip()
+                if summary.startswith("checks="):
+                    summary = self._translator.Text_Get(
+                        "quality.summary.checks",
+                        count=summary.partition("=")[2],
+                    )
+                elif summary.startswith("exit_code="):
+                    summary = self._translator.Text_Get(
+                        "quality.summary.exit_code",
+                        code=summary.partition("=")[2],
+                    )
+                elif summary in {
+                    "analysis_passed",
+                    "artifact_validated",
+                    "completed",
+                    "error",
+                }:
+                    summary = self._translator.Text_Get(
+                        f"quality.summary.{summary}"
+                    )
+                label.setText(
+                    " · ".join(value for value in (status, summary) if value)
+                )
+                label.setProperty("statusLevel", "success" if passed else "error")
+                label.setToolTip(
+                    self._translator.Text_Get(
+                        "quality.result.tooltip",
+                        timestamp=str(getattr(record, "timestamp", "")),
+                        duration=f"{float(getattr(record, 'duration', 0.0)):.2f}",
+                    )
+                )
+            label.style().unpolish(label)
+            label.style().polish(label)
+
+    def _ActionTooltips_Apply(self) -> None:
+        if not hasattr(self, "_action_keys"):
             return
-        else:
-            key, level = "toolchain.incomplete", "warning"
-        self.toolchain_status.Status_Set(self._translator.Text_Get(key), level)
+        status = {tool.tool_id: tool.status for tool in self._tools}
+        requirements = {
+            "build": ("compiler", "make"),
+            "clean": ("make",),
+            "clean_all": ("make",),
+            "host_tests": ("host_gcc", "make"),
+            "architecture_check": ("make",),
+            "power10_check": ("make",),
+            "static_analysis": ("compiler", "make"),
+            "artifact_check": ("compiler", "make"),
+        }
+        for action_id, key in self._action_keys.items():
+            button = self.action_buttons.get(action_id)
+            if button is None:
+                continue
+            tooltip = self._translator.Text_Get(f"{key}.tooltip")
+            missing = tuple(
+                self._translator.Text_Get(f"tool.{tool_id}")
+                for tool_id in requirements.get(action_id, ())
+                if status.get(tool_id) != "found"
+            )
+            if missing:
+                tooltip += "\n" + self._translator.Text_Get(
+                    "tool.missing_reason", missing=", ".join(missing)
+                )
+            button.setToolTip(tooltip)
 
     def Project_Set(
         self, target: str, environment: str = "VS Code + EIDE"
@@ -275,24 +400,29 @@ class BuildPage(ScrollableLocalizedPage):
         if text:
             self.build_log.appendPlainText(text.rstrip())
 
+    def BuildDetailLog_Set(self, text: str) -> None:
+        self.build_detail_log.setPlainText(text)
+
+    def BuildDetailLog_Append(self, text: str) -> None:
+        if text:
+            self.build_detail_log.appendPlainText(text.rstrip())
+
     def Language_Apply(self, translator: Translator) -> None:
         super().Language_Apply(translator)
         self.advanced_section.Title_Set(translator.Text_Get("group.advanced_build"))
-        selected_tool = self.tool_path_combo.currentData()
-        self.tool_path_combo.blockSignals(True)
-        self.tool_path_combo.clear()
-        for tool_id, translation_key in self._TOOL_OPTIONS:
-            self.tool_path_combo.addItem(translator.Text_Get(translation_key), tool_id)
-        selected_index = self.tool_path_combo.findData(selected_tool)
-        self.tool_path_combo.setCurrentIndex(max(0, selected_index))
-        self.tool_path_combo.blockSignals(False)
+        self.build_detail_section.Title_Set(
+            translator.Text_Get("group.build_detail_log")
+        )
         if hasattr(self, "_tools"):
             self.Tools_Set(self._tools)
+        if hasattr(self, "quality_result_labels"):
+            self.QualityResults_Set(getattr(self, "_quality_records", ()))
+        self._ActionTooltips_Apply()
 
 
 def DefaultTools_Get() -> tuple[ToolchainToolView, ...]:
     return (
-        ToolchainToolView("compiler", "Arm GNU Compiler", "arm-none-eabi-gcc"),
-        ToolchainToolView("make", "Make", "mingw32-make"),
+        ToolchainToolView("compiler", "Arm GNU Toolchain", "arm-none-eabi-gcc"),
+        ToolchainToolView("make", "GNU Make", "mingw32-make"),
         ToolchainToolView("host_gcc", "Host GCC", "gcc"),
     )

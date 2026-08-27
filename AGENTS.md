@@ -56,13 +56,27 @@ environment, or any other repository. Project-local settings and logs belong bel
 - User-facing sensors and actuators are declarative Device instances. ADC/GPIO resources remain
   Hardware Connection details; the input-voltage monitor and mission-action actuators bind to
   those resources without presenting the raw resources as devices.
+- Software-controlled status indicators are declarative Device instances with exclusive GPIO
+  Output requirements. SS0.5 maps the default System Status Indicator to active-low
+  `IMU_CAL_LED`/PA1 and explicitly has no second assignable GNSS-indicator GPIO; never reuse the
+  system LED or mission-action outputs. Hardware-fixed power lamps are not software Devices.
 - Protocol log availability uses Device-declared Recordable outputs independently from whether an
   Algorithm currently Consumes the same capability. Required streams remain forced on.
+- Protocol logging metadata may declare a generic Cadence (`periodic`, `source`, `measurement`,
+  `event`, `one_shot`, or `algorithm_output`) and optional producer components. `period_us=0`
+  means that a non-periodic policy does not use the field; it must never be rendered as a zero
+  period. A record codec/schema does not by itself prove that a selected component produces it.
+- The UART maintenance Transport remains an internal Device instance and source-graph provider,
+  but it is not duplicated as a user-selectable Devices-page endpoint. Its USART/pin/baud binding
+  remains visible under Hardware Connection as Maintenance Console · UART.
 - Mission-action dependencies are one-way. A Mode may require the parachute output, but removing
   an actuator must never auto-add it again. Launch-output absence means external ignition; removing
   parachute output clears dependent deployment Modes.
 - Mode parameters and telemetry/maintenance/logging profiles are manifest-owned generic data.
   Generated constants, summaries, and decoder profiles must all use the same project values.
+- AIR M0 is the low-resource telemetry profile name with unchanged numeric wire value 0.
+  User-facing names are AIR Telemetry Protocol M0, Serial Maintenance Protocol 0.0, and Flight
+  Log Format 0.0; internal `SSLOG0` magic may remain only for binary compatibility.
 - Board/imported `.ioc` facts must satisfy typed bus and GPIO electrical/safe-start constraints.
   Manual assignment confirmation is a fingerprint and must clear when a validity input changes.
 - Strategy and Mode slots are generic manifest-declared dictionaries. Do not add hard-coded future
@@ -72,12 +86,18 @@ environment, or any other repository. Project-local settings and logs belong bel
   plan confirmation.
 - Make and native EIDE must be rendered from the same resolved source graph. VS Code tasks call the
   generated Make project; no environment renderer may independently discover sources.
-- FCCG is generation-first: Generate/Apply materializes files without compiling or running quality
+- The generated decoder-profile descriptor implementation belongs to that same source graph.
+  Golden logs are produced and round-trip checked by the generated project's real C SSLOG codec,
+  never by a separately hard-coded Python wire layout.
+- FCCG is generation-first: Generate Code materializes files without compiling or running quality
   gates, then the user opens the generated VS Code/EIDE project. Release is the default generated
   configuration while Debug remains selectable. Normal Apply preserves unchanged managed-file
   timestamps and build dependency files.
 - GUI display functions are read-only. Configuration changes apply to a candidate model, run the
   shared reconcile pipeline, and replace the live model only after reconciliation succeeds.
+- Digest, stale/readiness, decoder, and ownership checks reuse one normalized generation
+  fingerprint. Host tool paths, detection cache, provenance/display fields, and GUI preferences
+  never enter it; renderers must deep-copy before adding generated provenance.
 
 ## GUI standard
 
@@ -90,6 +110,10 @@ Project operations belong in File; plugin management belongs in the Plugins menu
 use translation keys. Boolean/multiple selections use `StandardCheckBox`; progressive disclosure
 uses `CollapsibleSection` and never disables its body. Logging remains directly visible.
 Development settings remain repository-local.
+The Logging surface includes `Export Log Decoder Profile`. It exports the same deterministic,
+declarative `.ssdecoder` package generated with the saved project, after readiness and digest
+checks. Export performs no background task, project mutation, fingerprint change, or Dirty-state
+change. It never emits or executes parser/plugin code.
 
 ## Code and tests
 
@@ -97,3 +121,14 @@ Keep modules focused and typed. Follow the project naming convention for callabl
 noun followed by a capitalized verb phrase, for example `Project_Load` and `Theme_Apply`.
 Run focused tests, then the complete suite. Do not claim toolchain, EIDE, flash, or hardware
 support unless the corresponding validation actually passed.
+
+Generated build products live only below `build/FCCG/`; Host tests use
+`build/FCCG/Host/Tests`, static analysis uses the target's `StaticAnalysis` subtree, and
+listing files are opt-in with `LISTING=1`. Quality-result timestamps are project-local metadata
+and never generation state. Repository cleanup and source-package export must preserve real
+unit-test and `Tests/Host` sources while excluding build, reference-copy, acceptance, pytest,
+Python-cache, and binary/listing artifacts.
+Long-running tools use `FCCG_PROGRESS|<TASK>|PLAN|<total>` and paired `BEGIN`/`DONE` records.
+Only `DONE` advances completion. Success reaches 100%; failure and cancellation retain the last
+real progress. Expected host compile rejection is a successful gate result, while raw compiler
+diagnostics remain in the detailed log and project-local log file.

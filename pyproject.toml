@@ -8,7 +8,7 @@ dynamic = ["version"]
 description = "SilverStar flight-controller project configurator and code generator"
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = ["PySide6>=6.8"]
+dependencies = ["PySide6>=6.8", "PyYAML>=6.0,<7"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8.3"]
@@ -32,12 +32,22 @@ pythonpath = ["src"]
 cache_dir = "tests/.pytest-cache"
 norecursedirs = [
     ".pytest-cache",
+    ".pytest-cache-*",
     ".pytest-work",
+    ".pytest-work-*",
+    ".cache-*",
+    ".pycache-*",
     ".w-*",
+    ".work-*",
+    ".c*",
     ".tmp",
+    ".tmp-*",
+    ".vscode-*",
+    "tmp*",
     "acceptance_*",
     "acceptance_current",
     "acceptance_smoke",
     "generated_projects",
+    "reference_copy",
     "artifacts",
 ]

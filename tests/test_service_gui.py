@@ -26,15 +26,15 @@ def test_gui_service_loads_catalog_opens_project_and_previews(
     service.GenerationPlan_Apply(model, initial_plan)
     project_file = project_root / "SilverStar.ssproject"
     try:
-        assert window.plugin_manager_dialog.panel.plugin_table.rowCount() == 29
+        assert window.plugin_manager_dialog.panel.plugin_table.rowCount() == 31
         assert window.plugin_manager_dialog.panel.plugin_table.columnCount() == 9
-        assert len(window.devices_page.device_combos) == 4
+        assert len(window.devices_page.device_combos) == 3
         wizard_values = wizard.WizardData_Get()
         assert set(wizard_values) == {"name", "output_directory"}
         window._Project_Open(project_file)
         assert window.current_project_value.text() == "GeneratedReference"
         logging_table = window.flight_configuration_page.logging_table
-        assert logging_table.rowCount() == 28
+        assert logging_table.rowCount() == 29
         periodic_row = next(
             row
             for row in range(logging_table.rowCount())
@@ -44,7 +44,8 @@ def test_gui_service_loads_catalog_opens_project_and_previews(
             == "FLIGHT_LOG_RECORD_TELEMETRY_DIAG"
         )
         period_editor = logging_table.cellWidget(periodic_row, 4)
-        period_editor.setValue(250_000)
+        assert period_editor.unit_combo.currentData() == "ms"
+        period_editor.value_spin.setValue(250)
         window._ProjectModel_Sync()
         assert next(
             stream

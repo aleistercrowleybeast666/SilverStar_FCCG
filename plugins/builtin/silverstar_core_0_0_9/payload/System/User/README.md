@@ -80,6 +80,8 @@ BARO_IMU_WINDOW先用direct Baro短窗趋势建立candidate，再要求同一时
 
 日志开关已改为按Record的`SystemLogStreamConfig`，不存在32-bit mask。当前项目默认policy由`Generated/Src/project_log_config.c`给出，START时冻结；Record ID、metadata和逐字段little-endian双向codec是`Protocol/SSLOG/Inc/sslog_records.h`与`Protocol/SSLOG/Src/sslog_records.c`的普通源码。authoritative Make不运行Python或生成器，禁止用C struct布局直接写wire；`Protocol/SSLOG/schema/`仅是离线解析器参考。
 
+Native sensor/POWER记录携带`source_descriptor_id + instance_id`；勾选某类Native stream的默认语义是记录当前启用的该类能力实例。当前项目只有instance 0，尚无按实例过滤、Sensor Selection或Multi-EKF配置。Physical Device到Capability Endpoint的映射由Generated descriptor/facade负责，不在System/User参数中手工建立运行期registry。
+
 离线重放优先使用`IMU_CORRECTED`、`INERTIAL_INCREMENT`、GNSS/Baro measurement、Pure INS/KF和descriptor/config Record。默认不保存每个UART/UBX字节；底层协议分析应增加独立可选Record。
 
 ## 启动写入安全

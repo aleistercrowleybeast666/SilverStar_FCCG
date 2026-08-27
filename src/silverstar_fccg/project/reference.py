@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 
 from silverstar_fccg.plugins.manifest import PluginManifest_Load
 from silverstar_fccg.project.logging import (
-    LoggingProfile_Reconcile,
+    LoggingProfile_SelectAllAvailable,
     ProtocolLogDefinitions_Load,
     ProtocolLogMetadataPath_Get,
 )
@@ -34,6 +34,8 @@ REFERENCE_COMPONENT_IDS = {
     "input_voltage": "silverstar.device.sensor.input_voltage",
     "launch_ignition": "silverstar.device.actuator.launch_ignition",
     "parachute_pyro": "silverstar.device.actuator.parachute_pyro",
+    "system_indicator": "silverstar.device.indicator.system_status",
+    "gnss_indicator": "silverstar.device.indicator.gnss_status",
     "algorithm_common": "silverstar.algorithm.common",
     "alignment_common": "silverstar.algorithm.alignment.common",
     "alignment": "silverstar.algorithm.alignment.gravity_known_yaw",
@@ -96,7 +98,7 @@ def ReferenceResourceAssignments_Get() -> dict[str, str]:
         "maintenance0:console": "PLATFORM_UART_3",
         "launch_ignition0:output": "PLATFORM_GPIO_4",
         "parachute_pyro0:output": "PLATFORM_GPIO_5",
-        f"{ids['board']}:system_indicator": "PLATFORM_GPIO_6",
+        "system_indicator0:output": "PLATFORM_GPIO_6",
         "voltage_monitor0:input_voltage": "PLATFORM_ADC_1",
         f"{ids['board']}:storage": "PLATFORM_SDIO_1",
     }
@@ -123,6 +125,7 @@ def ReferenceProject_Create(
             DeviceInstance("voltage_monitor0", ids["input_voltage"]),
             DeviceInstance("launch_ignition0", ids["launch_ignition"]),
             DeviceInstance("parachute_pyro0", ids["parachute_pyro"]),
+            DeviceInstance("system_indicator0", ids["system_indicator"]),
         ],
         base_components=[
             ids["algorithm_common"],
@@ -162,5 +165,5 @@ def ReferenceProject_Create(
             repository_root / "plugins" / "installed",
         )
         catalog.Scan()
-    LoggingProfile_Reconcile(model, catalog)
+    LoggingProfile_SelectAllAvailable(model, catalog)
     return model

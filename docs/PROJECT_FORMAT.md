@@ -1,6 +1,6 @@
 # SilverStar.ssproject format
 
-`SilverStar.ssproject` is strict JSON with `format_version: 6`; the formal shape is `schemas/project.schema.json`. Formats 0–5 migrate through the Strategy/Mode, Hardware Inventory, Device-instance, derived-capability, Mode-parameter, protocol-profile, and manual-assignment-confirmation changes. All supported older files are saved as format 6.
+`SilverStar.ssproject` is strict JSON with `format_version: 7`; the formal shape is `schemas/project.schema.json`. Formats 0–6 migrate through the Strategy/Mode, Hardware Inventory, Device-instance, derived-capability, Mode-parameter, protocol-profile, manual-assignment-confirmation, and log-decoder-profile changes. All supported older files are saved as format 7.
 
 ## Sections
 
@@ -8,14 +8,19 @@
 - `components`: exactly one Core, MCU, OS, and DevelopmentEnvironment; an optional Board while custom hardware is active; ordered `devices: [{instance_id, plugin}]`, base components/Protocol Bundles; and generic `strategies: {slot: component-id | null}`.
 - `modes`: generic `{slot: [option, ...]}` selections. Slot rules and labels come from manifests.
 - `mode_parameters`: generic `{slot: {option: {parameter: number}}}` values. Types, units, ranges, defaults, generated symbols, and scaling come from the owning Mode manifest.
-- `protocol_profiles`: independent protocol-category selections; the reference uses telemetry `air.compact.v0`, maintenance `maintenance.v0_0`, and logging `sslog0`.
+- `protocol_profiles`: independent protocol-category selections; the reference uses telemetry `air.m0`, maintenance `maintenance.serial.0_0`, and logging `flight_log.0_0`. Format-0 pre-release IDs migrate directly from `air.compact.v0`, `maintenance.v0_0`, and `sslog0`.
 - `hardware`: `unselected`, `board_plugin`, or `custom`, plus source kind/provider, immutable import snapshot/provenance, detected MCU/capabilities/resources, persisted `inventory`, trusted build contributions, first-import risk acknowledgement, and `assignment_fingerprint`. The fingerprint is retained only while all resource-validity inputs are unchanged.
 - `resources`: `device-instance-id:requirement-name` (or non-Device component ID) to provided physical/logical resource ID.
-- `capability_sources`: only user decisions needed to resolve an ambiguous required capability, mapping capability to the selected Device instance.
+- `capability_sources`: only non-default user decisions for a required capability with several providers, mapping capability to the selected physical Device instance; absent values bind Canonical Source to capability instance 0.
 - `logging.streams`: the selected Protocol metadata order plus enable state, policy, decimation, and period. Record definitions and Required/Recommended/Optional levels do not live in the project file.
+- `log_decoder_profile`: generated relative `.ssdecoder` path, package-schema version, container-plugin ID, generation-profile SHA-256, and complete package SHA-256. These are derived verification data, not editable generation inputs.
 - `build`: target, Make/toolchain preferences, native EIDE mode, and project-local tool-path overrides. Release is the generated default and Debug remains an invocation choice; neither is persisted as mutable project configuration. `flash_command` is currently an empty reserved field; it creates no GUI, Make, VS Code, or EIDE upload action without a future validated capability contract.
 - `generated_glue`: the reviewed FCCG-owned glue set.
 - `component_provenance` and `reference_provenance`: audit information only.
+
+The persisted Device record identifies one physical module. Capability Endpoint Instances are derived from that module's declarative descriptor contributions and receive contiguous indices within each capability class during generation. Canonical Source Selection is separate again: current single-estimator algorithms consume one endpoint per capability and default to class instance 0; no Sensor Voting or Multi-EKF state is implied by adding another physical Device.
+
+Readiness never compares the complete JSON dictionary. `ProjectGenerationState_Normalize()` retains fields that can change generated code or structure (MCU, hardware source/inventory, Device instances including Indicators, Strategies, Modes/parameters, capability sources, protocol profiles, logging, resource assignments, environment, and source-graph configuration). It removes host tool paths/detection data, provenance/display fields, assignment confirmation, GUI preferences, and the derived `log_decoder_profile` hashes. This prevents a package hash from feeding back into the generation identity it describes. The same normalized state feeds `ProjectGenerationFingerprint_Get()`, embedded metadata, stale detection, decoder semantics, and ownership metadata.
 
 Unknown/missing fields, wrong types, duplicate instance IDs/selections/records, instance-policy violations, invalid or unnecessary capability-source overrides, invalid component IDs, unsafe target/path tokens, unsupported policies, invalid numeric ranges, malformed custom snapshot IDs, hardware paths outside `HardwareGenerated/STM32CubeMX/`, a changed Protocol record order, disabled available Required records, or enabled unavailable records are rejected.
 
@@ -37,7 +42,7 @@ Unknown/missing fields, wrong types, duplicate instance IDs/selections/records, 
 
 Raw/Data capabilities state that a provider emits data. Qualified capabilities ending in `_qualified` state that the data meets a named implementation contract. The selected components derive that the reference consumes JY901B acceleration, angular rate, software-alignment qualification, IMU-stillness qualification, barometric altitude, and barometer-window qualification while external attitude and magnetic field remain unused. If a future BMP280 and JY901B both provide required `barometer.altitude`, the only additional persisted decision is `"barometer.altitude": "barometer0"`. Requirement purposes and lifecycle remain in Algorithm/Strategy manifests and implementations; no flight-phase policy is stored.
 
-Device instances also include source-less logical sensors/actuators. The reference uses stable IDs `voltage_monitor0`, `launch_ignition0`, and `parachute_pyro0`; their resource keys bind to ADC/P_CONTROL1/P_CONTROL2 through the Board. They are ordinary independent singleton Device plugins, not multiple instances of one unverified generic driver.
+Device instances also include source-less logical sensors, actuators, and indicators. The reference uses stable IDs `voltage_monitor0`, `launch_ignition0`, `parachute_pyro0`, and `system_indicator0`; their resource keys bind to ADC/P_CONTROL1/P_CONTROL2/IMU_CAL_LED through the Board. They are ordinary independent singleton Device plugins, not multiple instances of one unverified generic driver. Optional `gnss_indicator0` requires `device.gnss` plus a separate GPIO Output and is unavailable on SS0.5.
 
 Logging does not persist a second capability database. Protocol metadata names Recordable requirements, Device metadata states which raw outputs are enabled, and the saved stream retains only the user's stream settings. Existing project choices are preserved; defaults are applied only when a record is first introduced, while Required records are always forced enabled.
 
@@ -65,9 +70,9 @@ Logging does not persist a second capability database. Protocol metadata names R
     }
   },
   "protocol_profiles": {
-    "telemetry": "air.compact.v0",
-    "maintenance": "maintenance.v0_0",
-    "logging": "sslog0"
+    "telemetry": "air.m0",
+    "maintenance": "maintenance.serial.0_0",
+    "logging": "flight_log.0_0"
   }
 }
 ```
@@ -80,8 +85,53 @@ No Python schema change is required when a real future plugin declares a new Str
 
 After export/install as a Board plugin, a second project returns to `hardware.mode = "board_plugin"`; the Board payload supplies the same dedicated tree without another live import.
 
+## Logging stream state and metadata
+
+Each `logging_streams` entry remains project-owned configuration: `record`, `enabled`, `policy`,
+`decimation`, and integer microsecond `period_us`. Display units are never serialized. For EVENT,
+ONE_SHOT, EVERY, and DECIMATION policies, `period_us=0` means the period field is unused and must
+not be interpreted as an infinitely fast stream. Only DECIMATION gives `decimation` user-editable
+meaning; other policies preserve their compatible stored default without exposing an editor.
+The GUI names this DECIMATION value the **extraction factor** and presents it as “record once per
+N related data updates”; the persisted field remains `decimation` for compatibility.
+
+The generated `log_decoder_profile` reference is populated only while rendering a saved project.
+The current firmware-owned package/container IDs are `silverstar.ssdecoder.package-schema/1.0`
+and `silverstar.sslog.container/0.0`. `generation_profile_sha256` is SHA-256 over UTF-8 package
+schema ID, one LF, UTF-8 container ID, one LF, the raw 32-byte record-catalog digest, and the raw
+32-byte project-semantics digest in that exact order. `package_sha256` identifies the complete
+deterministic ZIP. Export rebuilds those bytes and refuses a missing, stale, or mismatched project.
+
+Cadence text and optional producer requirements are Protocol metadata extensions, not duplicated
+project fields. Older metadata without either extension remains loadable: PERIODIC maps to periodic,
+DECIMATION to related-source cadence, EVERY to related measurement, EVENT to related event, and
+ONE_SHOT to one time. Producer omission retains old availability behavior.
+
+The synchronized reference metadata uses producer identities rather than adding project-format
+fields: STATS requires `silverstar.core.device_task` and TELEMETRY_DIAG requires
+`silverstar.core.telemetry_task`. Their project stream values remain ordinary `PERIODIC` entries
+with `period_us` 1000000 and 200000, so wire/container/project compatibility is unchanged.
+
+Legacy pre-release descriptors may still contain the `maintenance0` UART Device instance. Loading
+retains and normalizes that internal Transport and its resource owner so protocol/source-graph and
+Hardware Connection data are not lost; the instance is simply not rendered as a Devices-page group.
+
 ## Planning behavior
 
 FCCG resolves intended files and `.fccg/ownership.json` into operations: `ADD`, `MODIFY`, `UNCHANGED`, `PRESERVE`, `DEACTIVATE`, `REPLACE_TREE`, or `CONFLICT`. Validation errors and conflicts prevent Save from applying the plan. Dangerous operations require explicit confirmation. A missing or edited project-owned component file is never silently restored.
 
 The JSON is machine state. `SilverStar_Configuration.md` is its generated human-readable review record, including MCU, Devices, Board/hardware source, mappings, Strategies, Modes, active/inactive retained Mode parameters, protocol profiles, OS, environment/toolchain, and provenance.
+
+## Protocol, local-tool, and quality state
+
+`protocol_profiles` stores one profile ID for each of `telemetry`, `maintenance`, and `logging`;
+their manifests map those categories to `telemetry_protocol`, `maintenance_protocol`, and
+`log_format`. Installed manifests—not a Python record table—supply full profile sources, binding,
+transport requirements, decoder data, docs, and tests. Transport provider selection is resolved
+from selected physical Device and Board/storage contributions and is emitted into the generated
+decoder/configuration review.
+
+`build.tool_paths` contains project-local host preferences and never enters the normalized
+generation fingerprint. Likewise `.fccg/quality-results.json` stores task/result/timestamp/
+duration/summary outside `SilverStar.ssproject`; updating it cannot make generated code stale.
+Reference provenance and GUI preferences are display/diagnostic state, not firmware semantics.

@@ -104,9 +104,15 @@ class ModeParameterDefinition:
 
 @dataclass(frozen=True, slots=True)
 class DeviceInstancePolicy:
-    project_max: int = 1
+    plugin_max: int = 1
+    class_max: int = 1
     same_plugin_multiple: bool = False
     multi_instance_ready: bool = False
+
+    @property
+    def project_max(self) -> int:
+        """Compatibility alias for pre-format plugin manifests and callers."""
+        return self.class_max
 
 
 @dataclass(frozen=True, slots=True)
@@ -193,10 +199,44 @@ class BoardContribution:
 
 
 @dataclass(frozen=True, slots=True)
+class ProtocolTransportConstraint:
+    capability: str
+    kind: str
+    minimum_mtu: int
+    ordered: bool
+    bidirectional: bool
+    reliable: bool
+    mode: str
+
+
+@dataclass(frozen=True, slots=True)
+class TransportContribution:
+    capability: str
+    kind: str
+    mtu: int
+    ordered: bool
+    bidirectional: bool
+    reliable: bool
+    mode: str
+
+
+@dataclass(frozen=True, slots=True)
 class ProtocolProfileContribution:
     profile_id: str
     version: str
     display_names: dict[str, str] = field(default_factory=dict)
+    service: str = ""
+    slot: str = ""
+    codec_sources: tuple[str, ...] = ()
+    parser_sources: tuple[str, ...] = ()
+    include_dirs: tuple[str, ...] = ()
+    defines: tuple[str, ...] = ()
+    binding: str = ""
+    transport: ProtocolTransportConstraint | None = None
+    decoder_metadata: str = ""
+    documentation: tuple[str, ...] = ()
+    host_tests: tuple[str, ...] = ()
+    golden_tests: tuple[str, ...] = ()
 
     def DisplayName_Get(self, language: str) -> str:
         return self.display_names.get(language, self.profile_id)
@@ -211,6 +251,13 @@ class ProtocolContribution:
     profiles: dict[str, tuple[ProtocolProfileContribution, ...]] = field(
         default_factory=dict
     )
+
+
+PROTOCOL_PROFILE_SLOTS = {
+    "telemetry": "telemetry_protocol",
+    "maintenance": "maintenance_protocol",
+    "logging": "log_format",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -264,6 +311,7 @@ class PluginManifest:
     resource_conflicts: tuple[ResourceConflict, ...]
     provides: tuple[str, ...]
     capability_requirements: tuple[CapabilityRequirement, ...]
+    transports: tuple[TransportContribution, ...]
     build: BuildContribution
     payload_roots: tuple[str, ...]
     metadata: dict[str, Any]
@@ -427,28 +475,45 @@ def _InstancePolicy_Parse(
         if legacy_cardinality not in ALLOWED_DEVICE_CARDINALITIES:
             raise PluginManifestError("cardinality must be single or multiple")
         return DeviceInstancePolicy(
-            project_max=16 if legacy_cardinality == "multiple" else 1,
+            plugin_max=1,
+            class_max=16 if legacy_cardinality == "multiple" else 1,
             same_plugin_multiple=False,
             multi_instance_ready=False,
         )
     if not isinstance(value, dict) or set(value) not in (
         {"project_max", "same_plugin_multiple"},
         {"project_max", "same_plugin_multiple", "multi_instance_ready"},
+        {"plugin_max", "class_max", "same_plugin_multiple"},
+        {
+            "plugin_max",
+            "class_max",
+            "same_plugin_multiple",
+            "multi_instance_ready",
+        },
     ):
         raise PluginManifestError(
-            "instance_policy must contain project_max, same_plugin_multiple "
-            "and optionally multi_instance_ready"
+            "instance_policy must contain plugin_max, class_max, "
+            "same_plugin_multiple and optionally multi_instance_ready"
         )
-    project_max = value.get("project_max")
+    legacy_project_max = value.get("project_max")
     same_plugin_multiple = value.get("same_plugin_multiple")
     multi_instance_ready = value.get("multi_instance_ready", False)
-    if (
-        isinstance(project_max, bool)
-        or not isinstance(project_max, int)
-        or not 1 <= project_max <= 64
+    plugin_max = (
+        legacy_project_max if same_plugin_multiple else 1
+    ) if legacy_project_max is not None else value.get("plugin_max")
+    class_max = (
+        legacy_project_max
+        if legacy_project_max is not None
+        else value.get("class_max")
+    )
+    if any(
+        isinstance(limit, bool)
+        or not isinstance(limit, int)
+        or not 1 <= limit <= 64
+        for limit in (plugin_max, class_max)
     ):
         raise PluginManifestError(
-            "instance_policy.project_max must be an integer from 1 to 64"
+            "instance_policy plugin_max/class_max must be integers from 1 to 64"
         )
     if not isinstance(same_plugin_multiple, bool):
         raise PluginManifestError(
@@ -458,20 +523,30 @@ def _InstancePolicy_Parse(
         raise PluginManifestError(
             "instance_policy.multi_instance_ready must be boolean"
         )
-    if project_max == 1 and same_plugin_multiple:
+    assert isinstance(plugin_max, int)
+    assert isinstance(class_max, int)
+    if plugin_max > class_max:
         raise PluginManifestError(
-            "same_plugin_multiple cannot be true when project_max is 1"
+            "instance_policy.plugin_max cannot exceed class_max"
+        )
+    if plugin_max == 1 and same_plugin_multiple:
+        raise PluginManifestError(
+            "same_plugin_multiple cannot be true when plugin_max is 1"
+        )
+    if plugin_max > 1 and not same_plugin_multiple:
+        raise PluginManifestError(
+            "plugin_max greater than 1 requires same_plugin_multiple"
         )
     if same_plugin_multiple and not multi_instance_ready:
         raise PluginManifestError(
             "same_plugin_multiple requires multi_instance_ready"
         )
-    if project_max == 1 and multi_instance_ready:
+    if class_max == 1 and multi_instance_ready:
         raise PluginManifestError(
-            "multi_instance_ready cannot be true when project_max is 1"
+            "multi_instance_ready cannot be true when class_max is 1"
         )
     return DeviceInstancePolicy(
-        project_max, same_plugin_multiple, multi_instance_ready
+        plugin_max, class_max, same_plugin_multiple, multi_instance_ready
     )
 
 
@@ -1389,17 +1464,34 @@ def _Protocol_Parse(value: Any) -> ProtocolContribution | None:
         entries: list[ProtocolProfileContribution] = []
         seen_ids: set[str] = set()
         for entry_value in entries_value:
-            if not isinstance(entry_value, dict) or set(entry_value) != {
+            profile_fields = {
                 "id",
                 "version",
                 "display_names",
-            }:
+                "service",
+                "slot",
+                "codec_sources",
+                "parser_sources",
+                "include_dirs",
+                "defines",
+                "binding",
+                "transport",
+                "decoder_metadata",
+                "documentation",
+                "host_tests",
+                "golden_tests",
+            }
+            if not isinstance(entry_value, dict) or set(entry_value) != profile_fields:
                 raise PluginManifestError(
                     f"protocol profile in {category} is invalid"
                 )
             profile_id = entry_value.get("id")
             profile_version = entry_value.get("version")
             display_names = entry_value.get("display_names")
+            service = entry_value.get("service")
+            slot = entry_value.get("slot")
+            binding = entry_value.get("binding")
+            decoder_metadata = entry_value.get("decoder_metadata")
             if (
                 not isinstance(profile_id, str)
                 or not PLUGIN_ID_PATTERN.fullmatch(profile_id)
@@ -1414,18 +1506,203 @@ def _Protocol_Parse(value: Any) -> ProtocolContribution | None:
                     and bool(display_name.strip())
                     for language, display_name in display_names.items()
                 )
+                or not isinstance(service, str)
+                or service
+                not in {
+                    "telemetry_service",
+                    "maintenance_service",
+                    "flight_log_service",
+                }
+                or slot != PROTOCOL_PROFILE_SLOTS.get(category)
+                or not isinstance(binding, str)
+                or not PLUGIN_ID_PATTERN.fullmatch(binding)
+                or not isinstance(decoder_metadata, str)
+                or not decoder_metadata
             ):
                 raise PluginManifestError(
                     f"protocol profile in {category} is invalid"
                 )
+            codec_sources = _StringTuple_Get(
+                entry_value.get("codec_sources"),
+                f"protocol.profiles.{category}.codec_sources",
+            )
+            parser_sources = _StringTuple_Get(
+                entry_value.get("parser_sources"),
+                f"protocol.profiles.{category}.parser_sources",
+            )
+            include_dirs = _StringTuple_Get(
+                entry_value.get("include_dirs"),
+                f"protocol.profiles.{category}.include_dirs",
+            )
+            defines = _StringTuple_Get(
+                entry_value.get("defines"),
+                f"protocol.profiles.{category}.defines",
+            )
+            documentation = _StringTuple_Get(
+                entry_value.get("documentation"),
+                f"protocol.profiles.{category}.documentation",
+            )
+            host_tests = _StringTuple_Get(
+                entry_value.get("host_tests"),
+                f"protocol.profiles.{category}.host_tests",
+            )
+            golden_tests = _StringTuple_Get(
+                entry_value.get("golden_tests"),
+                f"protocol.profiles.{category}.golden_tests",
+            )
+            if not all(
+                (
+                    codec_sources,
+                    parser_sources,
+                    include_dirs,
+                    documentation,
+                    host_tests,
+                    golden_tests,
+                )
+            ):
+                raise PluginManifestError(
+                    f"protocol profile {profile_id} has an incomplete implementation contribution"
+                )
+            _RelativePaths_Validate(
+                (
+                    *codec_sources,
+                    *parser_sources,
+                    *include_dirs,
+                    decoder_metadata,
+                    *documentation,
+                    *host_tests,
+                    *golden_tests,
+                ),
+                f"protocol profile {profile_id}",
+            )
+            _BuildTokens_Validate(
+                defines, f"protocol profile {profile_id} defines", DEFINE_PATTERN
+            )
+            transport_value = entry_value.get("transport")
+            transport_fields = {
+                "capability",
+                "kind",
+                "minimum_mtu",
+                "ordered",
+                "bidirectional",
+                "reliable",
+                "mode",
+            }
+            if (
+                not isinstance(transport_value, dict)
+                or set(transport_value) != transport_fields
+            ):
+                raise PluginManifestError(
+                    f"protocol profile {profile_id} transport is invalid"
+                )
+            transport_capability = transport_value.get("capability")
+            transport_kind = transport_value.get("kind")
+            minimum_mtu = transport_value.get("minimum_mtu")
+            transport_mode = transport_value.get("mode")
+            if (
+                not isinstance(transport_capability, str)
+                or not PLUGIN_ID_PATTERN.fullmatch(transport_capability)
+                or not isinstance(transport_kind, str)
+                or not PLUGIN_ID_PATTERN.fullmatch(transport_kind)
+                or isinstance(minimum_mtu, bool)
+                or not isinstance(minimum_mtu, int)
+                or minimum_mtu < 1
+                or transport_mode not in {"stream", "datagram", "file"}
+                or not all(
+                    isinstance(transport_value.get(flag), bool)
+                    for flag in ("ordered", "bidirectional", "reliable")
+                )
+            ):
+                raise PluginManifestError(
+                    f"protocol profile {profile_id} transport constraint is invalid"
+                )
             seen_ids.add(profile_id)
             entries.append(
                 ProtocolProfileContribution(
-                    profile_id, profile_version, dict(display_names)
+                    profile_id=profile_id,
+                    version=profile_version,
+                    display_names=dict(display_names),
+                    service=service,
+                    slot=slot,
+                    codec_sources=codec_sources,
+                    parser_sources=parser_sources,
+                    include_dirs=include_dirs,
+                    defines=defines,
+                    binding=binding,
+                    transport=ProtocolTransportConstraint(
+                        capability=transport_capability,
+                        kind=transport_kind,
+                        minimum_mtu=minimum_mtu,
+                        ordered=transport_value["ordered"],
+                        bidirectional=transport_value["bidirectional"],
+                        reliable=transport_value["reliable"],
+                        mode=transport_mode,
+                    ),
+                    decoder_metadata=decoder_metadata,
+                    documentation=documentation,
+                    host_tests=host_tests,
+                    golden_tests=golden_tests,
                 )
             )
         profiles[category] = tuple(entries)
     return ProtocolContribution(metadata_path, *versions, profiles=profiles)
+
+
+def _Transports_Parse(
+    value: Any, provides: tuple[str, ...]
+) -> tuple[TransportContribution, ...]:
+    if value is None:
+        return ()
+    if not isinstance(value, list):
+        raise PluginManifestError("transports must be an array")
+    entries: list[TransportContribution] = []
+    expected_fields = {
+        "capability",
+        "kind",
+        "mtu",
+        "ordered",
+        "bidirectional",
+        "reliable",
+        "mode",
+    }
+    seen_capabilities: set[str] = set()
+    for entry in value:
+        if not isinstance(entry, dict) or set(entry) != expected_fields:
+            raise PluginManifestError("transport contribution is invalid")
+        capability = entry.get("capability")
+        kind = entry.get("kind")
+        mtu = entry.get("mtu")
+        mode = entry.get("mode")
+        if (
+            not isinstance(capability, str)
+            or not PLUGIN_ID_PATTERN.fullmatch(capability)
+            or capability not in provides
+            or capability in seen_capabilities
+            or not isinstance(kind, str)
+            or not PLUGIN_ID_PATTERN.fullmatch(kind)
+            or isinstance(mtu, bool)
+            or not isinstance(mtu, int)
+            or mtu < 1
+            or mode not in {"stream", "datagram", "file"}
+            or not all(
+                isinstance(entry.get(flag), bool)
+                for flag in ("ordered", "bidirectional", "reliable")
+            )
+        ):
+            raise PluginManifestError("transport contribution is invalid")
+        seen_capabilities.add(capability)
+        entries.append(
+            TransportContribution(
+                capability=capability,
+                kind=kind,
+                mtu=mtu,
+                ordered=entry["ordered"],
+                bidirectional=entry["bidirectional"],
+                reliable=entry["reliable"],
+                mode=mode,
+            )
+        )
+    return tuple(entries)
 
 
 def _HardwareProvider_Parse(value: Any) -> HardwareProviderContribution | None:
@@ -1624,6 +1901,7 @@ def PluginManifest_Parse(
         "instance_policy",
         "physical_device",
         "protocol",
+        "transports",
     }
     unknown = set(data) - allowed_top_level
     if unknown:
@@ -1679,6 +1957,7 @@ def PluginManifest_Parse(
     )
     provides = _StringTuple_Get(data.get("provides", []), "provides")
     _CapabilityTuple_Validate(provides, "provides")
+    transports = _Transports_Parse(data.get("transports"), provides)
     build = _Build_Parse(data.get("build", {}))
     selection = _Selection_Parse(data.get("selection"))
     board = _Board_Parse(data.get("board"))
@@ -1755,6 +2034,7 @@ def PluginManifest_Parse(
         resource_conflicts=resource_conflicts,
         provides=provides,
         capability_requirements=capability_requirements,
+        transports=transports,
         build=build,
         payload_roots=payload_roots,
         metadata=dict(metadata),

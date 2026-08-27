@@ -346,8 +346,8 @@ def test_mode_render_failure_rolls_back_and_logs_traceback(
         qapp.processEvents()
 
 
-def test_flight_page_disables_incompatible_strategy_and_only_shows_ambiguous_sources(
-    tmp_path: Path, workspace_root: Path, qapp
+def test_flight_page_disables_incompatible_strategy_and_shows_multiple_sources(
+    tmp_path: Path, workspace_root: Path, qapp, monkeypatch
 ) -> None:
     catalog = _AccelOnlyCatalog_Create(workspace_root, tmp_path / "installed")
     service = FccgService(workspace_root)
@@ -365,6 +365,8 @@ def test_flight_page_disables_incompatible_strategy_and_only_shows_ambiguous_sou
         service=service,
         language="zh_CN",
     )
+    errors: list[object] = []
+    monkeypatch.setattr(window, "_Error_Show", errors.append)
     try:
         window._model = model
         window._Project_Refresh()
@@ -380,6 +382,11 @@ def test_flight_page_disables_incompatible_strategy_and_only_shows_ambiguous_sou
             QPalette.ColorGroup.Disabled,
             QPalette.ColorRole.Text,
         )
+        assert unavailable_item.background().color() == combo.palette().color(
+            QPalette.ColorGroup.Disabled,
+            QPalette.ColorRole.Base,
+        )
+        assert "background: #E2E8F0;" in qapp.styleSheet()
         assert "缺少能力" in unavailable_item.toolTip()
         assert "磁场" in unavailable_item.toolTip()
         landing_combo = window.flight_configuration_page.strategy_combos["landing"]
@@ -408,6 +415,16 @@ def test_flight_page_disables_incompatible_strategy_and_only_shows_ambiguous_sou
             )
         ]
         assert any(editor is not None for editor in source_editors)
+        source_editor = next(editor for editor in source_editors if editor is not None)
+        assert source_editor.findData("") == -1
+        assert source_editor.currentData() == "imu0"
+        window._CapabilitySource_Change("imu.acceleration", "imu1")
+        assert window._model.capability_source_overrides["imu.acceleration"] == (
+            "imu1"
+        )
+        window._CapabilitySource_Change("imu.acceleration", "imu0")
+        assert "imu.acceleration" not in window._model.capability_source_overrides
+        assert errors == []
     finally:
         window.close()
 
@@ -426,7 +443,10 @@ def test_strict_validation_navigates_to_and_highlights_hardware_issue(
         assert not window._GenerationPlan_ApplyAllowed(plan)
         assert window.navigation_list.currentRow() == 2
         assert window.pages.currentWidget() is window.board_hardware_page
-        assert window.board_hardware_page.board_combo.property("validationIssue") is True
+        assert (
+            window.board_hardware_page.resource_table.property("validationIssue")
+            is True
+        )
         assert len(errors) == 1
     finally:
         window.close()

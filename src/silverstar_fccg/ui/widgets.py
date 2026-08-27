@@ -68,6 +68,15 @@ class StandardComboBox(QComboBox):
         popup.move(popup_x, popup_y)
 
 
+class SmoothTableWidget(QTableWidget):
+    """Table widget with continuous, pixel-level scrolling in both directions."""
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        self.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+
+
 class HeaderComboBox(StandardComboBox):
     """Header dropdown whose popup keeps the deep-blue product styling."""
 
@@ -183,7 +192,7 @@ class PageHeader(QWidget):
         self.description_label.setText(translator.Text_Get(self.description_key))
 
 
-class EngineeringTable(QTableWidget):
+class EngineeringTable(SmoothTableWidget):
     def __init__(self, column_keys: Sequence[str]) -> None:
         super().__init__(0, len(column_keys))
         self.column_keys = tuple(column_keys)

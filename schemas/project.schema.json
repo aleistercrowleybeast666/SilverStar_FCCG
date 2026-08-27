@@ -6,11 +6,11 @@
   "required": [
     "format_version", "project", "components", "modes", "mode_parameters",
     "protocol_profiles", "hardware",
-    "resources", "capability_sources", "logging", "build", "generated_glue",
+    "resources", "capability_sources", "logging", "log_decoder_profile", "build", "generated_glue",
     "component_provenance", "reference_provenance"
   ],
   "properties": {
-    "format_version": {"const": 6},
+    "format_version": {"const": 7},
     "project": {
       "type": "object",
       "required": ["name", "firmware_version", "build_target"],
@@ -143,6 +143,33 @@
             },
             "additionalProperties": false
           }
+        }
+      },
+      "additionalProperties": false
+    },
+    "log_decoder_profile": {
+      "type": "object",
+      "required": [
+        "relative_path", "package_schema", "container_plugin_id",
+        "generation_profile_sha256", "package_sha256"
+      ],
+      "properties": {
+        "relative_path": {
+          "oneOf": [
+            {"const": ""},
+            {"type": "string", "pattern": "^[A-Za-z0-9_./+@ -]+\\.ssdecoder$"}
+          ]
+        },
+        "package_schema": {"$ref": "#/$defs/version"},
+        "container_plugin_id": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+(?:[._/-][a-z0-9]+)*$"
+        },
+        "generation_profile_sha256": {
+          "oneOf": [{"const": ""}, {"$ref": "#/$defs/sha256"}]
+        },
+        "package_sha256": {
+          "oneOf": [{"const": ""}, {"$ref": "#/$defs/sha256"}]
         }
       },
       "additionalProperties": false

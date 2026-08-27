@@ -33,7 +33,9 @@
 /* Local indicators                                                           */
 /* -------------------------------------------------------------------------- */
 #define SYSTEM_INDICATOR_SYSTEM_ENABLE                    1U
+#ifndef SYSTEM_INDICATOR_GNSS_ENABLE
 #define SYSTEM_INDICATOR_GNSS_ENABLE                      0U
+#endif
 #define SYSTEM_INDICATOR_SAFETY_ENABLE                    0U
 #define SYSTEM_INDICATOR_FAST_HALF_PERIOD_US          100000ULL
 #define SYSTEM_INDICATOR_SLOW_HALF_PERIOD_US          500000ULL

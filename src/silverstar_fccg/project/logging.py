@@ -25,6 +25,25 @@ class LogPolicyLevel(StrEnum):
     OPTIONAL = "optional"
 
 
+class LogCadenceKind(StrEnum):
+    PERIODIC = "periodic"
+    SOURCE = "source"
+    MEASUREMENT = "measurement"
+    EVENT = "event"
+    ONE_SHOT = "one_shot"
+    ALGORITHM_OUTPUT = "algorithm_output"
+
+
+@dataclass(frozen=True, slots=True)
+class LogCadenceDefinition:
+    kind: LogCadenceKind
+    source: str = ""
+    display_names: dict[str, str] = field(default_factory=dict)
+
+    def DisplayName_Get(self, language: str) -> str:
+        return self.display_names.get(language, "")
+
+
 @dataclass(frozen=True, slots=True)
 class LogRecordDefinition:
     record: str
@@ -39,6 +58,10 @@ class LogRecordDefinition:
     components_required: tuple[str, ...] = ()
     strategy_slots_required: tuple[str, ...] = ()
     display_names: dict[str, str] = field(default_factory=dict)
+    cadence: LogCadenceDefinition = field(
+        default_factory=lambda: LogCadenceDefinition(LogCadenceKind.SOURCE)
+    )
+    producer_components: tuple[str, ...] = ()
 
     def DisplayName_Get(self, language: str) -> str:
         return self.display_names.get(language, self.name).replace("_", " ")
@@ -59,6 +82,51 @@ def _StringTuple_Get(value: Any, field_name: str) -> tuple[str, ...]:
     ):
         raise LogMetadataError(f"{field_name} must be an array of strings")
     return tuple(value)
+
+
+def _CadenceFallback_Get(policy: str) -> LogCadenceDefinition:
+    kind_by_policy = {
+        "PERIODIC": LogCadenceKind.PERIODIC,
+        "DECIMATION": LogCadenceKind.SOURCE,
+        "EVERY": LogCadenceKind.MEASUREMENT,
+        "EVENT": LogCadenceKind.EVENT,
+        "ONE_SHOT": LogCadenceKind.ONE_SHOT,
+    }
+    try:
+        return LogCadenceDefinition(kind_by_policy[policy.upper()])
+    except KeyError as error:
+        raise LogMetadataError(f"Unsupported logging policy: {policy}") from error
+
+
+def _Cadence_Parse(
+    value: Any, *, record: str, policy: str
+) -> LogCadenceDefinition:
+    if value is None:
+        return _CadenceFallback_Get(policy)
+    if not isinstance(value, dict) or set(value) - {
+        "kind",
+        "source",
+        "display_names",
+    }:
+        raise LogMetadataError(f"FCCG cadence for {record} must be an object")
+    try:
+        kind = LogCadenceKind(value.get("kind"))
+    except (TypeError, ValueError) as error:
+        raise LogMetadataError(f"FCCG cadence kind for {record} is invalid") from error
+    source = value.get("source", "")
+    if not isinstance(source, str):
+        raise LogMetadataError(f"FCCG cadence source for {record} is invalid")
+    display_names = value.get("display_names", {})
+    if not isinstance(display_names, dict) or not all(
+        language in {"zh_CN", "en_US"}
+        and isinstance(display_name, str)
+        and bool(display_name.strip())
+        for language, display_name in display_names.items()
+    ):
+        raise LogMetadataError(f"FCCG cadence display names for {record} are invalid")
+    if kind == LogCadenceKind.PERIODIC and source:
+        raise LogMetadataError(f"Periodic cadence for {record} cannot name a source")
+    return LogCadenceDefinition(kind, source, dict(display_names))
 
 
 def ProtocolLogMetadataPath_Get(manifest: PluginManifest) -> Path:
@@ -136,8 +204,16 @@ def ProtocolLogDefinitions_Load(path: Path) -> tuple[LogRecordDefinition, ...]:
             "level",
             "requires",
             "display_names",
+            "cadence",
+            "producer_components",
+            "default_enabled",
         }:
             raise LogMetadataError(f"FCCG policy for {record} must be an object")
+        default_enabled = policy_data.get("default_enabled", enabled)
+        if not isinstance(default_enabled, bool):
+            raise LogMetadataError(
+                f"FCCG default enabled state for {record} is invalid"
+            )
         fallback_level = "recommended" if enabled else "optional"
         try:
             level = LogPolicyLevel(policy_data.get("level", fallback_level))
@@ -168,7 +244,7 @@ def ProtocolLogDefinitions_Load(path: Path) -> tuple[LogRecordDefinition, ...]:
                 payload_size=payload_size,
                 default_stream=LogStreamConfig(
                     record,
-                    enabled,
+                    default_enabled,
                     policy.upper(),
                     decimation,
                     period_us,
@@ -191,6 +267,15 @@ def ProtocolLogDefinitions_Load(path: Path) -> tuple[LogRecordDefinition, ...]:
                     f"{record}.requires.strategy_slots",
                 ),
                 display_names=dict(display_names),
+                cadence=_Cadence_Parse(
+                    policy_data.get("cadence"),
+                    record=record,
+                    policy=policy,
+                ),
+                producer_components=_StringTuple_Get(
+                    policy_data.get("producer_components"),
+                    f"{record}.producer_components",
+                ),
             )
         )
         seen.add(record)
@@ -208,10 +293,40 @@ def ProtocolLogDefinitions_Load(path: Path) -> tuple[LogRecordDefinition, ...]:
 def ProtocolLogDefinitions_Get(
     model: ProjectModel, catalog: PluginCatalog
 ) -> tuple[LogRecordDefinition, ...]:
+    return ProtocolLogDefinitions_Load(
+        ProjectProtocolLogMetadataPath_Get(model, catalog)
+    )
+
+
+def ProjectProtocolLogMetadataPath_Get(
+    model: ProjectModel, catalog: PluginCatalog
+) -> Path:
     if len(model.protocol_bundles) != 1:
         raise LogMetadataError("Exactly one protocol bundle must be selected")
     manifest = catalog.Component_Get(model.protocol_bundles[0])
-    return ProtocolLogDefinitions_Load(ProtocolLogMetadataPath_Get(manifest))
+    selected_id = model.protocol_profiles.get("logging", "")
+    if manifest.protocol is not None:
+        matches = tuple(
+            profile
+            for profile in manifest.protocol.profiles.get("logging", ())
+            if profile.profile_id == selected_id
+        )
+        if len(matches) == 1:
+            path = manifest.payload_root.joinpath(
+                *matches[0].decoder_metadata.split("/")
+            ).resolve()
+            try:
+                path.relative_to(manifest.payload_root.resolve())
+            except ValueError as error:
+                raise LogMetadataError(
+                    "Protocol profile decoder metadata leaves its payload"
+                ) from error
+            if path.is_file() and not path.is_symlink():
+                return path
+            raise LogMetadataError(
+                f"Protocol profile decoder metadata is unsafe: {path}"
+            )
+    return ProtocolLogMetadataPath_Get(manifest)
 
 
 def ProjectCapabilities_Get(model: ProjectModel, catalog: PluginCatalog) -> set[str]:
@@ -222,7 +337,7 @@ def ProjectCapabilities_Get(model: ProjectModel, catalog: PluginCatalog) -> set[
             continue
         try:
             capabilities.update(catalog.Component_Get(component_id).provides)
-        except ValueError:
+        except FccgError:
             continue
     resolution = CapabilityResolution_Resolve(model, catalog)
     for enabled in resolution.enabled_by_instance.values():
@@ -252,6 +367,24 @@ def ProjectRecordableOutputs_Get(
                 if isinstance(reason_code, str) and reason_code:
                     disabled_reasons[capability] = reason_code
     return enabled, disabled_reasons
+
+
+def ProjectLogProducers_Get(
+    model: ProjectModel, catalog: PluginCatalog
+) -> set[str]:
+    """Return selected components and their declarative producer identities."""
+    producers = set(model.ComponentIds_Get())
+    for component_id in model.ComponentIds_Get():
+        try:
+            manifest = catalog.Component_Get(component_id)
+        except FccgError:
+            continue
+        declared = manifest.metadata.get("log_producers", ())
+        if isinstance(declared, list):
+            producers.update(
+                item for item in declared if isinstance(item, str) and item
+            )
+    return producers
 
 
 def LogAvailability_Get(
@@ -305,6 +438,16 @@ def LogAvailability_Get(
     )
     if missing_slots:
         return LogAvailability(False, "logging.unavailable.strategy", missing_slots)
+    if definition.producer_components:
+        producers = ProjectLogProducers_Get(model, catalog)
+        if not any(
+            producer in producers for producer in definition.producer_components
+        ):
+            return LogAvailability(
+                False,
+                "logging.unavailable.producer",
+                definition.producer_components,
+            )
     return LogAvailability(True)
 
 
@@ -332,4 +475,23 @@ def LoggingProfile_Reconcile(
             )
         )
     model.logging_streams = reconciled
+    return definitions
+
+
+def LoggingProfile_SelectAllAvailable(
+    model: ProjectModel, catalog: PluginCatalog
+) -> tuple[LogRecordDefinition, ...]:
+    """Enable every Record supported by the reconciled project composition."""
+    definitions = LoggingProfile_Reconcile(model, catalog)
+    current = {stream.record: stream for stream in model.logging_streams}
+    model.logging_streams = [
+        LogStreamConfig(
+            record=definition.record,
+            enabled=LogAvailability_Get(definition, model, catalog).available,
+            policy=current[definition.record].policy,
+            decimation=current[definition.record].decimation,
+            period_us=current[definition.record].period_us,
+        )
+        for definition in definitions
+    ]
     return definitions

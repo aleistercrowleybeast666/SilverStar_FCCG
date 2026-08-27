@@ -2,6 +2,7 @@
 #include <string.h>
 
 #include "air_protocol.h"
+#include "project_device_instances.h"
 #include "system_alignment.h"
 #include "system_barometer_if.h"
 #include "system_calibration.h"
@@ -16,6 +17,38 @@
 static SystemAlignmentSummary s_alignment;
 static SystemNavigationProfile s_navigation;
 static uint8_t s_calibration_ready;
+static const SystemDeviceDescriptor s_descriptors[] =
+{
+    {1U, 1U, SYSTEM_DEVICE_CLASS_IMU, 0U, 1U,
+     SYSTEM_DESCRIPTOR_FLAG_ENABLED | SYSTEM_DESCRIPTOR_FLAG_SHARED_PHYSICAL,
+     0U, 200U, 1U, 1U},
+    {14U, 9U, SYSTEM_DEVICE_CLASS_IMU, 1U, 2U,
+     SYSTEM_DESCRIPTOR_FLAG_ENABLED, 0U, 100U, 2U, 2U},
+    {2U, 2U, SYSTEM_DEVICE_CLASS_GNSS, 0U, 1U,
+     SYSTEM_DESCRIPTOR_FLAG_ENABLED, 0U, 25U, 3U, 3U},
+    {15U, 10U, SYSTEM_DEVICE_CLASS_GNSS, 1U, 2U,
+     SYSTEM_DESCRIPTOR_FLAG_ENABLED, 0U, 10U, 4U, 4U},
+    {3U, 1U, SYSTEM_DEVICE_CLASS_BAROMETER, 0U, 1U,
+     SYSTEM_DESCRIPTOR_FLAG_ENABLED | SYSTEM_DESCRIPTOR_FLAG_SHARED_PHYSICAL,
+     0U, 200U, 1U, 1U},
+    {4U, 1U, SYSTEM_DEVICE_CLASS_HARDWARE_QUATERNION, 0U, 1U,
+     SYSTEM_DESCRIPTOR_FLAG_ENABLED | SYSTEM_DESCRIPTOR_FLAG_SHARED_PHYSICAL,
+     0U, 200U, 1U, 1U}
+};
+
+uint16_t SystemDescriptor_DeviceCountGet(void)
+{
+    return (uint16_t)(sizeof(s_descriptors) / sizeof(s_descriptors[0]));
+}
+
+SystemDeviceResult SystemDescriptor_DeviceGet(
+    uint16_t index, SystemDeviceDescriptor *descriptor)
+{
+    if ((descriptor == NULL) || (index >= SystemDescriptor_DeviceCountGet()))
+    { return SYSTEM_DEVICE_INVALID_ARGUMENT; }
+    *descriptor = s_descriptors[index];
+    return SYSTEM_DEVICE_OK;
+}
 
 static SystemDeviceResult Mock_HealthGet(SystemDeviceHealth *health)
 {
@@ -99,6 +132,65 @@ SystemDeviceResult SystemHardwareQuaternion_LatestSampleGet(
     SystemHardwareQuaternionSample *sample)
 { return Mock_HardwareAttitudeGet(sample); }
 
+SystemDeviceResult ProjectDeviceInstance_HealthGet(
+    SystemDeviceClass device_class, uint8_t instance_id,
+    SystemDeviceHealth *health)
+{
+    SystemDeviceResult result;
+
+    if (((device_class == SYSTEM_DEVICE_CLASS_IMU) ||
+         (device_class == SYSTEM_DEVICE_CLASS_GNSS)) && (instance_id < 2U))
+    {
+        result = Mock_HealthGet(health);
+        if ((result == SYSTEM_DEVICE_OK) && (instance_id == 1U))
+        { health->health_flags ^= 2U; }
+        return result;
+    }
+    if (instance_id != 0U) { return SYSTEM_DEVICE_NOT_PRESENT; }
+    return Mock_HealthGet(health);
+}
+
+SystemDeviceResult ProjectImuInstance_LatestSampleGet(
+    uint8_t instance_id, SystemImuSample *sample)
+{
+    if (instance_id >= 2U) { return SYSTEM_DEVICE_NOT_PRESENT; }
+    if (Mock_ImuGet(sample) != SYSTEM_DEVICE_OK)
+    { return SYSTEM_DEVICE_INVALID_ARGUMENT; }
+    sample->sequence = (uint32_t)(10U + instance_id);
+    return SYSTEM_DEVICE_OK;
+}
+
+SystemDeviceResult ProjectGnssInstance_LatestSampleGet(
+    uint8_t instance_id, SystemGnssSample *sample)
+{
+    if (instance_id >= 2U) { return SYSTEM_DEVICE_NOT_PRESENT; }
+    if (Mock_GnssGet(sample) != SYSTEM_DEVICE_OK)
+    { return SYSTEM_DEVICE_INVALID_ARGUMENT; }
+    sample->sequence = (uint32_t)(20U + instance_id);
+    return SYSTEM_DEVICE_OK;
+}
+
+SystemDeviceResult ProjectBarometerInstance_LatestSampleGet(
+    uint8_t instance_id, SystemBarometerSample *sample)
+{
+    if (instance_id != 0U) { return SYSTEM_DEVICE_NOT_PRESENT; }
+    return Mock_BarometerGet(sample);
+}
+
+SystemDeviceResult ProjectMagnetometerInstance_LatestSampleGet(
+    uint8_t instance_id, SystemMagnetometerSample *sample)
+{
+    if (instance_id != 0U) { return SYSTEM_DEVICE_NOT_PRESENT; }
+    return Mock_MagnetometerGet(sample);
+}
+
+SystemDeviceResult ProjectAttitudeInstance_LatestSampleGet(
+    uint8_t instance_id, SystemHardwareQuaternionSample *sample)
+{
+    if (instance_id != 0U) { return SYSTEM_DEVICE_NOT_PRESENT; }
+    return Mock_HardwareAttitudeGet(sample);
+}
+
 SystemDeviceResult SystemAlignment_SummaryGet(SystemAlignmentSummary *summary)
 {
     if (summary == NULL) { return SYSTEM_DEVICE_INVALID_ARGUMENT; }
@@ -128,7 +220,7 @@ static void Test_DefaultBuildSnapshotOmitsMagnetometer(void)
 
     SystemSensorStatus_Reset();
     TEST_CHECK(SYSTEM_USER_MAGNETOMETER_ENABLE == 0U);
-    TEST_CHECK(SystemSensorStatus_CountGet() == 4U);
+    TEST_CHECK(SystemSensorStatus_CountGet() == 6U);
     for (index = 0U; index < SystemSensorStatus_CountGet(); index++)
     {
         TEST_CHECK(SystemSensorStatus_Get(index, &status) ==
@@ -139,9 +231,11 @@ static void Test_DefaultBuildSnapshotOmitsMagnetometer(void)
 
 static void Test_BuildTimeDescriptorsAndSnapshot(void)
 {
-    static const uint8_t expected_ids[4] =
+    static const uint8_t expected_ids[6] =
     {
         SILVERSTAR_SENSOR_ID_IMU,
+        SILVERSTAR_SENSOR_ID_IMU,
+        SILVERSTAR_SENSOR_ID_GNSS,
         SILVERSTAR_SENSOR_ID_GNSS,
         SILVERSTAR_SENSOR_ID_BAROMETER,
         SILVERSTAR_SENSOR_ID_EXTERNAL_ATTITUDE
@@ -161,14 +255,14 @@ static void Test_BuildTimeDescriptorsAndSnapshot(void)
     s_calibration_ready = 1U;
 
     SystemSensorStatus_Reset();
-    TEST_CHECK(SystemSensorStatus_CountGet() == 4U);
+    TEST_CHECK(SystemSensorStatus_CountGet() == 6U);
     TEST_CHECK(SystemSensorStatus_SummaryFlagsGet() ==
         (AIR_SENSOR_SUMMARY_IMU_PRESENT |
          AIR_SENSOR_SUMMARY_GNSS_PRESENT |
          AIR_SENSOR_SUMMARY_AUX_SENSOR_PRESENT |
          AIR_SENSOR_SUMMARY_SNAPSHOT_SUPPORTED));
 
-    for (index = 0U; index < 4U; index++)
+    for (index = 0U; index < 6U; index++)
     {
         TEST_CHECK(SystemSensorStatus_Get(index, &status) ==
                    SYSTEM_DEVICE_OK);
@@ -177,17 +271,23 @@ static void Test_BuildTimeDescriptorsAndSnapshot(void)
                     SYSTEM_SENSOR_STATUS_REGISTERED) != 0U);
     }
     TEST_CHECK(SystemSensorStatus_Get(0U, &status) == SYSTEM_DEVICE_OK);
+    TEST_CHECK(status.instance_id == 0U);
     TEST_CHECK((status.status_flags &
                 SYSTEM_SENSOR_STATUS_REQUIRED_FOR_START) != 0U);
     TEST_CHECK((status.status_flags &
                 SYSTEM_SENSOR_STATUS_ALIGNMENT_USED) != 0U);
     TEST_CHECK(SystemSensorStatus_Get(1U, &status) == SYSTEM_DEVICE_OK);
-    TEST_CHECK((status.status_flags &
-                SYSTEM_SENSOR_STATUS_REQUIRED_FOR_START) == 0U);
-    TEST_CHECK(SystemSensorStatus_Get(2U, &status) == SYSTEM_DEVICE_OK);
+    TEST_CHECK(status.sensor_id == SILVERSTAR_SENSOR_ID_IMU);
+    TEST_CHECK(status.instance_id == 1U);
     TEST_CHECK((status.status_flags &
                 SYSTEM_SENSOR_STATUS_REQUIRED_FOR_START) != 0U);
-    TEST_CHECK(SystemSensorStatus_Get(3U, &status) == SYSTEM_DEVICE_OK);
+    TEST_CHECK(SystemSensorStatus_Get(2U, &status) == SYSTEM_DEVICE_OK);
+    TEST_CHECK((status.status_flags &
+                SYSTEM_SENSOR_STATUS_REQUIRED_FOR_START) == 0U);
+    TEST_CHECK(SystemSensorStatus_Get(4U, &status) == SYSTEM_DEVICE_OK);
+    TEST_CHECK((status.status_flags &
+                SYSTEM_SENSOR_STATUS_REQUIRED_FOR_START) != 0U);
+    TEST_CHECK(SystemSensorStatus_Get(5U, &status) == SYSTEM_DEVICE_OK);
     TEST_CHECK((status.status_flags &
                 SYSTEM_SENSOR_STATUS_ALIGNMENT_USED) != 0U);
 
@@ -196,7 +296,7 @@ static void Test_BuildTimeDescriptorsAndSnapshot(void)
     TEST_CHECK(SystemSensorStatus_SnapshotInfoGet(&info) == SYSTEM_DEVICE_OK);
     TEST_CHECK(info.snapshot_id == 1U);
     TEST_CHECK(info.sequence == 1U);
-    TEST_CHECK(info.total == 4U);
+    TEST_CHECK(info.total == 6U);
     TEST_CHECK(info.alignment_state == AIR_ALIGNMENT_STATE_READY);
     for (index = 0U; index < info.total; index++)
     {
@@ -213,6 +313,18 @@ static void Test_BuildTimeDescriptorsAndSnapshot(void)
 
 }
 
+static void Test_DescriptorPhysicalIdentity(void)
+{
+    TEST_CHECK(s_descriptors[0].descriptor_id != s_descriptors[4].descriptor_id);
+    TEST_CHECK(s_descriptors[0].descriptor_id != s_descriptors[5].descriptor_id);
+    TEST_CHECK(s_descriptors[0].physical_device_id ==
+               s_descriptors[4].physical_device_id);
+    TEST_CHECK(s_descriptors[0].physical_device_id ==
+               s_descriptors[5].physical_device_id);
+    TEST_CHECK(s_descriptors[0].physical_device_id !=
+               s_descriptors[1].physical_device_id);
+}
+
 static void Test_InvalidArguments(void)
 {
     TEST_CHECK(SystemSensorStatus_Get(0U, NULL) ==
@@ -225,6 +337,7 @@ int main(void)
 {
     Test_DefaultBuildSnapshotOmitsMagnetometer();
     Test_BuildTimeDescriptorsAndSnapshot();
+    Test_DescriptorPhysicalIdentity();
     Test_InvalidArguments();
     return Test_Finish("sensor_status");
 }

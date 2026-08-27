@@ -8,12 +8,14 @@ $ErrorActionPreference = 'Stop'
 
 $repoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
 $targetName = 'SilverStar_0_0_9'
-$buildRoot = Join-Path $repoRoot (Join-Path 'build' `
+$buildRoot = Join-Path $repoRoot (Join-Path 'build\FCCG' `
     (Join-Path $TargetProfile $Config))
 $elfPath = Join-Path $buildRoot ($targetName + '.elf')
 $mapPath = Join-Path $buildRoot ($targetName + '.map')
 $linkerPath = Join-Path $repoRoot 'STM32F407XX_FLASH.ld'
 $failures = New-Object 'System.Collections.Generic.List[string]'
+Write-Output 'FCCG_PROGRESS|ARTIFACT|PLAN|8'
+Write-Output 'FCCG_PROGRESS|ARTIFACT|BEGIN|1|8|ELF_MAP_BIN_HEX'
 
 function Add-ArtifactFailure {
     param([Parameter(Mandatory = $true)][string]$Message)
@@ -102,6 +104,8 @@ foreach ($artifact in $requiredArtifacts) {
         -Message "Missing firmware artifact: $artifact"
 }
 
+Write-Output 'FCCG_PROGRESS|ARTIFACT|DONE|1|8|ELF_MAP_BIN_HEX'
+Write-Output 'FCCG_PROGRESS|ARTIFACT|BEGIN|2|8|ELF'
 $nmCommand = Get-Command arm-none-eabi-nm -ErrorAction SilentlyContinue
 $objdumpCommand = Get-Command arm-none-eabi-objdump -ErrorAction SilentlyContinue
 Assert-ArtifactCondition -Condition ($null -ne $nmCommand) `
@@ -158,6 +162,8 @@ if (($null -ne $objdumpCommand) -and
     }
 }
 
+Write-Output 'FCCG_PROGRESS|ARTIFACT|DONE|2|8|ELF'
+Write-Output 'FCCG_PROGRESS|ARTIFACT|BEGIN|3|8|MAP'
 $ccmStart = [uint64]0x10000000
 $ccmLength = [uint64](64 * 1024)
 $mainSramStart = [uint64]0x20000000
@@ -221,6 +227,7 @@ if (Test-Path -LiteralPath $linkerPath -PathType Leaf) {
         -Message 'The authoritative linker script does not keep heap at zero.'
 }
 
+Write-Output 'FCCG_PROGRESS|ARTIFACT|DONE|3|8|MAP'
 $flashSectionNames = @(
     '.isr_vector', '.text', '.rodata', '.ARM.extab', '.ARM',
     '.preinit_array', '.init_array', '.fini_array', '.data', '.ccmram_data'
@@ -236,16 +243,23 @@ $mainSramUsed = (Get-SectionSize -Sections $sections -Name '.data') +
 $ccmUsed = (Get-SectionSize -Sections $sections -Name '.ccmram_data') +
     (Get-SectionSize -Sections $sections -Name '.ccmram_bss')
 
+Write-Output 'FCCG_PROGRESS|ARTIFACT|BEGIN|4|8|FLASH'
 Assert-ArtifactCondition -Condition ($flashUsed -le $flashLength) `
     -Message "FLASH overflow: used=$flashUsed capacity=$flashLength"
+Write-Output 'FCCG_PROGRESS|ARTIFACT|DONE|4|8|FLASH'
+Write-Output 'FCCG_PROGRESS|ARTIFACT|BEGIN|5|8|MAIN_SRAM'
 Assert-ArtifactCondition -Condition ($mainSramUsed -le $mainSramLength) `
     -Message "Main SRAM overflow: used=$mainSramUsed capacity=$mainSramLength"
+Write-Output 'FCCG_PROGRESS|ARTIFACT|DONE|5|8|MAIN_SRAM'
+Write-Output 'FCCG_PROGRESS|ARTIFACT|BEGIN|6|8|CCMRAM'
 Assert-ArtifactCondition -Condition ($ccmUsed -le $ccmLength) `
     -Message "CCMRAM overflow: used=$ccmUsed capacity=$ccmLength"
 Assert-ArtifactCondition -Condition ($mainSramUsed -le [uint64](96 * 1024)) `
     -Message ("Main SRAM did not retain the reviewed CCMRAM reduction: " +
         "used=$mainSramUsed maximum=98304")
 
+Write-Output 'FCCG_PROGRESS|ARTIFACT|DONE|6|8|CCMRAM'
+Write-Output 'FCCG_PROGRESS|ARTIFACT|BEGIN|7|8|heap'
 $flashRemaining = $flashLength - [Math]::Min($flashUsed, $flashLength)
 $mainSramRemaining = $mainSramLength -
     [Math]::Min($mainSramUsed, $mainSramLength)
@@ -260,6 +274,8 @@ Write-Output ('  CCMRAM    used={0} remaining={1} capacity={2}' -f `
     $ccmUsed, $ccmRemaining, $ccmLength)
 Write-Output '  heap      reserved=0 runtime_symbols=0'
 
+Write-Output 'FCCG_PROGRESS|ARTIFACT|DONE|7|8|heap'
+Write-Output 'FCCG_PROGRESS|ARTIFACT|BEGIN|8|8|summary'
 $largestStaticObjects = @($symbols.Values | Where-Object {
     ($_.Type -match '^[bBdD]$') -and
     ((Get-MemoryName -Address $_.Address) -ne 'other')
@@ -286,3 +302,4 @@ $binSize = (Get-Item -LiteralPath `
     (Join-Path $buildRoot ($targetName + '.bin'))).Length
 Write-Output ("SilverStar artifact check passed: target={0} config={1} elf_bytes={2} bin_bytes={3} heap_symbols=0" -f `
     $TargetProfile, $Config, $elfSize, $binSize)
+Write-Output 'FCCG_PROGRESS|ARTIFACT|DONE|8|8|summary'

@@ -38,7 +38,17 @@
     ],
     "conflicts": []
   },
-  "provides": ["board.fixture.f407_b"],
+  "provides": [
+    "board.fixture.f407_b",
+    "transport.packet",
+    "transport.byte_stream",
+    "transport.sequential_file_sink"
+  ],
+  "transports": [
+    {"capability": "transport.packet", "kind": "packet", "mtu": 255, "ordered": true, "bidirectional": true, "reliable": false, "mode": "datagram"},
+    {"capability": "transport.byte_stream", "kind": "byte_stream", "mtu": 1, "ordered": true, "bidirectional": true, "reliable": true, "mode": "stream"},
+    {"capability": "transport.sequential_file_sink", "kind": "sequential_file_sink", "mtu": 65535, "ordered": true, "bidirectional": false, "reliable": true, "mode": "file"}
+  ],
   "build": {
     "sources": [],
     "asm_sources": [],

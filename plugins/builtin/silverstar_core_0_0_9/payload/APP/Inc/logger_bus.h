@@ -37,6 +37,7 @@ LoggerBusResult LoggerBus_EstimatorPush(
     const FlightLogEstimatorRecord *record);
 LoggerBusResult LoggerBus_SystemConfigPush(uint64_t timestamp_us);
 LoggerBusResult LoggerBus_MissionConfigPush(uint64_t timestamp_us);
+LoggerBusResult LoggerBus_DecoderProfileDescriptorPush(uint64_t timestamp_us);
 LoggerBusResult LoggerBus_RawSensorPush(
     uint64_t timestamp_us, uint32_t valid_flags,
     const FlightLogRawSensorRecord *record);

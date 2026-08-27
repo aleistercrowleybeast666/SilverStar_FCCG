@@ -11,6 +11,14 @@ from silverstar_fccg.core.workspace import WorkspacePolicy
 from silverstar_fccg.generator.hardware_preparation import (
     HardwarePreparationFingerprint_Get,
 )
+from silverstar_fccg.generator.eide_ownership import (
+    EideOwnershipError,
+    EideOwnedFields_Normalize,
+)
+from silverstar_fccg.project.generation_state import (
+    ProjectGenerationFingerprint_Get,
+    ProjectGenerationState_Normalize,
+)
 from silverstar_fccg.plugins.catalog import PluginCatalog
 from silverstar_fccg.project.model import ProjectModel, ProjectModel_Load
 
@@ -27,6 +35,7 @@ class ProjectLifecycleState(StrEnum):
 BUILDABLE_MAKE_TARGETS = (
     "all",
     "clean",
+    "clean-all",
     "host-tests",
     "architecture-check",
     "power10-check",
@@ -75,7 +84,9 @@ def ProjectReadiness_Inspect(
         )
 
     stale: list[str] = []
-    if saved_model.Dictionary_Get() != model.Dictionary_Get():
+    if ProjectGenerationState_Normalize(
+        saved_model
+    ) != ProjectGenerationState_Normalize(model):
         stale.append("SilverStar.ssproject")
 
     required_files = (
@@ -84,7 +95,14 @@ def ProjectReadiness_Inspect(
         ".fccg/hardware-preparation.json",
         ".eide/eide.yml",
         ".vscode/tasks.json",
+        "Generated/Inc/project_log_decoder_profile.h",
+        "Generated/Src/project_log_decoder_profile.c",
+        "Logs/README.md",
         f"{model.identity.name}.code-workspace",
+        (
+            model.log_decoder_profile.relative_path
+            or f"{model.identity.name}.ssdecoder"
+        ),
     )
     required_directories = (
         "BuildSystem",
@@ -101,6 +119,23 @@ def ProjectReadiness_Inspect(
         for relative in required_directories
         if not root.joinpath(*relative.split("/")).is_dir()
     )
+
+    decoder_reference = model.log_decoder_profile
+    if (
+        not decoder_reference.relative_path
+        or not decoder_reference.generation_profile_sha256
+        or not decoder_reference.package_sha256
+    ):
+        stale.append("SilverStar.ssproject:log_decoder_profile")
+    else:
+        decoder_package = root.joinpath(
+            *decoder_reference.relative_path.split("/")
+        )
+        if decoder_package.is_file() and (
+            hashlib.sha256(decoder_package.read_bytes()).hexdigest()
+            != decoder_reference.package_sha256
+        ):
+            stale.append(decoder_reference.relative_path)
 
     for component_id in model.ComponentIds_Get():
         try:
@@ -131,6 +166,8 @@ def ProjectReadiness_Inspect(
             )
         if "SilverStar authoritative build entry" not in makefile_text:
             stale.append("Makefile")
+        if "# FCCG cleanup contract: determinate-v1" not in makefile_text:
+            stale.append("Makefile:cleanup-progress")
         for target in BUILDABLE_MAKE_TARGETS:
             if not MakefileTarget_Has(makefile_text, target):
                 stale.append(f"Makefile:{target}")
@@ -143,7 +180,13 @@ def ProjectReadiness_Inspect(
             expected_fingerprint = HardwarePreparationFingerprint_Get(model, catalog)
             if actual_fingerprint != expected_fingerprint:
                 stale.append(".fccg/hardware-preparation.json")
-        except (OSError, json.JSONDecodeError, AttributeError) as error:
+        except (
+            OSError,
+            UnicodeError,
+            json.JSONDecodeError,
+            AttributeError,
+            EideOwnershipError,
+        ) as error:
             return ProjectReadiness(
                 ProjectLifecycleState.ERROR,
                 tuple(dict.fromkeys(missing)),
@@ -155,6 +198,15 @@ def ProjectReadiness_Inspect(
     if ownership_file.is_file():
         try:
             ownership = json.loads(ownership_file.read_text(encoding="utf-8"))
+            recorded_fingerprint = ownership.get("generation_fingerprint")
+            expected_generation_fingerprint = (
+                f"{ProjectGenerationFingerprint_Get(model):08x}"
+            )
+            if (
+                recorded_fingerprint is not None
+                and recorded_fingerprint != expected_generation_fingerprint
+            ):
+                stale.append(".fccg/ownership.json")
             managed_hashes = ownership.get("managed_hashes")
             if isinstance(managed_hashes, dict) and managed_hashes:
                 root_policy = WorkspacePolicy(root)
@@ -172,6 +224,17 @@ def ProjectReadiness_Inspect(
                     target = root.joinpath(*portable.parts)
                     if not target.is_file():
                         missing.append(relative)
+                    elif relative == ".eide/eide.yml":
+                        recorded_fields = ownership.get("eide", {}).get(
+                            "owned_fields"
+                        )
+                        if not isinstance(recorded_fields, dict) or (
+                            EideOwnedFields_Normalize(
+                                target.read_text(encoding="utf-8")
+                            )
+                            != recorded_fields
+                        ):
+                            stale.append(relative)
                     elif (
                         hashlib.sha256(target.read_bytes()).hexdigest()
                         != expected_hash
@@ -179,7 +242,13 @@ def ProjectReadiness_Inspect(
                         stale.append(relative)
             else:
                 stale.append(".fccg/ownership.json")
-        except (OSError, json.JSONDecodeError, AttributeError) as error:
+        except (
+            OSError,
+            UnicodeError,
+            json.JSONDecodeError,
+            AttributeError,
+            EideOwnershipError,
+        ) as error:
             return ProjectReadiness(
                 ProjectLifecycleState.ERROR,
                 tuple(dict.fromkeys(missing)),

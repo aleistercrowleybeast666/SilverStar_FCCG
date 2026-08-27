@@ -11,6 +11,7 @@ import pytest
 import silverstar_fccg.generator.assembler as assembler_module
 from silverstar_fccg.app.service import FccgService
 from silverstar_fccg.build.runner import BuildAction, BuildResult, BuildRunner
+from silverstar_fccg.core.settings import SettingsStore
 from silverstar_fccg.core.workspace import WorkspacePolicy
 from silverstar_fccg.project.lifecycle import ProjectLifecycleState
 from silverstar_fccg.project.logging import (
@@ -79,8 +80,45 @@ def test_first_save_materializes_a_ready_dry_runnable_project(
     makefile_text = (project_root / "Makefile").read_text(encoding="utf-8")
     assert "CONFIG ?= Release" in makefile_text
     assert "DEBUG_FLAGS := -g" in makefile_text
-    assert "FCCG_PROGRESS|COMPILE|$<" in makefile_text
-    assert "FCCG_PROGRESS|LINK|$@" in makefile_text
+    assert "FCCG_PROGRESS|COMPILE_BEGIN|$<" in makefile_text
+    assert "FCCG_PROGRESS|COMPILE_DONE|$<" in makefile_text
+    assert "FCCG_PROGRESS|LINK_BEGIN|$@" in makefile_text
+    assert "FCCG_PROGRESS|LINK_DONE|$@" in makefile_text
+
+
+def test_generation_fingerprint_ignores_local_tools_and_recovers_after_mode_change(
+    tmp_path: Path, workspace_root: Path
+) -> None:
+    service = FccgService(workspace_root)
+    project_root = tmp_path / "GenerationFingerprint"
+    model = service.ReferenceProject_Create("GenerationFingerprint")
+
+    service.Project_Save(model, project_root)
+    assert service.ProjectReadiness_Get(model, project_root).ready
+
+    model.build = replace(
+        model.build,
+        tool_paths={
+            "compiler": str(tmp_path / "arm" / "arm-none-eabi-gcc.exe"),
+            "make": str(tmp_path / "make" / "mingw32-make.exe"),
+            "host_gcc": str(tmp_path / "host" / "gcc.exe"),
+        },
+        gcc_path=str(tmp_path / "legacy" / "gcc.exe"),
+    )
+    assert service.ProjectReadiness_Get(model, project_root).ready
+
+    settings = SettingsStore(tmp_path / "generation-fingerprint-ui.ini")
+    settings.Value_Set("theme", "dark")
+    settings.Value_Set("language", "en_US")
+    assert service.ProjectReadiness_Get(model, project_root).ready
+
+    model.modes["deployment"].append("Delay")
+    dirty = service.ProjectReadiness_Get(model, project_root)
+    assert dirty.state == ProjectLifecycleState.DIRTY
+    assert "SilverStar.ssproject" in dirty.stale
+
+    service.Project_Save(model, project_root)
+    assert service.ProjectReadiness_Get(model, project_root).ready
 
 
 def test_readiness_detects_and_save_restores_a_missing_managed_file(
@@ -164,15 +202,20 @@ def test_first_save_publishes_project_descriptor_last(
     project_root = tmp_path / "DescriptorLast"
     model = service.ReferenceProject_Create("DescriptorLast")
     published: list[Path] = []
-    original_replace = assembler_module.os.replace
+    original_replace = WorkspacePolicy.Path_Replace
 
-    def path_replace(source, destination) -> None:
+    def path_replace(self, source, destination, *, attempts=5) -> Path:
         target = Path(destination)
         if target.parent == project_root:
             published.append(target)
-        original_replace(source, destination)
+        return original_replace(
+            self,
+            source,
+            destination,
+            attempts=attempts,
+        )
 
-    monkeypatch.setattr(assembler_module.os, "replace", path_replace)
+    monkeypatch.setattr(WorkspacePolicy, "Path_Replace", path_replace)
     service.Project_Save(model, project_root)
 
     assert published
@@ -317,8 +360,11 @@ def test_build_runner_starts_make_with_explicit_project_cwd(
         "architecture-check",
         "power10-check",
         "static-analysis",
+        "static-analysis",
         "artifact-check",
     ]
+    assert calls[3][0][1] == "-n"
+    assert calls[4][0][1] != "-n"
     assert all(root == project_root.resolve() for _command, root in calls)
 
 
@@ -343,15 +389,25 @@ def test_advanced_build_defaults_release_and_generated_debug_remains_available(
     assert "OPT := -O2" in makefile
     assert "CONFIG must be Debug or Release" in makefile
     assert "NDEBUG" not in makefile
-    assert "BUILD_ROOT := build/$(TARGET_PROFILE)/StaticAnalysis/$(CONFIG)" in makefile
+    assert "BUILD_ROOT := build/FCCG/$(TARGET_PROFILE)/StaticAnalysis/$(CONFIG)" in makefile
     assert "FIRST_PARTY_WARNINGS += -fanalyzer" in makefile
     assert "powershell -NoProfile -ExecutionPolicy Bypass -File Tools/check_power_of_ten.ps1" in makefile
-    assert "BUILD_ROOT := build/$(TARGET_PROFILE)/StaticAnalysis/$(CONFIG)" in makefile
-    assert "FIRST_PARTY_WARNINGS += -fanalyzer" in makefile
-    assert "powershell -NoProfile -ExecutionPolicy Bypass -File Tools/check_power_of_ten.ps1" in makefile
+    assert "# FCCG cleanup contract: determinate-v1" in makefile
+    assert "FCCG_PROGRESS|CLEAN|PLAN|1" in makefile
+    assert "FCCG_PROGRESS|CLEAN_ALL|PLAN|3" in makefile
+    assert "$$paths" not in makefile
+    assert "foreach ($$path" not in makefile
+    assert (
+        "Remove-Item -LiteralPath 'build/FCCG' -Recurse -Force "
+        "-ErrorAction Stop"
+    ) in makefile
     assert tasks.index("SilverStar: Build Release") < tasks.index(
         "SilverStar: Build Debug"
     )
+    assert "SilverStar: Clean FCCG Build Outputs" in tasks
+    assert "SilverStar: Clean All Build Outputs" in tasks
+    assert "SilverStar: Clean Release" not in tasks
+    assert "SilverStar: Clean Debug" not in tasks
     assert '"isDefault": true' in tasks
     assert eide.index("  Release:") < eide.index("  Debug:")
     assert "deviceName: null" in eide
@@ -386,6 +442,70 @@ def test_advanced_build_defaults_release_and_generated_debug_remains_available(
     )
     assert "- Board: `SS0.5`" in configuration
     assert "SilverStar 0.5" not in configuration
+
+
+def test_power_of_ten_violation_fixture_fails(
+    tmp_path: Path, workspace_root: Path
+) -> None:
+    fixture_root = tmp_path / "power10-violation"
+    tools_root = fixture_root / "Tools"
+    app_root = fixture_root / "APP"
+    tools_root.mkdir(parents=True)
+    app_root.mkdir()
+    script = tools_root / "check_power_of_ten.ps1"
+    shutil.copy2(
+        workspace_root
+        / "plugins"
+        / "builtin"
+        / "silverstar_core_0_0_9"
+        / "payload"
+        / "Tools"
+        / "check_power_of_ten.ps1",
+        script,
+    )
+    body = "\n".join(f"    value += {index};" for index in range(24))
+    (app_root / "power10_violation.c").write_text(
+        "static int PowerTenFixture_Run(void)\n"
+        "{\n"
+        "    int value = 0;\n"
+        f"{body}\n"
+        "    return value;\n"
+        "}\n",
+        encoding="utf-8",
+    )
+    (fixture_root / "Makefile").write_text(
+        "FIRST_PARTY_C_SOURCES := APP/power10_violation.c\n"
+        "FIRST_PARTY_WARNINGS := -Wall -Wextra -Wpedantic -Werror "
+        "-Wconversion -Wsign-conversion -Wshadow -Wundef -Wformat=2 "
+        "-Wdouble-promotion -Wcast-align -Wcast-qual -Wstrict-prototypes "
+        "-Wmissing-prototypes -Wswitch-enum -Wvla\n"
+        "power10-check:\n\t@echo check\n",
+        encoding="utf-8",
+    )
+    (fixture_root / "STM32F407XX_FLASH.ld").write_text(
+        "_Min_Heap_Size = 0x0;\n",
+        encoding="utf-8",
+    )
+
+    completed = subprocess.run(
+        [
+            "powershell",
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(script),
+        ],
+        cwd=fixture_root,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    )
+    output = completed.stdout + completed.stderr
+    assert completed.returncode != 0
+    assert "runtime assertions" in output
 
 
 def test_repeated_apply_preserves_managed_mtimes_and_build_dependencies(

@@ -15,8 +15,8 @@ FCCG创建工程时复制的Component Source归目标工程所有，之后允许
 | Algorithm | `Algorithm/Common/`、`Algorithm/Calibration/`、`Algorithm/Alignment/<Strategy>/`、`Algorithm/INS/<Strategy>/`、`Algorithm/Estimator/<Strategy>/` | Common与Calibration全量组件进入正式图；互斥Strategy仅选中实现进入图；无Device/Board/STM32/FreeRTOS依赖 |
 | FlightLogic | `FlightLogic/FlightCycle/`、`FlightLogic/Deployment/<Strategy>/`、`FlightLogic/Landing/<Strategy>/` | 生命周期组合、deploy判定和landing判定；当前Deployment=MultiTrigger、Landing=BarometerImuWindow；`APP/Src/flight_task.c`只负责周期编排和系统动作连接 |
 | OS | `OS/FreeRTOS/`、`ThirdParty/FreeRTOS-Kernel/`、`Targets/SilverStar_F407/Src/freertos_target_irq.c` | 官方11.3.0 kernel、SilverStar静态配置/Hook和F407 IRQ连接；不包含heap backend或CMSIS-RTOS2 |
-| Protocol | `Protocol/Src/air_protocol.c`、`Protocol/SSLOG/` | AIR纯字节协议与SSLOG0正常源码；SSLOG逐字段little-endian codec是Protocol组件，不由FCCG生成 |
-| Generated Glue | `Generated/` | 仅project resource mapping、project log selection和project metadata；当前手工维护，未来可由FCCG重写 |
+| Protocol | `Protocol/Src/air_protocol.c`、`Protocol/SSLOG/` | AIR遥测协议M0纯字节源码与飞行日志格式0.0正常源码；numeric 0和`SSLOG0`是技术wire标识，逐字段little-endian codec是Protocol组件，不由FCCG生成 |
+| Generated Glue | `Generated/` | project resource mapping、静态instance facade、project log selection/metadata、project semantics与decoder profile常量；当前手工维护，未来可由FCCG重写 |
 | Target | `Targets/SilverStar_F407/` | 选择STM32F4、SilverStar 0.5、JY901B、M9N、SX1281、FreeRTOS port、F407 flags/linker/HAL/FatFs source set |
 
 ## 连接关系
@@ -39,6 +39,31 @@ Generated/project_resources + platform_resources
 ```
 
 `Platform/STM32F4`只通过`platform_stm32f4_resources.h`取得opaque handle或GPIO资源；`huart1`、`RADIO_NSS`等当前工程映射集中在`Generated/Src/platform_resources.c`。
+
+## Capability实例生成责任
+
+未来FCCG必须区分Physical Device插件实例与Capability Endpoint实例。对每个物理模块，Generated glue需要产生：
+
+- 稳定且项目内唯一的`physical_device_id`；
+- 每个`SystemDeviceClass`内从0连续编号的`instance_id`；
+- 含descriptor/physical/class/instance/flags/capability/rate/hash的Capability Endpoint Descriptor；
+- `device_class + instance_id`到Canonical Adapter的静态direct binding case；
+- 维护协议`LIST`所需的device/model/共享物理metadata；
+- Native log的`source_descriptor_id + instance_id`来源metadata。
+
+同一个物理JY901B应生成`IMU 0 + BARO 0 + ATTITUDE 0`，以及显式启用时的`MAG 0`，这些端点共享一个`physical_device_id`，不是三个或四个JY901B插件实例。不同Device插件可以分别提供IMU 0和IMU 1；同一个插件只有在其manifest/build capability明确`multi_instance_ready=true`时才可重复实例化。当前`JY901B_BUILD_MULTI_INSTANCE_READY=0U`，FCCG不得创建第二个JY901B context。Generated facade必须为每类生成Count和有界`switch(instance_id)` direct case，不得使用function pointer registry、vtable、heap或动态注册。当前reference Target只生成instance 0；Host双实例fixture不进入Source Graph。未来增加case不自动引入Sensor Selection、Voting、Multi-INS或Multi-EKF，Canonical默认仍绑定instance 0。AIR M0继续使用既有`sensor_id + instance_id`，FCCG不得为多传感器扩展增加M0 wire字段。
+
+## 日志可用性生成责任
+
+Record schema、ID、metadata和codec存在只说明格式可解析，不等于该Record在目标工程可用。FCCG对外标记日志`available`前必须确认选中的Component Source具有实际producer调用点，并且其通用接口依赖已连接；不得仅按schema列表生成可用性。
+
+当前reference中，STATS由Device Task周期诊断路径生产，依赖ImuSampleBus统计、LoggerBus overflow和Canonical INS snapshot，默认周期1 s；TELEMETRY_DIAG由Telemetry Task从通用`SystemTelemetryHealth`生产，默认周期200 ms。后者不包含Telemetry Service内部队列/调度统计，FCCG不得把APP连接到SX1281私有统计，也不得通过启用诊断日志改变AIR M0 wire。
+
+### `.ssdecoder`配置包契约
+
+日志容器插件只负责飞行日志格式0.0的File Header、Record Header、sync、CRC和framing。每个工程的纯数据`.ssdecoder`由FCCG同时装入声明式Record Catalog与`project_semantics.json`；它们不是runtime插件，也不能携带可执行脚本。`Protocol/SSLOG/schema/sslog_schema.json`是Catalog真源，JSON Schema和Host离线validator必须先验证字段类型、数组、padding、payload size、语义默认值和C mirror。
+
+FCCG按UTF-8、键字典序、无空白、稳定最短JSON数字、LF及单个末尾LF规范化Catalog和project semantics并分别计算SHA-256。generation profile输入为UTF-8 package schema ID、LF、UTF-8 container plugin ID、LF、完整32-byte Catalog hash、完整32-byte semantics hash。FCCG把三项hash前16字节写入`Generated/project_log_decoder_profile.*`；固件在Logger session开始时one-shot生产`DECODER_PROFILE_DESCRIPTOR(0x1D)`。ZIP自身SHA-256不得嵌入日志，避免循环依赖。
 
 ## 替换场景
 

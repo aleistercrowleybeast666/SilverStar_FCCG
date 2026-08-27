@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import json
-import os
 import shutil
 import stat
 import zipfile
+from collections.abc import Callable
 from pathlib import Path, PurePosixPath
 
 from silverstar_fccg.core.workspace import WorkspacePolicy, WorkspacePolicyError
@@ -31,12 +31,25 @@ class PluginInstaller:
         self.installed_root = self.policy.Path_Resolve(installed_root)
         self.catalog = catalog
 
-    def Install(self, archive_path: Path) -> PluginManifest:
+    def Install(
+        self,
+        archive_path: Path,
+        progress_callback: Callable[[int, int, str, bool], None] | None = None,
+    ) -> PluginManifest:
+        phases = ("validate", "copy", "register", "refresh_catalog")
+
+        def progress(current: int, done: bool) -> None:
+            if progress_callback is not None:
+                progress_callback(current, len(phases), phases[current - 1], done)
+
+        progress(1, False)
         if archive_path.suffix.lower() != ".ssplugin":
             raise PluginInstallError("Plugin archive must use the .ssplugin extension")
         if not archive_path.is_file():
             raise PluginInstallError(f"Plugin archive does not exist: {archive_path}")
         staging = self.policy.StagingDirectory_Create("plugin-")
+        destination: Path | None = None
+        installed = False
         try:
             manifest_data = self._Archive_Extract(archive_path, staging)
             staged_manifest_path = staging / "plugin.json"
@@ -93,16 +106,30 @@ class PluginInstaller:
             )
             if destination.exists():
                 raise PluginInstallError(f"Plugin destination already exists: {destination}")
+            progress(1, True)
+
+            progress(2, False)
             destination.parent.mkdir(parents=True, exist_ok=True)
-            os.replace(staging, destination)
+            self.policy.Path_Replace(staging, destination)
+            installed = True
+            progress(2, True)
+
+            progress(3, False)
             installed_manifest = PluginManifest_Parse(
                 manifest_data, destination / "plugin.json", source="installed"
             )
+            progress(3, True)
+
+            progress(4, False)
             self.catalog.Scan()
+            progress(4, True)
             return installed_manifest
         except Exception:
             if staging.exists():
                 self.policy.Tree_Remove(staging)
+            if installed and destination is not None and destination.exists():
+                self.policy.Tree_Remove(destination)
+                self.catalog.Scan()
             raise
 
     @staticmethod
@@ -121,7 +148,18 @@ class PluginInstaller:
             return True
         return len(parts) >= 3 and parts[0] == "Targets" and parts[-1] == "target.mk"
 
-    def Remove(self, component_id: str) -> PluginManifest:
+    def Remove(
+        self,
+        component_id: str,
+        progress_callback: Callable[[int, int, str, bool], None] | None = None,
+    ) -> PluginManifest:
+        phases = ("validate", "delete", "unregister", "refresh_catalog")
+
+        def progress(current: int, done: bool) -> None:
+            if progress_callback is not None:
+                progress_callback(current, len(phases), phases[current - 1], done)
+
+        progress(1, False)
         try:
             manifest = self.catalog.Component_Get(component_id)
         except PluginCatalogError as error:
@@ -179,9 +217,33 @@ class PluginInstaller:
             raise PluginInstallError(
                 f"Unexpected installed plugin layout: {component_root}"
             )
-        self.policy.Tree_Remove(component_root)
-        self.catalog.Scan()
-        return manifest
+        progress(1, True)
+
+        staging = self.policy.StagingDirectory_Create("plugin-remove-")
+        removed = staging / "plugin"
+        moved = False
+        try:
+            progress(2, False)
+            self.policy.Path_Replace(component_root, removed)
+            moved = True
+            progress(2, True)
+
+            progress(3, False)
+            progress(3, True)
+
+            progress(4, False)
+            self.catalog.Scan()
+            progress(4, True)
+            self.policy.Tree_Remove(staging)
+            return manifest
+        except Exception:
+            if moved and removed.exists():
+                component_root.parent.mkdir(parents=True, exist_ok=True)
+                self.policy.Path_Replace(removed, component_root)
+                self.catalog.Scan()
+            if staging.exists():
+                self.policy.Tree_Remove(staging)
+            raise
 
     def _Archive_Extract(self, archive_path: Path, staging: Path) -> dict:
         try:

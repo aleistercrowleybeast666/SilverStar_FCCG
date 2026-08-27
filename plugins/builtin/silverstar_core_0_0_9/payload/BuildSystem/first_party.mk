@@ -14,6 +14,8 @@ C_SOURCES += \
   Core/Src/adc.c \
   Core/Src/sdio.c \
   APP/Src/device_task.c \
+  APP/Src/device_native_log.c \
+  APP/Src/diagnostic_log.c \
   APP/Src/app_tasks.c \
   APP/Src/estimator_barometer_pending.c \
   APP/Src/estimator_bus.c \

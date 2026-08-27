@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "silverstar_assert.h"
+#include "system_gnss_if.h"
 #include "system_health.h"
 #include "system_time.h"
 #include "system_user_config.h"
@@ -219,6 +220,54 @@ SystemIndicatorMode SystemIndicator_SystemModeResolve(
     return SYSTEM_INDICATOR_MODE_OFF;
 }
 
+SystemIndicatorMode SystemIndicator_GnssModeResolve(
+    SystemDeviceResult health_result,
+    uint8_t initialized,
+    uint8_t online,
+    SystemDeviceResult sample_result,
+    uint8_t position_usable)
+{
+    SILVERSTAR_ASSERT((initialized <= 1U) && (online <= 1U) &&
+                      (position_usable <= 1U),
+                      SILVERSTAR_ASSERT_MODULE_SYSTEM,
+                      SILVERSTAR_ASSERT_REASON_STATE_INVARIANT);
+    SILVERSTAR_ASSERT((health_result <= SYSTEM_DEVICE_BUSY) &&
+                      (sample_result <= SYSTEM_DEVICE_BUSY),
+                      SILVERSTAR_ASSERT_MODULE_SYSTEM,
+                      SILVERSTAR_ASSERT_REASON_ENUM_RANGE);
+    if ((health_result != SYSTEM_DEVICE_OK) || (initialized == 0U) ||
+        (online == 0U) || (sample_result != SYSTEM_DEVICE_OK))
+    {
+        return SYSTEM_INDICATOR_MODE_OFF;
+    }
+    if (position_usable == 0U)
+    {
+        return SYSTEM_INDICATOR_MODE_BLINK_SLOW;
+    }
+    return SYSTEM_INDICATOR_MODE_ON;
+}
+
+static void SystemIndicator_GnssModeUpdate(void)
+{
+    SystemDeviceHealth health;
+    SystemGnssSample sample;
+    SystemDeviceResult health_result;
+    SystemDeviceResult sample_result = SYSTEM_DEVICE_NOT_READY;
+
+    (void)memset(&health, 0, sizeof(health));
+    (void)memset(&sample, 0, sizeof(sample));
+    health_result = SystemGnss_HealthGet(&health);
+    if ((health_result == SYSTEM_DEVICE_OK) &&
+        (health.initialized != 0U) && (health.online != 0U))
+    {
+        sample_result = SystemGnss_LatestSampleGet(&sample);
+    }
+    s_indicator.base_mode[SYSTEM_INDICATOR_GNSS] =
+        SystemIndicator_GnssModeResolve(
+            health_result, health.initialized, health.online,
+            sample_result, sample.position_usable);
+}
+
 void SystemIndicator_Init(void)
 {
     (void)memset(&s_indicator, 0, sizeof(s_indicator));
@@ -316,6 +365,10 @@ void SystemIndicator_Process(void)
             SystemLifecycle_GetState());
         s_indicator.base_mode[SYSTEM_INDICATOR_SYSTEM] = system_mode;
         SystemIndicator_CalibrationEventsProcess(&calibration);
+    }
+    if (SYSTEM_INDICATOR_GNSS_ENABLE != 0U)
+    {
+        SystemIndicator_GnssModeUpdate();
     }
     SystemIndicator_OutputRefresh(SYSTEM_INDICATOR_SYSTEM, now_us);
     SystemIndicator_OutputRefresh(SYSTEM_INDICATOR_GNSS, now_us);

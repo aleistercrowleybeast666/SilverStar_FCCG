@@ -126,6 +126,11 @@ static const SslogRecordMetadata s_sslog_metadata[] =
         FLIGHT_LOG_STREAM_DESCRIPTOR_PAYLOAD_SIZE,
         "LOG_STREAM_DESCRIPTOR"
     },
+    {
+        FLIGHT_LOG_RECORD_DECODER_PROFILE_DESCRIPTOR, 0U,
+        FLIGHT_LOG_DECODER_PROFILE_DESCRIPTOR_PAYLOAD_SIZE,
+        "DECODER_PROFILE_DESCRIPTOR"
+    },
 };
 
 _Static_assert((sizeof(s_sslog_metadata) / sizeof(s_sslog_metadata[0])) ==
@@ -796,6 +801,9 @@ static uint16_t SslogRecords_PowerSerialize(
                       SILVERSTAR_ASSERT_REASON_NULL_POINTER);
     SILVERSTAR_ASSERT(buffer != NULL, SILVERSTAR_ASSERT_MODULE_PROTOCOL,
                       SILVERSTAR_ASSERT_REASON_NULL_POINTER);
+    SslogRecords_WriterU16Put(&writer, payload->source_descriptor_id);
+    SslogRecords_WriterU8Put(&writer, payload->instance_id);
+    SslogRecords_WriterU8Put(&writer, payload->reserved);
     SslogRecords_WriterU64Put(&writer, (uint64_t)(payload->sample_timestamp_us));
     SslogRecords_WriterU64Put(&writer, (uint64_t)(payload->receive_timestamp_us));
     SslogRecords_WriterU32Put(&writer, (uint32_t)(payload->sequence));
@@ -943,6 +951,9 @@ static uint16_t SslogRecords_ImuNativeSerialize(
                       SILVERSTAR_ASSERT_REASON_NULL_POINTER);
     SILVERSTAR_ASSERT(buffer != NULL, SILVERSTAR_ASSERT_MODULE_PROTOCOL,
                       SILVERSTAR_ASSERT_REASON_NULL_POINTER);
+    SslogRecords_WriterU16Put(&writer, payload->source_descriptor_id);
+    SslogRecords_WriterU8Put(&writer, payload->instance_id);
+    SslogRecords_WriterU8Put(&writer, payload->reserved);
     SslogRecords_WriterU64Put(&writer, (uint64_t)(payload->sample_timestamp_us));
     SslogRecords_WriterU64Put(&writer, (uint64_t)(payload->receive_timestamp_us));
     SslogRecords_WriterU32Put(&writer, (uint32_t)(payload->sequence));
@@ -982,6 +993,9 @@ static uint16_t SslogRecords_GnssNativeSerialize(
                       SILVERSTAR_ASSERT_REASON_NULL_POINTER);
     SILVERSTAR_ASSERT(buffer != NULL, SILVERSTAR_ASSERT_MODULE_PROTOCOL,
                       SILVERSTAR_ASSERT_REASON_NULL_POINTER);
+    SslogRecords_WriterU16Put(&writer, payload->source_descriptor_id);
+    SslogRecords_WriterU8Put(&writer, payload->instance_id);
+    SslogRecords_WriterU8Put(&writer, payload->reserved);
     SslogRecords_WriterU64Put(&writer, (uint64_t)(payload->sample_timestamp_us));
     SslogRecords_WriterU64Put(&writer, (uint64_t)(payload->receive_timestamp_us));
     SslogRecords_WriterU32Put(&writer, (uint32_t)(payload->sequence));
@@ -1024,6 +1038,9 @@ static uint16_t SslogRecords_BaroNativeSerialize(
                       SILVERSTAR_ASSERT_REASON_NULL_POINTER);
     SILVERSTAR_ASSERT(buffer != NULL, SILVERSTAR_ASSERT_MODULE_PROTOCOL,
                       SILVERSTAR_ASSERT_REASON_NULL_POINTER);
+    SslogRecords_WriterU16Put(&writer, payload->source_descriptor_id);
+    SslogRecords_WriterU8Put(&writer, payload->instance_id);
+    SslogRecords_WriterU8Put(&writer, payload->reserved);
     SslogRecords_WriterU64Put(&writer, (uint64_t)(payload->sample_timestamp_us));
     SslogRecords_WriterU64Put(&writer, (uint64_t)(payload->receive_timestamp_us));
     SslogRecords_WriterU32Put(&writer, (uint32_t)(payload->sequence));
@@ -1051,6 +1068,9 @@ static uint16_t SslogRecords_MagNativeSerialize(
                       SILVERSTAR_ASSERT_REASON_NULL_POINTER);
     SILVERSTAR_ASSERT(buffer != NULL, SILVERSTAR_ASSERT_MODULE_PROTOCOL,
                       SILVERSTAR_ASSERT_REASON_NULL_POINTER);
+    SslogRecords_WriterU16Put(&writer, payload->source_descriptor_id);
+    SslogRecords_WriterU8Put(&writer, payload->instance_id);
+    SslogRecords_WriterU8Put(&writer, payload->reserved);
     SslogRecords_WriterU64Put(&writer, (uint64_t)(payload->sample_timestamp_us));
     SslogRecords_WriterU64Put(&writer, (uint64_t)(payload->receive_timestamp_us));
     SslogRecords_WriterU32Put(&writer, (uint32_t)(payload->sequence));
@@ -1084,6 +1104,9 @@ static uint16_t SslogRecords_HwQuatNativeSerialize(
                       SILVERSTAR_ASSERT_REASON_NULL_POINTER);
     SILVERSTAR_ASSERT(buffer != NULL, SILVERSTAR_ASSERT_MODULE_PROTOCOL,
                       SILVERSTAR_ASSERT_REASON_NULL_POINTER);
+    SslogRecords_WriterU16Put(&writer, payload->source_descriptor_id);
+    SslogRecords_WriterU8Put(&writer, payload->instance_id);
+    SslogRecords_WriterU8Put(&writer, payload->reserved);
     SslogRecords_WriterU64Put(&writer, (uint64_t)(payload->sample_timestamp_us));
     SslogRecords_WriterU64Put(&writer, (uint64_t)(payload->receive_timestamp_us));
     SslogRecords_WriterU32Put(&writer, (uint32_t)(payload->sequence));
@@ -1385,6 +1408,7 @@ static uint16_t SslogRecords_DeviceDescriptorSerialize(
     SILVERSTAR_ASSERT(buffer != NULL, SILVERSTAR_ASSERT_MODULE_PROTOCOL,
                       SILVERSTAR_ASSERT_REASON_NULL_POINTER);
     SslogRecords_WriterU16Put(&writer, (uint16_t)(payload->descriptor_id));
+    SslogRecords_WriterU16Put(&writer, payload->physical_device_id);
     SslogRecords_WriterU8Put(&writer, (uint8_t)(payload->device_class));
     SslogRecords_WriterU8Put(&writer, (uint8_t)(payload->instance_id));
     SslogRecords_WriterU16Put(&writer, (uint16_t)(payload->driver_id));
@@ -1444,6 +1468,34 @@ static uint16_t SslogRecords_LogStreamDescriptorSerialize(
     SslogRecords_WriterU16Put(&writer, (uint16_t)(payload->reserved));
     SslogRecords_WriterU32Put(&writer, (uint32_t)(payload->period_us));
 
+    SILVERSTAR_ASSERT(writer.offset == buffer_size,
+                      SILVERSTAR_ASSERT_MODULE_PROTOCOL,
+                      SILVERSTAR_ASSERT_REASON_POSTCONDITION);
+    return writer.offset;
+}
+
+static uint16_t SslogRecords_DecoderProfileDescriptorSerialize(
+    const FlightLogDecoderProfileDescriptorRecord *payload,
+    uint8_t *buffer,
+    uint16_t buffer_size)
+{
+    SslogWriteCursor writer = { buffer, buffer_size, 0U };
+
+    SILVERSTAR_ASSERT(payload != NULL, SILVERSTAR_ASSERT_MODULE_PROTOCOL,
+                      SILVERSTAR_ASSERT_REASON_NULL_POINTER);
+    SILVERSTAR_ASSERT(buffer != NULL, SILVERSTAR_ASSERT_MODULE_PROTOCOL,
+                      SILVERSTAR_ASSERT_REASON_NULL_POINTER);
+    SslogRecords_WriterU16Put(&writer, payload->package_schema_major);
+    SslogRecords_WriterU16Put(&writer, payload->package_schema_minor);
+    SslogRecords_WriterU16Put(&writer, payload->container_format_major);
+    SslogRecords_WriterU16Put(&writer, payload->container_format_minor);
+    (void)memcpy(SslogRecords_WriteReserve(&writer, 16U),
+        payload->record_catalog_hash_128, 16U);
+    (void)memcpy(SslogRecords_WriteReserve(&writer, 16U),
+        payload->project_semantics_hash_128, 16U);
+    (void)memcpy(SslogRecords_WriteReserve(&writer, 16U),
+        payload->generation_profile_hash_128, 16U);
+    SslogRecords_WriterZero(&writer, 8U);
     SILVERSTAR_ASSERT(writer.offset == buffer_size,
                       SILVERSTAR_ASSERT_MODULE_PROTOCOL,
                       SILVERSTAR_ASSERT_REASON_POSTCONDITION);
@@ -1909,6 +1961,9 @@ static uint16_t SslogRecords_PowerDeserialize(
                       SILVERSTAR_ASSERT_REASON_NULL_POINTER);
     SILVERSTAR_ASSERT(buffer != NULL, SILVERSTAR_ASSERT_MODULE_PROTOCOL,
                       SILVERSTAR_ASSERT_REASON_NULL_POINTER);
+    payload->source_descriptor_id = SslogRecords_ReaderU16Get(&reader);
+    payload->instance_id = SslogRecords_ReaderU8Get(&reader);
+    payload->reserved = SslogRecords_ReaderU8Get(&reader);
     payload->sample_timestamp_us = SslogRecords_ReaderU64Get(&reader);
     payload->receive_timestamp_us = SslogRecords_ReaderU64Get(&reader);
     payload->sequence = SslogRecords_ReaderU32Get(&reader);
@@ -2056,6 +2111,9 @@ static uint16_t SslogRecords_ImuNativeDeserialize(
                       SILVERSTAR_ASSERT_REASON_NULL_POINTER);
     SILVERSTAR_ASSERT(buffer != NULL, SILVERSTAR_ASSERT_MODULE_PROTOCOL,
                       SILVERSTAR_ASSERT_REASON_NULL_POINTER);
+    payload->source_descriptor_id = SslogRecords_ReaderU16Get(&reader);
+    payload->instance_id = SslogRecords_ReaderU8Get(&reader);
+    payload->reserved = SslogRecords_ReaderU8Get(&reader);
     payload->sample_timestamp_us = SslogRecords_ReaderU64Get(&reader);
     payload->receive_timestamp_us = SslogRecords_ReaderU64Get(&reader);
     payload->sequence = SslogRecords_ReaderU32Get(&reader);
@@ -2095,6 +2153,9 @@ static uint16_t SslogRecords_GnssNativeDeserialize(
                       SILVERSTAR_ASSERT_REASON_NULL_POINTER);
     SILVERSTAR_ASSERT(buffer != NULL, SILVERSTAR_ASSERT_MODULE_PROTOCOL,
                       SILVERSTAR_ASSERT_REASON_NULL_POINTER);
+    payload->source_descriptor_id = SslogRecords_ReaderU16Get(&reader);
+    payload->instance_id = SslogRecords_ReaderU8Get(&reader);
+    payload->reserved = SslogRecords_ReaderU8Get(&reader);
     payload->sample_timestamp_us = SslogRecords_ReaderU64Get(&reader);
     payload->receive_timestamp_us = SslogRecords_ReaderU64Get(&reader);
     payload->sequence = SslogRecords_ReaderU32Get(&reader);
@@ -2137,6 +2198,9 @@ static uint16_t SslogRecords_BaroNativeDeserialize(
                       SILVERSTAR_ASSERT_REASON_NULL_POINTER);
     SILVERSTAR_ASSERT(buffer != NULL, SILVERSTAR_ASSERT_MODULE_PROTOCOL,
                       SILVERSTAR_ASSERT_REASON_NULL_POINTER);
+    payload->source_descriptor_id = SslogRecords_ReaderU16Get(&reader);
+    payload->instance_id = SslogRecords_ReaderU8Get(&reader);
+    payload->reserved = SslogRecords_ReaderU8Get(&reader);
     payload->sample_timestamp_us = SslogRecords_ReaderU64Get(&reader);
     payload->receive_timestamp_us = SslogRecords_ReaderU64Get(&reader);
     payload->sequence = SslogRecords_ReaderU32Get(&reader);
@@ -2164,6 +2228,9 @@ static uint16_t SslogRecords_MagNativeDeserialize(
                       SILVERSTAR_ASSERT_REASON_NULL_POINTER);
     SILVERSTAR_ASSERT(buffer != NULL, SILVERSTAR_ASSERT_MODULE_PROTOCOL,
                       SILVERSTAR_ASSERT_REASON_NULL_POINTER);
+    payload->source_descriptor_id = SslogRecords_ReaderU16Get(&reader);
+    payload->instance_id = SslogRecords_ReaderU8Get(&reader);
+    payload->reserved = SslogRecords_ReaderU8Get(&reader);
     payload->sample_timestamp_us = SslogRecords_ReaderU64Get(&reader);
     payload->receive_timestamp_us = SslogRecords_ReaderU64Get(&reader);
     payload->sequence = SslogRecords_ReaderU32Get(&reader);
@@ -2197,6 +2264,9 @@ static uint16_t SslogRecords_HwQuatNativeDeserialize(
                       SILVERSTAR_ASSERT_REASON_NULL_POINTER);
     SILVERSTAR_ASSERT(buffer != NULL, SILVERSTAR_ASSERT_MODULE_PROTOCOL,
                       SILVERSTAR_ASSERT_REASON_NULL_POINTER);
+    payload->source_descriptor_id = SslogRecords_ReaderU16Get(&reader);
+    payload->instance_id = SslogRecords_ReaderU8Get(&reader);
+    payload->reserved = SslogRecords_ReaderU8Get(&reader);
     payload->sample_timestamp_us = SslogRecords_ReaderU64Get(&reader);
     payload->receive_timestamp_us = SslogRecords_ReaderU64Get(&reader);
     payload->sequence = SslogRecords_ReaderU32Get(&reader);
@@ -2498,6 +2568,7 @@ static uint16_t SslogRecords_DeviceDescriptorDeserialize(
     SILVERSTAR_ASSERT(buffer != NULL, SILVERSTAR_ASSERT_MODULE_PROTOCOL,
                       SILVERSTAR_ASSERT_REASON_NULL_POINTER);
     payload->descriptor_id = SslogRecords_ReaderU16Get(&reader);
+    payload->physical_device_id = SslogRecords_ReaderU16Get(&reader);
     payload->device_class = SslogRecords_ReaderU8Get(&reader);
     payload->instance_id = SslogRecords_ReaderU8Get(&reader);
     payload->driver_id = SslogRecords_ReaderU16Get(&reader);
@@ -2557,6 +2628,34 @@ static uint16_t SslogRecords_LogStreamDescriptorDeserialize(
     payload->reserved = SslogRecords_ReaderU16Get(&reader);
     payload->period_us = SslogRecords_ReaderU32Get(&reader);
 
+    SILVERSTAR_ASSERT(reader.offset == buffer_size,
+                      SILVERSTAR_ASSERT_MODULE_PROTOCOL,
+                      SILVERSTAR_ASSERT_REASON_POSTCONDITION);
+    return reader.offset;
+}
+
+static uint16_t SslogRecords_DecoderProfileDescriptorDeserialize(
+    FlightLogDecoderProfileDescriptorRecord *payload,
+    const uint8_t *buffer,
+    uint16_t buffer_size)
+{
+    SslogReadCursor reader = { buffer, buffer_size, 0U };
+
+    SILVERSTAR_ASSERT(payload != NULL, SILVERSTAR_ASSERT_MODULE_PROTOCOL,
+                      SILVERSTAR_ASSERT_REASON_NULL_POINTER);
+    SILVERSTAR_ASSERT(buffer != NULL, SILVERSTAR_ASSERT_MODULE_PROTOCOL,
+                      SILVERSTAR_ASSERT_REASON_NULL_POINTER);
+    payload->package_schema_major = SslogRecords_ReaderU16Get(&reader);
+    payload->package_schema_minor = SslogRecords_ReaderU16Get(&reader);
+    payload->container_format_major = SslogRecords_ReaderU16Get(&reader);
+    payload->container_format_minor = SslogRecords_ReaderU16Get(&reader);
+    (void)memcpy(payload->record_catalog_hash_128,
+        SslogRecords_ReadReserve(&reader, 16U), 16U);
+    (void)memcpy(payload->project_semantics_hash_128,
+        SslogRecords_ReadReserve(&reader, 16U), 16U);
+    (void)memcpy(payload->generation_profile_hash_128,
+        SslogRecords_ReadReserve(&reader, 16U), 16U);
+    SslogRecords_ReaderSkip(&reader, 8U);
     SILVERSTAR_ASSERT(reader.offset == buffer_size,
                       SILVERSTAR_ASSERT_MODULE_PROTOCOL,
                       SILVERSTAR_ASSERT_REASON_POSTCONDITION);
@@ -2645,6 +2744,8 @@ static uint16_t SslogRecords_PayloadSerializeHigh(
             &record->payload.algorithm_descriptor, buffer, payload_size);
         case FLIGHT_LOG_RECORD_LOG_STREAM_DESCRIPTOR: return SslogRecords_LogStreamDescriptorSerialize(
             &record->payload.stream_descriptor, buffer, payload_size);
+        case FLIGHT_LOG_RECORD_DECODER_PROFILE_DESCRIPTOR: return SslogRecords_DecoderProfileDescriptorSerialize(
+            &record->payload.decoder_profile_descriptor, buffer, payload_size);
         default: return 0U;
     }
 }
@@ -2761,6 +2862,8 @@ static uint16_t SslogRecords_PayloadDeserializeHigh(
             &record->payload.algorithm_descriptor, buffer, payload_size);
         case FLIGHT_LOG_RECORD_LOG_STREAM_DESCRIPTOR: return SslogRecords_LogStreamDescriptorDeserialize(
             &record->payload.stream_descriptor, buffer, payload_size);
+        case FLIGHT_LOG_RECORD_DECODER_PROFILE_DESCRIPTOR: return SslogRecords_DecoderProfileDescriptorDeserialize(
+            &record->payload.decoder_profile_descriptor, buffer, payload_size);
         default: return 0U;
     }
 }

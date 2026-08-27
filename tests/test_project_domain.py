@@ -52,8 +52,9 @@ def test_manual_tool_paths_drive_detection_and_make_arguments(tmp_path: Path) ->
         model, BuildAction.BUILD
     )
     assert command[0].endswith("make.exe")
-    assert any(argument.startswith("GCC_PATH=") for argument in command)
-    assert any(argument.startswith('CP="') for argument in command)
+    gcc_path = next(argument for argument in command if argument.startswith("GCC_PATH="))
+    assert gcc_path == f"GCC_PATH={(tmp_path / 'Arm Toolchain').resolve().as_posix()}"
+    assert not any(argument.startswith("CP=") for argument in command)
     assert ProjectDigest_Get(model) == portable_digest
     assert ToolchainDetector._Version_Compatible(
         "compiler", "arm-none-eabi-gcc (Arm GNU Toolchain) 14.3.1"
@@ -124,8 +125,11 @@ def test_dependency_and_resource_conflicts_are_reported(builtin_catalog) -> None
 
 def test_source_graph_is_complete_and_has_one_truth(builtin_catalog) -> None:
     graph = SourceGraph_Resolve(ReferenceProject_Create(), builtin_catalog)
-    assert len(graph.sources) == 134
+    assert len(graph.sources) == 138
     assert len(graph.sources) == len(set(graph.sources))
+    assert "APP/Src/diagnostic_log.c" in graph.sources
+    assert "APP/Src/device_task.c" in graph.sources
+    assert "APP/Src/telemetry_task.c" in graph.sources
     assert graph.asm_sources == ("startup_stm32f407xx.s",)
     assert "USE_HAL_DRIVER" in graph.defines
     assert "STM32F407xx" in graph.defines
@@ -134,12 +138,10 @@ def test_source_graph_is_complete_and_has_one_truth(builtin_catalog) -> None:
         "Targets/SilverStar_F407/Inc/platform_memory_target.h",
         "Generated/Inc/project_flight_config.h",
     )
-    assert graph.exclude_sources == (
-        "APP/Src/estimator_task_none.c",
-        "Core/Src/sysmem.c",
-    )
+    assert graph.exclude_sources == ("Core/Src/sysmem.c",)
     assert graph.linker_script == "STM32F407XX_FLASH.ld"
     fragment = graph.MakeFragment_Render()
     assert "wildcard" not in fragment
     assert "Generated/Src/project_metadata.c" in fragment
     assert "Generated/Src/project_capability_routes.c" in fragment
+    assert "Generated/Src/project_log_decoder_profile.c" in fragment

@@ -24,6 +24,9 @@ Widgets expose view state and signals. They do not parse archives, copy payloads
 
 ```text
 Physical Device Instance
+        │ owns one or more
+        ▼
+Capability Endpoint Instance
         │ provides
         ▼
     Capabilities
@@ -34,12 +37,12 @@ Algorithm / Strategy / Flight component
         ▼
  Capability Resolver
         │ sole provider: automatic
-        │ multiple providers: saved user override
+        │ multiple providers: instance 0 default, optional saved override
         ▼
 Static project_capability_routes.c
 ```
 
-`DeviceInstance` separates a physical endpoint (`imu0`, `gnss0`, `telemetry0`, `maintenance0`) from its plugin implementation. One JY901B instance therefore provides acceleration, angular rate, external attitude, magnetic field, and barometric altitude without creating duplicate UART initialization or status objects. Current real drivers declare `project_max=1`; the model can represent additional instances, but the GUI exposes Add only after a real plugin declares support.
+`DeviceInstance` identifies the physical module (`imu0`, `gnss0`, `telemetry0`, `maintenance0`) independently of its plugin implementation. Generated descriptors then assign contiguous capability-class endpoint indices: one JY901B physical instance can own IMU 0, BAROMETER 0, MAGNETOMETER 0, and ATTITUDE 0 without duplicating UART initialization or status objects. Canonical Source Selection is a third identity: each consumed capability defaults to endpoint instance 0 and stores only a non-default physical-source override. Instance policy distinguishes a per-model `plugin_max` from a whole-class `class_max`; legacy `project_max` data migrates conservatively. A class may contain two different singleton models when its class limit permits it, while repeating one model additionally requires `same_plugin_multiple` and a context-safe `multi_instance_ready` driver.
 
 Strategy selection determines which implementation enters the source graph. Capability resolution determines which physical instance supplies each declared input. These are deliberately separate. The consuming implementation owns when and how it uses an input; FCCG has no general PRE_START/ASCENT/RECOVERY phase-policy layer. Future sensor selection/health and Multi-EKF behavior must be explicit Strategies, not automatic consequences of adding devices.
 
@@ -73,6 +76,8 @@ An MCU plugin describes chip-family capabilities, Platform backend, HAL/CMSIS de
 A Board plugin describes one PCB profile: compatible MCUs, an immutable `.ioc`/vendor snapshot, semantic aliases and connections, legal alternatives, fixed/reserved roles, Board services, provenance, verification state, and `source_kind` (`verified_builtin`, `manual_import`, or `third_party`). Physical pins, peripheral settings, DMA, IRQ, and clocks are parsed from `.ioc`; they are not duplicated in manifest metadata. The same MCU plugin is reused unchanged by multiple Boards.
 
 Logical Device plugins give user meaning to Board services and raw resources. The input-voltage monitor appears under Other Sensors and binds to an ADC-backed power service; launch ignition and parachute pyro appear as independently optional Power Outputs bound to P_CONTROL1/P_CONTROL2. Dependencies are one-way: a deployment Mode requires parachute output, but reconciliation never auto-adds a cancelled actuator. Removing parachute clears dependent Modes; removing launch selects external-ignition behavior and leaves START legal without a GPIO.
+
+Software indicators use the same declarative Device/resource path. The System Status Indicator is selected by default and owns one GPIO Output; on SS0.5 its fixed role is active-low `IMU_CAL_LED`/PA1. The optional GNSS Status Indicator requires a GNSS Device capability and a distinct exclusive GPIO Output. SS0.5 explicitly declares that it has no second assignable indicator GPIO, so the resolver never reuses the system LED or P_CONTROL1/P_CONTROL2. A power-rail LED that cannot be controlled by the MCU is hardware metadata at most, never a software Device. Firmware reuses one `SystemIndicatorRole` state machine: GNSS mode resolves from online/sample availability and `SystemGnssSample.position_usable`, not `fix_type` alone.
 
 A Hardware Configuration Provider is a trusted FCCG handler used to create a Board. The current provider imports STM32CubeMX output as data. Imported vendor code remains below `HardwareGenerated/STM32CubeMX/`; it never enters `Platform/`, `Devices/`, `System/`, `Algorithm/`, or `FlightLogic/`. After mapping and validation, the snapshot can be exported as a reusable Board plugin.
 
@@ -119,7 +124,9 @@ The selected DevelopmentEnvironment plugin chooses a trusted renderer. The curre
 
 New projects are assembled in workspace-local staging. Existing projects are validated and planned before writes. The public lifecycle is Draft/Dirty → Materializing → Ready, plus Building/Error while a long operation runs or fails. Save and every build/check entry re-plan current managed output, so an FCCG renderer upgrade cannot be hidden by hashes from an older installation.
 
-A project is Ready only when its descriptor, Make targets, selected component/Board payloads, hardware-preparation fingerprint, Generated/Target trees, ownership hashes, EIDE, VS Code tasks, and workspace exist and agree with the in-memory model. New-project and Save-As publication order places `SilverStar.ssproject` last. Generate/Apply performs no compile or quality task. Advanced Validation Build, Clean, Host Tests, Architecture Check, Power of Ten, Static Analysis, and Artifact Check call `Project_EnsureBuildable`; dirty or incomplete material is saved before Make runs with the project root as explicit `cwd`.
+A project is Ready only when its descriptor, Make targets, selected component/Board payloads, hardware-preparation fingerprint, Generated/Target trees, ownership hashes, EIDE, VS Code tasks, and workspace exist and agree with the in-memory model. Stale comparison, embedded project digest, decoder metadata, and ownership metadata share `ProjectGenerationState_Normalize()` / `ProjectGenerationFingerprint_Get()`. The normalized state includes MCU/Board/hardware source, Devices (including Indicators), Strategies, Modes/parameters, capability overrides, protocols, logging, resource assignments, environment, and source-graph configuration. It excludes Arm GNU/Make/Host GCC paths, tool-detection cache, provenance/display-only hardware fields, manual-confirmation state, and GUI preferences. Renderer functions deep-copy before adding provenance; after a successful apply the exact descriptor written to disk is reloaded and becomes the live model, so generation immediately reaches Ready.
+
+New-project and Save-As publication order places `SilverStar.ssproject` last. Generate Code performs no compile or quality task. Advanced Build Firmware in FCCG, Clean, Host Tests, Architecture Check, Power of Ten, Static Analysis, and Firmware Artifact Check call `Project_EnsureBuildable`; dirty or incomplete material is saved before Make runs with the project root as explicit `cwd`.
 
 GUI configuration edits are transactions: copy the live model, mutate the candidate, reconcile once, construct every view model, and render without mutating either model. Only a successful render publishes the candidate. Mode signals are coalesced through a zero-delay timer so a checkbox's parent is never deleted inside its own `toggled` stack. Rebuilds block signals; any exception logs a traceback, restores the previous view/model, and remains inside the Qt callback boundary.
 
@@ -128,10 +135,10 @@ GUI configuration edits are transactions: copy the live model, mutate the candid
 - Save Project As copies the complete project-owned tree while excluding build/cache/intermediate output.
 - Deactivated component files remain on disk but leave the source graph.
 - `Generated/`, `SilverStar.ssproject`, `SilverStar_Configuration.md`, Make/target data, workspace files, `.vscode/`, and `.eide/` are FCCG-managed.
-- A manually edited `.eide/eide.yml`, MCU/target change, collision, deactivation, or changed CubeMX snapshot marks the plan dangerous and requires confirmation.
+- A change to a normalized FCCG-owned `.eide/eide.yml` build field, MCU/target change, collision, deactivation, or changed CubeMX snapshot marks the plan dangerous and requires confirmation. EIDE-owned UI/order/target/uploader metadata does not.
 - `HardwareGenerated/` is preserved normally. Reimport may replace its complete tree only after an explicit dangerous plan.
 - `.fccg/ownership.json` records active components and hashes for comparison; hashes document provenance and never restore source automatically.
-- `<ProjectName>.ssdecoder` is FCCG-managed declarative output. It contains the Protocol schema plus project/device/strategy/mode/record availability and stream selections for a future generic FLP decoder; it contains no executable plugin.
+- `<ProjectName>.ssdecoder` is FCCG-managed declarative output. Canonical record-catalog and project-semantics JSON, a manifest, checksums, and a README form a deterministic data-only package; generated C embeds truncated catalog/semantics/generation identities. It contains no executable plugin.
 
 ## Filesystem and process safety
 
@@ -142,3 +149,68 @@ All destinations pass through `WorkspacePolicy`, portable path validation, stagi
 FCCG v0.x formally supports STM32 plus STM32CubeMX for manual Hardware Configuration. Plugin, Platform, Device, Strategy, Mode and provider interfaces remain generic so a future non-STM32 provider can be added without treating STM32 concepts as universal project fields.
 
 Subprocesses use argument arrays and explicit project working directories. Tool detection runs version commands only. FCCG does not modify PATH, registry, global IDE settings, global Python state, or reference repositories.
+
+## Device discovery and protocol composition
+
+The Device page enumerates every valid installed `type = device` manifest and groups it from
+manifest metadata. It never uses Board/IOC resource sufficiency as selection availability.
+Selected logical Devices feed capability and hardware requirements into the shared reconcile
+pipeline; Hardware Connection alone resolves those requirements against Board or imported IOC
+facts. The project owns one MCU, one target profile, and one hardware configuration, while
+Device and capability endpoints may have instances.
+
+Protocols use four explicit layers: a fixed System Service selects one complete Protocol Profile;
+the profile declares a Transport Binding and constraints; resolution chooses exactly one
+compatible physical Device or storage provider. Profile source/include/define contributions enter
+the one resolved graph only when selected. Decoder metadata records the same profile, binding,
+provider instance, physical-device identity, source descriptor, and record instance data. The
+current three profiles are real but are not advertised as freely interchangeable.
+
+Formal component documentation stays in installed declarative plugin packages and is shown by
+plugin management; it is not duplicated into each generated source project. Reference import
+audits the maintenance instance-command document before publication. The generated architecture
+gate therefore validates available generated source/build metadata and records a note when that
+package-owned Markdown is intentionally absent.
+
+## Logging semantics and task progress
+
+The Protocol plugin owns both SSLOG wire/schema metadata and FCCG presentation policy. Optional
+`cadence` metadata describes periodic, source-driven, measurement-driven, event, one-shot, or
+algorithm-output timing without Record-ID branches in Python. Project state continues to store only
+policy, `decimation`, and microsecond `period_us`; zero is an unused field for non-periodic policy,
+not a continuous zero-period producer.
+
+Availability is the intersection of schema presence, selected component/capability/Recordable
+requirements, and—when declared—at least one selected producer component or producer identity.
+Omitting producer metadata preserves pre-release behavior. This prevents a codec from being
+mistaken for a runtime production path while keeping old protocol plugins loadable.
+
+The synchronized reference commit `cc0b377ded690556d037a412a55f87fe334c42d0` declares
+`silverstar.core.device_task` as the STATS producer and `silverstar.core.telemetry_task` as the
+TELEMETRY_DIAG producer. Their shared `diagnostic_log.c` implementation is scheduled by the real
+Device and Telemetry tasks; the protocol metadata therefore exposes STATS at 1 s and
+TELEMETRY_DIAG at 200 ms only when the corresponding selected composition remains valid.
+
+The serial maintenance Transport remains an internal physical `DeviceInstance` so protocol
+resolution, source graph, and UART resources stay authoritative. The Devices page filters this
+internal console class; Hardware Connection still owns its USART, pins, baud, and electrical facts.
+
+Long operations report `FCCG_PROGRESS|TASK|PLAN|total`, `BEGIN|current|total|subject`, and
+`DONE|current|total|subject`. BEGIN is observational and DONE alone advances completed work.
+BuildRunner consumes the same protocol as TaskContext. Successful tasks finish at 100%; exceptions
+and cooperative cancellation retain the last completed count. Expected host compile rejection is
+a successful configuration gate only when the diagnostic matches static assertion/`#error`; its
+raw compiler output is routed to detailed and file logs.
+
+**Export Log Decoder Profile** is a synchronous, read-only project operation: it verifies that the
+saved project and managed package are current, rebuilds the same canonical bytes, and atomically
+writes only the user-selected destination. It never starts a task or mutates model, fingerprint,
+ownership, or Dirty state.
+
+## Shared EIDE ownership
+
+FCCG fingerprints only normalized build-owned EIDE fields: sources/excludes, includes, defines,
+CPU/FPU/ABI, linker/startup, toolchain, Debug/Release flags, libraries, and output directories.
+EIDE-owned field order, selected target, UI state, uploader status, and compatible extension data
+are preserved and ignored for stale detection. A dangerous plan names each genuinely changed
+owned field instead of reporting a whole-file hash mismatch.

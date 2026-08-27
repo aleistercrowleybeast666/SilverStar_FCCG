@@ -15,6 +15,7 @@ class ThemeTokens:
     surface: str
     surface_alt: str
     surface_input: str
+    disabled_surface: str
     text: str
     muted: str
     border: str
@@ -38,6 +39,7 @@ _LIGHT = ThemeTokens(
     surface="#F4F6FA",
     surface_alt="#FFFFFF",
     surface_input="#FFFFFF",
+    disabled_surface="#E2E8F0",
     text="#172033",
     muted="#64748B",
     border="#D7DFEB",
@@ -61,6 +63,7 @@ _DARK = ThemeTokens(
     surface="#0F172A",
     surface_alt="#111827",
     surface_input="#182235",
+    disabled_surface="#263449",
     text="#E5E7EB",
     muted="#94A3B8",
     border="#334155",
@@ -202,7 +205,41 @@ QTableWidget, QTreeWidget, QListWidget {
     selection-background-color: $accent;
     selection-color: $accent_text;
 }
-QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox { min-height: 26px; padding: 2px 7px; }
+QLineEdit, QComboBox { min-height: 26px; padding: 2px 7px; }
+QSpinBox, QDoubleSpinBox {
+    min-height: 26px;
+    padding: 2px 30px 2px 7px;
+}
+QSpinBox::up-button, QDoubleSpinBox::up-button,
+QSpinBox::down-button, QDoubleSpinBox::down-button {
+    subcontrol-origin: border;
+    width: 24px;
+    background: $surface;
+    border-left: 1px solid $border_strong;
+}
+QSpinBox::up-button, QDoubleSpinBox::up-button {
+    subcontrol-position: top right;
+    border-bottom: 1px solid $border;
+    border-top-right-radius: 3px;
+}
+QSpinBox::down-button, QDoubleSpinBox::down-button {
+    subcontrol-position: bottom right;
+    border-bottom-right-radius: 3px;
+}
+QSpinBox::up-button:hover, QDoubleSpinBox::up-button:hover,
+QSpinBox::down-button:hover, QDoubleSpinBox::down-button:hover {
+    background: $accent_soft;
+}
+QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {
+    image: url("$spin_plus_image");
+    width: 11px;
+    height: 11px;
+}
+QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {
+    image: url("$spin_minus_image");
+    width: 11px;
+    height: 11px;
+}
 QComboBox[validationIssue="true"], QTableWidget[validationIssue="true"],
 QCheckBox[validationIssue="true"], QWidget[validationIssue="true"] {
     border: 2px solid $error;
@@ -216,7 +253,10 @@ QComboBox QAbstractItemView {
     outline: 0;
 }
 QComboBox QAbstractItemView::item { min-height: 26px; padding: 3px 7px; }
-QComboBox QAbstractItemView::item:disabled { color: $muted; }
+QComboBox QAbstractItemView::item:disabled {
+    color: $muted;
+    background: $disabled_surface;
+}
 QHeaderView::section {
     background: $surface;
     color: $text;
@@ -254,6 +294,11 @@ QPushButton:pressed { background: $accent_soft; }
 QPushButton:disabled { color: $muted; border-color: $border; }
 QPushButton#primaryButton { background: $accent; color: $accent_text; border: 0; }
 QPushButton#primaryButton:hover { background: $brand_hover; }
+QPushButton#primaryButton:disabled {
+    background: $disabled_surface;
+    color: $muted;
+    border: 1px solid $border;
+}
 QPushButton#dangerButton { color: $error; border-color: $error; }
 QMenuBar, QMenuBar#mainMenuBar { background: $brand; color: $header_text; border: 0; }
 QMenuBar::item { background: transparent; color: $header_text; padding: 5px 10px; }
@@ -306,8 +351,14 @@ def ThemeTokens_Get(theme: str) -> ThemeTokens:
 
 def Stylesheet_Get(theme: str) -> str:
     values = asdict(ThemeTokens_Get(theme))
-    values["checkbox_check_image"] = (
-        Path(__file__).resolve().parent / "assets" / "check_white.svg"
+    asset_root = Path(__file__).resolve().parent / "assets"
+    values["checkbox_check_image"] = (asset_root / "check_white.svg").as_posix()
+    icon_suffix = "dark" if theme == "dark" else "light"
+    values["spin_plus_image"] = (
+        asset_root / f"spin_plus_{icon_suffix}.svg"
+    ).as_posix()
+    values["spin_minus_image"] = (
+        asset_root / f"spin_minus_{icon_suffix}.svg"
     ).as_posix()
     return _STYLESHEET.substitute(values)
 
@@ -349,6 +400,11 @@ def Theme_Apply(application: QApplication, theme: str) -> None:
     palette.setColor(QPalette.ColorRole.WindowText, QColor(tokens.text))
     palette.setColor(QPalette.ColorRole.Base, QColor(tokens.surface_input))
     palette.setColor(QPalette.ColorRole.Text, QColor(tokens.text))
+    palette.setColor(
+        QPalette.ColorGroup.Disabled,
+        QPalette.ColorRole.Base,
+        QColor(tokens.disabled_surface),
+    )
     palette.setColor(
         QPalette.ColorGroup.Disabled,
         QPalette.ColorRole.Text,

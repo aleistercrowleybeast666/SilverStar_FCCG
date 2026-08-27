@@ -5,176 +5,20 @@
 
 #include "FreeRTOS.h"
 #include "task.h"
+#include "diagnostic_log.h"
 #include "estimator_bus.h"
+#include "device_native_log.h"
 #include "imu_sample_bus.h"
 #include "logger_bus.h"
 #include "silverstar_assert.h"
 #include "system_barometer_if.h"
 #include "system_gnss_if.h"
 #include "system_health.h"
-#include "system_hardware_quaternion_if.h"
 #include "system_imu_if.h"
 #include "system_lifecycle.h"
 #include "system_log_policy.h"
-#include "system_magnetometer_if.h"
-#include "system_power_if.h"
 #include "system_startup.h"
 #include "system_time.h"
-#include "system_user_config.h"
-
-static uint8_t DeviceTask_NativeLoggingAllowed(void)
-{
-    SystemLifecycleState state = SystemLifecycle_GetState();
-
-    SILVERSTAR_ASSERT(state <= SYSTEM_STATE_FAULT,
-                      SILVERSTAR_ASSERT_MODULE_APP,
-                      SILVERSTAR_ASSERT_REASON_ENUM_RANGE);
-    SILVERSTAR_ASSERT(SYSTEM_LOG_PREFLIGHT_NATIVE_ENABLE <= 1U,
-                      SILVERSTAR_ASSERT_MODULE_APP,
-                      SILVERSTAR_ASSERT_REASON_STATE_INVARIANT);
-    if (SYSTEM_LOG_PREFLIGHT_NATIVE_ENABLE != 0U)
-    {
-        return 1U;
-    }
-    return (uint8_t)((state == SYSTEM_STATE_FLIGHT) ||
-                     (state == SYSTEM_STATE_RECOVERY));
-}
-
-static void DeviceTask_LogNativeGnss(void)
-{
-    static uint32_t last_sequence;
-    SystemGnssSample sample;
-    FlightLogGnssNativeRecord record;
-
-    if ((DeviceTask_NativeLoggingAllowed() == 0U) ||
-        (SystemGnss_LatestSampleGet(&sample) != SYSTEM_DEVICE_OK) ||
-        (sample.sequence == last_sequence))
-    {
-        return;
-    }
-    SILVERSTAR_ASSERT_OBJECT(&sample, SystemGnssSample,
-                             SILVERSTAR_ASSERT_MODULE_APP);
-    last_sequence = sample.sequence;
-    (void)memset(&record, 0, sizeof(record));
-    record.sample_timestamp_us = sample.sample_timestamp_us;
-    record.receive_timestamp_us = sample.receive_timestamp_us;
-    record.sequence = sample.sequence;
-    record.latitude_e7 = sample.latitude_e7;
-    record.longitude_e7 = sample.longitude_e7;
-    record.ellipsoid_height_mm = sample.ellipsoid_height_mm;
-    record.msl_height_mm = sample.msl_height_mm;
-    (void)memcpy(record.velocity_enu_mps, sample.velocity_enu_mps,
-                 sizeof(record.velocity_enu_mps));
-    (void)memcpy(record.velocity_variance_m2ps2,
-                 sample.velocity_variance_m2ps2,
-                 sizeof(record.velocity_variance_m2ps2));
-    record.horizontal_accuracy_m = sample.horizontal_accuracy_m;
-    record.vertical_accuracy_m = sample.vertical_accuracy_m;
-    record.speed_accuracy_mps = sample.speed_accuracy_mps;
-    record.velocity_valid_mask = sample.velocity_valid_mask;
-    record.fix_type = sample.fix_type;
-    record.position_usable = sample.position_usable;
-    record.course_usable = sample.course_usable;
-    record.online = sample.online;
-    (void)LoggerBus_GnssNativePush(sample.sample_timestamp_us, 0U, &record);
-}
-
-static void DeviceTask_LogNativeBarometer(void)
-{
-    static uint32_t last_sequence;
-    SystemBarometerSample sample;
-    FlightLogBaroNativeRecord record;
-
-    if ((DeviceTask_NativeLoggingAllowed() == 0U) ||
-        (SystemBarometer_LatestSampleGet(&sample) != SYSTEM_DEVICE_OK) ||
-        (sample.sequence == last_sequence))
-    {
-        return;
-    }
-    SILVERSTAR_ASSERT_OBJECT(&sample, SystemBarometerSample,
-                             SILVERSTAR_ASSERT_MODULE_APP);
-    last_sequence = sample.sequence;
-    (void)memset(&record, 0, sizeof(record));
-    record.sample_timestamp_us = sample.sample_timestamp_us;
-    record.receive_timestamp_us = sample.receive_timestamp_us;
-    record.sequence = sample.sequence;
-    record.pressure_raw_pa = sample.pressure_raw_pa;
-    record.altitude_raw_cm = sample.altitude_raw_cm;
-    record.pressure_pa = sample.pressure_pa;
-    record.altitude_m = sample.altitude_m;
-    record.altitude_variance_m2 = sample.altitude_variance_m2;
-    record.valid_mask = sample.valid_mask;
-    (void)LoggerBus_BaroNativePush(sample.sample_timestamp_us,
-                                   sample.valid_mask, &record);
-}
-
-static void DeviceTask_LogNativeMagnetometer(void)
-{
-    static uint32_t last_sequence;
-    SystemMagnetometerSample sample;
-    FlightLogMagNativeRecord record;
-
-    if ((DeviceTask_NativeLoggingAllowed() == 0U) ||
-        (SystemMagnetometer_LatestSampleGet(&sample) != SYSTEM_DEVICE_OK) ||
-        (sample.sequence == last_sequence))
-    {
-        return;
-    }
-    SILVERSTAR_ASSERT_OBJECT(&sample, SystemMagnetometerSample,
-                             SILVERSTAR_ASSERT_MODULE_APP);
-    last_sequence = sample.sequence;
-    (void)memset(&record, 0, sizeof(record));
-    record.sample_timestamp_us = sample.sample_timestamp_us;
-    record.receive_timestamp_us = sample.receive_timestamp_us;
-    record.sequence = sample.sequence;
-    (void)memcpy(record.raw, sample.raw, sizeof(record.raw));
-    (void)memcpy(record.magnetic_field_b_uT, sample.magnetic_field_b_uT,
-                 sizeof(record.magnetic_field_b_uT));
-    record.temperature_c = sample.temperature_c;
-    record.valid_mask = sample.valid_mask;
-    record.calibration_valid = sample.calibration_valid;
-    (void)LoggerBus_MagNativePush(sample.sample_timestamp_us,
-                                  sample.valid_mask, &record);
-}
-
-static void DeviceTask_LogNativeHardwareQuaternion(void)
-{
-    static uint32_t last_sequence;
-    SystemHardwareQuaternionSample sample;
-    FlightLogHardwareQuaternionNativeRecord record;
-
-    if ((DeviceTask_NativeLoggingAllowed() == 0U) ||
-        (SystemHardwareQuaternion_LatestSampleGet(&sample) !=
-         SYSTEM_DEVICE_OK) ||
-        (sample.sequence == last_sequence))
-    {
-        return;
-    }
-    SILVERSTAR_ASSERT_OBJECT(&sample, SystemHardwareQuaternionSample,
-                             SILVERSTAR_ASSERT_MODULE_APP);
-    last_sequence = sample.sequence;
-    (void)memset(&record, 0, sizeof(record));
-    record.sample_timestamp_us = sample.sample_timestamp_us;
-    record.receive_timestamp_us = sample.receive_timestamp_us;
-    record.sequence = sample.sequence;
-    (void)memcpy(record.quaternion_wxyz, sample.quaternion_wxyz,
-                 sizeof(record.quaternion_wxyz));
-    record.mode = (uint8_t)sample.mode;
-    record.mode_verified = sample.mode_verified;
-    record.algorithm_healthy = sample.algorithm_healthy;
-    record.normalized = sample.normalized;
-    record.valid = sample.valid;
-    (void)LoggerBus_HardwareQuaternionNativePush(sample.sample_timestamp_us,
-                                                  0U, &record);
-}
-
-static void DeviceTask_LogNativeSamples(void)
-{
-    DeviceTask_LogNativeGnss();
-    DeviceTask_LogNativeBarometer();
-    DeviceTask_LogNativeMagnetometer();
-    DeviceTask_LogNativeHardwareQuaternion();
-}
 
 static void DeviceTask_PublishBarometer(void)
 {
@@ -322,39 +166,6 @@ static void DeviceTask_LogGnssDiagnostics(void)
     DeviceTask_LogGnssRfDiagnostic();
 }
 
-static void DeviceTask_LogPowerPeriodic(
-    uint64_t now_us,
-    const SystemLogStreamConfig *config)
-{
-    static uint32_t last_power_sequence;
-    static uint64_t last_power_log_us;
-    SystemPowerSample power_sample;
-    FlightLogPowerRecord power_record;
-
-    SILVERSTAR_ASSERT_OBJECT(config, SystemLogStreamConfig,
-                             SILVERSTAR_ASSERT_MODULE_APP);
-    if ((config->enabled != 0U) &&
-        ((now_us - last_power_log_us) >= config->period_us) &&
-        (SystemPower_LatestSampleGet(&power_sample) == SYSTEM_DEVICE_OK) &&
-        (power_sample.sequence != last_power_sequence))
-    {
-        last_power_sequence = power_sample.sequence;
-        last_power_log_us = now_us;
-        power_record.sample_timestamp_us = power_sample.sample_timestamp_us;
-        power_record.receive_timestamp_us = power_sample.receive_timestamp_us;
-        power_record.sequence = power_sample.sequence;
-        power_record.voltage_v = power_sample.voltage_v;
-        power_record.current_a = power_sample.current_a;
-        power_record.power_w = power_sample.power_w;
-        power_record.state_of_charge_percent =
-            power_sample.state_of_charge_percent;
-        power_record.temperature_c = power_sample.temperature_c;
-        power_record.valid_mask = power_sample.valid_mask;
-        (void)LoggerBus_PowerPush(power_sample.sample_timestamp_us,
-                                  &power_record);
-    }
-}
-
 static void DeviceTask_LogHealthPeriodic(
     uint64_t now_us,
     const SystemLogStreamConfig *config)
@@ -385,6 +196,7 @@ static void DeviceTask_LogHealthPeriodic(
 
 static void DeviceTask_LogPeriodic(void)
 {
+    static DiagnosticLogPeriodicState stats_log_state;
     SystemLogStreamConfig power_config;
     SystemLogStreamConfig health_config;
     SystemLifecycleState state = SystemLifecycle_GetState();
@@ -405,8 +217,9 @@ static void DeviceTask_LogPeriodic(void)
                       SILVERSTAR_ASSERT_MODULE_APP,
                       SILVERSTAR_ASSERT_REASON_STATE_INVARIANT);
     now_us = SystemTime_GetMonotonicUs();
-    DeviceTask_LogPowerPeriodic(now_us, &power_config);
+    DeviceNativeLog_PowerProcess(now_us, &power_config);
     DeviceTask_LogHealthPeriodic(now_us, &health_config);
+    DiagnosticLog_StatsProcess(&stats_log_state, now_us);
 }
 
 void AppTask_Device(void *argument)
@@ -418,7 +231,7 @@ void AppTask_Device(void *argument)
     for (;;)
     {
         SystemStartup_ProcessDevices();
-        DeviceTask_LogNativeSamples();
+        DeviceNativeLog_Process();
         ImuSampleBus_Process();
         DeviceTask_PublishBarometer();
         DeviceTask_LogGnssState();

@@ -19,12 +19,17 @@
     "cardinality": {"enum": ["single", "multiple"]},
     "instance_policy": {
       "type": "object",
-      "required": ["project_max", "same_plugin_multiple", "multi_instance_ready"],
       "properties": {
         "project_max": {"type": "integer", "minimum": 1, "maximum": 64},
+        "plugin_max": {"type": "integer", "minimum": 1, "maximum": 64},
+        "class_max": {"type": "integer", "minimum": 1, "maximum": 64},
         "same_plugin_multiple": {"type": "boolean"},
         "multi_instance_ready": {"type": "boolean"}
       },
+      "oneOf": [
+        {"required": ["project_max", "same_plugin_multiple", "multi_instance_ready"]},
+        {"required": ["plugin_max", "class_max", "same_plugin_multiple", "multi_instance_ready"]}
+      ],
       "additionalProperties": false
     },
     "physical_device": {
@@ -103,6 +108,10 @@
     "provides": {
       "type": "array", "uniqueItems": true,
       "items": {"$ref": "#/$defs/capability"}
+    },
+    "transports": {
+      "type": "array", "uniqueItems": true,
+      "items": {"$ref": "#/$defs/transportContribution"}
     },
     "build": {
       "type": "object",
@@ -315,14 +324,58 @@
     },
     "protocolProfile": {
       "type": "object",
-      "required": ["id", "version", "display_names"],
+      "required": [
+        "id", "version", "display_names", "service", "slot",
+        "codec_sources", "parser_sources", "include_dirs", "defines",
+        "binding", "transport", "decoder_metadata", "documentation",
+        "host_tests", "golden_tests"
+      ],
       "properties": {
         "id": {"$ref": "#/$defs/componentId"},
         "version": {"$ref": "#/$defs/version"},
         "display_names": {
           "type": "object",
           "additionalProperties": {"type": "string", "minLength": 1}
-        }
+        },
+        "service": {"enum": ["telemetry_service", "maintenance_service", "flight_log_service"]},
+        "slot": {"$ref": "#/$defs/lowerIdentifier"},
+        "codec_sources": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/buildPath"}},
+        "parser_sources": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/buildPath"}},
+        "include_dirs": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/buildPath"}},
+        "defines": {"$ref": "#/$defs/buildTokens"},
+        "binding": {"$ref": "#/$defs/lowerIdentifier"},
+        "transport": {
+          "type": "object",
+          "required": ["capability", "kind", "minimum_mtu", "ordered", "bidirectional", "reliable", "mode"],
+          "properties": {
+            "capability": {"$ref": "#/$defs/capability"},
+            "kind": {"$ref": "#/$defs/lowerIdentifier"},
+            "minimum_mtu": {"type": "integer", "minimum": 1},
+            "ordered": {"type": "boolean"},
+            "bidirectional": {"type": "boolean"},
+            "reliable": {"type": "boolean"},
+            "mode": {"enum": ["stream", "datagram", "file"]}
+          },
+          "additionalProperties": false
+        },
+        "decoder_metadata": {"$ref": "#/$defs/buildPath"},
+        "documentation": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/buildPath"}},
+        "host_tests": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/buildPath"}},
+        "golden_tests": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/buildPath"}}
+      },
+      "additionalProperties": false
+    },
+    "transportContribution": {
+      "type": "object",
+      "required": ["capability", "kind", "mtu", "ordered", "bidirectional", "reliable", "mode"],
+      "properties": {
+        "capability": {"$ref": "#/$defs/capability"},
+        "kind": {"$ref": "#/$defs/lowerIdentifier"},
+        "mtu": {"type": "integer", "minimum": 1},
+        "ordered": {"type": "boolean"},
+        "bidirectional": {"type": "boolean"},
+        "reliable": {"type": "boolean"},
+        "mode": {"enum": ["stream", "datagram", "file"]}
       },
       "additionalProperties": false
     },

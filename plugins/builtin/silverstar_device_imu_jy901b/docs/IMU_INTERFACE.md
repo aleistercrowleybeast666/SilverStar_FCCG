@@ -102,7 +102,11 @@ SystemDeviceResult SystemImu_NoiseCharacteristicsGet(
 
 本接口没有Ops对象、函数指针或运行期注册。未启用的能力由Target capability在编译期阻止调用；已选择但不支持的操作返回`SYSTEM_DEVICE_UNSUPPORTED`。
 
-## 6. 噪声提示
+## 6. Canonical接口与实例诊断
+
+`SystemImu_*`是算法和Startup使用的Canonical单实例接口，当前固定绑定IMU 0；`IMU`能力只含三轴加速度和三轴角速度，不包含复合模块的气压、磁场或硬件四元数。`Generated/Inc/project_device_instances.h`另提供`ProjectImuInstance_CountGet()`及Info/Capabilities/Health/Sample/Config/I/O静态facade，供`IMU <instance>`维护、Sensor Status与`IMU_NATIVE`日志按`device_class + instance_id`读取。Generated实现使用有界`switch(instance_id)` direct case，越界返回`NOT_PRESENT`。Host fixture以两个不同Mock插件验证IMU 0/1，正式F407只生成IMU 0；未来FCCG必须为真实新增实例生成descriptor和case，不得在运行期注册、把不存在实例映射到0或自动建立Selection/Multi-INS/Multi-EKF。
+
+## 7. 噪声提示
 
 Device可以提供传感器特性，但不得直接创建KF矩阵：
 
@@ -118,7 +122,7 @@ typedef struct
 
 最终Q由System Estimator Profile和KF算法生成。
 
-## 7. JY901B参考实现
+## 8. JY901B参考实现
 
 JY901B物理驱动解析：
 
@@ -130,9 +134,11 @@ JY901B物理驱动解析：
 
 JY901B通过同一Device组件内的四个独立Adapter暴露IMU、Magnetometer、Barometer和Hardware Quaternion逻辑接口，但只有一个物理驱动、UART/DMA实例和Parser。IMU Adapter拥有全部物理配置：启用启动写入时，直接应用波特率、回传频率、带宽、加速度/角速度量程、回传内容、轴向/方向、六轴或九轴模式、融合滤波和加速度滤波等目标，然后恰好执行一次保存。该路径不得预读；保存失败必须在启动报告中明确。波特率救援、DMA启动、数据流超时和配置写入失败均须返回具体错误，不得降为成功。
 
+当前JY901B只拥有一个静态Driver context，因此`JY901B_BUILD_MULTI_INSTANCE_READY=0U`。一个JY901B同时提供多个Capability Endpoint不等于同插件多实例；不得为了多IMU测试复制第二份JY901B parser/context。真实第二IMU可由另一个合格Device插件作为IMU 1静态绑定。
+
 运行期只有`SystemImu_Process()`可以消费JY901B RX流；Magnetometer、Barometer和Hardware Quaternion的`Process`入口不得重复消费UART。共享快照在短关中断临界区内整结构复制，读者不得观察半更新字段。System Startup完成同步配置/回读后，DeviceTask调用`SystemImu_RuntimeOwnerActivate()`冻结访问上下文；当前没有运行期JY901B配置命令，因此直接接口的配置/回读在该模式下返回`SYSTEM_DEVICE_BUSY`，不得从其他任务执行UART重启、波特率切换、Save或寄存器响应等待。未来增加运行期配置时必须使用IMU物理拥有者的静态事务，不得为三个附属逻辑接口建立独立拥有者。
 
-`IMU IO`底层累计计数不因GNSS维护查询而清零。`IMU IO CLEAR`只在System Console保存当前I/O与Parser统计作为维护显示基线，后续`IMU IO`显示相对增量；它不修改JY901B内部累计计数、断流序号、Parser、DMA、数据流或健康状态。BARO、MAG和ATTITUDE共享同一物理IMU基线。启动阶段JY901B配置可能产生restart/discontinuity初值，运行期验收可以先清维护基线，再检查GNSS查询期间的新增量。
+`IMU 0 IO`底层累计计数不因GNSS维护查询而清零。`IMU 0 IO CLEAR`只在System Console按JY901B的`physical_device_id`保存当前I/O与Parser统计作为维护显示基线，后续`IMU 0 IO`显示相对增量；它不修改JY901B内部累计计数、断流序号、Parser、DMA、数据流或健康状态。BARO 0、启用时的MAG 0和ATTITUDE 0共享同一物理基线。启动阶段JY901B配置可能产生restart/discontinuity初值，运行期验收可以先清维护基线，再检查GNSS查询期间的新增量。
 
 Hardware Quaternion Adapter只暂存所需模式；Magnetometer和Barometer的物理配置同样委托给IMU Adapter。三者在配置报告中返回`SYSTEM_DEVICE_CONFIG_DELEGATED`并填写`delegated_mask`，不得再次写寄存器或保存。真实回读验证由IMU拥有者统一执行。各逻辑接口根据自己的帧类型、有效位和最近样本时间独立计算健康；加速度/角速度更新不能让磁场、气压或四元数错误地变健康。
 
@@ -151,7 +157,7 @@ JY901B accel/gyro的构建资格允许用于静止Landing判定，因此`STILLNE
 #define JY901B_IMU_BUILD_LANDING_IMPACT_QUALIFIED    0U
 ```
 
-## 8. MPU6050和BMI088兼容性
+## 9. MPU6050和BMI088兼容性
 
 MPU6050后端可以只声明加速度、角速度、温度和I2C私有端口；默认不声明硬件四元数。
 

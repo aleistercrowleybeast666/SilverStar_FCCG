@@ -15,6 +15,9 @@ from silverstar_fccg.core.errors import FccgError
 PROJECT_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_. -]{0,79}$")
 PROJECT_TOKEN_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$")
 COMPONENT_ID_PATTERN = re.compile(r"^[a-z0-9]+(?:[._-][a-z0-9]+)*$")
+CONTAINER_PLUGIN_ID_PATTERN = re.compile(
+    r"^[a-z0-9]+(?:[._/-][a-z0-9]+)*$"
+)
 SELECTION_SLOT_PATTERN = COMPONENT_ID_PATTERN
 SELECTION_OPTION_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 FIRMWARE_VERSION_PATTERN = re.compile(
@@ -28,13 +31,18 @@ RESOURCE_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 DEVICE_INSTANCE_ID_PATTERN = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 TOOLCHAIN_PREFIX_PATTERN = re.compile(r"^[A-Za-z0-9_.+-]+$")
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
-RELATIVE_FILE_PATTERN = re.compile(r"^[A-Za-z0-9_./+@-]+$")
+RELATIVE_FILE_PATTERN = re.compile(r"^[A-Za-z0-9_./+@ -]+$")
 
-PROJECT_FORMAT_VERSION = 6
+PROJECT_FORMAT_VERSION = 7
 DEFAULT_PROTOCOL_PROFILES = {
-    "telemetry": "air.compact.v0",
-    "maintenance": "maintenance.v0_0",
-    "logging": "sslog0",
+    "telemetry": "air.m0",
+    "maintenance": "maintenance.serial.0_0",
+    "logging": "flight_log.0_0",
+}
+LEGACY_PROTOCOL_PROFILE_IDS = {
+    "air.compact.v0": "air.m0",
+    "maintenance.v0_0": "maintenance.serial.0_0",
+    "sslog0": "flight_log.0_0",
 }
 DEFAULT_MODE_PARAMETERS = {
     "deployment": {
@@ -93,6 +101,15 @@ class LogStreamConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class LogDecoderProfileReference:
+    relative_path: str = ""
+    package_schema: str = "1.0"
+    container_plugin_id: str = "silverstar.sslog.container/0.0"
+    generation_profile_sha256: str = ""
+    package_sha256: str = ""
+
+
+@dataclass(frozen=True, slots=True)
 class HardwareResource:
     resource_id: str
     kind: str
@@ -144,16 +161,21 @@ class ProjectModel:
     resource_assignments: dict[str, str] = field(default_factory=dict)
     capability_source_overrides: dict[str, str] = field(default_factory=dict)
     logging_streams: list[LogStreamConfig] = field(default_factory=list)
+    log_decoder_profile: LogDecoderProfileReference = field(
+        default_factory=LogDecoderProfileReference
+    )
     build: BuildOptions = field(default_factory=BuildOptions)
     generated_glue: list[str] = field(
         default_factory=lambda: [
             "project_bindings",
             "project_capability_routes",
+            "project_device_instances",
             "platform_resources",
             "project_resources",
             "project_log_config",
             "project_metadata",
             "project_flight_config",
+            "project_log_decoder_profile",
             "project_sources",
         ]
     )
@@ -264,6 +286,17 @@ class ProjectModel:
                     }
                     for stream in self.logging_streams
                 ]
+            },
+            "log_decoder_profile": {
+                "relative_path": self.log_decoder_profile.relative_path,
+                "package_schema": self.log_decoder_profile.package_schema,
+                "container_plugin_id": (
+                    self.log_decoder_profile.container_plugin_id
+                ),
+                "generation_profile_sha256": (
+                    self.log_decoder_profile.generation_profile_sha256
+                ),
+                "package_sha256": self.log_decoder_profile.package_sha256,
             },
             "build": {
                 "target_profile": self.build.target_profile,
@@ -470,8 +503,90 @@ def _ProjectV5_Migrate(root: dict[str, Any]) -> dict[str, Any]:
         and "project_flight_config" not in generated_glue
     ):
         generated_glue.append("project_flight_config")
+    migrated["format_version"] = 6
+    return migrated
+
+
+def _ProjectV6_Migrate(root: dict[str, Any]) -> dict[str, Any]:
+    migrated = deepcopy(root)
+    project = _Object_Require(migrated.get("project"), "project")
+    name = project.get("name")
+    relative_path = f"{name}.ssdecoder" if isinstance(name, str) and name else ""
+    migrated["log_decoder_profile"] = {
+        "relative_path": relative_path,
+        "package_schema": "1.0",
+        "container_plugin_id": "silverstar.sslog.container/0.0",
+        "generation_profile_sha256": "",
+        "package_sha256": "",
+    }
+    generated_glue = migrated.get("generated_glue", [])
+    if (
+        isinstance(generated_glue, list)
+        and "project_log_decoder_profile" not in generated_glue
+    ):
+        generated_glue.append("project_log_decoder_profile")
     migrated["format_version"] = PROJECT_FORMAT_VERSION
     return migrated
+
+
+def _LogDecoderProfile_Parse(value: Any) -> LogDecoderProfileReference:
+    profile = _Object_Require(value, "log_decoder_profile")
+    expected = {
+        "relative_path",
+        "package_schema",
+        "container_plugin_id",
+        "generation_profile_sha256",
+        "package_sha256",
+    }
+    if set(profile) != expected:
+        raise ProjectModelError(
+            "log_decoder_profile has missing or unknown fields"
+        )
+    relative_path = _String_Require(
+        profile, "relative_path", allow_empty=True
+    )
+    if relative_path:
+        parts = relative_path.split("/")
+        if (
+            not RELATIVE_FILE_PATTERN.fullmatch(relative_path)
+            or "\\" in relative_path
+            or relative_path.startswith("/")
+            or any(part in ("", ".", "..") for part in parts)
+            or not relative_path.casefold().endswith(".ssdecoder")
+        ):
+            raise ProjectModelError(
+                f"Invalid log decoder profile path: {relative_path!r}"
+            )
+    package_schema = _String_Require(profile, "package_schema")
+    container_plugin_id = _String_Require(profile, "container_plugin_id")
+    if not FIRMWARE_VERSION_PATTERN.fullmatch(package_schema):
+        raise ProjectModelError("log_decoder_profile package schema is invalid")
+    if not CONTAINER_PLUGIN_ID_PATTERN.fullmatch(container_plugin_id):
+        raise ProjectModelError(
+            "log_decoder_profile container plugin id is invalid"
+        )
+    generation_profile_sha256 = _String_Require(
+        profile, "generation_profile_sha256", allow_empty=True
+    )
+    package_sha256 = _String_Require(
+        profile, "package_sha256", allow_empty=True
+    )
+    if any(
+        digest and not SHA256_PATTERN.fullmatch(digest)
+        for digest in (generation_profile_sha256, package_sha256)
+    ):
+        raise ProjectModelError("log_decoder_profile hashes are invalid")
+    if bool(generation_profile_sha256) != bool(package_sha256):
+        raise ProjectModelError(
+            "log_decoder_profile hashes must either both be present or both be empty"
+        )
+    return LogDecoderProfileReference(
+        relative_path=relative_path,
+        package_schema=package_schema,
+        container_plugin_id=container_plugin_id,
+        generation_profile_sha256=generation_profile_sha256,
+        package_sha256=package_sha256,
+    )
 
 
 def _DeviceInstances_Parse(value: Any) -> list[DeviceInstance]:
@@ -941,6 +1056,8 @@ def ProjectModel_Parse(data: dict[str, Any]) -> ProjectModel:
         root = _ProjectV4_Migrate(root)
     if root.get("format_version") == 5:
         root = _ProjectV5_Migrate(root)
+    if root.get("format_version") == 6:
+        root = _ProjectV6_Migrate(root)
     required_root = {
         "format_version",
         "project",
@@ -952,6 +1069,7 @@ def ProjectModel_Parse(data: dict[str, Any]) -> ProjectModel:
         "resources",
         "capability_sources",
         "logging",
+        "log_decoder_profile",
         "build",
         "generated_glue",
         "component_provenance",
@@ -996,7 +1114,12 @@ def ProjectModel_Parse(data: dict[str, Any]) -> ProjectModel:
     ) = _Components_Parse(root.get("components"))
     modes = _Modes_Parse(root.get("modes"))
     mode_parameters = _ModeParameters_Parse(root.get("mode_parameters"))
-    protocol_profiles = _ProtocolProfiles_Parse(root.get("protocol_profiles"))
+    protocol_profiles = {
+        category: LEGACY_PROTOCOL_PROFILE_IDS.get(profile_id, profile_id)
+        for category, profile_id in _ProtocolProfiles_Parse(
+            root.get("protocol_profiles")
+        ).items()
+    }
     hardware = _Hardware_Parse(root.get("hardware"), board=board)
     resources = _Object_Require(root.get("resources"), "resources")
     if not all(
@@ -1048,6 +1171,9 @@ def ProjectModel_Parse(data: dict[str, Any]) -> ProjectModel:
         resource_assignments=dict(resources),
         capability_source_overrides=dict(capability_sources),
         logging_streams=_Logging_Parse(root.get("logging")),
+        log_decoder_profile=_LogDecoderProfile_Parse(
+            root.get("log_decoder_profile")
+        ),
         build=_Build_Parse(root.get("build")),
         generated_glue=generated_glue,
         component_provenance=_Provenance_Parse(root.get("component_provenance")),

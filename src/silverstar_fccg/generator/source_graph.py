@@ -70,9 +70,26 @@ def SourceGraph_Resolve(model: ProjectModel, catalog: PluginCatalog) -> SourceGr
     exclude_sources: list[str] = []
     linker_scripts: list[str] = []
     toolchain_prefixes: list[str] = []
+    selected_protocol_profiles = []
     for component_id in model.ComponentIds_Get():
-        build = catalog.Component_Get(component_id).build
-        sources.extend(build.sources)
+        manifest = catalog.Component_Get(component_id)
+        build = manifest.build
+        profile_sources: set[str] = set()
+        profile_includes: set[str] = set()
+        profile_defines: set[str] = set()
+        if manifest.protocol is not None:
+            for category, profiles in manifest.protocol.profiles.items():
+                selected_id = model.protocol_profiles.get(category)
+                for profile in profiles:
+                    profile_sources.update(profile.codec_sources)
+                    profile_sources.update(profile.parser_sources)
+                    profile_includes.update(profile.include_dirs)
+                    profile_defines.update(profile.defines)
+                    if profile.profile_id == selected_id:
+                        selected_protocol_profiles.append((category, profile))
+        sources.extend(
+            source for source in build.sources if source not in profile_sources
+        )
         for slot, variants in build.strategy_sources.items():
             if slot not in model.strategies:
                 raise SourceGraphError(
@@ -85,8 +102,12 @@ def SourceGraph_Resolve(model: ProjectModel, catalog: PluginCatalog) -> SourceGr
                 else:
                     exclude_sources.extend(variant_sources)
         asm_sources.extend(build.asm_sources)
-        include_dirs.extend(build.include_dirs)
-        defines.extend(build.defines)
+        include_dirs.extend(
+            path for path in build.include_dirs if path not in profile_includes
+        )
+        defines.extend(
+            value for value in build.defines if value not in profile_defines
+        )
         mcu_flags.extend(build.mcu_flags)
         specs.extend(build.specs)
         libraries.extend(build.libraries)
@@ -97,6 +118,28 @@ def SourceGraph_Resolve(model: ProjectModel, catalog: PluginCatalog) -> SourceGr
             linker_scripts.append(build.linker_script)
         if build.toolchain_prefix:
             toolchain_prefixes.append(build.toolchain_prefix)
+    selected_profile_ids = {
+        (category, profile_id)
+        for category, profile_id in model.protocol_profiles.items()
+    }
+    resolved_profile_ids = {
+        (category, profile.profile_id)
+        for category, profile in selected_protocol_profiles
+    }
+    if selected_profile_ids != resolved_profile_ids:
+        raise SourceGraphError(
+            "Selected protocol profiles are incomplete or ambiguous"
+        )
+    for _category, profile in selected_protocol_profiles:
+        for source in (*profile.codec_sources, *profile.parser_sources):
+            if source not in sources:
+                sources.append(source)
+        for include_dir in profile.include_dirs:
+            if include_dir not in include_dirs:
+                include_dirs.append(include_dir)
+        for define in profile.defines:
+            if define not in defines:
+                defines.append(define)
     for slot, selected in model.strategies.items():
         if selected is not None:
             continue
@@ -121,6 +164,8 @@ def SourceGraph_Resolve(model: ProjectModel, catalog: PluginCatalog) -> SourceGr
     generated_sources = (
         "Generated/Src/platform_resources.c",
         "Generated/Src/project_capability_routes.c",
+        "Generated/Src/project_device_instances.c",
+        "Generated/Src/project_log_decoder_profile.c",
         "Generated/Src/project_log_config.c",
         "Generated/Src/project_metadata.c",
     )

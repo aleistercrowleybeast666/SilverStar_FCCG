@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import re
 import shutil
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -65,10 +65,46 @@ class CubeMxImporter:
         expected_mcu: str,
         provider_id: str = "silverstar.hardware_provider.stm32_cubemx",
         risk_acknowledged: bool = False,
+        progress_callback: Callable[[int, int, str, bool], None] | None = None,
     ) -> CubeMxImportResult:
+        phases = (
+            "read_ioc",
+            "parse_peripherals",
+            "parse_gpio_dma_irq",
+            "build_hardware_inventory",
+            "conflict_check",
+            "save_snapshot",
+        )
+
+        def progress(current: int, done: bool) -> None:
+            if progress_callback is not None:
+                progress_callback(
+                    current, len(phases), phases[current - 1], done
+                )
+
+        progress(1, False)
         root, ioc_path = self._Input_Resolve(input_path)
         ioc_text = self._Text_Read(ioc_path)
+        progress(1, True)
+
+        progress(2, False)
         actual_mcu = self._Mcu_Get(ioc_text)
+        peripherals = self._Peripherals_Get(ioc_text)
+        progress(2, True)
+
+        progress(3, False)
+        inventory = CubeMxInventory_Parse(ioc_text)
+        progress(3, True)
+
+        progress(4, False)
+        resources = inventory.HardwareResources_Get()
+        capabilities = tuple(
+            sorted({f"peripheral.{resource.kind}" for resource in resources})
+        )
+        warnings = self._Warnings_Get(ioc_text, peripherals, inventory)
+        progress(4, True)
+
+        progress(5, False)
         if not self._Mcu_Matches(actual_mcu, expected_mcu):
             raise CubeMxImportError(
                 f"CubeMX MCU {actual_mcu!r} does not match selected MCU {expected_mcu!r}"
@@ -77,14 +113,10 @@ class CubeMxImporter:
         self._GeneratedLayout_Validate(root)
         source_files = self._SourceFiles_Get(root)
         digest = self._SnapshotDigest_Get(root, source_files)
+        progress(5, True)
+
+        progress(6, False)
         snapshot_root = self._Snapshot_Store(root, source_files, digest)
-        peripherals = self._Peripherals_Get(ioc_text)
-        inventory = CubeMxInventory_Parse(ioc_text)
-        resources = inventory.HardwareResources_Get()
-        capabilities = tuple(
-            sorted({f"peripheral.{resource.kind}" for resource in resources})
-        )
-        warnings = self._Warnings_Get(ioc_text, peripherals, inventory)
         prefix = "HardwareGenerated/STM32CubeMX"
         core_source_root = root / "Core" / "Src"
         build_sources = tuple(
@@ -109,6 +141,7 @@ class CubeMxImporter:
             source_label=root.name,
             risk_acknowledged=risk_acknowledged,
         )
+        progress(6, True)
         return CubeMxImportResult(
             hardware=hardware,
             snapshot_root=snapshot_root,
@@ -291,7 +324,7 @@ class CubeMxImporter:
             destination.parent.parent.mkdir(parents=True, exist_ok=True)
             if destination.parent.exists():
                 self.policy.Tree_Remove(destination.parent)
-            os.replace(stage, destination.parent)
+            self.policy.Path_Replace(stage, destination.parent)
             return destination
         except Exception:
             if stage.exists():

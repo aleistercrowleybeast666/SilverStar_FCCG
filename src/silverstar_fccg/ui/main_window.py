@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import logging
+import json
 import os
+import re
 import shutil
 import subprocess
+import time
 from collections.abc import Callable
 from copy import deepcopy
 from dataclasses import dataclass, replace
@@ -40,11 +43,16 @@ from silverstar_fccg.build.toolchain import ArmGnuSubtoolPaths_Derive
 from silverstar_fccg.core.i18n import Translator
 from silverstar_fccg.core.errors import FccgError
 from silverstar_fccg.core.settings import SettingsStore
+from silverstar_fccg.core.task import (
+    TaskProgressEvent_Parse,
+    TaskProgressState,
+)
 from silverstar_fccg.core.view_models import ComponentType, ComponentView, LoggingStreamView, ToolchainToolView
 from silverstar_fccg.generator.assembler import ApplyResult, GenerationPlan
 from silverstar_fccg.generator.hardware_preparation import (
     HardwareAssignmentFingerprint_Get,
 )
+from silverstar_fccg.project.capabilities import CapabilityResolution_Resolve
 from silverstar_fccg.project.model import (
     DeviceInstance,
     HardwareConfiguration,
@@ -52,18 +60,21 @@ from silverstar_fccg.project.model import (
     ProjectModel,
 )
 from silverstar_fccg.project.logging import (
+    LogCadenceKind,
     LogAvailability_Get,
     LogPolicyLevel,
+    LoggingProfile_SelectAllAvailable,
     ProtocolLogDefinitions_Get,
 )
 from silverstar_fccg.project.lifecycle import ProjectLifecycleState
+from silverstar_fccg.project.quality_results import QualityResultRecord
 from silverstar_fccg.project.configuration import (
     ModeOptionAvailabilities_Get,
     ProjectConfigurationResult,
     StrategyAvailabilities_Get,
 )
 from silverstar_fccg.project.resources import ResourceAssignments_Resolve
-from silverstar_fccg.project.validation import ValidationIssue
+from silverstar_fccg.project.validation import Project_EditValidate, ValidationIssue
 from silverstar_fccg.ui.dialogs import NewProjectWizard
 from silverstar_fccg.ui.message_box import MessageBoxButtons_Localize
 from silverstar_fccg.ui.pages import (
@@ -85,7 +96,7 @@ class _ProjectDisplayState:
     mcus: tuple[ComponentView, ...]
     devices: tuple[ComponentView, ...]
     device_instances: tuple[Any, ...]
-    protocol_versions: tuple[str, str, str]
+    device_availability: dict[str, Any]
     selectable_components: tuple[ComponentView, ...]
     protocol_profiles: dict[str, tuple[tuple[str, str], ...]]
     strategy_availability: dict[str, Any]
@@ -99,6 +110,7 @@ class _ProjectDisplayState:
     generated_project: bool
     firmware_output_directory: Path | None
     firmware_artifact_name: str
+    quality_results: tuple[QualityResultRecord, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -138,6 +150,8 @@ class MainWindow(QMainWindow):
         self._worker_error_callback: Callable[[object], None] | None = None
         self._worker_line_callback: Callable[[str], None] | None = None
         self._worker_outcome: tuple[str, object, str] | None = None
+        self._last_task_progress = 0
+        self._task_indeterminate = False
         self._retired_workers: list[FunctionWorker] = []
         self._progress_hide_timer = QTimer(self)
         self._progress_hide_timer.setSingleShot(True)
@@ -149,6 +163,8 @@ class MainWindow(QMainWindow):
         self._displaying_model = False
         self._project_state = ProjectLifecycleState.DRAFT
         self._pending_build_action: str | None = None
+        self._active_build_action: BuildAction | None = None
+        self._build_started_at = 0.0
         self._pending_mode_changes: dict[str, list[str]] = {}
         self._pending_mode_parameter_changes: dict[
             tuple[str, str, str], float | int
@@ -157,6 +173,9 @@ class MainWindow(QMainWindow):
         self._pending_logging_streams: tuple[LoggingStreamView, ...] | None = None
         self._logging_refresh_scheduled = False
         self._validation_focus_widget: QWidget | None = None
+        self._toolchain_dialog: QDialog | None = None
+        self._install_guide_dialog: QDialog | None = None
+        self._action_enabled_snapshot: dict[object, bool] = {}
         self.setWindowTitle(PRODUCT_NAME)
         self.setAcceptDrops(True)
         self.resize(1460, 900)
@@ -277,10 +296,13 @@ class MainWindow(QMainWindow):
         self.save_action.setShortcut("Ctrl+S")
         self.save_as_action = QAction(self)
         self.save_as_action.setShortcut("Ctrl+Shift+S")
+        self.export_source_action = QAction(self)
         self.exit_action = QAction(self)
         self.file_menu.addActions(
             (self.new_action, self.open_action, self.save_action, self.save_as_action)
         )
+        self.file_menu.addSeparator()
+        self.file_menu.addAction(self.export_source_action)
         self.file_menu.addSeparator()
         self.file_menu.addAction(self.exit_action)
         self.plugin_menu = self.menuBar().addMenu("")
@@ -306,6 +328,9 @@ class MainWindow(QMainWindow):
         self.open_action.triggered.connect(self._Project_OpenDialog)
         self.save_action.triggered.connect(self._Project_Save)
         self.save_as_action.triggered.connect(self._Project_SaveAs)
+        self.export_source_action.triggered.connect(
+            self._SourcePackageExport_Request
+        )
         self.exit_action.triggered.connect(self.close)
         self.manage_plugins_action.triggered.connect(self._PluginManager_Show)
         self.install_plugin_action.triggered.connect(self._PluginInstall_Dialog)
@@ -355,8 +380,10 @@ class MainWindow(QMainWindow):
         self.flight_configuration_page.loggingChanged.connect(
             self._Logging_Change
         )
+        self.flight_configuration_page.logDecoderExportRequested.connect(
+            self._LogDecoderProfileExport_Request
+        )
         self.build_page.detectionRequested.connect(self._Toolchains_Detect)
-        self.build_page.browseRequested.connect(self._ToolchainBrowse)
         self.build_page.actionRequested.connect(self._Build_Request)
         self.plugin_manager_dialog.panel.installRequested.connect(
             self._PluginInstall_Dialog
@@ -387,16 +414,6 @@ class MainWindow(QMainWindow):
             for component in self._component_views
             if component.component_type == ComponentType.DEVICE
         )
-        protocol_versions = ("", "", "")
-        for protocol_id in model.protocol_bundles:
-            contribution = self._service.Plugin_Get(protocol_id).protocol
-            if contribution is not None:
-                protocol_versions = (
-                    contribution.firmware_version,
-                    contribution.maintenance_protocol_version,
-                    contribution.documentation_version,
-                )
-                break
         selectable = tuple(
             component for component in self._component_views if component.selection_kind
         )
@@ -436,7 +453,9 @@ class MainWindow(QMainWindow):
             device_instances=self._service.DeviceInstanceViews_Get(
                 model, self._translator.language
             ),
-            protocol_versions=protocol_versions,
+            device_availability=self._service.DeviceSelectionAvailabilities_Get(
+                model
+            ),
             selectable_components=selectable,
             protocol_profiles=protocol_profiles,
             strategy_availability=(
@@ -466,6 +485,11 @@ class MainWindow(QMainWindow):
             ),
             firmware_output_directory=firmware_output_directory,
             firmware_artifact_name=firmware_artifact_name,
+            quality_results=(
+                self._service.QualityResults_Get(self._project_root)
+                if self._project_root is not None
+                else ()
+            ),
         )
 
     def _FirmwareArtifact_Get(
@@ -478,6 +502,7 @@ class MainWindow(QMainWindow):
             directory = (
                 self._project_root
                 / "build"
+                / "FCCG"
                 / model.build.target_profile
                 / configuration
             )
@@ -513,7 +538,7 @@ class MainWindow(QMainWindow):
                 display.model.mcu,
                 display.devices,
                 display.device_instances,
-                display.protocol_versions,
+                display.device_availability,
             )
             self.flight_configuration_page.Configuration_Set(
                 display.selectable_components,
@@ -562,6 +587,7 @@ class MainWindow(QMainWindow):
                 str(display.firmware_output_directory or ""),
                 display.firmware_artifact_name,
             )
+            self.build_page.QualityResults_Set(display.quality_results)
             self._BoardPage_Refresh(display)
             self._HeaderProject_Refresh(display.model)
         finally:
@@ -570,13 +596,6 @@ class MainWindow(QMainWindow):
     def _BoardPage_Refresh(self, display: _ProjectDisplayState) -> None:
         model = display.model
         custom_selected = model.hardware.mode == "custom"
-        selected_board = (
-            self._service.Plugin_Get(model.board) if model.board else None
-        )
-        manual_check_available = custom_selected or bool(
-            selected_board is not None
-            and selected_board.metadata.get("optional_resource_bindings")
-        )
         self.board_hardware_page.Boards_Set(
             display.boards,
             model.board,
@@ -590,7 +609,6 @@ class MainWindow(QMainWindow):
                 )
             ),
             hardware_mode=model.hardware.mode,
-            manual_check_available=manual_check_available,
             assignment_confirmed=bool(
                 model.hardware.assignment_fingerprint
             ),
@@ -625,12 +643,25 @@ class MainWindow(QMainWindow):
                 version=definition.version,
                 size=definition.payload_size,
             )
+            cadence_kind = definition.cadence.kind.value
+            cadence_text = definition.cadence.DisplayName_Get(
+                self._translator.language
+            )
+            if definition.cadence.kind == LogCadenceKind.PERIODIC:
+                cadence_text = self._PeriodText_Get(stream.period_us)
+            elif not cadence_text:
+                cadence_text = self._translator.Text_Get(
+                    f"logging.cadence.{cadence_kind}"
+                )
             views.append(
                 LoggingStreamView(
                     stream_id=stream.record,
                     name=definition.DisplayName_Get(self._translator.language),
                     enabled=stream.enabled,
                     decimation=stream.decimation,
+                    cadence_kind=cadence_kind,
+                    cadence_text=cadence_text,
+                    cadence_source=definition.cadence.source,
                     description=description,
                     policy=stream.policy,
                     period_us=stream.period_us,
@@ -644,6 +675,72 @@ class MainWindow(QMainWindow):
                 )
             )
         return tuple(views)
+
+    @staticmethod
+    def _PeriodText_Get(period_us: int) -> str:
+        if period_us <= 0:
+            return "—"
+        if period_us % 1_000_000 == 0:
+            return f"{period_us // 1_000_000} s"
+        if period_us % 1_000 == 0:
+            return f"{period_us // 1_000} ms"
+        return f"{period_us} us"
+
+    def _LogDecoderProfileExport_Request(self) -> None:
+        if self._project_root is None:
+            self._Error_Show(
+                FccgError(
+                    "error.log_decoder_profile_project_not_ready",
+                    {},
+                    "The project has not been generated yet",
+                )
+            )
+            return
+        readiness = self._service.ProjectReadiness_Get(
+            self._model, self._project_root
+        )
+        if not readiness.ready:
+            detail = "\n".join(
+                (
+                    *(f"missing: {path}" for path in readiness.missing),
+                    *(f"stale: {path}" for path in readiness.stale),
+                )
+            )
+            self._Error_Show(
+                FccgError(
+                    "error.log_decoder_profile_project_not_ready",
+                    {},
+                    detail or readiness.technical_detail,
+                )
+            )
+            return
+        selected, _filter = QFileDialog.getSaveFileName(
+            self,
+            self._translator.Text_Get("dialog.export_log_decoder_profile"),
+            str(
+                Path.home()
+                / "Documents"
+                / f"{self._model.identity.name}.ssdecoder"
+            ),
+            self._translator.Text_Get("filter.silverstar_decoder_profile"),
+        )
+        if not selected:
+            return
+        try:
+            result = self._service.LogDecoderProfile_Export(
+                self._model,
+                self._project_root,
+                Path(selected),
+            )
+        except Exception as error:
+            self._Error_Show(error)
+            return
+        self.status_label.setText(
+            self._translator.Text_Get(
+                "status.log_decoder_profile_exported",
+                path=str(result.destination),
+            )
+        )
 
     @staticmethod
     def _LoggingSnapshot_Apply(
@@ -676,6 +773,7 @@ class MainWindow(QMainWindow):
         *,
         status_key: str = "status.configuration_changed_simple",
         logging_snapshot: tuple[LoggingStreamView, ...] | None = None,
+        logging_availability_changed: bool = False,
     ) -> ProjectConfigurationResult | None:
         if self._displaying_model:
             return None
@@ -690,6 +788,16 @@ class MainWindow(QMainWindow):
             previous_display = self._ProjectDisplayState_Build(self._model)
             mutator(candidate)
             result = self._service.ProjectConfiguration_Reconcile(candidate)
+            if logging_availability_changed:
+                LoggingProfile_SelectAllAvailable(
+                    result.model, self._service.catalog
+                )
+                result = replace(
+                    result,
+                    edit_validation=Project_EditValidate(
+                        result.model, self._service.catalog
+                    ),
+                )
             candidate_display = self._ProjectDisplayState_Build(
                 result.model, result
             )
@@ -739,7 +847,8 @@ class MainWindow(QMainWindow):
         if self._displaying_model or not component_id or component_id == self._model.mcu:
             return
         self._ProjectConfiguration_Change(
-            lambda candidate: setattr(candidate, "mcu", component_id)
+            lambda candidate: setattr(candidate, "mcu", component_id),
+            logging_availability_changed=True,
         )
 
     def _DeviceInstance_Change(self, instance_id: str, component_id: str) -> None:
@@ -763,7 +872,9 @@ class MainWindow(QMainWindow):
                     if item.instance_id != instance_id
                 ]
 
-        self._ProjectConfiguration_Change(change)
+        self._ProjectConfiguration_Change(
+            change, logging_availability_changed=True
+        )
 
     def _DeviceInstance_Add(self, component_class: str) -> None:
         candidates = sorted(
@@ -772,7 +883,6 @@ class MainWindow(QMainWindow):
                 for component in self._component_views
                 if component.component_type == ComponentType.DEVICE
                 and component.component_class == component_class
-                and component.multi_instance_ready
             ),
             key=lambda item: item.name,
         )
@@ -784,14 +894,29 @@ class MainWindow(QMainWindow):
             if self._service.Plugin_Get(instance.plugin).component_class
             == component_class
         ]
-        project_max = max(component.project_max for component in candidates)
-        if len(selected) >= project_max:
+        class_max = max(
+            (component.class_max or component.project_max for component in candidates),
+            default=1,
+        )
+        if len(selected) >= class_max:
+            return
+        plugin_counts: dict[str, int] = {}
+        for instance in selected:
+            plugin_counts[instance.plugin] = plugin_counts.get(instance.plugin, 0) + 1
+        available_candidates = [
+            component
+            for component in candidates
+            if plugin_counts.get(component.component_id, 0)
+            < (component.plugin_max or component.project_max)
+        ]
+        if not available_candidates:
             return
         instance_id = self._DeviceInstanceId_Next(component_class)
         self._ProjectConfiguration_Change(
             lambda candidate: candidate.device_instances.append(
-                DeviceInstance(instance_id, candidates[0].component_id)
-            )
+                DeviceInstance(instance_id, available_candidates[0].component_id)
+            ),
+            logging_availability_changed=True,
         )
 
     def _OtherDevice_Toggle(self, component_id: str, selected: bool) -> None:
@@ -860,11 +985,29 @@ class MainWindow(QMainWindow):
                     if instance.plugin != component_id
                 ]
 
-        self._ProjectConfiguration_Change(change)
+        self._ProjectConfiguration_Change(
+            change, logging_availability_changed=True
+        )
 
     def _CapabilitySource_Change(self, capability: str, instance_id: str) -> None:
         def change(candidate: ProjectModel) -> None:
-            if instance_id:
+            resolution = CapabilityResolution_Resolve(
+                candidate, self._service.catalog
+            )
+            choice = next(
+                (
+                    item
+                    for item in resolution.choices
+                    if item.capability == capability
+                ),
+                None,
+            )
+            default_instance_id = (
+                choice.providers[0].instance_id
+                if choice is not None and choice.providers
+                else ""
+            )
+            if instance_id and instance_id != default_instance_id:
                 candidate.capability_source_overrides[capability] = instance_id
             else:
                 candidate.capability_source_overrides.pop(capability, None)
@@ -900,7 +1043,9 @@ class MainWindow(QMainWindow):
             )
             candidate.resource_assignments = {}
 
-        self._ProjectConfiguration_Change(change)
+        self._ProjectConfiguration_Change(
+            change, logging_availability_changed=True
+        )
 
     def _CustomHardware_Select(self) -> None:
         provider = self._service.HardwareProviderForMcu_Get(self._model.mcu)
@@ -916,7 +1061,9 @@ class MainWindow(QMainWindow):
             )
             candidate.resource_assignments = {}
 
-        self._ProjectConfiguration_Change(change)
+        self._ProjectConfiguration_Change(
+            change, logging_availability_changed=True
+        )
 
     def _HardwarePrepare_Request(self) -> None:
         if self._model.hardware.mode == "custom":
@@ -931,11 +1078,47 @@ class MainWindow(QMainWindow):
         project_root = self._project_root
 
         def prepare_plan(context) -> tuple[ProjectModel, GenerationPlan]:
-            context.Progress_Report(0.1, "status.hardware_preparing")
+            context.ProgressEvent_Report(
+                "HARDWARE_PREPARE_PLAN",
+                TaskProgressState.PLAN,
+                total=2,
+                code="status.hardware_preparing",
+            )
+            context.ProgressEvent_Report(
+                "HARDWARE_PREPARE_PLAN",
+                TaskProgressState.BEGIN,
+                current=1,
+                total=2,
+                subject="validate_configuration",
+                code="status.hardware_validating",
+            )
             configuration = self._service.ProjectConfiguration_Reconcile(candidate)
-            context.Progress_Report(0.2, "status.hardware_validating")
+            context.ProgressEvent_Report(
+                "HARDWARE_PREPARE_PLAN",
+                TaskProgressState.DONE,
+                current=1,
+                total=2,
+                subject="validate_configuration",
+                code="status.hardware_validating",
+            )
+            context.ProgressEvent_Report(
+                "HARDWARE_PREPARE_PLAN",
+                TaskProgressState.BEGIN,
+                current=2,
+                total=2,
+                subject="plan_files",
+                code="status.hardware_preparing",
+            )
             plan = self._service.GenerationPlan_Create(
                 configuration.model, project_root
+            )
+            context.ProgressEvent_Report(
+                "HARDWARE_PREPARE_PLAN",
+                TaskProgressState.DONE,
+                current=2,
+                total=2,
+                subject="plan_files",
+                code="status.hardware_preparing",
             )
             return configuration.model, plan
 
@@ -957,13 +1140,22 @@ class MainWindow(QMainWindow):
         self._project_state = ProjectLifecycleState.MATERIALIZING
 
         def prepare(context) -> tuple[ProjectModel, ApplyResult]:
-            context.Progress_Report(0.35, "status.hardware_preparing")
+            context.ProgressEvent_Report(
+                "HARDWARE_PREPARE",
+                TaskProgressState.PLAN,
+                total=7,
+                code="status.hardware_preparing",
+            )
             result = self._service.Project_HardwarePrepare(
                 candidate,
                 plan.project_root,
                 confirm_dangerous=plan.dangerous,
+                progress_callback=self._TaskProgressCallback_Get(
+                    context,
+                    "HARDWARE_PREPARE",
+                    "status.hardware_preparing",
+                ),
             )
-            context.Progress_Report(1.0, "status.hardware_prepared")
             return candidate, result
 
         self.Task_Run(
@@ -1018,12 +1210,31 @@ class MainWindow(QMainWindow):
         if not selected:
             return
         def import_project(context):
-            context.Progress_Report(0.1, "status.cubemx_importing")
-            result = self._service.CubeMxProject_Import(
-                Path(selected), self._model, risk_acknowledged=True
+            context.ProgressEvent_Report(
+                "CUBEMX_IMPORT",
+                TaskProgressState.PLAN,
+                total=6,
+                code="status.cubemx_importing",
             )
-            context.Progress_Report(1.0, "status.cubemx_importing")
-            return result
+
+            def progress(
+                current: int, total: int, subject: str, done: bool
+            ) -> None:
+                context.ProgressEvent_Report(
+                    "CUBEMX_IMPORT",
+                    TaskProgressState.DONE if done else TaskProgressState.BEGIN,
+                    current=current,
+                    total=total,
+                    subject=subject,
+                    code="status.cubemx_importing",
+                )
+
+            return self._service.CubeMxProject_Import(
+                Path(selected),
+                self._model,
+                risk_acknowledged=True,
+                progress_callback=progress,
+            )
 
         self.Task_Run(import_project, self._CubeMxImport_Complete)
 
@@ -1033,7 +1244,9 @@ class MainWindow(QMainWindow):
             candidate.hardware = result.hardware
             candidate.resource_assignments = {}
 
-        self._ProjectConfiguration_Change(change)
+        self._ProjectConfiguration_Change(
+            change, logging_availability_changed=True
+        )
         self.status_label.setText(
             self._translator.Text_Get(
                 "status.cubemx_imported", count=len(result.peripherals)
@@ -1081,6 +1294,8 @@ class MainWindow(QMainWindow):
         )
 
     def _Resources_AutoAssign(self, *, silent: bool = False) -> None:
+        if self._model.hardware.mode != "custom":
+            return
         result = self._ProjectConfiguration_Change(lambda _candidate: None)
         if not silent and result is not None:
             self.status_label.setText(
@@ -1093,6 +1308,9 @@ class MainWindow(QMainWindow):
             )
 
     def _ResourceAssignment_Change(self, key: str, resource_id: str) -> None:
+        if self._model.hardware.mode != "custom":
+            return
+
         def change(candidate: ProjectModel) -> None:
             if resource_id:
                 candidate.resource_assignments[key] = resource_id
@@ -1102,6 +1320,8 @@ class MainWindow(QMainWindow):
         self._ProjectConfiguration_Change(change)
 
     def _HardwareAssignments_Validate(self) -> None:
+        if self._model.hardware.mode != "custom":
+            return
         result = ResourceAssignments_Resolve(
             self._model, self._service.catalog, auto_assign=False
         )
@@ -1139,7 +1359,8 @@ class MainWindow(QMainWindow):
         self._ProjectConfiguration_Change(
             lambda candidate: candidate.strategies.__setitem__(
                 slot, str(component_id) if component_id is not None else None
-            )
+            ),
+            logging_availability_changed=True,
         )
 
     def _Mode_Change(self, slot: str, values: object) -> None:
@@ -1184,7 +1405,8 @@ class MainWindow(QMainWindow):
                 )[parameter_id] = value
 
         self._ProjectConfiguration_Change(
-            change
+            change,
+            logging_availability_changed=bool(changes),
         )
 
     def _ProtocolProfile_Change(self, category: str, profile_id: str) -> None:
@@ -1193,7 +1415,8 @@ class MainWindow(QMainWindow):
         self._ProjectConfiguration_Change(
             lambda candidate: candidate.protocol_profiles.__setitem__(
                 category, profile_id
-            )
+            ),
+            logging_availability_changed=category == "logging",
         )
 
     def _Logging_Change(self) -> None:
@@ -1266,14 +1489,22 @@ class MainWindow(QMainWindow):
             return
 
         def generate(context) -> ApplyResult:
-            context.Progress_Report(0.2, "status.generation_running")
-            result = self._service.GenerationPlan_Apply(
+            context.ProgressEvent_Report(
+                "GENERATE_CODE",
+                TaskProgressState.PLAN,
+                total=7,
+                code="status.generation_running",
+            )
+            return self._service.GenerationPlan_Apply(
                 self._model,
                 plan,
                 confirm_dangerous=plan.dangerous,
+                progress_callback=self._TaskProgressCallback_Get(
+                    context,
+                    "GENERATE_CODE",
+                    "status.generation_running",
+                ),
             )
-            context.Progress_Report(1.0, "status.generation_running")
-            return result
 
         self.status_label.setText(
             self._translator.Text_Get("status.generation_running")
@@ -1381,15 +1612,20 @@ class MainWindow(QMainWindow):
         self._ValidationIssue_Clear()
         code = issue.code
         page_index = 3
-        target: QWidget = self.build_page.tool_table
-        if code.startswith(("hardware", "board", "resource")):
+        target: QWidget = self.build_page.tool_status_group
+        if code.startswith(("hardware", "board", "resource")) or code in {
+            "protocol_transport",
+            "protocol_transport_ambiguous",
+        }:
             page_index = 2
             target = (
                 self.board_hardware_page.resource_table
-                if code.startswith("resource")
+                if code.startswith("resource") or code.startswith("protocol_transport")
                 else self.board_hardware_page.board_combo
             )
-        elif code.startswith(("strategy", "mode", "capability", "logging")):
+        elif code.startswith(
+            ("strategy", "mode", "capability", "logging", "protocol")
+        ):
             page_index = 1
             if code.startswith("strategy"):
                 target = next(
@@ -1407,6 +1643,11 @@ class MainWindow(QMainWindow):
                 )
             elif code.startswith("logging"):
                 target = self.flight_configuration_page.logging_table
+            elif code.startswith("protocol"):
+                target = next(
+                    iter(self.flight_configuration_page.protocol_combos.values()),
+                    self.flight_configuration_page,
+                )
             else:
                 target = self.flight_configuration_page.capability_table
         elif code.startswith(("mcu", "device")):
@@ -1504,15 +1745,22 @@ class MainWindow(QMainWindow):
         self._project_state = ProjectLifecycleState.MATERIALIZING
 
         def save(context) -> ApplyResult:
-            context.Progress_Report(0.08, "status.project_validating")
-            context.Progress_Report(0.25, "status.project_materializing")
-            result = self._service.Project_Save(
+            context.ProgressEvent_Report(
+                "SAVE_PROJECT",
+                TaskProgressState.PLAN,
+                total=7,
+                code="status.project_validating",
+            )
+            return self._service.Project_Save(
                 self._model,
                 self._project_root,
                 confirm_dangerous=plan.dangerous,
+                progress_callback=self._TaskProgressCallback_Get(
+                    context,
+                    "SAVE_PROJECT",
+                    "status.project_materializing",
+                ),
             )
-            context.Progress_Report(1.0, "status.project_saved")
-            return result
 
         self.Task_Run(
             save,
@@ -1559,15 +1807,23 @@ class MainWindow(QMainWindow):
         self._project_state = ProjectLifecycleState.MATERIALIZING
 
         def save_as(context) -> Path:
-            context.Progress_Report(0.1, "status.project_copying")
-            destination = self._service.Project_SaveAs(
+            context.ProgressEvent_Report(
+                "SAVE_PROJECT_AS",
+                TaskProgressState.PLAN,
+                total=3,
+                code="status.project_copying",
+            )
+            return self._service.Project_SaveAs(
                 self._model,
                 self._project_root,
                 Path(selected),
                 confirm_dangerous=dangerous,
+                progress_callback=self._TaskProgressCallback_Get(
+                    context,
+                    "SAVE_PROJECT_AS",
+                    "status.project_copying",
+                ),
             )
-            context.Progress_Report(1.0, "status.project_saved")
-            return destination
 
         self.Task_Run(
             save_as,
@@ -1618,9 +1874,31 @@ class MainWindow(QMainWindow):
         if not selected:
             return
         self.Task_Run(
-            lambda _context: self._service.Plugin_Install(Path(selected)),
+            lambda context: self._PluginInstall_Task(
+                context, Path(selected)
+            ),
             self._PluginChange_Complete,
         )
+
+    def _PluginInstall_Task(self, context, archive: Path):
+        context.ProgressEvent_Report(
+            "PLUGIN_INSTALL",
+            TaskProgressState.PLAN,
+            total=4,
+        )
+
+        def progress(
+            current: int, total: int, subject: str, done: bool
+        ) -> None:
+            context.ProgressEvent_Report(
+                "PLUGIN_INSTALL",
+                TaskProgressState.DONE if done else TaskProgressState.BEGIN,
+                current=current,
+                total=total,
+                subject=subject,
+            )
+
+        return self._service.Plugin_Install(archive, progress)
 
     def _PluginRemove_Request(self, component_id: str) -> None:
         manifest = self._service.Plugin_Get(component_id)
@@ -1643,10 +1921,27 @@ class MainWindow(QMainWindow):
             QMessageBox.StandardButton.No,
         )
         if answer == QMessageBox.StandardButton.Yes:
-            self.Task_Run(
-                lambda _context: self._service.Plugin_Remove(component_id),
-                self._PluginChange_Complete,
-            )
+            def remove(context):
+                context.ProgressEvent_Report(
+                    "PLUGIN_REMOVE",
+                    TaskProgressState.PLAN,
+                    total=4,
+                )
+
+                def progress(
+                    current: int, total: int, subject: str, done: bool
+                ) -> None:
+                    context.ProgressEvent_Report(
+                        "PLUGIN_REMOVE",
+                        TaskProgressState.DONE if done else TaskProgressState.BEGIN,
+                        current=current,
+                        total=total,
+                        subject=subject,
+                    )
+
+                return self._service.Plugin_Remove(component_id, progress)
+
+            self.Task_Run(remove, self._PluginChange_Complete)
 
     def _PluginChange_Complete(self, manifest) -> None:
         self._Catalog_Load()
@@ -1656,11 +1951,72 @@ class MainWindow(QMainWindow):
         )
 
     def _Toolchains_Detect(self) -> None:
-        self.Task_Run(
-            lambda _context: self._service.Toolchains_Detect(
-                self._model.build.tool_paths
-            ),
-            self._Toolchains_Show,
+        def detect(context):
+            context.ProgressEvent_Report(
+                "TOOLCHAIN_DETECT",
+                TaskProgressState.PLAN,
+                total=3,
+            )
+
+            def progress(current: int, total: int, subject: str, done: bool) -> None:
+                context.ProgressEvent_Report(
+                    "TOOLCHAIN_DETECT",
+                    TaskProgressState.DONE if done else TaskProgressState.BEGIN,
+                    current=current,
+                    total=total,
+                    subject=subject,
+                )
+
+            return self._service.Toolchains_Detect(
+                self._model.build.tool_paths,
+                progress,
+            )
+
+        self.Task_Run(detect, self._Toolchains_Show)
+
+    def _SourcePackageExport_Request(self) -> None:
+        selected, _filter = QFileDialog.getSaveFileName(
+            self,
+            self._translator.Text_Get("dialog.export_source_package"),
+            str(self._service.workspace_root / "SilverStar_FCCG-source.zip"),
+            self._translator.Text_Get("filter.zip_archive"),
+        )
+        if not selected:
+            return
+        destination = Path(selected).resolve(strict=False)
+        def export(context):
+            planned = False
+
+            def progress(current: int, total: int, subject: str, done: bool) -> None:
+                nonlocal planned
+                if not planned:
+                    context.ProgressEvent_Report(
+                        "SOURCE_EXPORT",
+                        TaskProgressState.PLAN,
+                        total=total,
+                        code="status.exporting_source_package",
+                    )
+                    planned = True
+                context.ProgressEvent_Report(
+                    "SOURCE_EXPORT",
+                    TaskProgressState.DONE if done else TaskProgressState.BEGIN,
+                    current=current,
+                    total=total,
+                    subject=subject,
+                    code="status.exporting_source_package",
+                )
+
+            return self._service.SourcePackage_Export(destination, progress)
+
+        self.Task_Run(export, self._SourcePackageExport_Complete)
+
+    def _SourcePackageExport_Complete(self, result) -> None:
+        self.status_label.setText(
+            self._translator.Text_Get(
+                "status.source_package_exported",
+                path=str(result.destination),
+                count=result.file_count,
+            )
         )
 
     def _Toolchains_Show(self, results) -> None:
@@ -1680,15 +2036,74 @@ class MainWindow(QMainWindow):
                     if result.available and result.compatible
                     else "invalid" if result.available else "not_found"
                 ),
+                target=result.target,
             )
             for result in results
         )
         self.build_page.Tools_Set(views)
 
-    def _ToolchainBrowse(self, tool_id: str) -> None:
+        if self._toolchain_dialog is not None:
+            self._toolchain_dialog.close()
+        dialog = QDialog(self)
+        dialog.setWindowTitle(
+            self._translator.Text_Get("dialog.toolchain_detection_results")
+        )
+        dialog.setMinimumWidth(760)
+        layout = QVBoxLayout(dialog)
+        for result, view in zip(results, views, strict=True):
+            row = QWidget(dialog)
+            row_layout = QHBoxLayout(row)
+            row_layout.setContentsMargins(0, 3, 0, 3)
+            name = QLabel(view.display_name)
+            name.setMinimumWidth(170)
+            detail = QLabel(
+                "\n".join(
+                    value
+                    for value in (
+                        view.path or view.command,
+                        view.version,
+                        result.target,
+                    )
+                    if value
+                )
+            )
+            detail.setWordWrap(True)
+            status = QLabel(
+                self._translator.Text_Get(f"tool.status.{view.status}")
+            )
+            status.setObjectName("statusPill")
+            status.setProperty(
+                "statusLevel",
+                "success" if view.status == "found" else "error",
+            )
+            choose = QPushButton(
+                self._translator.Text_Get("action.select_installed_location")
+            )
+            choose.clicked.connect(
+                lambda _checked=False, tool_id=view.tool_id: self._ToolchainBrowse(
+                    tool_id
+                )
+            )
+            row_layout.addWidget(name)
+            row_layout.addWidget(detail, 1)
+            row_layout.addWidget(status)
+            row_layout.addWidget(choose)
+            layout.addWidget(row)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        buttons.rejected.connect(dialog.close)
+        layout.addWidget(buttons)
+        dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+        dialog.destroyed.connect(
+            lambda _object=None: setattr(self, "_toolchain_dialog", None)
+        )
+        self._toolchain_dialog = dialog
+        dialog.show()
+
+    def _ToolchainBrowse(self, tool_id: str) -> bool:
+        tool_name = self._translator.Text_Get(f"tool.{tool_id}")
         selected, _filter = QFileDialog.getOpenFileName(
             self,
-            self._translator.Text_Get("dialog.select_tool", tool=tool_id),
+            self._translator.Text_Get("dialog.select_tool", tool=tool_name),
         )
         if selected:
             def change(candidate: ProjectModel) -> None:
@@ -1701,11 +2116,21 @@ class MainWindow(QMainWindow):
                 candidate.build = replace(candidate.build, tool_paths=paths)
 
             self._ProjectConfiguration_Change(change)
+            self.status_label.setText(
+                self._translator.Text_Get(
+                    "status.tool_path_selected", tool=tool_name
+                )
+            )
+            return True
+        return False
 
     def _Build_Request(self, action_text: str) -> None:
         self._ProjectModel_Sync()
         if action_text == "generate_apply":
             self._Project_Save()
+            return
+        if action_text == "tool_install_guide":
+            self._ToolInstallGuide_Show()
             return
         if action_text in {"open_vscode", "open_folder"}:
             self._GeneratedProject_Open(action_text)
@@ -1723,6 +2148,7 @@ class MainWindow(QMainWindow):
         actions = {
             "build": BuildAction.BUILD,
             "clean": BuildAction.CLEAN,
+            "clean_all": BuildAction.CLEAN_ALL,
             "host_tests": BuildAction.HOST_TESTS,
             "architecture_check": BuildAction.ARCHITECTURE_CHECK,
             "power10_check": BuildAction.POWER10_CHECK,
@@ -1747,25 +2173,38 @@ class MainWindow(QMainWindow):
             if not self._GenerationPlan_ApplyAllowed(plan):
                 return
         self._project_state = ProjectLifecycleState.BUILDING
+        self._active_build_action = action
+        self._build_started_at = time.perf_counter()
         self.build_page.BuildLog_Set("")
+        self.build_page.BuildDetailLog_Set("")
 
         def build(context) -> BuildResult:
             if materialization_required:
                 assert plan is not None
-                context.Progress_Report(0.08, "status.project_materializing")
+                context.Progress_Report(0.04, "status.project_materializing")
                 self._service.Project_EnsureBuildable(
                     self._model,
                     project_root,
                     confirm_dangerous=plan.dangerous,
                 )
-            context.Progress_Report(0.28, "status.build_planning")
+            context.Progress_Report(
+                0.10 if materialization_required else 0.0,
+                (
+                    "status.build_planning"
+                    if action == BuildAction.BUILD
+                    else f"status.task.{action.value}"
+                ),
+            )
 
             def progress_report(progress: BuildProgress) -> None:
                 if progress.stage == "PLAN":
-                    context.Line_Report(
-                        "FCCG_UI_PLAN|"
-                        f"{progress.total_steps}|{progress.stage_total}"
-                    )
+                    if action == BuildAction.BUILD:
+                        context.Line_Report(
+                            "FCCG_UI_PLAN|"
+                            f"{progress.total_steps}|{progress.stage_total}"
+                        )
+                    else:
+                        context.Line_Report(f"FCCG_UI_TASK|{action.value}")
                     return
                 if progress.stage == "COMPLETE":
                     fraction = 1.0
@@ -1774,7 +2213,11 @@ class MainWindow(QMainWindow):
                 else:
                     fraction = 0.0
                 context.Progress_Report(
-                    0.30 + (0.68 * max(0.0, min(1.0, fraction))),
+                    (
+                        0.10 + (0.89 * max(0.0, min(1.0, fraction)))
+                        if materialization_required
+                        else max(0.0, min(0.99, fraction))
+                    ),
                     "status.build_running",
                 )
                 context.Line_Report(
@@ -1793,13 +2236,15 @@ class MainWindow(QMainWindow):
                 progress_callback=progress_report,
                 ensure_buildable=False,
             )
-            context.Progress_Report(1.0, "status.build_running")
+            if result.succeeded:
+                context.Progress_Report(1.0, "status.build_running")
             return result
 
         self.Task_Run(
             build,
             self._Build_Complete,
             self._Build_Error,
+            indeterminate=False,
             line_callback=self._BuildLine_Append,
         )
 
@@ -1842,12 +2287,20 @@ class MainWindow(QMainWindow):
             launched = QDesktopServices.openUrl(QUrl.fromLocalFile(str(target)))
         if not launched:
             if action_text == "open_vscode":
-                self._Error_Show(
+                logging.error(
+                    "VS Code workspace launch failed: %s\n%s",
+                    target,
+                    launch_result.reason,
+                )
+                self._MessageBox_Exec(
+                    QMessageBox.Icon.Critical,
+                    self._translator.Text_Get("dialog.vscode_launch_failed"),
                     self._translator.Text_Get(
                         "error.vscode_launch_failed",
                         path=str(target.resolve()),
-                        reason=launch_result.reason,
-                    )
+                    ),
+                    QMessageBox.StandardButton.Ok,
+                    QMessageBox.StandardButton.Ok,
                 )
             else:
                 self._Error_Show(
@@ -1857,23 +2310,113 @@ class MainWindow(QMainWindow):
                     )
                 )
             return
-        self.status_label.setText(
-            self._translator.Text_Get(
-                "status.generated_project_opened", path=str(target)
-            )
+        status_key = (
+            "status.vscode_launch_requested"
+            if action_text == "open_vscode"
+            else "status.generated_project_opened"
         )
+        self.status_label.setText(
+            self._translator.Text_Get(status_key, path=str(target))
+        )
+
+    def _ToolInstallGuide_Show(self) -> None:
+        if self._install_guide_dialog is not None:
+            self._install_guide_dialog.raise_()
+            self._install_guide_dialog.activateWindow()
+            return
+        dialog = QDialog(self)
+        dialog.setWindowTitle(
+            self._translator.Text_Get("dialog.tool_install_guide")
+        )
+        dialog.setMinimumWidth(620)
+        layout = QVBoxLayout(dialog)
+        introduction = QLabel(
+            self._translator.Text_Get("tool.install_guide.introduction")
+        )
+        introduction.setWordWrap(True)
+        layout.addWidget(introduction)
+        for title_key, purpose_key, label, url in (
+            (
+                "tool.compiler",
+                "tool.install_guide.arm_purpose",
+                "https://learn.arm.com/install-guides/gcc/arm-gnu/",
+                "https://learn.arm.com/install-guides/gcc/arm-gnu/",
+            ),
+            (
+                "tool.install_guide.msys2_title",
+                "tool.install_guide.msys2_purpose",
+                "https://www.msys2.org/",
+                "https://www.msys2.org/",
+            ),
+        ):
+            title = QLabel(self._translator.Text_Get(title_key))
+            title.setObjectName("sectionLabel")
+            layout.addWidget(title)
+            purpose = QLabel(self._translator.Text_Get(purpose_key))
+            purpose.setWordWrap(True)
+            layout.addWidget(purpose)
+            link = QLabel(f'<a href="{url}">{label}</a>')
+            link.setTextFormat(Qt.TextFormat.RichText)
+            link.setTextInteractionFlags(Qt.TextInteractionFlag.TextBrowserInteraction)
+            link.setOpenExternalLinks(False)
+            link.linkActivated.connect(self._OfficialLink_Open)
+            layout.addWidget(link)
+        closing = QLabel(self._translator.Text_Get("tool.install_guide.closing"))
+        closing.setWordWrap(True)
+        layout.addWidget(closing)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        buttons.rejected.connect(dialog.close)
+        layout.addWidget(buttons)
+        dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+        dialog.destroyed.connect(
+            lambda _object=None: setattr(self, "_install_guide_dialog", None)
+        )
+        self._install_guide_dialog = dialog
+        dialog.show()
+
+    def _OfficialLink_Open(self, url: str) -> None:
+        if not QDesktopServices.openUrl(QUrl(url)):
+            self._Error_Show(
+                self._translator.Text_Get("error.open_official_link", url=url)
+            )
+
+    def _VsCodeWorkspace_Validate(self, workspace_file: Path) -> str:
+        if not workspace_file.is_file():
+            return self._translator.Text_Get("error.vscode_workspace_missing")
+        try:
+            workspace = json.loads(workspace_file.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as error:
+            return self._translator.Text_Get(
+                "error.vscode_workspace_json", reason=str(error)
+            )
+        folders = workspace.get("folders") if isinstance(workspace, dict) else None
+        if not isinstance(folders, list) or not folders or not isinstance(
+            folders[0], dict
+        ):
+            return self._translator.Text_Get("error.vscode_workspace_folder")
+        folder_path = folders[0].get("path")
+        if not isinstance(folder_path, str) or not folder_path:
+            return self._translator.Text_Get("error.vscode_workspace_folder")
+        resolved_folder = (
+            workspace_file.parent / folder_path
+        ).resolve(strict=False)
+        if resolved_folder != workspace_file.parent.resolve(strict=False):
+            return self._translator.Text_Get("error.vscode_workspace_folder")
+        if not (workspace_file.parent / ".eide" / "eide.yml").is_file():
+            return self._translator.Text_Get("error.vscode_eide_missing")
+        return ""
 
     def _VsCodeWorkspace_Launch(
         self, workspace_file: Path
     ) -> _WorkspaceLaunchResult:
+        validation_error = self._VsCodeWorkspace_Validate(workspace_file)
+        if validation_error:
+            return _WorkspaceLaunchResult(False, validation_error)
         candidates: list[Path] = []
-        for command in ("code.exe", "code.cmd", "code"):
+        for command in ("code.cmd", "code.exe", "code"):
             resolved = shutil.which(command)
             if resolved:
-                candidate = Path(resolved)
-                if candidate.suffix.casefold() in {".cmd", ".bat"}:
-                    candidates.append(candidate.parent.parent / "Code.exe")
-                candidates.append(candidate)
+                candidates.append(Path(resolved))
         local_app_data = os.environ.get("LOCALAPPDATA", "")
         program_files = os.environ.get("ProgramFiles", "")
         program_files_x86 = os.environ.get("ProgramFiles(x86)", "")
@@ -1896,15 +2439,24 @@ class MainWindow(QMainWindow):
         workspace_path = workspace_file.resolve()
         for candidate in unique:
             if candidate.suffix.casefold() in {".cmd", ".bat"}:
-                batch_command = "call " + subprocess.list2cmdline(
+                batch_command = subprocess.list2cmdline(
                     [str(candidate), "--new-window", str(workspace_path)]
                 )
-                command_line = [
-                    os.environ.get("COMSPEC", "cmd.exe"),
-                    "/d",
-                    "/c",
-                    batch_command,
-                ]
+                command_prefix = subprocess.list2cmdline(
+                    [
+                        os.environ.get("COMSPEC", "cmd.exe"),
+                        "/d",
+                        "/s",
+                        "/c",
+                    ]
+                )
+                # cmd.exe /s /c requires one extra outer quote pair when the
+                # batch path itself is quoted. Passing the complete command
+                # line avoids Python's CRT argument quoting from turning those
+                # inner quotes into literal characters.
+                command_line: str | list[str] = (
+                    f'{command_prefix} "{batch_command}"'
+                )
                 creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
             else:
                 command_line = [
@@ -1914,10 +2466,19 @@ class MainWindow(QMainWindow):
                 ]
                 creation_flags = 0
             try:
+                logging.info(
+                    "VS Code launcher command=%r workspace=%s cwd=%s",
+                    command_line,
+                    workspace_path,
+                    workspace_file.parent.resolve(),
+                )
                 process = subprocess.Popen(
                     command_line,
                     cwd=str(workspace_file.parent.resolve()),
                     creationflags=creation_flags,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.PIPE,
+                    text=True,
                 )
             except OSError as error:
                 logging.exception("VS Code launcher failed: %s", candidate)
@@ -1929,10 +2490,19 @@ class MainWindow(QMainWindow):
                     )
                 )
                 continue
-            return_code = process.poll()
+            try:
+                return_code = process.wait(timeout=0.8)
+            except subprocess.TimeoutExpired:
+                return_code = None
+            stderr = ""
+            if return_code is not None and process.stderr is not None:
+                stderr = process.stderr.read().strip()
             if return_code is None or return_code == 0:
                 logging.info(
-                    "VS Code workspace launch accepted: %s", workspace_file
+                    "VS Code workspace launch accepted: launcher=%s return=%s stderr=%s",
+                    candidate,
+                    return_code,
+                    stderr,
                 )
                 return _WorkspaceLaunchResult(True)
             logging.warning(
@@ -1940,6 +2510,8 @@ class MainWindow(QMainWindow):
                 return_code,
                 candidate,
             )
+            if stderr:
+                logging.warning("VS Code launcher stderr: %s", stderr)
             failures.append(
                 self._translator.Text_Get(
                     "error.vscode_launcher_exit",
@@ -1981,14 +2553,46 @@ class MainWindow(QMainWindow):
             if result.succeeded
             else ProjectLifecycleState.ERROR
         )
+        self._QualityResult_Record(
+            result.action,
+            result.succeeded,
+            self._QualitySummary_Get(result),
+        )
         if not result.succeeded:
+            self.build_page.advanced_section.toggle_button.setChecked(True)
             self._Error_Show(
-                self._translator.Text_Get("error.build_failed_summary")
+                self._translator.Text_Get(
+                    self._BuildFailureSummaryKey_Get(result.action)
+                ),
+                raw_output,
             )
         else:
             self._Project_Refresh()
+        self._active_build_action = None
 
     def _BuildLine_Append(self, line: str) -> None:
+        if line.startswith("FCCG_DETAIL|"):
+            self.build_page.BuildDetailLog_Append(line.split("|", 1)[1])
+            return
+        if line.startswith("FCCG_EXPECTED_REJECTION|"):
+            _prefix, subject = line.split("|", 1)
+            subject_key = f"host.expected_rejection.{subject}"
+            subject_text = self._translator.Text_Get(subject_key)
+            if subject_text == subject_key:
+                subject_text = subject.replace("_", " ")
+            text = self._translator.Text_Get(
+                "host.expected_rejection_passed",
+                subject=subject_text,
+            )
+            self.status_label.setText(text)
+            self.build_page.BuildLog_Append(text)
+            return
+        if line.startswith("FCCG_UI_TASK|"):
+            _prefix, action = line.split("|", 1)
+            text = self._translator.Text_Get(f"status.task.{action}")
+            self.status_label.setText(text)
+            self.build_page.BuildLog_Append(text)
+            return
         if line.startswith("FCCG_UI_PLAN|"):
             _prefix, total, compile_count = line.split("|", 2)
             text = self._translator.Text_Get(
@@ -2003,10 +2607,17 @@ class MainWindow(QMainWindow):
             _prefix, stage, current, total, subject = line.split("|", 4)
             if stage == "COMPLETE":
                 return
-            key = (
+            key = {
+                "ANALYZE": "build.progress.static_analysis",
+                "DEPENDENCY_COMPILE": "build.progress.dependency_compile",
+                "HOST_TEST": "build.progress.host_test",
+                "HOST_COMPILE_PASS": "build.progress.host_compile_pass",
+                "HOST_EXPECTED_FAILURE": "build.progress.host_expected_failure",
+            }.get(
+                stage,
                 "build.progress.compile"
                 if stage == "COMPILE"
-                else "build.progress.stage"
+                else "build.progress.stage",
             )
             text = self._translator.Text_Get(
                 key,
@@ -2030,7 +2641,89 @@ class MainWindow(QMainWindow):
             else str(error)
         )
         self.build_page.BuildLog_Append(technical_detail)
-        self._Error_Show(error)
+        action = self._active_build_action
+        if action is not None:
+            self._QualityResult_Record(action, False, "error")
+        self.build_page.advanced_section.toggle_button.setChecked(True)
+        self.build_page.build_detail_section.toggle_button.setChecked(True)
+        if action in {
+            BuildAction.HOST_TESTS,
+            BuildAction.ARCHITECTURE_CHECK,
+            BuildAction.POWER10_CHECK,
+            BuildAction.STATIC_ANALYSIS,
+            BuildAction.ARTIFACT_CHECK,
+        }:
+            self._Error_Show(
+                self._translator.Text_Get(
+                    self._BuildFailureSummaryKey_Get(action)
+                ),
+                technical_detail,
+            )
+        else:
+            self._Error_Show(error)
+        self._active_build_action = None
+
+    @staticmethod
+    def _BuildFailureSummaryKey_Get(action: BuildAction) -> str:
+        return {
+            BuildAction.HOST_TESTS: "error.host_tests_failed_summary",
+            BuildAction.ARCHITECTURE_CHECK: "error.architecture_check_failed_summary",
+            BuildAction.POWER10_CHECK: "error.power10_check_failed_summary",
+            BuildAction.STATIC_ANALYSIS: "error.static_analysis_failed_summary",
+            BuildAction.ARTIFACT_CHECK: "error.artifact_check_failed_summary",
+        }.get(action, "error.build_failed_summary")
+
+    @staticmethod
+    def _QualitySummary_Get(result: BuildResult) -> str:
+        if not result.succeeded:
+            return f"exit_code={result.return_code}"
+        patterns = (
+            r"SilverStar host summary:.*?checks=(\d+)",
+            r"architecture check passed:\s*checks=(\d+)",
+            r"Power of Ten check passed:\s*(\d+)\s+checks",
+        )
+        for pattern in patterns:
+            match = re.search(pattern, result.output, re.IGNORECASE)
+            if match is not None:
+                return f"checks={match.group(1)}"
+        return {
+            BuildAction.STATIC_ANALYSIS: "analysis_passed",
+            BuildAction.ARTIFACT_CHECK: "artifact_validated",
+        }.get(result.action, "completed")
+
+    def _QualityResult_Record(
+        self, action: BuildAction, succeeded: bool, summary: str
+    ) -> None:
+        if action not in {
+            BuildAction.HOST_TESTS,
+            BuildAction.ARCHITECTURE_CHECK,
+            BuildAction.POWER10_CHECK,
+            BuildAction.STATIC_ANALYSIS,
+            BuildAction.ARTIFACT_CHECK,
+        } or self._project_root is None:
+            return
+        duration = (
+            time.perf_counter() - self._build_started_at
+            if self._build_started_at > 0.0
+            else 0.0
+        )
+        try:
+            record = self._service.QualityResult_Record(
+                self._project_root,
+                task=action.value,
+                succeeded=succeeded,
+                duration=duration,
+                summary=summary,
+            )
+        except Exception as error:
+            self.build_page.BuildLog_Append(str(error))
+            return
+        records = {
+            saved.task: saved
+            for saved in self._service.QualityResults_Get(self._project_root)
+        }
+        records[record.task] = record
+        self.build_page.QualityResults_Set(records.values())
 
     def Task_Run(
         self,
@@ -2053,6 +2746,8 @@ class MainWindow(QMainWindow):
         self._worker_error_callback = error_callback
         self._worker_line_callback = line_callback
         self._worker_outcome = None
+        self._last_task_progress = 0
+        self._task_indeterminate = indeterminate
         worker.signals.progress.connect(self._Task_Progress)
         worker.signals.line.connect(self._Task_Line)
         worker.signals.result.connect(self._Task_Result)
@@ -2068,20 +2763,58 @@ class MainWindow(QMainWindow):
         self._thread_pool.start(worker)
         return True
 
+    @staticmethod
+    def _TaskProgressCallback_Get(context, task: str, code: str):
+        def progress(
+            current: int, total: int, subject: str, done: bool
+        ) -> None:
+            context.ProgressEvent_Report(
+                task,
+                TaskProgressState.DONE if done else TaskProgressState.BEGIN,
+                current=current,
+                total=total,
+                subject=subject,
+                code=code,
+                check_cancellation=not (done and current == total),
+            )
+
+        return progress
+
     def _Task_Progress(self, progress: float, code: str) -> None:
-        self.progress_bar.setValue(int(max(0.0, min(1.0, progress)) * 1000))
+        self._last_task_progress = int(
+            max(0.0, min(1.0, progress)) * 1000
+        )
+        if not self._task_indeterminate:
+            self.progress_bar.setValue(self._last_task_progress)
         self.status_label.setText(self._translator.Text_Get(code))
 
     def _Task_Result(self, result: Any) -> None:
         self._worker_outcome = ("result", result, "")
 
     def _Task_Line(self, line: str) -> None:
+        progress_event = TaskProgressEvent_Parse(line)
+        if progress_event is not None:
+            current = (
+                0
+                if progress_event.state == TaskProgressState.PLAN
+                else progress_event.current
+            )
+            self.status_label.setText(
+                self._translator.Text_Get(
+                    "task.progress.running",
+                    task=progress_event.task.replace("_", " "),
+                    current=current,
+                    total=progress_event.total,
+                    subject=progress_event.subject.replace("_", " ") or "—",
+                )
+            )
         if self._worker_line_callback is not None:
             self._worker_line_callback(line)
 
     def _Task_Error(self, error: object, traceback_text: str) -> None:
         logging.error("Background task failed:\n%s", traceback_text)
         self._worker_outcome = ("error", error, traceback_text)
+        self.status_label.setText(self._translator.Text_Get("status.failed"))
 
     def _Task_Cancelled(self) -> None:
         self._worker_outcome = ("cancelled", None, "")
@@ -2099,8 +2832,24 @@ class MainWindow(QMainWindow):
         self._worker_error_callback = None
         self._worker_line_callback = None
         self._worker_outcome = None
+        succeeded = bool(
+            outcome is not None
+            and outcome[0] == "result"
+            and bool(getattr(outcome[1], "succeeded", True))
+        )
         self.progress_bar.setRange(0, 1000)
-        self.progress_bar.setValue(1000)
+        self.progress_bar.setValue(1000 if succeeded else self._last_task_progress)
+        self.progress_bar.setProperty(
+            "taskState",
+            "success"
+            if succeeded
+            else "cancelled"
+            if outcome is not None and outcome[0] == "cancelled"
+            else "error",
+        )
+        self.progress_bar.style().unpolish(self.progress_bar)
+        self.progress_bar.style().polish(self.progress_bar)
+        self._task_indeterminate = False
         self.cancel_button.setVisible(False)
         self._Actions_SetEnabled(True)
         self._progress_hide_timer.start(350)
@@ -2145,18 +2894,30 @@ class MainWindow(QMainWindow):
             self._active_worker.Worker_Cancel()
 
     def _Actions_SetEnabled(self, enabled: bool) -> None:
-        self.new_action.setEnabled(enabled)
-        self.open_action.setEnabled(enabled)
-        self.save_action.setEnabled(enabled)
-        self.save_as_action.setEnabled(enabled)
-        self.manage_plugins_action.setEnabled(enabled)
-        self.install_plugin_action.setEnabled(enabled)
-        self.refresh_plugins_action.setEnabled(enabled)
-        self.board_hardware_page.prepare_button.setEnabled(
-            enabled and self._model.hardware.mode == "board_plugin"
+        controls = (
+            self.new_action,
+            self.open_action,
+            self.save_action,
+            self.save_as_action,
+            self.export_source_action,
+            self.manage_plugins_action,
+            self.install_plugin_action,
+            self.refresh_plugins_action,
+            self.board_hardware_page.prepare_button,
+            *self.build_page.action_buttons.values(),
+            self.build_page.detect_button,
         )
-        for button in self.build_page.action_buttons.values():
-            button.setEnabled(enabled)
+        if not enabled:
+            self._action_enabled_snapshot = {
+                control: control.isEnabled() for control in controls
+            }
+            for control in controls:
+                control.setEnabled(False)
+            return
+        snapshot = self._action_enabled_snapshot
+        self._action_enabled_snapshot = {}
+        for control in controls:
+            control.setEnabled(snapshot.get(control, True))
 
     def _HeaderProject_Refresh(self, model: ProjectModel | None = None) -> None:
         displayed_model = model or self._model
@@ -2219,6 +2980,7 @@ class MainWindow(QMainWindow):
             (self.open_action, "action.open_project"),
             (self.save_action, "action.save_project"),
             (self.save_as_action, "action.save_project_as"),
+            (self.export_source_action, "action.export_source_package"),
             (self.exit_action, "action.exit"),
             (self.manage_plugins_action, "action.manage_plugins"),
             (self.install_plugin_action, "action.install_plugin"),
@@ -2242,6 +3004,8 @@ class MainWindow(QMainWindow):
             Theme_Apply(application, self._theme)
         WindowCaption_Apply(self, self._theme)
         self._settings.Value_Set("theme", self._theme)
+        if self._component_views:
+            self._Project_Refresh()
 
     def _About_Show(self) -> None:
         self._MessageBox_Exec(
@@ -2319,7 +3083,9 @@ class MainWindow(QMainWindow):
             path = Path(url.toLocalFile())
             if path.suffix.casefold() == ".ssplugin":
                 self.Task_Run(
-                    lambda _context, archive=path: self._service.Plugin_Install(archive),
+                    lambda context, archive=path: self._PluginInstall_Task(
+                        context, archive
+                    ),
                     self._PluginChange_Complete,
                 )
                 break

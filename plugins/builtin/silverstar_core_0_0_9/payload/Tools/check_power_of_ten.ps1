@@ -247,6 +247,9 @@ function Get-PatternDiagnostics {
 }
 
 $files = Get-FirstPartyCFiles
+$progressTotal = $files.Count + 2
+$progressCurrent = 0
+Write-Output "FCCG_PROGRESS|POWER10|PLAN|$progressTotal"
 $allFunctions = @()
 $patternRules = @(
     @{ Name = 'goto/setjmp/longjmp'; Pattern = '\bgoto\b|\b(?:setjmp|longjmp)\s*\(' },
@@ -258,6 +261,9 @@ $patternRules = @(
 )
 
 foreach ($file in $files) {
+    $progressCurrent++
+    $progressSubject = $file.FullName.Substring($repoRoot.Length + 1)
+    Write-Output "FCCG_PROGRESS|POWER10|BEGIN|$progressCurrent|$progressTotal|$progressSubject"
     $rawText = Get-Content -Raw -LiteralPath $file.FullName
     $sanitized = Get-CSourceWithoutCommentsOrLiterals -Text $rawText
     $lines = @($sanitized -split "`r?`n")
@@ -298,8 +304,11 @@ foreach ($file in $files) {
             Text = $function.Text
         }
     }
+    Write-Output "FCCG_PROGRESS|POWER10|DONE|$progressCurrent|$progressTotal|$progressSubject"
 }
 
+$progressCurrent++
+Write-Output "FCCG_PROGRESS|POWER10|BEGIN|$progressCurrent|$progressTotal|function_rules"
 foreach ($function in $allFunctions) {
     Add-PowerTenCheck -Condition ($function.CodeLines -le 60) -Message (
         '{0}:{1}: function {2} has {3} non-comment code lines (maximum 60)' -f
@@ -328,7 +337,10 @@ foreach ($function in $allFunctions) {
                 $function.File, $function.StartLine, $function.Name)
     }
 }
+Write-Output "FCCG_PROGRESS|POWER10|DONE|$progressCurrent|$progressTotal|function_rules"
 
+$progressCurrent++
+Write-Output "FCCG_PROGRESS|POWER10|BEGIN|$progressCurrent|$progressTotal|build_policy"
 $makefile = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'Makefile')
 $requiredWarnings = @(
     '-Wall', '-Wextra', '-Wpedantic', '-Werror', '-Wconversion',
@@ -365,3 +377,4 @@ $successMessage = ("Power of Ten check passed: {0} checks, {1} " +
     "first-party C files, {2} functions.") -f $script:checkCount,
     $files.Count, $allFunctions.Count
 Write-Host $successMessage -ForegroundColor Green
+Write-Output "FCCG_PROGRESS|POWER10|DONE|$progressCurrent|$progressTotal|build_policy"

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import time
+import yaml
 from dataclasses import replace
 from pathlib import Path
 
@@ -11,11 +12,17 @@ from silverstar_fccg.app.service import FccgService
 from silverstar_fccg.core.i18n import Translator
 from silverstar_fccg.core.settings import SettingsStore
 from silverstar_fccg.generator.source_graph import SourceGraph_Resolve
+from silverstar_fccg.generator.render import (
+    _DeviceInstancesHeader_Render,
+    _DeviceInstancesSource_Render,
+    _MetadataSource_Render,
+)
 from silverstar_fccg.plugins.catalog import PluginCatalog
 from silverstar_fccg.project.capabilities import (
     CapabilityKind,
     CapabilityKind_Get,
     CapabilityResolution_Resolve,
+    CapabilitySourceOverrides_Reconcile,
 )
 from silverstar_fccg.project.logging import (
     LogAvailability_Get,
@@ -136,7 +143,8 @@ def _MultiInstanceDeviceCatalog_Create(
             "type": "device",
             "class": component_class,
             "instance_policy": {
-                "project_max": 2,
+                "plugin_max": 2,
+                "class_max": 2,
                 "same_plugin_multiple": True,
                 "multi_instance_ready": True,
             },
@@ -168,7 +176,124 @@ def _MultiInstanceDeviceCatalog_Create(
                 "display_names": {
                     "zh_CN": f"上下文化 {component_class.upper()}",
                     "en_US": f"Contextual {component_class.upper()}",
-                }
+                },
+                "device_descriptors": [
+                    {
+                        "order": 1 if component_class == "imu" else 2,
+                        "physical_device_id": (
+                            "PROJECT_PHYSICAL_DEVICE_ID_FIXTURE_IMU"
+                            if component_class == "imu"
+                            else "PROJECT_PHYSICAL_DEVICE_ID_FIXTURE_GNSS"
+                        ),
+                        "class": (
+                            "SYSTEM_DEVICE_CLASS_IMU"
+                            if component_class == "imu"
+                            else "SYSTEM_DEVICE_CLASS_GNSS"
+                        ),
+                        "flags": "SYSTEM_DESCRIPTOR_FLAG_ENABLED",
+                        "capability": (
+                            "SYSTEM_CAPABILITY_IMU"
+                            if component_class == "imu"
+                            else "SYSTEM_CAPABILITY_GNSS"
+                        ),
+                        "rate": "100U",
+                        "driver_hash": "0x12345678UL",
+                        "name_hash": "0x87654321UL",
+                    }
+                ],
+                "device_instance_bindings": {
+                    (
+                        "SYSTEM_DEVICE_CLASS_IMU"
+                        if component_class == "imu"
+                        else "SYSTEM_DEVICE_CLASS_GNSS"
+                    ): {
+                        "function_prefix": (
+                            "FixtureImu"
+                            if component_class == "imu"
+                            else "FixtureGnss"
+                        ),
+                        "pass_instance": True,
+                    }
+                },
+            },
+        }
+        (package / "plugin.json").write_text(
+            json.dumps(manifest, ensure_ascii=False), encoding="utf-8"
+        )
+    catalog = PluginCatalog(workspace_root / "plugins" / "builtin", installed_root)
+    catalog.Scan()
+    return catalog
+
+
+def _MixedSingletonDeviceCatalog_Create(
+    workspace_root: Path, installed_root: Path
+) -> PluginCatalog:
+    capabilities = (
+        "device.imu",
+        "imu.acceleration",
+        "imu.angular_rate",
+        "attitude.external",
+        "magnetometer.field",
+        "barometer.altitude",
+        "attitude.external.preflight_alignment_6axis_qualified",
+        "attitude.external.preflight_alignment_9axis_qualified",
+        "attitude.external.preflight_fallback_qualified",
+        "imu.software_alignment_qualified",
+        "imu.software_propagation_qualified",
+        "imu.landing_stillness_qualified",
+        "barometer.landing_window_qualified",
+    )
+    for suffix in ("a", "b"):
+        component_id = f"fixture.device.imu.singleton_{suffix}"
+        package = installed_root / component_id / "1.0.0"
+        payload = package / "payload" / "Fixture" / suffix
+        payload.mkdir(parents=True)
+        (payload / "README.md").write_text(
+            "Test-only singleton IMU payload.\n", encoding="utf-8"
+        )
+        manifest = {
+            "schema_version": 0,
+            "id": component_id,
+            "name": f"Singleton IMU {suffix.upper()}",
+            "type": "device",
+            "class": "imu",
+            "instance_policy": {
+                "plugin_max": 1,
+                "class_max": 2,
+                "same_plugin_multiple": False,
+                "multi_instance_ready": False,
+            },
+            "physical_device": {
+                "vendor": "Fixture",
+                "model": f"SINGLETON-{suffix.upper()}",
+                "chipset": "TEST",
+                "driver": "Singleton fixture driver",
+            },
+            "version": "1.0.0",
+            "description": "Test-only distinct singleton IMU.",
+            "requires": {
+                "components": [
+                    {"id": "silverstar.core.0_0_9", "optional": False}
+                ],
+                "resources": [],
+                "capabilities": [],
+            },
+            "resources": {"provides": [], "roles": [], "conflicts": []},
+            "provides": list(capabilities),
+            "build": {
+                "sources": [],
+                "asm_sources": [],
+                "include_dirs": [],
+                "defines": [],
+            },
+            "payload": {"roots": [f"Fixture/{suffix}"]},
+            "metadata": {
+                "display_names": {
+                    "zh_CN": f"单实例 IMU {suffix.upper()}",
+                    "en_US": f"Singleton IMU {suffix.upper()}",
+                },
+                "device_selection_style": "instance",
+                "device_group": "primary_devices",
             },
         }
         (package / "plugin.json").write_text(
@@ -200,7 +325,7 @@ def test_project_v2_migrates_devices_and_resource_owners() -> None:
     data["generated_glue"].remove("project_capability_routes")
 
     migrated = ProjectModel_Parse(data)
-    assert migrated.format_version == 6
+    assert migrated.format_version == 7
     assert [instance.instance_id for instance in migrated.device_instances] == [
         "imu0",
         "gnss0",
@@ -209,6 +334,7 @@ def test_project_v2_migrates_devices_and_resource_owners() -> None:
         "sensor0",
         "actuator0",
         "actuator1",
+        "indicator0",
     ]
     assert migrated.resource_assignments["imu0:data"] == "PLATFORM_UART_1"
     assert migrated.capability_source_overrides == {}
@@ -222,7 +348,7 @@ def test_project_v3_migrates_without_capability_selections() -> None:
 
     migrated = ProjectModel_Parse(data)
 
-    assert migrated.format_version == 6
+    assert migrated.format_version == 7
     assert "capability_selections" not in migrated.Dictionary_Get()
 
 
@@ -235,7 +361,7 @@ def test_project_v4_removes_legacy_capability_and_build_choices() -> None:
     migrated = ProjectModel_Parse(data)
 
     serialized = migrated.Dictionary_Get()
-    assert migrated.format_version == 6
+    assert migrated.format_version == 7
     assert "capability_selections" not in serialized
     assert "configuration" not in serialized["build"]
 
@@ -250,11 +376,47 @@ def test_project_v5_adds_mode_protocol_and_assignment_contracts() -> None:
 
     migrated = ProjectModel_Parse(data)
 
-    assert migrated.format_version == 6
+    assert migrated.format_version == 7
     assert migrated.mode_parameters["deployment"]["Delay"]["delay"] == 60.0
-    assert migrated.protocol_profiles["telemetry"] == "air.compact.v0"
+    assert migrated.protocol_profiles["telemetry"] == "air.m0"
     assert migrated.hardware.assignment_fingerprint == ""
     assert "project_flight_config" in migrated.generated_glue
+
+
+def test_project_v6_adds_log_decoder_profile_reference() -> None:
+    data = ReferenceProject_Create("MigrateV6").Dictionary_Get()
+    data["format_version"] = 6
+    data.pop("log_decoder_profile")
+    data["generated_glue"].remove("project_log_decoder_profile")
+
+    migrated = ProjectModel_Parse(data)
+
+    assert migrated.format_version == 7
+    assert migrated.log_decoder_profile.relative_path == "MigrateV6.ssdecoder"
+    assert migrated.log_decoder_profile.package_schema == "1.0"
+    assert migrated.log_decoder_profile.container_plugin_id == (
+        "silverstar.sslog.container/0.0"
+    )
+    assert migrated.log_decoder_profile.generation_profile_sha256 == ""
+    assert migrated.log_decoder_profile.package_sha256 == ""
+    assert "project_log_decoder_profile" in migrated.generated_glue
+
+
+def test_pre_release_protocol_profile_ids_migrate_to_public_ids() -> None:
+    data = ReferenceProject_Create("MigrateProtocolIds").Dictionary_Get()
+    data["protocol_profiles"] = {
+        "telemetry": "air.compact.v0",
+        "maintenance": "maintenance.v0_0",
+        "logging": "sslog0",
+    }
+
+    migrated = ProjectModel_Parse(data)
+
+    assert migrated.protocol_profiles == {
+        "telemetry": "air.m0",
+        "maintenance": "maintenance.serial.0_0",
+        "logging": "flight_log.0_0",
+    }
 
 
 def test_reference_capability_resolution_matches_physical_truth(
@@ -515,7 +677,7 @@ def test_landing_selectors_share_one_reference_implementation(
     )
 
 
-def test_ambiguous_provider_requires_only_one_saved_override(
+def test_multiple_providers_default_to_instance_zero_and_save_only_override(
     tmp_path: Path, workspace_root: Path
 ) -> None:
     catalog = _MultiBarometerCatalog_Create(workspace_root, tmp_path / "installed")
@@ -526,22 +688,30 @@ def test_ambiguous_provider_requires_only_one_saved_override(
             DeviceInstance("barometer1", "fixture.device.sensor.bmp280"),
         )
     )
-    unresolved = CapabilityResolution_Resolve(model, catalog)
+    defaulted = CapabilityResolution_Resolve(model, catalog)
     barometer_choice = next(
         choice
-        for choice in unresolved.choices
+        for choice in defaulted.choices
         if choice.capability == "barometer.altitude"
     )
-    assert barometer_choice.requires_selection
+    assert not barometer_choice.requires_selection
+    assert barometer_choice.selected_instance_id == "imu0"
     assert {provider.instance_id for provider in barometer_choice.providers} == {
         "imu0",
         "barometer0",
         "barometer1",
     }
-    assert any(
-        issue.code == "capability_ambiguous"
-        for issue in Project_Validate(model, catalog).issues
+    assert all(
+        route.provider.instance_id == "imu0"
+        for route in defaulted.routes
+        if route.requirement.capability == "barometer.altitude"
     )
+    assert Project_Validate(model, catalog).valid
+
+    model.capability_source_overrides = {"barometer.altitude": "imu0"}
+    reconciled_default = CapabilitySourceOverrides_Reconcile(model, catalog)
+    assert reconciled_default.valid
+    assert model.capability_source_overrides == {}
 
     model.capability_source_overrides = {"barometer.altitude": "barometer1"}
     resolved = CapabilityResolution_Resolve(model, catalog)
@@ -567,7 +737,10 @@ def test_current_devices_are_singleton_and_mcu_neutral(
         "silverstar.device.console.uart",
     ):
         manifest = builtin_catalog.Component_Get(component_id)
-        assert manifest.instance_policy.project_max == 1
+        assert manifest.instance_policy.plugin_max == 1
+        assert manifest.instance_policy.class_max == (
+            1 if component_id == "silverstar.device.console.uart" else 4
+        )
         assert not manifest.instance_policy.same_plugin_multiple
         assert not manifest.instance_policy.multi_instance_ready
         assert manifest.physical_device is not None
@@ -589,12 +762,55 @@ def test_singleton_device_plugin_cannot_be_instantiated_twice(
     assert "device_multi_instance_not_ready" in issue_codes
 
 
+def test_distinct_singleton_plugins_can_share_one_capability_class(
+    tmp_path: Path, workspace_root: Path
+) -> None:
+    catalog = _MixedSingletonDeviceCatalog_Create(
+        workspace_root, tmp_path / "mixed-singleton-installed"
+    )
+    model = ReferenceProject_Create("MixedSingletonProviders")
+    model.device_instances = [
+        instance
+        for instance in model.device_instances
+        if instance.instance_id != "imu0"
+    ]
+    model.device_instances[0:0] = [
+        DeviceInstance("imu0", "fixture.device.imu.singleton_a"),
+        DeviceInstance("imu1", "fixture.device.imu.singleton_b"),
+    ]
+
+    issue_codes = {issue.code for issue in Project_Validate(model, catalog).issues}
+    assert not issue_codes.intersection(
+        {
+            "device_instance_limit",
+            "device_same_plugin_multiple",
+            "device_multi_instance_not_ready",
+            "device_class_instance_limit",
+            "device_class_multi_instance_not_ready",
+        }
+    )
+    resolution = CapabilityResolution_Resolve(model, catalog)
+    acceleration = next(
+        choice
+        for choice in resolution.choices
+        if choice.capability == "imu.acceleration"
+    )
+    assert acceleration.selected_instance_id == "imu0"
+    assert not acceleration.requires_selection
+
+
 def test_context_ready_mock_devices_support_independent_instances_and_dedup_sources(
     tmp_path: Path, workspace_root: Path
 ) -> None:
     catalog = _MultiInstanceDeviceCatalog_Create(
         workspace_root, tmp_path / "multi-instance-installed"
     )
+    policy = catalog.Component_Get(
+        "fixture.device.imu.contextual"
+    ).instance_policy
+    assert policy.plugin_max == 2
+    assert policy.class_max == 2
+    assert policy.project_max == 2
     model = ReferenceProject_Create("MultiInstanceModel")
     model.device_instances = [
         DeviceInstance("imu0", "fixture.device.imu.contextual"),
@@ -647,6 +863,10 @@ def test_context_ready_mock_devices_support_independent_instances_and_dedup_sour
         "gnss0",
         "gnss1",
     }
+    assert acceleration.selected_instance_id == "imu0"
+    assert position.selected_instance_id == "gnss0"
+    assert not acceleration.requires_selection
+    assert not position.requires_selection
 
     model.capability_source_overrides.update(
         {
@@ -673,6 +893,24 @@ def test_context_ready_mock_devices_support_independent_instances_and_dedup_sour
     assert graph.sources.count("Fixture/imu/contextual_device.c") == 1
     assert graph.sources.count("Fixture/gnss/contextual_device.c") == 1
     assert isinstance(model.strategies["estimator"], str)
+
+    facade_header = _DeviceInstancesHeader_Render(model, catalog)
+    facade_source = _DeviceInstancesSource_Render(model, catalog)
+    metadata_source = _MetadataSource_Render(model, catalog)
+    assert "PROJECT_DESCRIPTOR_ID_IMU_0" in facade_header
+    assert "PROJECT_DESCRIPTOR_ID_IMU_1" in facade_header
+    assert "PROJECT_DESCRIPTOR_ID_GNSS_0" in facade_header
+    assert "PROJECT_DESCRIPTOR_ID_GNSS_1" in facade_header
+    assert "PROJECT_PHYSICAL_DEVICE_ID_FIXTURE_IMU_1" in facade_header
+    assert "PROJECT_PHYSICAL_DEVICE_ID_FIXTURE_GNSS_1" in facade_header
+    assert "case 0U: return FixtureImu_InfoGet(0U, info);" in facade_source
+    assert "case 1U: return FixtureImu_InfoGet(1U, info);" in facade_source
+    assert "case 0U: return FixtureGnss_LatestSampleGet(0U, sample);" in facade_source
+    assert "case 1U: return FixtureGnss_LatestSampleGet(1U, sample);" in facade_source
+    assert "PROJECT_DESCRIPTOR_ID_IMU_1" in metadata_source
+    assert "PROJECT_PHYSICAL_DEVICE_ID_FIXTURE_IMU_1" in metadata_source
+    assert "(*)" not in facade_source
+    assert "malloc" not in facade_source
 
 
 def test_physical_names_and_protocol_versions_are_structured(
@@ -792,7 +1030,7 @@ def test_required_logging_checkbox_is_active_locked_and_model_forced(
         check = table.cellWidget(required_row, 0).findChild(StandardCheckBox)
         assert isinstance(check, LockedCheckBox)
         assert check.isEnabled() and check.isChecked()
-        assert check.toolTip() == "系统必需日志"
+        assert check.toolTip() == "系统必须日志"
         check.click()
         assert check.isChecked()
         stream = window.flight_configuration_page.Streams_Get()[required_row]
@@ -814,7 +1052,7 @@ def test_required_logging_checkbox_is_active_locked_and_model_forced(
         qapp.processEvents()
 
 
-def test_eide_manual_change_is_detected_and_regenerated(
+def test_eide_ui_changes_are_preserved_and_build_changes_are_reported(
     tmp_path: Path, workspace_root: Path
 ) -> None:
     service = FccgService(workspace_root)
@@ -824,18 +1062,33 @@ def test_eide_manual_change_is_detected_and_regenerated(
         model, service.GenerationPlan_Create(model, project_root)
     )
     eide = project_root / ".eide" / "eide.yml"
-    marker = "\n# MANUAL EIDE CHANGE\n"
-    eide.write_text(
-        eide.read_text(encoding="utf-8") + marker,
-        encoding="utf-8",
-        newline="\n",
+    document = yaml.safe_load(eide.read_text(encoding="utf-8"))
+    document["currentTarget"] = "Debug"
+    document["targets"]["Release"]["uiState"] = {"expanded": True}
+    eide.write_text(yaml.safe_dump(document, sort_keys=True), encoding="utf-8")
+    plan = service.GenerationPlan_Create(model, project_root)
+    operation = next(
+        operation for operation in plan.operations if operation.target == ".eide/eide.yml"
     )
+    assert operation.operation == "UNCHANGED"
+    assert not operation.dangerous
+
+    document = yaml.safe_load(eide.read_text(encoding="utf-8"))
+    document["targets"]["Release"]["cppPreprocessAttrs"]["incList"].append(
+        "Manual/Include"
+    )
+    eide.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
     plan = service.GenerationPlan_Create(model, project_root)
     operation = next(
         operation for operation in plan.operations if operation.target == ".eide/eide.yml"
     )
     assert operation.operation == "MODIFY"
     assert operation.dangerous
-    assert "manually modified" in operation.detail
+    assert "targets.Release.includes" in operation.detail
     service.GenerationPlan_Apply(model, plan, confirm_dangerous=True)
-    assert marker.strip() not in eide.read_text(encoding="utf-8")
+    applied = yaml.safe_load(eide.read_text(encoding="utf-8"))
+    assert "Manual/Include" not in applied["targets"]["Release"][
+        "cppPreprocessAttrs"
+    ]["incList"]
+    assert applied["currentTarget"] == "Debug"
+    assert applied["targets"]["Release"]["uiState"] == {"expanded": True}

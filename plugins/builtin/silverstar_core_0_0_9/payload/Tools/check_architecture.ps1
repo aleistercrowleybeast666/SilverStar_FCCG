@@ -3,6 +3,8 @@ $ErrorActionPreference = 'Stop'
 $repoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
 $script:checkCount = 0
 $script:failures = New-Object 'System.Collections.Generic.List[string]'
+Write-Output 'FCCG_PROGRESS|ARCHITECTURE|PLAN|6'
+Write-Output 'FCCG_PROGRESS|ARCHITECTURE|BEGIN|1|6|source_graph'
 
 function Add-ArchitectureFailure {
     param([Parameter(Mandatory = $true)][string]$Message)
@@ -235,6 +237,8 @@ Assert-NoArchitecturePattern -Name `
     -Paths @('Devices\Telemetry\SX1281', 'Middlewares\Third_Party\SX1280lib') `
     -Pattern 'RegisterCallback|DioIrqHandler|\bRadio\s*\.|#include\s*[<"]radio\.h[>"]'
 
+Write-Output 'FCCG_PROGRESS|ARCHITECTURE|DONE|1|6|source_graph'
+Write-Output 'FCCG_PROGRESS|ARCHITECTURE|BEGIN|2|6|directory_boundaries'
 $legacyPaths = @(
     'System\Inc\Interfaces',
     'System\Inc\system_device_registry.h',
@@ -261,10 +265,15 @@ $generatedFiles = @(Get-ChildItem -LiteralPath `
     ForEach-Object { $_.FullName.Substring($repoRoot.Length + 1) } |
     Sort-Object)
 $expectedGeneratedFiles = @(
+    'Generated\Inc\project_device_instances.h',
     'Generated\Inc\project_log_config.h',
+    'Generated\Inc\project_log_decoder_profile.h',
     'Generated\Inc\project_resources.h',
+    'Generated\project_semantics.json',
     'Generated\Src\platform_resources.c',
+    'Generated\Src\project_device_instances.c',
     'Generated\Src\project_log_config.c',
+    'Generated\Src\project_log_decoder_profile.c',
     'Generated\Src\project_metadata.c',
     'Generated\Inc\project_capability_routes.h',
     'Generated\Src\project_capability_routes.c',
@@ -311,11 +320,13 @@ Assert-NoArchitecturePattern -Name `
     -Paths @('FATFS\Target\ffconf.h') `
     -Pattern '(?i)\b(?:pvPortMalloc|vPortFree|ff_malloc|ff_free)\b'
 
+Write-Output 'FCCG_PROGRESS|ARCHITECTURE|DONE|2|6|directory_boundaries'
+Write-Output 'FCCG_PROGRESS|ARCHITECTURE|BEGIN|3|6|eide_consistency'
 Assert-FileContainsPattern -RelativePath 'Makefile' `
     -Pattern 'TARGET\s*:=\s*SilverStar_0_0_9' `
     -Message 'Authoritative firmware target is not SilverStar_0_0_9.'
 Assert-FileContainsPattern -RelativePath 'Makefile' `
-    -Pattern 'BUILD_ROOT\s*:=\s*build/\$\(TARGET_PROFILE\)/\$\(CONFIG\)' `
+    -Pattern 'BUILD_ROOT\s*:=\s*build/FCCG/\$\(TARGET_PROFILE\)/\$\(CONFIG\)' `
     -Message 'Build output is not partitioned by target and configuration.'
 Assert-FileContainsPattern -RelativePath 'Makefile' `
     -Pattern 'C_OBJECTS\s*:=\s*\$\(addprefix\s+\$\(BUILD_ROOT\)/,\$\(C_SOURCES:\.c=\.o\)\)' `
@@ -367,8 +378,8 @@ Assert-ArchitectureCondition -Condition ($missingEideDirectories.Count -eq 0) `
         ($missingEideDirectories -join ', '))
 Assert-ArchitectureCondition `
     -Condition ($eideContent -match `
-        '(?m)^outDir:\s*build\\EIDE\\SilverStar_F407\s*$') `
-    -Message 'EIDE output is not isolated under build\EIDE\SilverStar_F407.'
+        '(?m)^outDir:\s*build\\FCCG\\SilverStar_F407\\EIDE\s*$') `
+    -Message 'EIDE output is not isolated under build\FCCG\SilverStar_F407\EIDE.'
 Assert-ArchitectureCondition `
     -Condition ($eideContent -match '(?m)^\s+cpuType:\s*Cortex-M4\s*$') `
     -Message 'EIDE CPU is not Cortex-M4.'
@@ -488,6 +499,13 @@ if ($makeExitCode -eq 0) {
     Assert-ArchitectureCondition -Condition ($missingSources.Count -eq 0) `
         -Message ("Manifest references missing sources: " +
             ($missingSources -join ', '))
+    Assert-ArchitectureCondition `
+        -Condition ($uniqueSources -contains 'APP/Src/diagnostic_log.c') `
+        -Message 'Diagnostic log producer source is missing from Make.'
+    Assert-ArchitectureCondition `
+        -Condition (Test-Path -LiteralPath `
+            (Join-Path $repoRoot 'APP\Inc\diagnostic_log.h') -PathType Leaf) `
+        -Message 'Diagnostic log producer header is missing.'
 
     $selectedKernelSources = @($uniqueSources | Where-Object {
         $_ -like 'ThirdParty/FreeRTOS-Kernel/*'
@@ -532,24 +550,17 @@ if ($makeExitCode -eq 0) {
         'FlightLogic/Landing/BarometerImuWindow/Src/flight_landing.c'
     )
     $selectedEstimatorTaskSources = @($uniqueSources | Where-Object {
-        ($_ -eq 'APP/Src/estimator_task.c') -or
-        ($_ -eq 'APP/Src/estimator_task_none.c')
+        $_ -eq 'APP/Src/estimator_task.c'
     })
     Assert-ArchitectureCondition `
         -Condition ($selectedEstimatorTaskSources.Count -eq 1) `
-        -Message ("Expected exactly one estimator task implementation: " +
+        -Message ("Expected the unified estimator task facade: " +
             ($selectedEstimatorTaskSources -join ', '))
-    if ($uniqueSources -contains 'APP/Src/estimator_task.c') {
+    $selectedKfSources = @($uniqueSources | Where-Object {
+        $_ -like 'Algorithm/Estimator/KF6/*'
+    })
+    if ($selectedKfSources.Count -gt 0) {
         $requiredStrategySources += 'Algorithm/Estimator/KF6/Src/navigation_kf.c'
-    }
-    if ($uniqueSources -contains 'APP/Src/estimator_task_none.c') {
-        $noneKfSources = @($uniqueSources | Where-Object {
-            $_ -like 'Algorithm/Estimator/KF6/*'
-        })
-        Assert-ArchitectureCondition `
-            -Condition ($noneKfSources.Count -eq 0) `
-            -Message ("No-fusion estimator task still selects KF6 sources: " +
-                ($noneKfSources -join ', '))
     }
     $missingStrategySources = @($requiredStrategySources | Where-Object {
         $uniqueSources -notcontains $_
@@ -688,6 +699,8 @@ if ($makeExitCode -eq 0) {
     }
 }
 
+Write-Output 'FCCG_PROGRESS|ARCHITECTURE|DONE|3|6|eide_consistency'
+Write-Output 'FCCG_PROGRESS|ARCHITECTURE|BEGIN|4|6|freertos'
 Assert-FileContainsPattern -RelativePath 'ThirdParty\FreeRTOS-Kernel\include\task.h' `
     -Pattern 'tskKERNEL_VERSION_NUMBER\s+"V11\.3\.0"' `
     -Message 'Vendored FreeRTOS kernel is not official V11.3.0.'
@@ -717,6 +730,8 @@ Assert-FileContainsPattern -RelativePath 'APP\Src\app_tasks.c' `
     -Pattern '\bxTaskCreateStatic\s*\(' `
     -Message 'APP tasks are not created through the static FreeRTOS API.'
 
+Write-Output 'FCCG_PROGRESS|ARCHITECTURE|DONE|4|6|freertos'
+Write-Output 'FCCG_PROGRESS|ARCHITECTURE|BEGIN|5|6|protocol'
 Assert-FileContainsPattern -RelativePath 'System\User\system_user_config.h' `
     -Pattern 'SILVERSTAR_VERSION_PATCH\s+9' `
     -Message 'SilverStar firmware version is not 0.0.9.'
@@ -749,30 +764,200 @@ Assert-FileContainsPattern `
     -RelativePath 'Generated\Src\project_log_config.c' `
     -Pattern 's_project_log_streams\s*\[' `
     -Message 'Project log-stream selection is not isolated in Generated glue.'
+Assert-FileContainsPattern `
+    -RelativePath 'APP\Src\diagnostic_log.c' `
+    -Pattern '\bLoggerBus_StatsPush\s*\(' `
+    -Message 'STATS has no real APP producer call.'
+Assert-FileContainsPattern `
+    -RelativePath 'APP\Src\diagnostic_log.c' `
+    -Pattern '\bLoggerBus_TelemetryDiagnosticPush\s*\(' `
+    -Message 'TELEMETRY_DIAG has no real APP producer call.'
+Assert-FileContainsPattern `
+    -RelativePath 'APP\Src\diagnostic_log.c' `
+    -Pattern '\bSystemTelemetry_HealthGet\s*\(' `
+    -Message 'Telemetry diagnostics do not use generic Transport Health.'
+Assert-NoArchitecturePattern -Name `
+    'Telemetry diagnostic producer depends on AIR or private radio statistics.' `
+    -Paths @('APP\Inc\diagnostic_log.h', 'APP\Src\diagnostic_log.c') `
+    -Pattern '(?i)\b(?:SX128[01]|LoraStats|Air_[A-Za-z0-9_]*|AIR_TYPE_)\b'
+Assert-FileContainsPattern `
+    -RelativePath 'Generated\Src\project_log_config.c' `
+    -Pattern ('FLIGHT_LOG_RECORD_STATS\s*,\s*1U\s*,\s*1U\s*,' +
+        '\s*1000000UL\s*,\s*SSLOG_STREAM_POLICY_PERIODIC') `
+    -Message 'STATS default producer cadence is not enabled at 1000000 us.'
+Assert-FileContainsPattern `
+    -RelativePath 'Generated\Src\project_log_config.c' `
+    -Pattern ('FLIGHT_LOG_RECORD_TELEMETRY_DIAG\s*,\s*1U\s*,\s*1U\s*,' +
+        '\s*200000UL\s*,\s*SSLOG_STREAM_POLICY_PERIODIC') `
+    -Message 'TELEMETRY_DIAG default producer cadence is not enabled at 200000 us.'
+Assert-FileContainsPattern `
+    -RelativePath 'Generated\Src\project_device_instances.c' `
+    -Pattern '\bProjectDeviceInstance_DescriptorGet\s*\(' `
+    -Message 'Generated capability-instance facade is missing.'
+foreach ($instanceFacade in @(
+    'Imu', 'Gnss', 'Barometer', 'Magnetometer', 'Attitude',
+    'Telemetry', 'Power')) {
+    Assert-FileContainsPattern `
+        -RelativePath 'Generated\Src\project_device_instances.c' `
+        -Pattern ('\bProject' + $instanceFacade +
+            'Instance_CountGet\s*\(') `
+        -Message "Generated facade is missing $instanceFacade instance count."
+}
+Assert-FileContainsPattern `
+    -RelativePath 'Generated\Src\project_device_instances.c' `
+    -Pattern 'switch\s*\(\s*instance_id\s*\)' `
+    -Message 'Generated capability facade does not use static instance dispatch.'
+Assert-NoArchitecturePattern -Name `
+    'Generated capability-instance facade contains function-pointer dispatch.' `
+    -Paths @('Generated\Inc\project_device_instances.h',
+             'Generated\Src\project_device_instances.c') `
+    -Pattern '\(\s*\*\s*[A-Za-z_][A-Za-z0-9_]*\s*\)'
+Assert-FileContainsPattern `
+    -RelativePath 'Devices\IMU\JY901B\Inc\jy901b_imu_build_capabilities.h' `
+    -Pattern 'JY901B_BUILD_MULTI_INSTANCE_READY\s+0U' `
+    -Message 'JY901B must remain explicitly unqualified for same-plugin repetition.'
+foreach ($nativeFacade in @(
+    'Imu', 'Gnss', 'Barometer', 'Magnetometer', 'Attitude', 'Power')) {
+    Assert-FileContainsPattern `
+        -RelativePath 'APP\Src\device_native_log.c' `
+        -Pattern ('\bProject' + $nativeFacade +
+            'Instance_CountGet\s*\(') `
+        -Message "Native log producer does not enumerate $nativeFacade instances."
+}
+foreach ($nativeBaseline in @(
+    @{ Variable = 'imu'; Macro = 'PROJECT_IMU_INSTANCE_COUNT_MAX' },
+    @{ Variable = 'gnss'; Macro = 'PROJECT_GNSS_INSTANCE_COUNT_MAX' },
+    @{ Variable = 'barometer'; Macro = 'PROJECT_BAROMETER_INSTANCE_COUNT_MAX' },
+    @{ Variable = 'magnetometer'; Macro = 'PROJECT_MAGNETOMETER_INSTANCE_COUNT_MAX' },
+    @{ Variable = 'attitude'; Macro = 'PROJECT_ATTITUDE_INSTANCE_COUNT_MAX' },
+    @{ Variable = 'power'; Macro = 'PROJECT_POWER_INSTANCE_COUNT_MAX' })) {
+    Assert-FileContainsPattern `
+        -RelativePath 'APP\Src\device_native_log.c' `
+        -Pattern ('uint32_t\s+' + $nativeBaseline.Variable +
+            '_sequence\s*\[\s*' + $nativeBaseline.Macro + '\s*\]') `
+        -Message ("Native log sequence baseline for {0} is not per-instance." -f
+            $nativeBaseline.Variable)
+    Assert-FileContainsPattern `
+        -RelativePath 'APP\Src\device_native_log.c' `
+        -Pattern ('uint8_t\s+' + $nativeBaseline.Variable +
+            '_sequence_valid\s*\[\s*' + $nativeBaseline.Macro + '\s*\]') `
+        -Message ("Native log validity baseline for {0} is not per-instance." -f
+            $nativeBaseline.Variable)
+}
+Assert-NoArchitecturePattern -Name `
+    'Native log producer bypasses the Generated instance facade.' `
+    -Paths @('APP\Src\device_native_log.c') `
+    -Pattern '\bSystem(?:Imu|Gnss|Barometer|Magnetometer|HardwareQuaternion|Power)_LatestSampleGet\s*\('
+Assert-FileContainsPattern `
+    -RelativePath 'Tests\Host\Fixtures\multi_instance_project_fixture.c' `
+    -Pattern 'ProjectImuInstance_CountGet\s*\(void\)' `
+    -Message 'Host-only multi-instance fixture is missing.'
+Assert-NoArchitecturePattern -Name `
+    'Host-only multi-instance fixture entered a firmware source manifest.' `
+    -Paths $manifestFiles -Extensions @('.mk', '') `
+    -Pattern 'Tests[/\\]Host[/\\]Fixtures'
+Assert-FileContainsPattern `
+    -RelativePath 'Interfaces\Inc\system_descriptor_if.h' `
+    -Pattern '\bphysical_device_id\b' `
+    -Message 'Device descriptors do not expose physical-device identity.'
+Assert-FileContainsPattern `
+    -RelativePath 'Protocol\SSLOG\Inc\sslog_protocol.h' `
+    -Pattern '\bsource_descriptor_id\b' `
+    -Message 'SSLOG native sensor records do not expose source descriptors.'
+Assert-FileContainsPattern `
+    -RelativePath 'System\Src\system_console.c' `
+    -Pattern 'SYSTEM_CONSOLE_TOKEN_COUNT_MAX\s+5U' `
+    -Message 'Maintenance parser does not use the bounded five-token grammar.'
+$fccgMaintenanceDocumentationPath = Join-Path $repoRoot `
+    'docs\details\MAINTENANCE_PROTOCOL.md'
+if (Test-Path -LiteralPath $fccgMaintenanceDocumentationPath -PathType Leaf) {
+    Assert-FileContainsPattern `
+        -RelativePath 'docs\details\MAINTENANCE_PROTOCOL.md' `
+        -Pattern '<CAPABILITY_MODULE>\s+<INSTANCE>\s+<COMMAND>' `
+        -Message 'Maintenance documentation does not define indexed capability syntax.'
+    Assert-NoArchitecturePattern -Name `
+        'Maintenance documentation addresses a physical device model as a module.' `
+        -Paths @('docs\details\MAINTENANCE_PROTOCOL.md') `
+        -Extensions @('.md') `
+        -Pattern '(?i)\b(?:JY901B|NEO[_-]?M9N|E28[^\s]*)\s+[0-9]+\s+STATUS\b'
+}
+else {
+    Write-Output ('FCCG architecture note: generated source omits installed-plugin ' +
+        'documentation; maintenance Markdown was audited during reference import.')
+}
+Assert-FileContainsPattern `
+    -RelativePath 'Protocol\Inc\air_protocol.h' `
+    -Pattern 'AIR_FLIGHT_STATE_LEN\s+50U' `
+    -Message 'AIR M0 FLIGHT_STATE length changed.'
+Assert-FileContainsPattern `
+    -RelativePath 'Protocol\Inc\air_protocol.h' `
+    -Pattern 'AIR_SENSOR_STATUS_LEN\s+9U' `
+    -Message 'AIR M0 SENSOR_STATUS length changed.'
+$sslogProtocolContent = Get-Content -Raw -LiteralPath (
+    Join-Path $repoRoot 'Protocol\SSLOG\Inc\sslog_protocol.h')
+Assert-ArchitectureCondition `
+    -Condition (([regex]::Matches($sslogProtocolContent,
+        '\buint16_t\s+source_descriptor_id\s*;')).Count -eq 6) `
+    -Message 'POWER/native source descriptor fields are incomplete or duplicated.'
 Assert-NoArchitecturePattern -Name `
     'SSLOG protocol directly copies or casts a C payload struct as wire bytes.' `
     -Paths @('Protocol\SSLOG') `
     -Pattern ('(?i)memcpy\s*\([^;\r\n]*(?:record->payload|record\.payload)|' +
         '\(\s*(?:const\s+)?FlightLog[A-Za-z0-9_]*\s*\*\s*\)\s*&?buffer')
 foreach ($descriptor in @(
-    'DEVICE_DESCRIPTOR', 'ALGORITHM_DESCRIPTOR', 'LOG_STREAM_DESCRIPTOR')) {
+    'DEVICE_DESCRIPTOR', 'ALGORITHM_DESCRIPTOR', 'LOG_STREAM_DESCRIPTOR',
+    'DECODER_PROFILE_DESCRIPTOR')) {
     Assert-FileContainsPattern `
         -RelativePath 'Protocol\SSLOG\schema\sslog_schema.json' `
         -Pattern ('"name"\s*:\s*"' + $descriptor + '"') `
         -Message "SSLOG schema is missing $descriptor."
 }
+Assert-FileContainsPattern `
+    -RelativePath 'Protocol\SSLOG\schema\sslog_schema.json' `
+    -Pattern '"catalog_schema_id"\s*:\s*"silverstar\.sslog\.record-catalog/1\.0"' `
+    -Message 'SSLOG Record Catalog schema identity is missing.'
+Assert-FileContainsPattern `
+    -RelativePath 'Protocol\SSLOG\schema\sslog_record_catalog.schema.json' `
+    -Pattern '"\$id"\s*:\s*"silverstar\.sslog\.record-catalog/1\.0"' `
+    -Message 'SSLOG Record Catalog JSON Schema is missing.'
+Assert-FileContainsPattern `
+    -RelativePath 'Tools\validate_sslog_record_catalog.py' `
+    -Pattern '\bcanonical_json_bytes\s*\(' `
+    -Message 'Offline Record Catalog canonicalization validator is missing.'
+Assert-FileContainsPattern `
+    -RelativePath 'Generated\module.mk' `
+    -Pattern 'Generated/Src/project_log_decoder_profile\.c' `
+    -Message 'Generated decoder profile is absent from the firmware source graph.'
+Assert-FileContainsPattern `
+    -RelativePath 'APP\Src\logger_task.c' `
+    -Pattern '\bLoggerBus_DecoderProfileDescriptorPush\s*\(' `
+    -Message 'DECODER_PROFILE_DESCRIPTOR has no session-start producer.'
+Assert-FileContainsPattern `
+    -RelativePath 'Protocol\SSLOG\Src\sslog_records.c' `
+    -Pattern '\bSslogRecords_DecoderProfileDescriptorSerialize\s*\(' `
+    -Message 'DECODER_PROFILE_DESCRIPTOR has no explicit serializer.'
+Assert-FileContainsPattern `
+    -RelativePath 'Protocol\SSLOG\Src\sslog_records.c' `
+    -Pattern '\bSslogRecords_DecoderProfileDescriptorDeserialize\s*\(' `
+    -Message 'DECODER_PROFILE_DESCRIPTOR has no explicit deserializer.'
 
 $sslogSchemaPath = Join-Path $repoRoot `
     'Protocol\SSLOG\schema\sslog_schema.json'
 $sslogHeaderPath = Join-Path $repoRoot `
     'Protocol\SSLOG\Inc\sslog_records.h'
 try {
-    $sslogSchema = Get-Content -Raw -LiteralPath $sslogSchemaPath |
+    $sslogSchema = Get-Content -Raw -Encoding UTF8 -LiteralPath $sslogSchemaPath |
+        ConvertFrom-Json
+    $sslogParserMetadata = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $repoRoot `
+        'Protocol\SSLOG\schema\sslog_parser_metadata.json') |
         ConvertFrom-Json
     $sslogHeader = Get-Content -Raw -LiteralPath $sslogHeaderPath
     $sslogRecords = @($sslogSchema.records)
-    Assert-ArchitectureCondition -Condition ($sslogRecords.Count -eq 28) `
-        -Message 'SSLOG reference schema record count is not 28.'
+    Assert-ArchitectureCondition -Condition ($sslogRecords.Count -eq 29) `
+        -Message 'SSLOG Record Catalog record count is not 29.'
+    Assert-ArchitectureCondition `
+        -Condition (@($sslogParserMetadata.records).Count -eq 29) `
+        -Message 'SSLOG parser metadata record count is not 29.'
     $sslogIds = @($sslogRecords | ForEach-Object { $_.id })
     Assert-ArchitectureCondition `
         -Condition (($sslogIds | Sort-Object -Unique).Count -eq
@@ -797,6 +982,32 @@ try {
             -Message ("SSLOG schema/header payload size mismatch for " +
                 $sslogRecord.enum)
     }
+    foreach ($requiredDefaultEnum in @(
+        'FLIGHT_LOG_RECORD_STATS',
+        'FLIGHT_LOG_RECORD_TELEMETRY_DIAG',
+        'FLIGHT_LOG_RECORD_DECODER_PROFILE_DESCRIPTOR')) {
+        $schemaRecord = @($sslogRecords | Where-Object {
+            $_.enum -eq $requiredDefaultEnum
+        })[0]
+        $parserRecord = @($sslogParserMetadata.records | Where-Object {
+            $_.enum -eq $requiredDefaultEnum
+        })[0]
+        Assert-ArchitectureCondition `
+            -Condition (($null -ne $schemaRecord) -and
+                ($null -ne $parserRecord)) `
+            -Message "Required schema entry is missing $requiredDefaultEnum."
+        if (($null -ne $schemaRecord) -and ($null -ne $parserRecord)) {
+            Assert-ArchitectureCondition `
+                -Condition (($schemaRecord.payload_size -eq
+                    $parserRecord.payload_size) -and
+                    ($schemaRecord.default_stream.enabled -eq $true) -and
+                    ($parserRecord.default_stream.enabled -eq $true) -and
+                    ($schemaRecord.default_stream.period_us -eq
+                     $parserRecord.default_stream.period_us)) `
+                -Message ("Schema/default mismatch for " +
+                    $requiredDefaultEnum)
+        }
+    }
 }
 catch {
     Assert-ArchitectureCondition -Condition $false `
@@ -804,6 +1015,8 @@ catch {
             $_.Exception.Message)
 }
 
+Write-Output 'FCCG_PROGRESS|ARCHITECTURE|DONE|5|6|protocol'
+Write-Output 'FCCG_PROGRESS|ARCHITECTURE|BEGIN|6|6|summary'
 if ($script:failures.Count -ne 0) {
     Write-Output ("SilverStar architecture check failed: checks={0} failures={1}" -f `
         $script:checkCount, $script:failures.Count)
@@ -816,4 +1029,6 @@ if ($script:failures.Count -ne 0) {
 Write-Output ("SilverStar architecture check passed: checks={0} failures=0" -f `
     $script:checkCount)
 Write-Output 'SSLOG codecs are ordinary endian-aware protocol source; Make requires no Python.'
+Write-Output 'Record Catalog, decoder profile, and static instance facade contracts are valid.'
 Write-Output 'Authoritative target source graph and FreeRTOS source set are valid.'
+Write-Output 'FCCG_PROGRESS|ARCHITECTURE|DONE|6|6|summary'

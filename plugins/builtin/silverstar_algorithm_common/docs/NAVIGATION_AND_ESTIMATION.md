@@ -181,7 +181,7 @@ velocity_std   = max(sAcc * scale, velocity_floor)
 
 因此Device静态推荐值不会把GNSS R退化为固定值。JY901B Barometer的推荐高度标准差为5 m；未定义`SYSTEM_ESTIMATOR_BAROMETER_ALTITUDE_STD_M_OVERRIDE`时由Barometer Interface提供。当前量测方差与该推荐下限取较大值，未来Device提供更大的实时不确定度时继续优先保留实时值。
 
-Device推荐值与可选User override在构建`SystemEstimatorProfile`时解析为明确最终数值；START沿用Lifecycle既有顺序冻结该Profile，飞行阶段只消费冻结结果。SSLOG0 `SYSTEM_CONFIG`继续写入最终生效的过程噪声、GNSS floor和气压标准差，不记录来源标签，也不改变Record布局。
+Device推荐值与可选User override在构建`SystemEstimatorProfile`时解析为明确最终数值；START沿用Lifecycle既有顺序冻结该Profile，飞行阶段只消费冻结结果。飞行日志格式0.0的`SYSTEM_CONFIG`继续写入最终生效的过程噪声、GNSS floor和气压标准差，不记录来源标签，也不改变Record布局。
 
 ## 9. NIS门控与GNSS重捕获
 
@@ -295,7 +295,7 @@ SilverStar 0.0.9不使用固定100 Hz定时器强行更新导航。IMU Device把
 
 标称频率只用于配置、合法性检查和日志元数据。算法积分和电脑重放必须使用每条记录的真实时间戳。
 
-SSLOG0保存两条重放路径：
+飞行日志格式0.0保存两条重放路径：
 
 1. `IMU_CORRECTED`保存实际进入INS的任务校准后机体系加速度/角速度，用于重新运行二子样机械化和任意融合算法；Calibration参数由独立`CALIBRATION_RESULT`记录恢复。当前正式任务默认不保存未校准IMU raw/native数据；
 2. `INERTIAL_INCREMENT`、`GNSS_MEASUREMENT`和`BARO_MEASUREMENT`，用于跳过设备解码、任务Calibration和机械化，直接比较不同融合算法。

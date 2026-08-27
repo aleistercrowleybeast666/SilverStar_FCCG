@@ -5,6 +5,10 @@
 #define JY901B_IMU_BUILD_ACCEL_AVAILABLE                         1U
 #define JY901B_IMU_BUILD_GYRO_AVAILABLE                          1U
 
+/* The current driver owns one static parser/context.  Multiple logical
+ * capabilities from that context do not make the same plugin repeatable. */
+#define JY901B_BUILD_MULTI_INSTANCE_READY                        0U
+
 /* Algorithm qualification is deliberately separate from runtime health. */
 #define JY901B_IMU_BUILD_SOFTWARE_PROPAGATION_QUALIFIED          1U
 #define JY901B_IMU_BUILD_SOFTWARE_ALIGNMENT_QUALIFIED            1U

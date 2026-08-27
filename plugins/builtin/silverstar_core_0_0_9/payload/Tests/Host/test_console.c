@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "project_device_instances.h"
 #include "system_alignment.h"
 #include "system_barometer_if.h"
 #include "system_calibration.h"
@@ -468,7 +469,11 @@ SystemDeviceResult SystemHardwareQuaternion_HealthGet(
 {
     if (health == NULL) { return SYSTEM_DEVICE_INVALID_ARGUMENT; }
     (void)memset(health, 0, sizeof(*health));
-    return SYSTEM_DEVICE_UNSUPPORTED;
+    health->initialized = 1U;
+    health->started = 1U;
+    health->online = 1U;
+    health->healthy = 1U;
+    return SYSTEM_DEVICE_OK;
 }
 SystemDeviceResult SystemHardwareQuaternion_LatestSampleGet(
     SystemHardwareQuaternionSample *sample)
@@ -501,7 +506,11 @@ SystemDeviceResult SystemPower_HealthGet(SystemDeviceHealth *health)
 {
     if (health == NULL) { return SYSTEM_DEVICE_INVALID_ARGUMENT; }
     (void)memset(health, 0, sizeof(*health));
-    return SYSTEM_DEVICE_UNSUPPORTED;
+    health->initialized = 1U;
+    health->started = 1U;
+    health->online = 1U;
+    health->healthy = 1U;
+    return SYSTEM_DEVICE_OK;
 }
 SystemDeviceResult SystemPower_LatestSampleGet(SystemPowerSample *sample)
 {
@@ -1144,13 +1153,13 @@ static void Test_SensorDiagnostics(void)
         SYSTEM_GNSS_FIELD_POSITION | SYSTEM_GNSS_FIELD_HEIGHT;
     s_gnss_sample.valid_fields = s_gnss_sample.supported_fields;
     Test_ExecuteExact(
-        "GNSS SAMPLE",
-        "OK GNSS SAMPLE seq=7 lat_e7=311234567 lon_e7=1211234567 fix=3 position_usable=0 velocity_mask=0x00");
-    Test_Execute("GNSS SAMPLE DETAIL", SYSTEM_CONSOLE_EXECUTE_OK,
+        "GNSS 0 SAMPLE",
+        "OK GNSS 0 SAMPLE seq=7 lat_e7=311234567 lon_e7=1211234567 fix=3 position_usable=0 velocity_mask=0x00");
+    Test_Execute("GNSS 0 SAMPLE DETAIL", SYSTEM_CONSOLE_EXECUTE_OK,
                  "fix_type=3 fix_ok=UNSUPPORTED num_sv=UNSUPPORTED");
-    Test_Execute("GNSS SAMPLE DETAIL", SYSTEM_CONSOLE_EXECUTE_OK,
+    Test_Execute("GNSS 0 SAMPLE DETAIL", SYSTEM_CONSOLE_EXECUTE_OK,
                  "hacc_mm=UNSUPPORTED vacc_mm=UNSUPPORTED sacc_mmps=UNSUPPORTED");
-    Test_Execute("GNSS SAMPLE DETAIL", SYSTEM_CONSOLE_EXECUTE_OK,
+    Test_Execute("GNSS 0 SAMPLE DETAIL", SYSTEM_CONSOLE_EXECUTE_OK,
                  "position_reject_mask=0x00000004");
 
     (void)memset(&s_barometer_sample, 0, sizeof(s_barometer_sample));
@@ -1173,30 +1182,30 @@ static void Test_SensorDiagnostics(void)
     s_barometer_health_result = SYSTEM_DEVICE_OK;
     s_barometer_present = 1U;
     Test_ExecuteExact(
-        "BARO SAMPLE",
-        "OK BARO SAMPLE seq=9 pressure_pa=100100 altitude_cm=1234 valid=0x00000003");
-    Test_Execute("BARO SAMPLE DETAIL", SYSTEM_CONSOLE_EXECUTE_OK,
+        "BARO 0 SAMPLE",
+        "OK BARO 0 SAMPLE seq=9 pressure_pa=100100 altitude_cm=1234 valid=0x00000003");
+    Test_Execute("BARO 0 SAMPLE DETAIL", SYSTEM_CONSOLE_EXECUTE_OK,
                  "sample_valid=1 sample_fresh=1 sample_age_ms=0");
-    Test_Execute("BARO SAMPLE DETAIL", SYSTEM_CONSOLE_EXECUTE_OK,
+    Test_Execute("BARO 0 SAMPLE DETAIL", SYSTEM_CONSOLE_EXECUTE_OK,
                  "temperature_c=UNSUPPORTED altitude_m=12.340 status=OK");
 
     s_barometer_sample.sample_timestamp_us = s_now_us -
         SYSTEM_ESTIMATOR_MEASUREMENT_MAX_AGE_US - 1ULL;
-    Test_Execute("BARO SAMPLE DETAIL", SYSTEM_CONSOLE_EXECUTE_OK,
+    Test_Execute("BARO 0 SAMPLE DETAIL", SYSTEM_CONSOLE_EXECUTE_OK,
                  "status=STALE");
     s_barometer_sample_result = SYSTEM_DEVICE_NOT_READY;
-    Test_Execute("BARO SAMPLE DETAIL", SYSTEM_CONSOLE_EXECUTE_OK,
+    Test_Execute("BARO 0 SAMPLE DETAIL", SYSTEM_CONSOLE_EXECUTE_OK,
                  "status=NOT_READY");
     s_barometer_sample_result = SYSTEM_DEVICE_OK;
 
     s_barometer_present = 0U;
     s_barometer_health.online = 0U;
-    Test_Execute("BARO SAMPLE DETAIL", SYSTEM_CONSOLE_EXECUTE_OK,
-                 "status=NOT_PRESENT");
+    Test_Execute("BARO 0 SAMPLE DETAIL", SYSTEM_CONSOLE_EXECUTE_OK,
+                 "present=1");
     s_barometer_present = 1U;
     s_barometer_health.initialized = 0U;
     s_barometer_health.started = 0U;
-    Test_Execute("BARO SAMPLE DETAIL", SYSTEM_CONSOLE_EXECUTE_OK,
+    Test_Execute("BARO 0 SAMPLE DETAIL", SYSTEM_CONSOLE_EXECUTE_OK,
                  "status=NOT_CONFIGURED");
     s_barometer_health.initialized = 1U;
     s_barometer_health.started = 1U;
@@ -1204,10 +1213,10 @@ static void Test_SensorDiagnostics(void)
     s_barometer_sample.sample_timestamp_us = s_now_us;
     s_barometer_sample.valid_fields = 0U;
     s_barometer_sample.valid_mask = 0U;
-    Test_Execute("BARO SAMPLE DETAIL", SYSTEM_CONSOLE_EXECUTE_OK,
+    Test_Execute("BARO 0 SAMPLE DETAIL", SYSTEM_CONSOLE_EXECUTE_OK,
                  "status=INVALID");
     s_barometer_health_result = SYSTEM_DEVICE_IO_ERROR;
-    Test_Execute("BARO SAMPLE DETAIL", SYSTEM_CONSOLE_EXECUTE_OK,
+    Test_Execute("BARO 0 SAMPLE DETAIL", SYSTEM_CONSOLE_EXECUTE_OK,
                  "status=FAILED");
     s_barometer_health_result = SYSTEM_DEVICE_OK;
     s_barometer_sample.valid_fields = s_barometer_sample.supported_fields;
@@ -1252,15 +1261,15 @@ static void Test_SensorDiagnostics(void)
 
     s_now_us = (((uint64_t)UINT32_MAX + 10ULL) * 1000ULL);
     s_gnss_sample.sample_timestamp_us = 1ULL;
-    Test_Execute("GNSS SAMPLE DETAIL", SYSTEM_CONSOLE_EXECUTE_OK,
+    Test_Execute("GNSS 0 SAMPLE DETAIL", SYSTEM_CONSOLE_EXECUTE_OK,
                  "age_ms=4294967295");
     s_barometer_sample.sample_timestamp_us = 1ULL;
-    Test_Execute("BARO SAMPLE DETAIL", SYSTEM_CONSOLE_EXECUTE_OK,
+    Test_Execute("BARO 0 SAMPLE DETAIL", SYSTEM_CONSOLE_EXECUTE_OK,
                  "sample_age_ms=4294967295");
     s_now_us = 1000000ULL;
 
     s_barometer_supported = 0U;
-    Test_Execute("BARO SAMPLE DETAIL", SYSTEM_CONSOLE_EXECUTE_OK,
+    Test_Execute("BARO 0 SAMPLE DETAIL", SYSTEM_CONSOLE_EXECUTE_OK,
                  "status=UNSUPPORTED");
     s_barometer_supported = 1U;
 }
@@ -1288,37 +1297,40 @@ static void Test_ConsoleDiscontinuityClearsPartialLine(void)
 
 static void Test_IoClear(void)
 {
-    Test_ExecuteExact("IMU IO CLEAR", "OK IMU IO CLEAR");
-    Test_Execute("IMU IO", SYSTEM_CONSOLE_EXECUTE_OK,
+    Test_ExecuteExact("IMU 0 IO CLEAR", "OK IMU 0 IO CLEAR");
+    Test_Execute("IMU 0 IO", SYSTEM_CONSOLE_EXECUTE_OK,
                  "rx_bytes=0");
-    Test_Execute("IMU IO", SYSTEM_CONSOLE_EXECUTE_OK,
+    Test_Execute("IMU 0 IO", SYSTEM_CONSOLE_EXECUTE_OK,
                  "valid_frames=0 checksum_errors=0 parser_resyncs=0");
-    Test_Execute("BARO IO", SYSTEM_CONSOLE_EXECUTE_OK,
+    Test_Execute("BARO 0 IO", SYSTEM_CONSOLE_EXECUTE_OK,
                  "rx_bytes=0");
+    Test_Execute("ATTITUDE 0 IO", SYSTEM_CONSOLE_EXECUTE_OK,
+                 "owner=IMU owner_instance=0 physical_device_id=1");
+    Test_ExecuteExact("BARO 0 IO CLEAR", "OK BARO 0 IO CLEAR");
     s_io_rx_bytes += 7U;
     s_imu_valid_frame_count += 4U;
     s_imu_checksum_error_count += 2U;
     s_imu_parser_resync_count += 1U;
-    Test_Execute("IMU IO", SYSTEM_CONSOLE_EXECUTE_OK,
+    Test_Execute("IMU 0 IO", SYSTEM_CONSOLE_EXECUTE_OK,
                  "rx_bytes=7");
-    Test_Execute("IMU IO", SYSTEM_CONSOLE_EXECUTE_OK,
+    Test_Execute("IMU 0 IO", SYSTEM_CONSOLE_EXECUTE_OK,
                  "valid_frames=4 checksum_errors=2 parser_resyncs=1");
 
-    Test_ExecuteExact("GNSS IO CLEAR", "OK GNSS IO CLEAR");
-    Test_Execute("GNSS IO", SYSTEM_CONSOLE_EXECUTE_OK,
+    Test_ExecuteExact("GNSS 0 IO CLEAR", "OK GNSS 0 IO CLEAR");
+    Test_Execute("GNSS 0 IO", SYSTEM_CONSOLE_EXECUTE_OK,
                  "rx_bytes=0");
-    Test_Execute("GNSS IO", SYSTEM_CONSOLE_EXECUTE_OK,
+    Test_Execute("GNSS 0 IO", SYSTEM_CONSOLE_EXECUTE_OK,
                  "ubx_frames=0");
     s_io_rx_bytes += 5U;
     s_gnss_ubx_frame_count += 3U;
     s_gnss_parser_resync_count += 1U;
-    Test_Execute("GNSS IO", SYSTEM_CONSOLE_EXECUTE_OK,
+    Test_Execute("GNSS 0 IO", SYSTEM_CONSOLE_EXECUTE_OK,
                  "rx_bytes=5");
-    Test_Execute("GNSS IO", SYSTEM_CONSOLE_EXECUTE_OK,
+    Test_Execute("GNSS 0 IO", SYSTEM_CONSOLE_EXECUTE_OK,
                  "ubx_frames=3");
 
-    Test_ExecuteExact("TELEMETRY IO CLEAR", "OK TELEMETRY IO CLEAR");
-    Test_Execute("TELEMETRY IO", SYSTEM_CONSOLE_EXECUTE_OK,
+    Test_ExecuteExact("TELEMETRY 0 IO CLEAR", "OK TELEMETRY 0 IO CLEAR");
+    Test_Execute("TELEMETRY 0 IO", SYSTEM_CONSOLE_EXECUTE_OK,
                  "rx_bytes=0");
     Test_ExecuteExact("SYSTEM CONSOLE IO CLEAR",
                       "OK SYSTEM CONSOLE IO CLEAR");
@@ -1494,9 +1506,46 @@ static void Test_AsyncFlightRecoveryEvents(void)
         "EVENT FLIGHT LANDING time_ms=80") != NULL);
 }
 
+static void Test_MultiInstanceFacade(void)
+{
+    SystemImuSample imu_zero;
+    SystemImuSample imu_one;
+    SystemDeviceHealth health_zero;
+    SystemDeviceHealth health_one;
+    SystemDeviceDescriptor descriptor_zero;
+    SystemDeviceDescriptor descriptor_one;
+
+    TEST_CHECK(ProjectImuInstance_CountGet() == 2U);
+    TEST_CHECK(ProjectGnssInstance_CountGet() == 2U);
+    TEST_CHECK(ProjectImuInstance_LatestSampleGet(0U, &imu_zero) ==
+               SYSTEM_DEVICE_OK);
+    TEST_CHECK(ProjectImuInstance_LatestSampleGet(1U, &imu_one) ==
+               SYSTEM_DEVICE_OK);
+    TEST_CHECK(imu_zero.sequence == 8U);
+    TEST_CHECK(imu_one.sequence == 1008U);
+    TEST_CHECK(ProjectImuInstance_HealthGet(0U, &health_zero) ==
+               SYSTEM_DEVICE_OK);
+    TEST_CHECK(ProjectImuInstance_HealthGet(1U, &health_one) ==
+               SYSTEM_DEVICE_OK);
+    TEST_CHECK(health_zero.health_flags != health_one.health_flags);
+    TEST_CHECK(ProjectDeviceInstance_DescriptorGet(
+                   SYSTEM_DEVICE_CLASS_IMU, 0U, &descriptor_zero) ==
+               SYSTEM_DEVICE_OK);
+    TEST_CHECK(ProjectDeviceInstance_DescriptorGet(
+                   SYSTEM_DEVICE_CLASS_IMU, 1U, &descriptor_one) ==
+               SYSTEM_DEVICE_OK);
+    TEST_CHECK(descriptor_zero.descriptor_id != descriptor_one.descriptor_id);
+    TEST_CHECK(descriptor_zero.physical_device_id !=
+               descriptor_one.physical_device_id);
+    TEST_CHECK(ProjectImuInstance_LatestSampleGet(2U, &imu_one) ==
+               SYSTEM_DEVICE_NOT_PRESENT);
+}
+
 int main(void)
 {
     char response[64];
+
+    Test_MultiInstanceFacade();
 
     s_locked = 0U;
     s_gnss_available = 1U;
@@ -1700,35 +1749,65 @@ int main(void)
                  "apply_failed_mask=0x00000001 persist_failed_mask=0x00000000 verify_failed_mask=0x00000000");
     Test_Execute("SYSTEM STARTUP GNSS", SYSTEM_CONSOLE_EXECUTE_OK,
                  "verify_received_id=0x00 verify_response_version=0");
-    Test_Execute("GNSS CONFIG SHOW", SYSTEM_CONSOLE_EXECUTE_OK,
+    Test_Execute("GNSS 0 CONFIG SHOW", SYSTEM_CONSOLE_EXECUTE_OK,
                  "source=CACHE");
-    Test_Execute("GNSS INFO", SYSTEM_CONSOLE_EXECUTE_OK,
-                 "OK GNSS INFO device=MOCK_GNSS");
-    Test_Execute("GNSS STATUS", SYSTEM_CONSOLE_EXECUTE_OK,
+    Test_Execute("IMU STATUS", SYSTEM_CONSOLE_EXECUTE_BAD_ARGUMENT,
+                 "code=BAD_FORMAT reason=INSTANCE_REQUIRED");
+    Test_Execute("IMU X STATUS", SYSTEM_CONSOLE_EXECUTE_BAD_ARGUMENT,
+                 "code=BAD_INSTANCE reason=FORMAT");
+    Test_Execute("IMU -1 STATUS", SYSTEM_CONSOLE_EXECUTE_BAD_ARGUMENT,
+                 "code=BAD_INSTANCE reason=FORMAT");
+    Test_Execute("IMU 256 STATUS", SYSTEM_CONSOLE_EXECUTE_BAD_ARGUMENT,
+                 "code=BAD_INSTANCE reason=RANGE");
+    Test_Execute("IMU 1 STATUS", SYSTEM_CONSOLE_EXECUTE_OK,
+                 "OK IMU 1 STATUS");
+    Test_Execute("IMU 2 STATUS", SYSTEM_CONSOLE_EXECUTE_FAILED,
+                 "ERR IMU 2 STATUS code=NOT_PRESENT reason=INSTANCE");
+    Test_Execute("IMU LIST", SYSTEM_CONSOLE_EXECUTE_OK,
+                 "OK IMU LIST count=2 DATA instance=0 descriptor_id=1 physical_device_id=1 shared=1");
+    Test_Execute("IMU LIST", SYSTEM_CONSOLE_EXECUTE_OK,
+                 "DATA instance=1 descriptor_id=14 physical_device_id=9 shared=0 device=MOCK_IMU_B model=HOST_IMU_B");
+    Test_Execute("BARO LIST", SYSTEM_CONSOLE_EXECUTE_OK,
+                 "physical_device_id=1 shared=1");
+    Test_Execute("ATTITUDE LIST", SYSTEM_CONSOLE_EXECUTE_OK,
+                 "descriptor_id=4 physical_device_id=1 shared=1");
+    Test_Execute("GNSS 0 INFO", SYSTEM_CONSOLE_EXECUTE_OK,
+                 "OK GNSS 0 INFO device=MOCK_GNSS");
+    Test_Execute("GNSS 0 STATUS", SYSTEM_CONSOLE_EXECUTE_OK,
                  "initialized=1 started=1 online=1 healthy=1");
-    Test_Execute("IMU STATUS", SYSTEM_CONSOLE_EXECUTE_OK,
-                 "OK IMU STATUS");
-    Test_Execute("GNSS CAPABILITIES", SYSTEM_CONSOLE_EXECUTE_OK,
+    Test_Execute("IMU 0 STATUS", SYSTEM_CONSOLE_EXECUTE_OK,
+                 "OK IMU 0 STATUS");
+    Test_Execute("ATTITUDE 0 STATUS", SYSTEM_CONSOLE_EXECUTE_OK,
+                 "OK ATTITUDE 0 STATUS");
+    Test_Execute("POWER 0 STATUS", SYSTEM_CONSOLE_EXECUTE_OK,
+                 "OK POWER 0 STATUS");
+    Test_Execute("GNSS 1 SAMPLE", SYSTEM_CONSOLE_EXECUTE_OK,
+                 "OK GNSS 1 SAMPLE");
+    Test_Execute("GNSS LIST", SYSTEM_CONSOLE_EXECUTE_OK,
+                 "DATA instance=1 descriptor_id=15 physical_device_id=10 shared=0 device=MOCK_GNSS_B model=HOST_GNSS_B");
+    Test_Execute("GNSS 2 SAMPLE", SYSTEM_CONSOLE_EXECUTE_FAILED,
+                 "ERR GNSS 2 SAMPLE code=NOT_PRESENT reason=INSTANCE");
+    Test_Execute("GNSS 0 CAPABILITIES", SYSTEM_CONSOLE_EXECUTE_OK,
                  "mask=0x00001234");
-    Test_Execute("GNSS CONFIG READ", SYSTEM_CONSOLE_EXECUTE_OK,
+    Test_Execute("GNSS 0 CONFIG READ", SYSTEM_CONSOLE_EXECUTE_OK,
                  "source=HARDWARE read_result=OK valid_mask=0x00000041");
-    Test_Execute("GNSS CONFIG READ", SYSTEM_CONSOLE_EXECUTE_OK,
+    Test_Execute("GNSS 0 CONFIG READ", SYSTEM_CONSOLE_EXECUTE_OK,
                  "response_result=RESPONSE_OK failed_group=NONE");
-    Test_Execute("GNSS CONFIG READ", SYSTEM_CONSOLE_EXECUTE_OK,
+    Test_Execute("GNSS 0 CONFIG READ", SYSTEM_CONSOLE_EXECUTE_OK,
                  "transaction_id=9 detailed_result=RESPONSE_OK");
-    Test_Execute("GNSS CONFIG READ", SYSTEM_CONSOLE_EXECUTE_OK,
+    Test_Execute("GNSS 0 CONFIG READ", SYSTEM_CONSOLE_EXECUTE_OK,
                  "response_version=1 unsupported_mask=0x00000000");
-    Test_Execute("GNSS CONFIG VERIFY", SYSTEM_CONSOLE_EXECUTE_UNSUPPORTED,
+    Test_Execute("GNSS 0 CONFIG VERIFY", SYSTEM_CONSOLE_EXECUTE_UNSUPPORTED,
                  "DEVICE_OPERATION");
-    Test_Execute("GNSS NAV SAT", SYSTEM_CONSOLE_EXECUTE_OK,
+    Test_Execute("GNSS 0 NAV SAT", SYSTEM_CONSOLE_EXECUTE_OK,
                  "satellite_count=10 used_count=7");
-    Test_Execute("GNSS NAV SAT", SYSTEM_CONSOLE_EXECUTE_OK,
+    Test_Execute("GNSS 0 NAV SAT", SYSTEM_CONSOLE_EXECUTE_OK,
                  "transaction_id=10 response_result=RESPONSE_OK detailed_result=RESPONSE_OK");
-    Test_Execute("GNSS NAV SAT", SYSTEM_CONSOLE_EXECUTE_OK,
+    Test_Execute("GNSS 0 NAV SAT", SYSTEM_CONSOLE_EXECUTE_OK,
                  "expected_class=0x01 expected_id=0x35 received_class=0x01 received_id=0x35");
-    Test_Execute("GNSS MON RF", SYSTEM_CONSOLE_EXECUTE_OK,
+    Test_Execute("GNSS 0 MON RF", SYSTEM_CONSOLE_EXECUTE_OK,
                  "jamming_indicator=6 noise_per_ms=11 agc_count=222");
-    Test_Execute("GNSS MON RF", SYSTEM_CONSOLE_EXECUTE_OK,
+    Test_Execute("GNSS 0 MON RF", SYSTEM_CONSOLE_EXECUTE_OK,
                  "jamming_state=2 cw_suppression=6");
     Test_Execute("SYSTEM START", SYSTEM_CONSOLE_EXECUTE_OK,
                  "state=PENDING request_id=1");
@@ -1740,29 +1819,29 @@ int main(void)
                  "project=SilverStar");
     Test_Execute("TIME STATUS", SYSTEM_CONSOLE_EXECUTE_OK,
                  "OK TIME STATUS monotonic_us=1000000");
-    Test_Execute("GNSS IO", SYSTEM_CONSOLE_EXECUTE_OK,
-                 "transport=UART owner=SELF");
-    Test_Execute("GNSS IO", SYSTEM_CONSOLE_EXECUTE_OK,
+    Test_Execute("GNSS 0 IO", SYSTEM_CONSOLE_EXECUTE_OK,
+                 "transport=UART owner=GNSS owner_instance=0 physical_device_id=2");
+    Test_Execute("GNSS 0 IO", SYSTEM_CONSOLE_EXECUTE_OK,
                  "ubx_frames=8");
-    Test_Execute("IMU IO", SYSTEM_CONSOLE_EXECUTE_OK,
+    Test_Execute("IMU 0 IO", SYSTEM_CONSOLE_EXECUTE_OK,
                  "valid_frames=12 checksum_errors=1 parser_resyncs=3");
-    Test_Execute("BARO IO", SYSTEM_CONSOLE_EXECUTE_OK,
-                 "transport=UART owner=IMU");
-    Test_Execute("TELEMETRY IO", SYSTEM_CONSOLE_EXECUTE_OK,
-                 "OK TELEMETRY IO");
+    Test_Execute("BARO 0 IO", SYSTEM_CONSOLE_EXECUTE_OK,
+                 "transport=UART owner=IMU owner_instance=0 physical_device_id=1");
+    Test_Execute("TELEMETRY 0 IO", SYSTEM_CONSOLE_EXECUTE_OK,
+                 "OK TELEMETRY 0 IO");
     Test_Execute("SYSTEM CONSOLE IO", SYSTEM_CONSOLE_EXECUTE_OK,
                  "OK SYSTEM CONSOLE IO");
     Test_Execute("LOG INFO", SYSTEM_CONSOLE_EXECUTE_OK,
                  "device=MOCK_LOG_STORAGE model=GENERIC_STORAGE");
     Test_Execute("LOG STATUS", SYSTEM_CONSOLE_EXECUTE_OK,
                  "OK LOG STATUS initialized=1 mounted=1");
-    Test_Execute("IMU HEALTH", SYSTEM_CONSOLE_EXECUTE_BAD_COMMAND,
+    Test_Execute("IMU 0 HEALTH", SYSTEM_CONSOLE_EXECUTE_BAD_COMMAND,
                  "code=BAD_COMMAND reason=UNKNOWN");
-    Test_Execute("GNSS HEALTH", SYSTEM_CONSOLE_EXECUTE_BAD_COMMAND,
+    Test_Execute("GNSS 0 HEALTH", SYSTEM_CONSOLE_EXECUTE_BAD_COMMAND,
                  "code=BAD_COMMAND reason=UNKNOWN");
     Test_Execute("SYSTEM HEALTH", SYSTEM_CONSOLE_EXECUTE_BAD_COMMAND,
                  "code=BAD_COMMAND reason=UNKNOWN");
-    Test_Execute("POWER HEALTH", SYSTEM_CONSOLE_EXECUTE_BAD_COMMAND,
+    Test_Execute("POWER 0 HEALTH", SYSTEM_CONSOLE_EXECUTE_BAD_COMMAND,
                  "code=BAD_COMMAND reason=UNKNOWN");
     Test_Execute("LOG HEALTH", SYSTEM_CONSOLE_EXECUTE_BAD_COMMAND,
                  "code=BAD_COMMAND reason=UNKNOWN");
@@ -1770,7 +1849,9 @@ int main(void)
                  "code=BAD_MODULE reason=UNKNOWN");
     Test_Execute("LOG IO", SYSTEM_CONSOLE_EXECUTE_UNSUPPORTED,
                  "code=UNSUPPORTED");
-    Test_Execute("GNSS STATUS DETAIL", SYSTEM_CONSOLE_EXECUTE_BAD_ARGUMENT,
+    Test_Execute("GNSS 0 STATUS DETAIL", SYSTEM_CONSOLE_EXECUTE_BAD_ARGUMENT,
+                 "code=BAD_FORMAT reason=TOKEN_COUNT");
+    Test_Execute("GNSS 0 STATUS EXTRA", SYSTEM_CONSOLE_EXECUTE_BAD_ARGUMENT,
                  "code=BAD_FORMAT reason=TOKEN_COUNT");
     Test_Execute("SYSTEM INFO EXTRA", SYSTEM_CONSOLE_EXECUTE_BAD_ARGUMENT,
                  "code=BAD_FORMAT reason=TOKEN_COUNT");
@@ -1793,17 +1874,17 @@ int main(void)
                  "code=BAD_FORMAT reason=TOKEN_COUNT");
     Test_Execute("BAD STATUS", SYSTEM_CONSOLE_EXECUTE_BAD_MODULE,
                  "code=BAD_MODULE");
-    Test_Execute("IMU CONFIG", SYSTEM_CONSOLE_EXECUTE_BAD_ARGUMENT,
+    Test_Execute("IMU 0 CONFIG", SYSTEM_CONSOLE_EXECUTE_BAD_ARGUMENT,
                  "SUBCOMMAND_REQUIRED");
-    Test_Execute("IMU CONFIG VERIFY", SYSTEM_CONSOLE_EXECUTE_UNSUPPORTED,
+    Test_Execute("IMU 0 CONFIG VERIFY", SYSTEM_CONSOLE_EXECUTE_UNSUPPORTED,
                  "DEVICE_OPERATION");
-    Test_Execute("IMU CONFIG APPLY", SYSTEM_CONSOLE_EXECUTE_UNSUPPORTED,
+    Test_Execute("IMU 0 CONFIG APPLY", SYSTEM_CONSOLE_EXECUTE_UNSUPPORTED,
                  "DEVICE_OPERATION");
-    Test_Execute("IMU CONFIG READ", SYSTEM_CONSOLE_EXECUTE_UNSUPPORTED,
+    Test_Execute("IMU 0 CONFIG READ", SYSTEM_CONSOLE_EXECUTE_UNSUPPORTED,
                  "HARDWARE_READ");
-    Test_Execute("IMU SELFTEST", SYSTEM_CONSOLE_EXECUTE_UNSUPPORTED,
+    Test_Execute("IMU 0 SELFTEST", SYSTEM_CONSOLE_EXECUTE_UNSUPPORTED,
                  "OWNER_TASK_OPERATION");
-    Test_Execute("IMU PARAM GET", SYSTEM_CONSOLE_EXECUTE_UNSUPPORTED,
+    Test_Execute("IMU 0 PARAM GET", SYSTEM_CONSOLE_EXECUTE_UNSUPPORTED,
                  "NO_PUBLIC_PARAMETER");
     Test_IoClear();
     Test_SensorDiagnostics();
@@ -1819,27 +1900,27 @@ int main(void)
     s_state = SYSTEM_STATE_PREFLIGHT;
 
     s_gnss_available = 0U;
-    Test_Execute("GNSS NAV SAT", SYSTEM_CONSOLE_EXECUTE_OK,
+    Test_Execute("GNSS 0 NAV SAT", SYSTEM_CONSOLE_EXECUTE_OK,
                  "read_result=UNSUPPORTED");
     s_gnss_available = 1U;
 
     s_locked = 1U;
     s_state = SYSTEM_STATE_FLIGHT;
-    Test_Execute("IMU INFO", SYSTEM_CONSOLE_EXECUTE_OK,
-                 "OK IMU INFO");
-    Test_Execute("GNSS CONFIG SHOW", SYSTEM_CONSOLE_EXECUTE_OK,
+    Test_Execute("IMU 0 INFO", SYSTEM_CONSOLE_EXECUTE_OK,
+                 "OK IMU 0 INFO");
+    Test_Execute("GNSS 0 CONFIG SHOW", SYSTEM_CONSOLE_EXECUTE_OK,
                  "source=CACHE");
-    Test_Execute("IMU CONFIG APPLY", SYSTEM_CONSOLE_EXECUTE_LOCKED,
+    Test_Execute("IMU 0 CONFIG APPLY", SYSTEM_CONSOLE_EXECUTE_LOCKED,
                  "code=LOCKED");
     Test_Execute("SYSTEM STATUS", SYSTEM_CONSOLE_EXECUTE_OK,
                  "state=4");
     Test_Execute("TIME STATUS", SYSTEM_CONSOLE_EXECUTE_OK,
                  "mission_started=0");
-    Test_Execute("GNSS NAV SAT", SYSTEM_CONSOLE_EXECUTE_OK,
+    Test_Execute("GNSS 0 NAV SAT", SYSTEM_CONSOLE_EXECUTE_OK,
                  "read_result=OK");
-    Test_Execute("GNSS MON RF", SYSTEM_CONSOLE_EXECUTE_OK,
+    Test_Execute("GNSS 0 MON RF", SYSTEM_CONSOLE_EXECUTE_OK,
                  "read_result=OK");
-    Test_Execute("GNSS IO", SYSTEM_CONSOLE_EXECUTE_OK,
+    Test_Execute("GNSS 0 IO", SYSTEM_CONSOLE_EXECUTE_OK,
                  "transport=UART");
     Test_Execute("ESTIMATOR STATUS", SYSTEM_CONSOLE_EXECUTE_OK,
                  "OK ESTIMATOR STATUS");

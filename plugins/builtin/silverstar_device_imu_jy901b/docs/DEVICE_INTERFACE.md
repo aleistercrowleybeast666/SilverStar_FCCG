@@ -42,6 +42,7 @@ Device native类型不得包含System结构；Interface不得包含具体Device�
 | `CONFIG_DELEGATED` | 由共享物理owner统一处理 |
 | `NOT_EXECUTED` | 前置阶段失败而未运行 |
 | `BUSY` | 运行所有者或非阻塞事务占用中 |
+| `NOT_PRESENT` | capability类别存在，但请求的静态实例未生成/未启用 |
 
 可由上层调用并需要检查结果的新增函数，按项目命名规则使用`...Result` enum或`SYSTEM_WARN_UNUSED_RESULT`。禁止以`bool`掩盖错误原因。
 
@@ -139,10 +140,14 @@ System源码只读取通用qualification宏，不包含设备名。具体宏映�
 `system_descriptor_if.h`提供按索引读取的项目静态描述；当前表由`Generated/Src/project_metadata.c`实现：
 
 - `SystemDescriptor_DeviceCountGet/DeviceGet`；
+- `SystemDescriptor_DeviceClassInstanceCountGet`；
+- `SystemDescriptor_DeviceFind(device_class, instance_id, ...)`；
 - `SystemDescriptor_AlgorithmCountGet/AlgorithmGet`；
 - `SystemDescriptor_ConfigDigestGet`。
 
-descriptor表有公共编译期上界，但每个实例写成独立SSLOG Record，不把设备ID塞入固定长度payload数组。descriptor接口是只读project metadata，不是运行期Device Registry，也不包含函数地址。
+`SystemDeviceDescriptor`同时携带`descriptor_id`、`physical_device_id`、`device_class`和类别内`instance_id`。相同`physical_device_id`表示多个Capability Endpoint共享一个实际模块；它不能由driver/model hash推断，也不等于instance ID。descriptor表有公共编译期上界，但每个实例写成独立SSLOG Record，不把设备ID塞入固定长度payload数组。descriptor接口是只读project metadata，不是运行期Device Registry，也不包含函数地址。
+
+`Generated/Inc/project_device_instances.h`提供Maintenance、Sensor Status、Native Log和未来FCCG使用的按实例静态facade。每个正式能力具有Count及其实际支持的Info/Health/Sample/Config/I/O操作；实现先验证descriptor，再使用有界`switch(instance_id)`静态direct case，不存在实例明确返回`NOT_PRESENT`。不同Device插件可以分别绑定同能力instance 0/1；同一插件只有声明`multi_instance_ready`后才能重复。当前F407每个已启用类别只生成instance 0，`JY901B_BUILD_MULTI_INSTANCE_READY=0U`；双实例Host fixture不进入Target图。不得把facade扩展成运行期注册表、function pointer dispatch或动态选择器。算法侧Canonical接口继续绑定instance 0的单一输入，多实例facade本身不实现Selection、Voting、Multi-INS或Multi-EKF。
 
 ## 10. 新设备流程
 
@@ -150,7 +155,7 @@ descriptor表有公共编译期上界，但每个实例写成独立SSLOG Record�
 
 1. 在`Devices/<Class>/<Model>/`实现native driver，Host mock下验证parser/config/state machine；
 2. 只通过Platform/Board逻辑资源访问外设；
-3. 声明真实构建资格和推荐噪声，未验证能力保持0；
+3. 声明真实构建资格、推荐噪声和`multi_instance_ready`；未验证能力与同插件重复资格保持0；
 4. 在该Device的`Adapter/`实现现有直接Interface和native-to-common映射；
 5. 创建`module.mk`并只由选中Target include；
 6. 更新`Generated/`中的project descriptor和物理资源映射、Board资源、Profile能力及相关文档；

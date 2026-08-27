@@ -46,6 +46,7 @@ static uint64_t s_now_us;
 static uint32_t s_abort_count;
 static uint32_t s_system_config_push_count;
 static uint32_t s_mission_config_push_count;
+static uint32_t s_decoder_profile_push_count;
 static uint32_t s_initial_state_push_count;
 static uint32_t s_event_push_count;
 static uint32_t s_guard_sequence;
@@ -474,6 +475,13 @@ LoggerBusResult LoggerBus_MissionConfigPush(uint64_t timestamp_us)
     return s_mission_config_push_result;
 }
 
+LoggerBusResult LoggerBus_DecoderProfileDescriptorPush(uint64_t timestamp_us)
+{
+    (void)timestamp_us;
+    s_decoder_profile_push_count++;
+    return LOGGER_BUS_RESULT_OK;
+}
+
 LoggerBusResult LoggerBus_InitialStatePush(
     uint64_t timestamp_us,
     const FlightLogInitialStateRecord *record)
@@ -796,6 +804,7 @@ static void Test_StateReset(void)
     s_abort_count = 0U;
     s_system_config_push_count = 0U;
     s_mission_config_push_count = 0U;
+    s_decoder_profile_push_count = 0U;
     s_initial_state_push_count = 0U;
     s_event_push_count = 0U;
     s_guard_sequence = 0U;
@@ -977,6 +986,7 @@ static void Test_LoggerFinalizesAfterLandingGrace(void)
     TEST_CHECK(s_sink_flush_count >= 4U);
     TEST_CHECK(s_sink_end_count == 1U);
     TEST_CHECK(s_sink_begin_count == 1U);
+    TEST_CHECK(s_decoder_profile_push_count == 1U);
     TEST_CHECK(s_finalization_state == LOGGER_BUS_FINALIZATION_FINALIZED);
 }
 
@@ -1046,6 +1056,7 @@ static void Test_StartupReportBackfillsAfterLateOpen(void)
 
     TEST_CHECK(s_sink_init_count >= 2U);
     TEST_CHECK(s_sink_begin_count == 1U);
+    TEST_CHECK(s_decoder_profile_push_count == 1U);
     TEST_CHECK(s_header_serialize_count == 1U);
     TEST_CHECK(s_record_serialize_count == TEST_STARTUP_EVENT_COUNT);
     TEST_CHECK(s_serialized_events[0] ==

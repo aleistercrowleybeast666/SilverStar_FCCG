@@ -76,12 +76,12 @@ _Static_assert(SYSTEM_SENSOR_STATUS_REGISTERED ==
                    AIR_SENSOR_STATUS_REGISTERED &&
                SYSTEM_SENSOR_STATUS_REQUIRED_FOR_START ==
                    AIR_SENSOR_STATUS_REQUIRED_FOR_START,
-               "Sensor status flags do not fit AIR profile 0");
+               "Sensor status flags do not fit AIR M0");
 _Static_assert((uint8_t)SYSTEM_SENSOR_DETAIL_NONE ==
                    (uint8_t)AIR_SENSOR_DETAIL_NONE &&
                (uint8_t)SYSTEM_SENSOR_DETAIL_OTHER ==
                    (uint8_t)AIR_SENSOR_DETAIL_OTHER,
-               "Sensor detail codes do not fit AIR profile 0");
+               "Sensor detail codes do not fit AIR M0");
 
 typedef struct
 {
@@ -330,6 +330,7 @@ static AirAckResult TelemetryService_DeviceResultMap(
         case SYSTEM_DEVICE_BAD_STATE: return AIR_ACK_RESULT_BAD_STATE;
         case SYSTEM_DEVICE_ALREADY_MATCHED:
         case SYSTEM_DEVICE_NOT_READY:
+        case SYSTEM_DEVICE_NOT_PRESENT:
         case SYSTEM_DEVICE_OFFLINE:
         case SYSTEM_DEVICE_UNSUPPORTED:
         case SYSTEM_DEVICE_TIMEOUT:

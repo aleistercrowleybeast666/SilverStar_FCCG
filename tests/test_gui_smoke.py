@@ -7,7 +7,14 @@ from pathlib import Path
 from PySide6.QtCore import QPoint, Qt
 from PySide6.QtGui import QColor, QPalette
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QDialog, QDialogButtonBox, QLabel
+from PySide6.QtWidgets import (
+    QAbstractItemView,
+    QAbstractSpinBox,
+    QDialog,
+    QDialogButtonBox,
+    QLabel,
+    QTableWidget,
+)
 
 import silverstar_fccg.ui.main_window as main_window_module
 from silverstar_fccg.app.service import FccgService
@@ -97,26 +104,34 @@ def test_actuators_are_optional_and_parachute_removal_clears_modes(
         qapp.processEvents()
 
 
-def test_vscode_workspace_launcher_prefers_executable_and_opens_new_window(
+def test_vscode_workspace_launcher_prefers_code_cmd_and_opens_new_window(
     tmp_path: Path, qapp, monkeypatch
 ) -> None:
     window = _Window_Create(tmp_path, qapp)
     install_root = tmp_path / "Microsoft VS Code"
     launcher = install_root / "bin" / "code.cmd"
-    executable = install_root / "Code.exe"
     workspace = tmp_path / "LaunchTest.code-workspace"
     launcher.parent.mkdir(parents=True)
     launcher.write_text("@echo off\n", encoding="utf-8")
-    executable.write_bytes(b"")
     workspace.write_text('{"folders": [{"path": "."}]}\n', encoding="utf-8")
-    calls: list[tuple[list[str], dict[str, object]]] = []
+    (tmp_path / ".eide").mkdir()
+    (tmp_path / ".eide" / "eide.yml").write_text(
+        "version: 4.1\n", encoding="utf-8"
+    )
+    calls: list[tuple[str | list[str], dict[str, object]]] = []
 
     class ProcessFixture:
-        @staticmethod
-        def poll() -> None:
-            return None
+        stderr = None
 
-    def launch(command: list[str], **kwargs: object) -> ProcessFixture:
+        @staticmethod
+        def wait(*, timeout: float) -> None:
+            raise main_window_module.subprocess.TimeoutExpired(
+                "code.cmd", timeout
+            )
+
+    def launch(
+        command: str | list[str], **kwargs: object
+    ) -> ProcessFixture:
         calls.append((command, kwargs))
         return ProcessFixture()
 
@@ -133,13 +148,16 @@ def test_vscode_workspace_launcher_prefers_executable_and_opens_new_window(
         result = window._VsCodeWorkspace_Launch(workspace)
         assert result.succeeded
         command, arguments = calls[0]
-        assert command == [
-            str(executable.resolve()),
-            "--new-window",
-            str(workspace.resolve()),
-        ]
+        command_text = command if isinstance(command, str) else " ".join(command)
+        assert str(launcher.resolve()) in command_text
+        assert "--new-window" in command_text
+        assert str(workspace.resolve()) in command_text
+        assert " /d /s /c \"\"" in command_text
+        assert command_text.endswith('"')
         assert arguments["cwd"] == str(tmp_path.resolve())
-        assert arguments["creationflags"] == 0
+        assert arguments["creationflags"] == getattr(
+            main_window_module.subprocess, "CREATE_NO_WINDOW", 0
+        )
     finally:
         window.close()
         qapp.processEvents()
@@ -151,8 +169,12 @@ def test_vscode_workspace_open_failure_shows_exact_reason(
     window = _Window_Create(tmp_path, qapp)
     workspace = tmp_path / f"{window._model.identity.name}.code-workspace"
     workspace.write_text('{"folders": [{"path": "."}]}\n', encoding="utf-8")
+    (tmp_path / ".eide").mkdir()
+    (tmp_path / ".eide" / "eide.yml").write_text(
+        "version: 4.1\n", encoding="utf-8"
+    )
     window._project_root = tmp_path
-    errors: list[str] = []
+    dialogs: list[tuple[object, ...]] = []
     monkeypatch.setattr(
         window,
         "_VsCodeWorkspace_Launch",
@@ -160,12 +182,16 @@ def test_vscode_workspace_open_failure_shows_exact_reason(
             False, "fixture launcher failure"
         ),
     )
-    monkeypatch.setattr(window, "_Error_Show", errors.append)
+    monkeypatch.setattr(
+        window,
+        "_MessageBox_Exec",
+        lambda *arguments: dialogs.append(arguments),
+    )
     try:
         window._GeneratedProject_Open("open_vscode")
-        assert len(errors) == 1
-        assert str(workspace.resolve()) in errors[0]
-        assert "fixture launcher failure" in errors[0]
+        assert len(dialogs) == 1
+        assert str(workspace.resolve()) in str(dialogs[0][2])
+        assert "fixture launcher failure" not in str(dialogs[0][2])
     finally:
         window.close()
         qapp.processEvents()
@@ -177,6 +203,10 @@ def test_vscode_workspace_launcher_reports_missing_installation_and_association(
     window = _Window_Create(tmp_path, qapp)
     workspace = tmp_path / "MissingLauncher.code-workspace"
     workspace.write_text('{"folders": [{"path": "."}]}\n', encoding="utf-8")
+    (tmp_path / ".eide").mkdir()
+    (tmp_path / ".eide" / "eide.yml").write_text(
+        "version: 4.1\n", encoding="utf-8"
+    )
 
     class DesktopServicesFixture:
         @staticmethod
@@ -221,11 +251,13 @@ def test_main_window_shell_navigation_theme_and_language(tmp_path: Path, qapp) -
             "open_firmware_output",
             "build",
             "clean",
+            "clean_all",
             "host_tests",
             "architecture_check",
             "power10_check",
             "static_analysis",
             "artifact_check",
+            "tool_install_guide",
         }
         assert not window.build_page.action_buttons["open_vscode"].isEnabled()
         assert not window.build_page.action_buttons["open_folder"].isEnabled()
@@ -235,7 +267,7 @@ def test_main_window_shell_navigation_theme_and_language(tmp_path: Path, qapp) -
         assert "build_release" not in window.build_page.action_buttons
         assert "flash" not in window.build_page.action_buttons
         assert window.save_as_action.shortcut().toString() == "Ctrl+Shift+S"
-        assert window.plugin_manager_dialog.panel.plugin_table.rowCount() == 29
+        assert window.plugin_manager_dialog.panel.plugin_table.rowCount() == 31
         for index in range(window.pages.count()):
             window.navigation_list.setCurrentRow(index)
             assert window.pages.currentIndex() == index
@@ -334,11 +366,18 @@ def test_devices_page_is_physical_and_capabilities_are_on_flight_page(
     window = _Window_Create(tmp_path, qapp)
     try:
         qapp.processEvents()
-        assert tuple(window.devices_page.device_combos) == (
+        assert set(window.devices_page.device_combos) == {
             "imu0",
             "gnss0",
             "telemetry0",
-            "maintenance0",
+        }
+        telemetry_label = window.devices_page.telemetry_form.labelForField(
+            window.devices_page.device_combos["telemetry0"]
+        )
+        assert isinstance(telemetry_label, QLabel)
+        assert telemetry_label.text() == "遥测 0"
+        assert "silverstar.device.console.uart" not in (
+            window.devices_page.device_checks
         )
         assert window.devices_page.mcu_combo.currentData() == (
             "silverstar.mcu.stm32f407vet6"
@@ -375,10 +414,24 @@ def test_devices_page_is_physical_and_capabilities_are_on_flight_page(
             assert not isinstance(actuator, LockedCheckBox)
         assert not hasattr(window.devices_page, "requirement_table")
         assert not window.devices_page.add_buttons
+        assert "maintenance0" in {
+            instance.instance_id for instance in window._model.device_instances
+        }
         assert any(
-            "维护协议版本：0.0" in label.text()
-            and "适用固件版本：0.0.9" in label.text()
-            for label in window.devices_page.findChildren(QLabel)
+            resource.key.startswith("maintenance0:")
+            for resource in window.board_hardware_page._resources
+        )
+        assert set(window.flight_configuration_page.protocol_combos) == {
+            "telemetry",
+            "maintenance",
+            "logging",
+        }
+        assert window.flight_configuration_page.protocol_combos[
+            "maintenance"
+        ].currentText() == "串口维护协议 0.0"
+        assert all(
+            combo.count() == 1
+            for combo in window.flight_configuration_page.protocol_combos.values()
         )
         source = Path("src/silverstar_fccg/ui/pages/components.py").read_text(encoding="utf-8")
         assert "JY901B" not in source
@@ -438,9 +491,11 @@ def test_devices_page_is_physical_and_capabilities_are_on_flight_page(
         assert qapp.palette().color(
             QPalette.ColorGroup.Disabled, QPalette.ColorRole.Text
         ) == QColor("#64748B")
-        assert "QComboBox QAbstractItemView::item:disabled { color: #64748B; }" in (
-            qapp.styleSheet()
-        )
+        assert qapp.palette().color(
+            QPalette.ColorGroup.Disabled, QPalette.ColorRole.Base
+        ) == QColor("#E2E8F0")
+        assert triad_item.background().color() == QColor("#E2E8F0")
+        assert "background: #E2E8F0;" in qapp.styleSheet()
         assert "不具备绝对矢量初始对准资格" in triad_item.toolTip()
         landing_combo = window.flight_configuration_page.strategy_combos["landing"]
         impact_item = landing_combo.model().item(
@@ -465,6 +520,51 @@ def test_devices_page_is_physical_and_capabilities_are_on_flight_page(
             )
             for row in range(logging_table.rowCount())
         )
+
+        delay_spin = window.flight_configuration_page.mode_parameter_spins[
+            ("deployment", "Delay", "delay")
+        ]
+        assert delay_spin.buttonSymbols() == (
+            QAbstractSpinBox.ButtonSymbols.PlusMinus
+        )
+        assert "spin_plus_light.svg" in qapp.styleSheet()
+        assert "spin_minus_light.svg" in qapp.styleSheet()
+
+        tables = window.findChildren(QTableWidget)
+        assert tables
+        assert all(
+            table.horizontalScrollMode()
+            == QAbstractItemView.ScrollMode.ScrollPerPixel
+            and table.verticalScrollMode()
+            == QAbstractItemView.ScrollMode.ScrollPerPixel
+            for table in tables
+        )
+
+        hardware_page = window.board_hardware_page
+        assert hardware_page.advanced_section.body.isAncestorOf(
+            hardware_page.auto_button
+        )
+        assert hardware_page.advanced_section.body.isAncestorOf(
+            hardware_page.manual_validation_button
+        )
+        assert hardware_page.auto_button.objectName() == "primaryButton"
+        assert hardware_page.manual_validation_button.objectName() == (
+            "primaryButton"
+        )
+        assert hardware_page.auto_button.isEnabled()
+        assert hardware_page.manual_validation_button.isEnabled()
+
+        existing_board_index = next(
+            index
+            for index in range(hardware_page.board_combo.count())
+            if hardware_page.board_combo.itemData(index) != "__custom__"
+            and hardware_page.board_combo.model().item(index).isEnabled()
+        )
+        hardware_page.board_combo.setCurrentIndex(existing_board_index)
+        qapp.processEvents()
+        assert window._model.hardware.mode == "board_plugin"
+        assert not hardware_page.auto_button.isEnabled()
+        assert not hardware_page.manual_validation_button.isEnabled()
     finally:
         window.close()
 
@@ -538,12 +638,23 @@ def test_save_prepare_build_and_advanced_actions_use_shared_worker(
         window._Build_Request("build")
         assert window._model.Dictionary_Get() == descriptor_before_validation
         window._Build_Request("architecture_check")
+        window._Build_Request("clean")
+        window._Build_Request("clean_all")
+        assert (
+            window.build_page.action_buttons["clean"].text()
+            == "清理 FCCG 构建产物"
+        )
+        assert "build/FCCG、.eide/build" in (
+            window.build_page.action_buttons["clean_all"].toolTip()
+        )
     finally:
         window.close()
 
     assert invocations == [
         ("save", False),
         ("prepare_plan", False),
+        ("build", False),
+        ("build", False),
         ("build", False),
         ("build", False),
     ]
@@ -578,7 +689,13 @@ def test_hardware_prepare_plans_off_ui_thread_and_completes_safely(
             new_project=True,
         )
 
-    def hardware_prepare(model, root, *, confirm_dangerous=False):
+    def hardware_prepare(
+        model,
+        root,
+        *,
+        confirm_dangerous=False,
+        progress_callback=None,
+    ):
         prepare_threads.append(threading.get_ident())
         return ApplyResult(
             project_root=Path(root),

@@ -64,6 +64,8 @@ class ComponentView:
     compatible_mcus: tuple[str, ...] = ()
     cardinality: str = "single"
     project_max: int = 1
+    plugin_max: int = 0
+    class_max: int = 0
     same_plugin_multiple: bool = False
     multi_instance_ready: bool = False
     vendor: str = ""
@@ -87,6 +89,8 @@ class DeviceInstanceView:
     required: bool = False
     required_capabilities: tuple[str, ...] = ()
     project_max: int = 1
+    plugin_max: int = 0
+    class_max: int = 0
     same_plugin_multiple: bool = False
     multi_instance_ready: bool = False
 
@@ -122,6 +126,7 @@ class ToolchainToolView:
     path: str = ""
     version: str = ""
     status: str = "not_checked"
+    target: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -130,7 +135,9 @@ class LoggingStreamView:
     name: str
     enabled: bool
     decimation: int = 1
-    rate_text: str = ""
+    cadence_kind: str = ""
+    cadence_text: str = ""
+    cadence_source: str = ""
     description: str = ""
     policy: str = ""
     period_us: int = 0

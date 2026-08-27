@@ -41,6 +41,7 @@ typedef enum
 typedef struct
 {
     uint16_t descriptor_id;
+    uint16_t physical_device_id;
     SystemDeviceClass device_class;
     uint8_t instance_id;
     uint16_t driver_id;
@@ -65,6 +66,11 @@ typedef struct
 uint16_t SystemDescriptor_DeviceCountGet(void);
 SystemDeviceResult SystemDescriptor_DeviceGet(
     uint16_t index, SystemDeviceDescriptor *descriptor);
+uint8_t SystemDescriptor_DeviceClassInstanceCountGet(
+    SystemDeviceClass device_class);
+SystemDeviceResult SystemDescriptor_DeviceFind(
+    SystemDeviceClass device_class, uint8_t instance_id,
+    SystemDeviceDescriptor *descriptor);
 uint16_t SystemDescriptor_AlgorithmCountGet(void);
 SystemDeviceResult SystemDescriptor_AlgorithmGet(
     uint16_t index, SystemAlgorithmDescriptor *descriptor);

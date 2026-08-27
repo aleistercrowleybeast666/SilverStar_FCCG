@@ -44,6 +44,35 @@ def test_workspace_staging_and_atomic_write_remain_inside_root(tmp_path: Path) -
     assert path.read_text(encoding="utf-8") == "stable\n"
 
 
+def test_workspace_replace_retries_a_transient_windows_lock(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    policy = WorkspacePolicy(tmp_path)
+    source = tmp_path / "source"
+    target = tmp_path / "target"
+    source.mkdir()
+    (source / "value.txt").write_text("stable\n", encoding="utf-8")
+    original_replace = workspace_module.os.replace
+    calls = 0
+
+    def transient_replace(source_path: Path, target_path: Path) -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise PermissionError(13, "transient directory lock")
+        original_replace(source_path, target_path)
+
+    monkeypatch.setattr(workspace_module.os, "replace", transient_replace)
+    monkeypatch.setattr(workspace_module.time, "sleep", lambda _seconds: None)
+
+    replaced = policy.Path_Replace(source, target)
+
+    assert calls == 2
+    assert replaced == target.resolve()
+    assert (target / "value.txt").read_text(encoding="utf-8") == "stable\n"
+
+
 def test_windows_staging_permission_fix_enables_parent_inheritance(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

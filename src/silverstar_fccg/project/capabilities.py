@@ -181,16 +181,20 @@ def CapabilityResolution_Resolve(
             if override:
                 invalid_overrides.append(capability)
         else:
-            selected = next(
-                (
-                    provider
-                    for provider in providers
-                    if provider.instance_id == override
-                ),
-                None,
-            )
-            if override and selected is None:
-                invalid_overrides.append(capability)
+            if override:
+                selected = next(
+                    (
+                        provider
+                        for provider in providers
+                        if provider.instance_id == override
+                    ),
+                    None,
+                )
+                if selected is None:
+                    invalid_overrides.append(capability)
+            else:
+                selected = providers[0]
+                automatic = True
             choices.append(
                 CapabilityChoice(
                     capability,
@@ -267,5 +271,6 @@ def CapabilitySourceOverrides_Reconcile(
             provider.instance_id == instance_id
             for provider in providers.get(capability, ())
         )
+        and instance_id != providers[capability][0].instance_id
     }
     return CapabilityResolution_Resolve(model, catalog)

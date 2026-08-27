@@ -2,6 +2,93 @@
 
 正式验收要求见`docs/details/VALIDATION_REQUIREMENTS.md`，正式AIR协议见`docs/details/AIR_PROTOCOL.md`。本文保留已经完成的历史测试事实和后续上板记录；旧命令名与旧架构描述不再构成SilverStar正式接口。
 
+## 2026-08-28 同能力多实例与日志配置契约验证
+
+本轮将同能力多实例的正式边界收敛到Generated静态门面。IMU、GNSS、BARO、MAG、ATTITUDE、TELEMETRY和POWER均提供有界`CountGet`及按`instance_id`访问descriptor、capabilities、health和适用sample/config/I/O的接口；实现使用生成期固定`switch`直接绑定，不含heap、函数指针、runtime registry、vtable或动态注册。当前SilverStar_F407真实配置仍只生成各现有能力的instance 0；JY901B明确声明`JY901B_BUILD_MULTI_INSTANCE_READY=0U`，因此“一个复合物理设备导出多个不同能力端点”不等于“同一Driver插件已支持重复实例化”。
+
+维护协议0.0继续按`<CAPABILITY> <INSTANCE> <COMMAND>`寻址实例化能力，越界实例明确返回`NOT_PRESENT`，不会回退到0。Host-only fixture生成IMU 0/1和GNSS 0/1两个逻辑实例，验证LIST、descriptor/physical identity、sample、health、配置与越界拒绝；fixture不进入firmware source graph。Canonical INS/KF仍固定使用当前项目语义选择的instance 0，本轮没有实现Sensor Selection、Voting、同型号Driver多实例或Multi-EKF。
+
+Raw/Native日志生产者现在按Generated实例数量有界枚举IMU、GNSS、BARO、MAG、ATTITUDE和POWER；各能力的sequence与valid基线均为逐实例静态数组。Record继续携带`source_descriptor_id + instance_id`并链接`DEVICE_DESCRIPTOR`，相同sequence只抑制对应实例，单实例读取失败不阻塞其他实例。Canonical算法Record语义未变，AIR M0没有增加高频原始消息。
+
+飞行日志格式0.0新增Record ID `0x1D`、v0、64-byte payload的`DECODER_PROFILE_DESCRIPTOR`，在每个日志session打开时一次性记录Record Catalog、project semantics和generation profile的截断SHA-256以及package/container版本；codec逐字段显式little-endian，不直接序列化C struct。正式Record Catalog现含29个Record，定义ID、version、payload size、字段类型/offset/size、单位、语义类别、默认可用性、模式/路由及decoder规则，并由离线validator与C enum、payload常量、codec、Generated配置和parser metadata交叉校验。完整hash为：
+
+- Record Catalog：`962f9236529d2ff4375202cc2085ed5d89de03639429c368fbe87e760e5aa48f`；
+- Project Semantics：`78e2a3a6ee9ab339c8090e5bf2dc270b1e74436624a52a7b95e1f850920720df`；
+- Generation Profile：`3e53c8449ebeead0102d9b1106e3e75ab84c8d2fa81b2b3ce4c92e9eb1afc0ad`。
+
+最终依次实际执行`mingw32-make clean`、SilverStar_F407 Release all、Debug all、显式`HOST_CC=D:/msys64/ucrt64/bin/gcc.exe`的Release host-tests、Release architecture-check、Release power10-check、Release static-analysis、Release artifact-check和`mingw32-make list-sources`，全部返回0：
+
+- ARM Release：`text=247608 data=1160 bss=116688 dec=365456`；
+- ARM Debug：`text=261128 data=1160 bss=116696 dec=378984`；
+- Host：55个可执行测试，`checks=9730 failures=0 compile_pass_cases=8 expected_compile_failures=16`；Record Catalog离线校验为29 records/29 payloads；
+- Architecture：`checks=253 failures=0`，包含6类Native日志逐实例sequence/valid基线检查；
+- Power of Ten：93个第一方C文件、2078个函数，`checks=5625`，0失败；
+- Arm GCC `-fanalyzer`严格warning-as-error Release构建通过；
+- Artifact：FLASH 248768 B、主SRAM 74976 B、CCMRAM 42872 B，heap reserve与runtime allocator symbol均为0，ELF 375724 B、BIN 248768 B；
+- `list-sources`包含Generated实例门面和Decoder Profile源码，不包含Host fixture；firmware Make仍不执行Python。
+
+`Flight_Controller0.5.ioc`最终复核为零差异，USART1/2/3仍为230400/921600/230400 bit/s，P_CONTROL1/P_CONTROL2映射未变；固件版本继续为0.0.9。AIR M0 wire change为NONE，Flight Log Format 0.0容器、`SSLOG0` magic、Record header和CRC变化为NONE；新增Record只扩展Catalog，不提升容器版本。以上属于Host、静态分析、ARM编译与制品审计，不表示新增上板验证。
+
+## 2026-08-27 STATS与TELEMETRY_DIAG生产路径验证
+
+本轮为飞行日志格式0.0中已有的`STATS`（Record ID `0x03`、v0、16-byte payload）和`TELEMETRY_DIAG`（Record ID `0x0C`、v0、48-byte payload）补齐真实生产路径；未新增Record，也未修改ID、version、payload字段顺序、显式little-endian codec、Record header、`SSLOG0`容器或CRC。
+
+`APP/Src/diagnostic_log.c`中的STATS周期生产者由Device Task现有POWER/HEALTH周期路径调用，仅在FLIGHT/RECOVERY、日志启用且1,000,000 us周期到达时读取并推送。四个字段分别来自`ImuSampleBus_StatsGet().overflow_count`、`LoggerBus_OverflowCountGet()`、`Ins_GetLatestSnapshot().update_seq`和`.health_flags`；无可用Canonical INS快照时，后两项明确写0。`TELEMETRY_DIAG`周期生产者由Telemetry Task在既有Telemetry Service处理周期后调用，仅在FLIGHT/RECOVERY、日志启用且200,000 us周期到达时读取通用`SystemTelemetryHealth`，逐字段映射Transport/Link健康并推送；`SystemTelemetry_HealthGet()`失败时不写伪造零记录、不推进周期基线，下次继续尝试。两条路径都只经Logger Bus写入，没有新增任务、AIR消息、射频私有统计依赖或动态状态注册。
+
+Host Test覆盖两项v0 codec round-trip、payload size、Record ID/version、显式little-endian、所有字段映射、未到周期、到期单次推送、disabled与生命周期门禁、INS快照缺失、HealthGet失败后重试、RSSI/SNR/online以及`LoggerBus_Pop()`读回。Schema、parser metadata与Generated默认配置均启用STATS/1,000,000 us和TELEMETRY_DIAG/200,000 us，其他Record默认配置未改变；architecture-check验证真实producer不来自`logger_bus.c`定义、通用Transport Health依赖、无SX1281私有统计、schema/payload一致和authoritative Make source graph包含`diagnostic_log.c`。
+
+最终依次实际执行`mingw32-make clean`、Release all、Debug all、显式`HOST_CC=D:/msys64/ucrt64/bin/gcc.exe`的host-tests、architecture-check、power10-check、Release static-analysis、Release artifact-check和list-sources，全部返回0：
+
+- ARM Release：`text=246640 data=1160 bss=116552 dec=364352`；
+- ARM Debug：`text=259120 data=1160 bss=116560 dec=376840`；
+- Host：55个可执行测试，`checks=9609 failures=0 compile_pass_cases=8 expected_compile_failures=16`；logger套件两次配置各为723 checks、0 failures，AIR M0 golden tests通过；
+- Architecture：`checks=210 failures=0`；
+- Power of Ten：92个第一方C文件、2027个函数，`checks=5513`，0失败；
+- Arm GCC `-fanalyzer`严格warning-as-error Release构建通过；
+- Artifact：FLASH 247800 B、主SRAM 74840 B、CCMRAM 42872 B，heap reserve与runtime allocator symbol均为0，ELF 375244 B、BIN 247800 B；
+- `list-sources`列出`APP/Src/diagnostic_log.c`，authoritative Make仍不执行Python。
+
+`Flight_Controller0.5.ioc`最终复核为零差异；固件版本继续为0.0.9。AIR M0 wire change为NONE，Flight Log Format 0.0容器变化为NONE，串口维护协议0.0语法也未改变。以上属于Host、静态分析、ARM编译与制品审计，不表示新增上板验证。
+
+## 2026-08-26 Capability Instance Addressing验证
+
+本轮将Physical Device与Capability Endpoint正式分离。`SystemDeviceDescriptor`增加`physical_device_id`，descriptor支持按class统计和按`class + instance`查找；`Generated/project_device_instances`提供静态、无函数指针、无heap、无runtime registry的实例门面。当前JY901B physical 1映射到IMU 0、BARO 0和ATTITUDE 0，MAG 0仅在能力启用时生成；NEO-M9N physical 2映射GNSS 0，E28/SX1281 physical 3映射TELEMETRY 0，Power ADC physical 5映射POWER 0。当前门面只接受instance 0，不包含设备选择、投票或Multi-EKF。
+
+串口维护协议0.0的设备能力命令统一为`<CAPABILITY> <INSTANCE> <COMMAND>`，System/Estimator/KF/INS/Calibration/Alignment/LOG/TIME仍不带实例；`LIST`返回生成的能力实例。旧无实例设备命令明确返回`INSTANCE_REQUIRED`，非法、越界和未生成实例分别返回可诊断错误。共享同一`physical_device_id`的JY901B端点共用物理IO统计和CLEAR基线，不再以BARO硬编码转发到IMU。
+
+飞行日志格式0.0保持`SSLOG0`容器、Record ID、header、CRC和little-endian规则。DEVICE_DESCRIPTOR增加physical ID；POWER、IMU_NATIVE、GNSS_NATIVE、BARO_NATIVE、MAG_NATIVE和HW_QUAT_NATIVE增加`source_descriptor_id + instance_id + reserved`来源头，payload大小分别为48、80、84、48、60和48字节。来源切换复用既有12-byte EVENT payload；IMU_NATIVE已由DeviceTask真实生产。全部字段继续由显式endian-aware codec逐项编解码，未直接序列化C struct。AIR M0 wire修改为NONE；golden frame、消息ID、字段、长度、CRC和发送频率不变，Sensor Status仅改为descriptor驱动成员枚举。
+
+最终实际执行`mingw32-make clean`、`mingw32-make -j4`、`mingw32-make "HOST_CC=D:\\msys64\\ucrt64\\bin\\gcc.exe" host-tests`、`mingw32-make list-sources`、`mingw32-make architecture-check`、`mingw32-make power10-check`、`mingw32-make static-analysis`和`mingw32-make artifact-check`，全部返回0：
+
+- ARM Debug：`text=258304 data=1160 bss=116544 dec=376008`；
+- Host：55个可执行测试，`checks=9307 failures=0 compile_pass_cases=8 expected_compile_failures=16`；
+- Architecture：`checks=198 failures=0`；
+- Power of Ten：91个第一方C文件、2021个函数，`checks=5491`，0失败；
+- Arm GCC `-fanalyzer`严格warning-as-error构建通过；
+- Artifact：FLASH 259464 B、主SRAM 74832 B、CCMRAM 42872 B，heap reserve与runtime allocator symbol均为0，ELF 2566944 B、BIN 259464 B；
+- 两份SSLOG schema/parser metadata JSON解析通过，authoritative Make source graph列举通过。
+
+`Flight_Controller0.5.ioc`最终复核为零差异，heap仍为0，USART1/2/3仍为230400/921600/230400 bit/s。固件版本继续为0.0.9，AIR遥测协议M0、串口维护协议0.0和飞行日志格式0.0均未升版。以上属于Host、静态分析、ARM编译与制品审计，不表示新增上板验证。
+
+## 2026-08-26 GNSS Indicator、Host GCC与协议名称验证
+
+本轮补齐通用GNSS Indicator：原实现已有`SYSTEM_INDICATOR_GNSS`角色和默认关闭开关，但没有`SystemIndicator_GnssModeResolve()`、周期GNSS健康/样本接入或行为测试。现在无GNSS设备、未初始化、离线或无有效样本为OFF；在线且样本有效但`position_usable=0`为慢闪；`position_usable!=0`为常亮。逻辑只使用System GNSS Interface，默认`SYSTEM_INDICATOR_GNSS_ENABLE=0U`；当前SilverStar 0.5仍只有SYSTEM灯Board资源，没有新增第二个GPIO，也没有复用P_CONTROL输出。
+
+Host Test由Make的`HOST_CC`显式传入主机编译器。本轮实际使用`D:\msys64\ucrt64\bin\gcc.exe`，版本为GCC 16.1.0，`-dumpmachine`为`x86_64-w64-mingw32`。脚本在开始时输出并验证版本/target，统一PowerShell UTF-8输出；普通编译失败保留测试名、编译器信息、全部参数和GCC stdout/stderr，Expected Compile Failure保留真实首条GCC error。额外通过Make传入含空格的完整Arm GCC路径，负向检查按预期返回1，并明确报告`target=arm-none-eabi`不能在Windows运行Host Test EXE；同时验证了含空格路径的引用链。
+
+面向用户的正式名称统一为AIR遥测协议M0、串口维护协议0.0和飞行日志格式0.0。技术兼容标识`AIR_PROFILE_COMPACT_V0`、wire numeric值0、`SSLOG0`文件magic及全部帧、Record、CRC、message ID和字段布局均未改变；`SilverStar.ssproject`未修改。
+
+最终依次执行`mingw32-make clean`、`mingw32-make -j12`、`mingw32-make "HOST_CC=D:\msys64\ucrt64\bin\gcc.exe" host-tests`、`mingw32-make architecture-check`、`mingw32-make power10-check`、`mingw32-make static-analysis`和`mingw32-make artifact-check`，全部返回0：
+
+- ARM Debug：`text=253952 data=1160 bss=114152 dec=369264`；
+- Host：54个可执行测试，`checks=9180 failures=0 compile_pass_cases=8 expected_compile_failures=16`；其中System Indicator为34 checks、0 failures；
+- Architecture：`checks=188 failures=0`；
+- Power of Ten：89个第一方C文件、1982个函数，`checks=5380`，0失败；
+- Arm GCC `-fanalyzer`严格warning-as-error构建通过；
+- Artifact：FLASH 255112 B、主SRAM 72440 B、CCMRAM 42872 B，heap reserve与runtime allocator symbol均为0，ELF 2509144 B、BIN 255112 B。
+
+`Flight_Controller0.5.ioc`最终复核为零差异，固件版本继续为0.0.9。本轮没有改动飞行算法、协议wire、硬件配置、传感器配置或Board资源。以上属于Host、静态分析、ARM编译和制品审计，不表示新增上板验证。
+
 ## 2026-08-25 JY901B静态初始对准与着陆资格门禁验证
 
 本轮只固化JY901B能力合同与编译期门禁。硬件四元数的六轴已知航向角、九轴静态取样资格均为1；它们只允许在任务开始前采满静态窗口并形成一次冻结的初始`q_nb`。六轴、九轴飞行全程权威姿态资格继续为0，START后仍由软件四元数传播。JY901B绝对磁场矢量资格为0，不能选择重力/磁场双矢量对准。着陆静止判断资格为1，冲击检测资格继续为0。
@@ -42,7 +129,7 @@ Deployment的NONE/APOGEE/TILT/DELAY及全部两两/三项组合均通过Host测�
 - Host：54个可执行测试，`checks=9168 failures=0`，另有4个预期编译成功和13个预期编译失败能力契约；覆盖四种Alignment Strategy、三种Calibration Mode、八种Deployment mask组合、None/KF6语义、Device/Adapter、Lifecycle、Console、Telemetry、Logger、AIR和SSLOG；
 - Architecture：`checks=188 failures=0`；Make/EIDE源、include、define，Strategy选择、FreeRTOS精简源集、层级边界、SSLOG schema/metadata/codec、`.ioc`关键资源与无Python authoritative build均通过；
 - Power of Ten：89个第一方C文件、1980个函数、`checks=5375`，0失败；10条规则均为硬门禁。唯一明确的第一方API边界偏差是固定task entry直接传入FreeRTOS，以及Idle memory hook的固定双指针签名；未建立runtime function-pointer registry或strategy dispatch；
-- Arm GCC 14.3 `-fanalyzer`在隔离的`build/SilverStar_F407/StaticAnalysis/Debug/`图通过，第一方严格warnings-as-errors为0。
+- Arm GCC 14.3 `-fanalyzer`在隔离的`build/FCCG/SilverStar_F407/StaticAnalysis/Debug/`图通过，第一方严格warnings-as-errors为0。
 
 ### ARM、EIDE与内存结果
 
@@ -52,7 +139,7 @@ Deployment的NONE/APOGEE/TILT/DELAY及全部两两/三项组合均通过Host测�
 | Make Release | 241424 | 1160 | 114144 | 356728 | 364212 | 242584 |
 | EIDE native Debug | 254088 | 1160 | 114152 | 369400 | 2191744 | 255248 |
 
-EIDE 3.27.2原生`unify_builder`使用Arm GNU Toolchain 14.3.1实际完成133个C文件和1个ASM文件的独立rebuild；`.eide/eide.yml`与Make选择由architecture-check逐项比对，EIDE产物隔离到`build/EIDE/SilverStar_F407/Debug/`。
+EIDE 3.27.2原生`unify_builder`使用Arm GNU Toolchain 14.3.1实际完成133个C文件和1个ASM文件的独立rebuild；`.eide/eide.yml`与Make选择由architecture-check逐项比对，EIDE产物隔离到`build/FCCG/SilverStar_F407/EIDE/`。
 
 Debug artifact审计结果：FLASH使用255112 B；DMA可达主SRAM使用72440 B、剩余58632 B；CCMRAM使用42872 B、剩余22664 B；heap reserve与runtime allocator symbol均为0。Release主SRAM使用72432 B，CCMRAM同为42872 B。与迁移前Debug的`data+bss=121500 B`全部位于主SRAM相比，当前Debug主SRAM减少49060 B。GNU `size`的`bss`合并统计主SRAM与CCMRAM，不能把114152 B误写为当前主SRAM占用。
 
@@ -60,7 +147,7 @@ CCMRAM中的关键对象为`s_estimator` 17696 B、当前`s_alignment_strategy` 
 
 ### SSLOG与`.ioc`
 
-SSLOG0的28个Record ID、version、payload size、metadata及显式逐字段little-endian serializer/deserializer继续位于`Protocol/SSLOG/Inc/sslog_records.h`和`Protocol/SSLOG/Src/sslog_records.c`。Host覆盖全部record的encode/decode/encode、长度、endian、CRC和错误路径；wire路径不复制或强制转换C payload struct。`Protocol/SSLOG/schema/`仅为离线parser/人工阅读参考，authoritative Make没有Python、generator或隐藏同步步骤。
+本次2026-08-23历史验收的SSLOG基线为28个Record，其ID、version、payload size、metadata及显式逐字段little-endian serializer/deserializer位于`Protocol/SSLOG/Inc/sslog_records.h`和`Protocol/SSLOG/Src/sslog_records.c`。当时Host覆盖全部record的encode/decode/encode、长度、endian、CRC和错误路径，wire路径不复制或强制转换C payload struct；当前29类Record Catalog与Decoder Profile状态以本文2026-08-28条目为准，authoritative Make仍没有Python、generator或隐藏同步步骤。
 
 输出前最终复核`Flight_Controller0.5.ioc`：本轮工作树对该文件无diff；heap为0，无FreeRTOS/CMSIS-RTOS2配置，TIM1仍为HAL tick；USART1/2/3为230400/921600/230400 bit/s且三路RX DMA均为circular；DMA/UART/EXTI中断优先级、SPI1/SDIO/ADC1_IN10及Radio/GNSS/P_CONTROL引脚与CubeMX源码、Generated资源映射和Target契约一致。
 
@@ -73,7 +160,7 @@ SSLOG0的28个Record ID、version、payload size、metadata及显式逐字段lit
 - 当前分支为`codex/refactor-silverstar-0.0.9-platform`；以`9ca21c7`为重构前基线，并先以`b1c13e2`建立0.0.9平台化checkpoint，未创建兼容工程副本、未reset/clean或覆盖既有成果；
 - 当前依赖为`System -> Interfaces -> Device Adapter / Board Service -> Device -> Platform -> STM32F4 backend`。JY901B/M9N/SX1281/UART集成归各Device组件，Power/Output/Storage等归`Board/SilverStar_0_5`，资源/日志选择/metadata归薄`Generated/`；旧Provider/VTable/Registry、`Bindings/`、sensor×STM32 port、CMSIS-RTOS2、defaultTask、旧Cube FreeRTOS与Semtech Radio callback/vtable路径已删除；
 - `mingw32-make architecture-check`通过：`checks=109 failures=0`；显式manifest、Device Adapter/Board/Platform/FlightLogic/Generated边界、FreeRTOS V11.3.0精简源集、无第一方动态分配/libc printf、无Python authoritative build、SSLOG双向endian codec、`.ioc`关键资源和旧架构残留均通过；
-- SSLOG 28类Record的ID、metadata和逐字段little-endian serializer/deserializer现为`Protocol/SSLOG/Inc/sslog_records.h`与`Protocol/SSLOG/Src/sslog_records.c`普通源码。schema/parser metadata仅为离线参考，工程不存在`generate_sslog.py`、`sslog-prepare`、`sslog-generate`或`sslog-check`构建依赖，禁止按C struct布局直接读写wire；
+- 本次历史验收时SSLOG基线为28类Record，其ID、metadata和逐字段little-endian serializer/deserializer已是`Protocol/SSLOG/Inc/sslog_records.h`与`Protocol/SSLOG/Src/sslog_records.c`普通源码，schema/parser metadata当时仅作离线参考；当前29类Record Catalog与Decoder Profile状态以本文2026-08-28条目为准。工程仍禁止按C struct布局直接读写wire；
 - `mingw32-make list-sources`通过，列出的当前图包含F407、JY901B、M9N、SX1281、UART Adapter、SilverStar 0.5 Board、FlightLogic和受控Generated glue，不包含旧Provider、Binding、sensor STM32 port、CMSIS、heap或SSLOG生成器；
 - `git diff --check`通过；当前正式文档已同步FCCG-ready reference firmware结构，历史0.0.7/0.0.8规范保留为快照。
 
