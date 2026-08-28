@@ -17,17 +17,17 @@ The manager parses and copies declared data only. It never imports or executes `
 | Type | Responsibility |
 |---|---|
 | `core` | Shared flight application, interfaces, system services, tests/tools |
-| `mcu` | Chip/family Platform, HAL/CMSIS, CPU/memory/toolchain contract |
+| `mcu` | Chip/family Platform, automatic match rules, resource ABI/backends, HAL/CMSIS, CPU/memory/toolchain contract |
 | `board` | PCB resources, mappings, services, hardware payload/provenance |
 | `device` | Sensor, communication, or future `class=actuator` implementation |
 | `algorithm` | Base algorithm code, Strategy, or Mode owner |
 | `flight_logic` | Flight-cycle/mission behavior, Strategy, or Mode owner |
 | `os` | RTOS kernel/port/configuration contribution |
-| `protocol_bundle` | Complete compatible protocol set and documentation |
+| `protocol` | Exactly one strict telemetry, maintenance, or logging category with one or more complete Profiles |
 | `hardware_configuration_provider` | Declarative access to a trusted hardware-import handler |
 | `development_environment` | Declarative access to a trusted project renderer |
 
-Resource kinds are open strings. Current contracts support typed UART (rate/frame/DMA/IRQ), SPI (mode/phase/order/rate/DMA/IRQ), I2C (rate/address/pull-up/DMA/IRQ), PWM (frequency/resolution/polarity/channel), GPIO electrical/safe-start/EXTI constraints, plus ADC, SDIO, Time, CAN, and timer inventory facts.
+Resource kinds are schema-controlled strings. Current contracts support typed UART (rate/frame/DMA/IRQ), SPI (mode/phase/order/rate/DMA/IRQ), I²C (rate/address/address-mode/pull-up/DMA/IRQ/repeated-start requirement), PWM (frequency/resolution/polarity/safe state/channel), GPIO electrical/safe-start/EXTI constraints, plus ADC, SDIO, Time, Classic CAN, FDCAN inventory separation, and timer facts.
 
 ## Common manifest blocks
 
@@ -41,7 +41,7 @@ The strict schema is `schemas/plugin.schema.json`. Version 0 includes identity/t
 
 `metadata.optional_resource_bindings` declares Board-service resource macros whose logical Device may be absent. Each entry names the normal `binding_macro`, an `enabled_macro`, a typed platform sentinel used as the disabled `fallback`, and the platform header that defines that sentinel. The generated resource header emits a real assignment plus `1U` only when the role is resolved, otherwise the non-index sentinel plus `0U`. Board C services test the generated feature constant with ordinary control flow; they do not duplicate the physical mapping or add configuration-dependent preprocessor branches.
 
-Device requirements may use legacy simple constraints or one typed UART/SPI/I2C/PWM contract plus independent GPIO electrical constraints. New `instance_policy` data separates `plugin_max` (instances of one model) from `class_max` (all physical Devices in that class), plus `same_plugin_multiple` and `multi_instance_ready`. Legacy `project_max` manifests remain loadable and map safely to those two limits. Raising `plugin_max` above one requires a real context-capable driver; a class limit above one may instead permit two different singleton models. Declaring multiple physical instances never duplicates shared source paths in the resolved graph.
+Device requirements may use legacy simple constraints or one typed UART/SPI/I²C/Classic-CAN/PWM contract plus independent GPIO electrical constraints and required Platform capabilities. Typed I²C, Classic-CAN, and PWM requirements must name at least one `platform_capabilities` entry; seeing a matching peripheral in an inventory is not evidence that the selected Platform implements its backend. I²C requirements may declare a `composite_device` identity. Two endpoints may share one bus/address only when they belong to the same physical Device instance and explicitly use the same non-empty composite identity; otherwise the duplicate address is rejected. New `instance_policy` data separates `plugin_max` (instances of one model) from `class_max` (all physical Devices in that class), plus `same_plugin_multiple` and `multi_instance_ready`. Legacy `project_max` manifests remain loadable and map safely to those two limits. Raising `plugin_max` above one requires a real context-capable driver; a class limit above one may instead permit two different singleton models. Declaring multiple physical instances never duplicates shared source paths in the resolved graph.
 
 `physical_device` distinguishes vendor/model/chipset from the reusable driver. For example, the current radio is physical model Ebyte E28-2G4M12SX, chipset SX1281, using the existing SX1281 Driver. A single Device can `provide` several capabilities; JY901B is one physical UART instance that provides acceleration, angular rate, external attitude, magnetic field, and barometric altitude.
 
@@ -50,15 +50,17 @@ whether the implementation receives an instance context. FCCG uses this generic 
 bounded `CountGet` functions and direct `switch(instance_id)` calls; the generator does not branch
 on JY901B, NEO-M9N, or another vendor/model name.
 
-Declarative logical Devices may omit payload roots when an existing Board service owns the implementation. `metadata.logical_device`, `device_category`, and `independent_class_member` identify UI grouping and independent singleton members. `default_instance_id` restores a stable ID when the user explicitly re-enables a singleton. `auto_select_when_required` is deliberately false for the two mission-action outputs: downstream Modes may depend on an actuator, but reconciliation never overrides the user's actuator cancellation. Current actuator classes distinguish `mission_action_actuator` from the reserved future `continuous_control_actuator`.
+Declarative logical Devices may omit payload roots when an existing Board service owns the implementation. `metadata.logical_device`, `device_category`, and `independent_class_member` identify UI grouping and independent singleton members. `device_category` must match `sensor.*`, `link.*`, `storage.*`, `actuator.*`, or `indicator.*`; unknown/misspelled namespaces fail at scan/install time. `default_instance_id` restores a stable ID when the user explicitly re-enables a singleton. `auto_select_when_required` is deliberately false for the two mission-action outputs: downstream Modes may depend on an actuator, but reconciliation never overrides the user's actuator cancellation. Current actuator classes distinguish `mission_action_actuator` from the reserved future `continuous_control_actuator`.
 
 `metadata.recordable_outputs` declares raw outputs that can be written to protocol logs and optional device-configuration reason codes for outputs that exist but are not currently returned. It is intentionally separate from Algorithm capability consumption. Protocol record policies use `requires.recordable_capabilities`; they must not infer recordability from a capability route.
 
 Algorithm/Strategy/Flight manifests declare inputs as `{ "capability": "barometer.altitude", "purpose": "measurement_update" }`. Raw/Data capabilities state only that data exists; qualified-use capabilities end in `_qualified` and state that the provider meets a concrete implementation contract. Strategies explicitly require both the raw inputs and every qualification they need. Purpose describes the consumer contract; the implementation owns lifecycle. No generic phase policy is inferred or generated.
 
-### Protocol bundle
+### Protocol
 
-`protocol.logging_metadata` points inside the package payload to `sslog_parser_metadata.json`. The block explicitly declares maintenance/firmware/documentation versions and independent `profiles` arrays keyed by category. Its `fccg.records` policy data assigns each record `required`, `recommended`, or `optional`, owns bilingual names, and can require capabilities, Recordable outputs, components, or selected strategy slots. Adding or translating a valid record requires no FCCG Python record-table change.
+`protocol.category` is the strict enum `telemetry`, `maintenance`, or `logging`; one plugin cannot cross categories. Each Profile declares service/slot, codec and parser sources, includes/defines, typed transport binding, decoder metadata, documentation, Host tests, and golden tests. Referenced assets must exist in the plugin dependency closure. Duplicate `(category, profile_id)` providers are rejected. A project locks component ID, plugin version, Profile ID, and raw manifest SHA-256. The old `protocol_bundle` shape exists only in the format-7 migration path and is not accepted as a new production plugin.
+
+For the logging category, `protocol.logging_metadata` points inside the package payload to `sslog_parser_metadata.json`. Its `fccg.records` policy data assigns each record `required`, `recommended`, or `optional`, owns bilingual names, and can require capabilities, Recordable outputs, components, or selected strategy slots. Adding or translating a valid record requires no FCCG Python record-table change.
 
 Each FCCG record policy may also declare optional timing and production semantics:
 
@@ -117,7 +119,13 @@ Builtins are read-only. Installed-package removal checks reverse dependencies an
 
 ## Reference builtins and Board export
 
-`tools/import_reference_components.py --reference <path>` reads a selected reference, records path/commit/branch/status/snapshot digest, stages 23 reference-derived packages plus three FCCG landing selectors and five logical Device overlays (voltage, two mission-action outputs, and two indicators), strict-scans all 31, and atomically replaces only `plugins/builtin/`. The reference itself is never written or built. The Environment package also copies the reference EIDE/workspace/task templates and records which requested standalone VS Code files were absent.
+`tools/import_reference_components.py --reference <path>` reads a selected reference, records path/commit/branch/status/snapshot digest/protocol-source hashes, stages the reference-derived components, replaces the old combined protocol package with three independent Protocol packages, replays FCCG-owned Platform/protocol/logging/landing/logical-Device overlays, strict-scans all 33 packages, and atomically replaces only `plugins/builtin/`. The reference itself is never written or built. Each manifest's `metadata.reference` contains only stable source kind, commit, and snapshot digest, so a later import timestamp, local path, branch display, or audit note cannot make otherwise identical packages stale. Dynamic import/audit details remain in catalog-level `reference_provenance.json`. `metadata.source_origins` identifies `reference_base` separately from `fccg_extension`; rerunning import therefore preserves the internal F407 I²C/Classic-CAN/PWM code and protocol split without pretending they came from the reference commit.
+
+### MCU/Platform contract
+
+An MCU manifest can declare `platform`: ABI ID/major/minor, CubeMX provider, exact/family/package/core match rules with priority/specificity/verification, the resource binding header, per-kind collection/include/table/getter/struct contracts, conditionally activated backends, Platform capabilities, provider HAL source candidates, ownership rules, support level, and limitations. C identifiers, headers, paths, handles, channel tokens, and referenced assets are strictly validated. Renderer input is only the validated inventory and assignments; no plugin code or general-purpose template expression is evaluated.
+
+Backend activation requires an assigned resource whose inventory kind matches the backend. Source Graph then includes the Platform backend and only its declared provider sources; a required provider source missing from an imported CubeMX snapshot is an error. The F407 contract advertises no generic repeated-start, separates `can_classic` from `can_fd`, enforces one owner for bxCAN, and enforces PWM channel exclusivity/shared-timer frequency equality.
 
 Indicator Device manifests own their GPIO Output requirement and generated enable symbol. A Board may fix the System Indicator to a verified LED or declare an optional indicator unsupported; that declaration prevents fallback onto unrelated exclusive outputs. Hardware-fixed power lamps have no Device manifest because firmware cannot control them.
 

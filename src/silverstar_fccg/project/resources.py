@@ -6,7 +6,12 @@ from dataclasses import dataclass
 from collections import Counter
 from typing import Any
 
+from silverstar_fccg.core.errors import FccgError
 from silverstar_fccg.hardware.inventory import CubeMxInventory_Parse, HardwareInventory
+from silverstar_fccg.hardware.platform import (
+    DetectedMcuFacts_FromInventory,
+    PlatformMatch_Resolve,
+)
 from silverstar_fccg.plugins.catalog import PluginCatalog
 from silverstar_fccg.plugins.manifest import (
     ResourceMode,
@@ -329,10 +334,44 @@ def _RequirementConstraintsErrors_Get(
         if i2c.get("irq") and not irq_enabled():
             errors.append(f"Resource contract mismatch for {key}: I2C IRQ is required")
 
+    can = constraints.get("can")
+    if isinstance(can, dict):
+        actual_bitrate = metadata.get("nominal_bitrate", 0)
+        minimum_bitrate = can.get("minimum_nominal_bitrate")
+        maximum_bitrate = can.get("maximum_nominal_bitrate")
+        if isinstance(minimum_bitrate, int) and actual_bitrate < minimum_bitrate:
+            mismatch(
+                "can.minimum_nominal_bitrate",
+                f">={minimum_bitrate}",
+                actual_bitrate,
+            )
+        if isinstance(maximum_bitrate, int) and actual_bitrate > maximum_bitrate:
+            mismatch(
+                "can.maximum_nominal_bitrate",
+                f"<={maximum_bitrate}",
+                actual_bitrate,
+            )
+        allowed_bitrates = can.get("allowed_nominal_bitrates")
+        if isinstance(allowed_bitrates, list) and actual_bitrate not in allowed_bitrates:
+            mismatch(
+                "can.allowed_nominal_bitrates",
+                allowed_bitrates,
+                actual_bitrate,
+            )
+        for field_name in ("frame_format", "mode"):
+            if field_name in can and str(metadata.get(field_name, "")).casefold() != str(
+                can[field_name]
+            ).casefold():
+                mismatch(f"can.{field_name}", can[field_name], metadata.get(field_name))
+        if can.get("irq") and not irq_enabled():
+            errors.append(f"Resource contract mismatch for {key}: CAN IRQ is required")
+
     pwm = constraints.get("pwm")
     if isinstance(pwm, dict):
         actual_frequency = metadata.get("frequency_hz", 0)
         actual_resolution = metadata.get("resolution_bits", 0)
+        if "frequency_hz" in pwm and actual_frequency != pwm["frequency_hz"]:
+            mismatch("pwm.frequency_hz", pwm["frequency_hz"], actual_frequency)
         if "minimum_frequency_hz" in pwm and actual_frequency < pwm["minimum_frequency_hz"]:
             mismatch("pwm.minimum_frequency_hz", f">={pwm['minimum_frequency_hz']}", actual_frequency)
         if "maximum_frequency_hz" in pwm and actual_frequency > pwm["maximum_frequency_hz"]:
@@ -342,6 +381,8 @@ def _RequirementConstraintsErrors_Get(
         for field_name in ("polarity", "channel"):
             if field_name in pwm and metadata.get(field_name) != pwm[field_name]:
                 mismatch(f"pwm.{field_name}", pwm[field_name], metadata.get(field_name))
+        if "safe_state" in pwm and metadata.get("safe_state") != pwm["safe_state"]:
+            mismatch("pwm.safe_state", pwm["safe_state"], metadata.get("safe_state"))
 
     if electrical:
         expected_mode = electrical.get("mode")
@@ -459,6 +500,24 @@ def _RequirementContractSummary_Get(
             parts.append(f"≤ {i2c['maximum_bus_frequency_hz']} Hz")
         if i2c.get("required_pullup"):
             parts.append("open-drain + pull-up")
+        if i2c.get("address_7bit") is not None:
+            parts.append(f"addr=0x{i2c['address_7bit']:02X}")
+        if i2c.get("requires_repeated_start"):
+            parts.append("repeated-start")
+    can = constraints.get("can")
+    if isinstance(can, dict):
+        if can.get("frame_format"):
+            parts.append(str(can["frame_format"]))
+        if can.get("allowed_nominal_bitrates"):
+            parts.append("bitrate=" + "/".join(str(value) for value in can["allowed_nominal_bitrates"]))
+    pwm = constraints.get("pwm")
+    if isinstance(pwm, dict):
+        if pwm.get("frequency_hz"):
+            parts.append(f"{pwm['frequency_hz']} Hz")
+        elif pwm.get("maximum_frequency_hz"):
+            parts.append(f"≤ {pwm['maximum_frequency_hz']} Hz")
+        if pwm.get("minimum_resolution_bits"):
+            parts.append(f"≥ {pwm['minimum_resolution_bits']} bit")
     electrical = requirement.electrical_constraints
     for field_name in ("output_type", "pull", "exti_trigger"):
         if electrical.get(field_name):
@@ -563,6 +622,12 @@ def ResourceAssignments_Resolve(
     provisions: dict[str, ResourceProvision] = {}
     roles: dict[str, ResourceRole] = {}
     board_conflicts = ()
+    platform = catalog.Component_Get(model.mcu).platform if model.mcu else None
+    platform_backends_by_kind = {
+        kind: backend
+        for backend in (platform.resource_backends.values() if platform is not None else ())
+        for kind in backend.inventory_kinds
+    }
     for component_id in model.ComponentIds_Get():
         manifest = catalog.Component_Get(component_id)
         component_provisions = (
@@ -652,6 +717,29 @@ def ResourceAssignments_Resolve(
             if provision.reserved:
                 errors.append(f"Reserved resource {selected} cannot be assigned to {key}")
                 continue
+            backend = platform_backends_by_kind.get(requirement.kind)
+            required_platform_capabilities = set(requirement.platform_capabilities)
+            i2c_constraints = requirement.constraints.get("i2c")
+            if isinstance(i2c_constraints, dict) and i2c_constraints.get(
+                "requires_repeated_start"
+            ):
+                required_platform_capabilities.add("i2c.repeated_start")
+            if backend is not None:
+                missing_capabilities = required_platform_capabilities - set(
+                    backend.capabilities
+                )
+                if missing_capabilities:
+                    errors.append(
+                        f"Platform backend {backend.backend_id} lacks capabilities for "
+                        f"{key}: {', '.join(sorted(missing_capabilities))}"
+                    )
+                    continue
+            elif required_platform_capabilities:
+                errors.append(
+                    f"Selected Platform has no backend for {key} ({requirement.kind}); "
+                    f"required capabilities: {', '.join(sorted(required_platform_capabilities))}"
+                )
+                continue
             if requirement.mode == ResourceMode.EXCLUSIVE and selected in claimed:
                 errors.append(
                     f"Resource conflict: {selected} is assigned to "
@@ -707,6 +795,94 @@ def ResourceAssignments_Resolve(
                 )
             else:
                 dma_owners[instance] = assignment.requirement_key
+    ownership_groups: dict[tuple[str, str], list[AssignedResource]] = {}
+    for assignment in assignments:
+        backend = platform_backends_by_kind.get(assignment.provision.kind)
+        if backend is None:
+            continue
+        physical = str(
+            assignment.provision.metadata.get(
+                "physical_resource", assignment.provision.resource_id
+            )
+        )
+        ownership_groups.setdefault((backend.backend_id, physical), []).append(
+            assignment
+        )
+    for (backend_id, physical), owners in ownership_groups.items():
+        backend = next(
+            item
+            for item in platform_backends_by_kind.values()
+            if item.backend_id == backend_id
+        )
+        distinct_owners = tuple(dict.fromkeys(owner.component_id for owner in owners))
+        if backend.ownership in {"single_owner", "exclusive_channel_shared_timer"} and len(
+            distinct_owners
+        ) > 1:
+            errors.append(
+                f"Platform {backend_id} ownership conflict on {physical}: "
+                + ", ".join(distinct_owners)
+            )
+    i2c_addresses: dict[tuple[str, int], AssignedResource] = {}
+    for assignment in assignments:
+        backend = platform_backends_by_kind.get(assignment.provision.kind)
+        if backend is None or backend.ownership != "shared_bus_unique_address":
+            continue
+        bus = str(
+            assignment.provision.metadata.get(
+                "physical_resource", assignment.provision.resource_id
+            )
+        )
+        constraints = assignment.requirement.constraints.get("i2c", {})
+        address = constraints.get("address_7bit") if isinstance(constraints, dict) else None
+        if not isinstance(address, int):
+            errors.append(
+                f"I2C resource requirement must declare address_7bit: "
+                f"{assignment.requirement_key}"
+            )
+            continue
+        previous = i2c_addresses.get((bus, address))
+        if previous is None:
+            i2c_addresses[(bus, address)] = assignment
+            continue
+        previous_constraints = previous.requirement.constraints.get("i2c", {})
+        previous_composite = (
+            previous_constraints.get("composite_device", "")
+            if isinstance(previous_constraints, dict)
+            else ""
+        )
+        composite = constraints.get("composite_device", "")
+        same_explicit_composite = (
+            bool(composite)
+            and composite == previous_composite
+            and previous.component_id == assignment.component_id
+        )
+        if not same_explicit_composite:
+            errors.append(
+                f"I2C address conflict on {bus} at 0x{address:02X}: "
+                f"{previous.requirement_key} and {assignment.requirement_key}; "
+                "shared addresses require matching composite_device declarations "
+                "on one physical Device instance"
+            )
+    pwm_timers: dict[str, list[AssignedResource]] = {}
+    for assignment in assignments:
+        backend = platform_backends_by_kind.get(assignment.provision.kind)
+        if backend is None or backend.ownership != "exclusive_channel_shared_timer":
+            continue
+        timer = str(assignment.provision.metadata.get("timer_instance", ""))
+        if timer:
+            pwm_timers.setdefault(timer, []).append(assignment)
+    for timer, timer_assignments in pwm_timers.items():
+        exact_frequencies = {
+            assignment.requirement.constraints.get("pwm", {}).get("frequency_hz")
+            for assignment in timer_assignments
+            if isinstance(assignment.requirement.constraints.get("pwm"), dict)
+            and assignment.requirement.constraints["pwm"].get("frequency_hz") is not None
+        }
+        if len(exact_frequencies) > 1:
+            errors.append(
+                f"PWM shared-timer frequency conflict on {timer}: "
+                + ", ".join(str(value) for value in sorted(exact_frequencies))
+            )
     return ResourceAssignmentResult(tuple(assignments), tuple(errors))
 
 
@@ -720,14 +896,34 @@ def BoardCompatibility_Resolve(
         return BoardCompatibilityResult(
             board_id, False, (), ("Component is not a Board plugin",)
         )
-    if model.mcu not in board.board.compatible_mcus:
+    candidate = deepcopy(model)
+    inventory = BoardHardwareInventory_Get(board)
+    if inventory is not None:
+        try:
+            provider_manifest = catalog.Component_Get(board.board.provider)
+            provider = provider_manifest.hardware_provider
+            if provider is None:
+                raise ValueError("Board hardware provider contract is unavailable")
+            match = PlatformMatch_Resolve(
+                DetectedMcuFacts_FromInventory(
+                    inventory,
+                    vendor=provider.vendor,
+                    provider=provider.handler,
+                ),
+                catalog,
+            )
+            candidate.mcu = match.selected.component_id
+        except (FccgError, ValueError, KeyError) as error:
+            return BoardCompatibilityResult(
+                board_id, False, (), (f"Board MCU/Platform detection failed: {error}",)
+            )
+    if candidate.mcu not in board.board.compatible_mcus:
         return BoardCompatibilityResult(
             board_id,
             False,
             (),
-            (f"Board does not support selected MCU {model.mcu}",),
+            (f"Board does not support detected MCU Platform {candidate.mcu}",),
         )
-    candidate = deepcopy(model)
     candidate.board = board_id
     candidate.hardware = HardwareConfiguration(
         mode="board_plugin",

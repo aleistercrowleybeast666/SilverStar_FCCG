@@ -47,7 +47,14 @@ from silverstar_fccg.core.task import (
     TaskProgressEvent_Parse,
     TaskProgressState,
 )
-from silverstar_fccg.core.view_models import ComponentType, ComponentView, LoggingStreamView, ToolchainToolView
+from silverstar_fccg.core.view_models import (
+    ComponentType,
+    ComponentView,
+    LoggingStreamView,
+    PlatformMatchView,
+    ProtocolProfileView,
+    ToolchainToolView,
+)
 from silverstar_fccg.generator.assembler import ApplyResult, GenerationPlan
 from silverstar_fccg.generator.hardware_preparation import (
     HardwareAssignmentFingerprint_Get,
@@ -58,6 +65,7 @@ from silverstar_fccg.project.model import (
     HardwareConfiguration,
     LogStreamConfig,
     ProjectModel,
+    ProtocolSelection,
 )
 from silverstar_fccg.project.logging import (
     LogCadenceKind,
@@ -93,12 +101,13 @@ from silverstar_fccg.ui.workers import FunctionWorker
 @dataclass(frozen=True, slots=True)
 class _ProjectDisplayState:
     model: ProjectModel
-    mcus: tuple[ComponentView, ...]
     devices: tuple[ComponentView, ...]
     device_instances: tuple[Any, ...]
     device_availability: dict[str, Any]
     selectable_components: tuple[ComponentView, ...]
-    protocol_profiles: dict[str, tuple[tuple[str, str], ...]]
+    protocol_profiles: dict[str, tuple[ProtocolProfileView, ...]]
+    selected_protocol_profiles: dict[str, tuple[str, str]]
+    platform_match: PlatformMatchView
     strategy_availability: dict[str, Any]
     mode_availability: dict[tuple[str, str], Any]
     capability_usage: tuple[Any, ...]
@@ -336,7 +345,6 @@ class MainWindow(QMainWindow):
         self.install_plugin_action.triggered.connect(self._PluginInstall_Dialog)
         self.refresh_plugins_action.triggered.connect(self._Plugins_Refresh)
         self.about_action.triggered.connect(self._About_Show)
-        self.devices_page.mcuChanged.connect(self._McuSelection_Change)
         self.devices_page.instanceChanged.connect(self._DeviceInstance_Change)
         self.devices_page.instanceAddRequested.connect(self._DeviceInstance_Add)
         self.devices_page.otherDeviceToggled.connect(self._OtherDevice_Toggle)
@@ -403,12 +411,6 @@ class MainWindow(QMainWindow):
         model: ProjectModel,
         configuration: ProjectConfigurationResult | None = None,
     ) -> _ProjectDisplayState:
-        mcus = tuple(
-            component
-            for component in self._component_views
-            if component.component_type == ComponentType.MCU
-            and component.vendor.casefold() == "stm32"
-        )
         devices = tuple(
             component
             for component in self._component_views
@@ -417,16 +419,23 @@ class MainWindow(QMainWindow):
         selectable = tuple(
             component for component in self._component_views if component.selection_kind
         )
-        protocol_profiles: dict[str, tuple[tuple[str, str], ...]] = {}
-        for protocol_id in model.protocol_bundles:
-            contribution = self._service.Plugin_Get(protocol_id).protocol
+        protocol_profiles: dict[str, list[ProtocolProfileView]] = {}
+        for manifest in self._service.catalog.Type_Get("protocol"):
+            contribution = manifest.protocol
             if contribution is None:
                 continue
             for category, profiles in contribution.profiles.items():
-                protocol_profiles[category] = tuple(
-                    (
-                        profile.profile_id,
-                        profile.DisplayName_Get(self._translator.language),
+                protocol_profiles.setdefault(category, []).extend(
+                    ProtocolProfileView(
+                        component_id=manifest.component_id,
+                        profile_id=profile.profile_id,
+                        display_name=profile.DisplayName_Get(
+                            self._translator.language
+                        ),
+                        component_name=manifest.DisplayName_Get(
+                            self._translator.language
+                        ),
+                        version=manifest.version,
                     )
                     for profile in profiles
                 )
@@ -448,7 +457,6 @@ class MainWindow(QMainWindow):
         )
         return _ProjectDisplayState(
             model=model,
-            mcus=mcus,
             devices=devices,
             device_instances=self._service.DeviceInstanceViews_Get(
                 model, self._translator.language
@@ -457,7 +465,27 @@ class MainWindow(QMainWindow):
                 model
             ),
             selectable_components=selectable,
-            protocol_profiles=protocol_profiles,
+            protocol_profiles={
+                category: tuple(
+                    sorted(
+                        values,
+                        key=lambda value: (
+                            value.component_name.casefold(),
+                            value.display_name.casefold(),
+                            value.component_id,
+                            value.profile_id,
+                        ),
+                    )
+                )
+                for category, values in protocol_profiles.items()
+            },
+            selected_protocol_profiles={
+                category: (selection.component, selection.profile)
+                for category, selection in model.protocols.items()
+            },
+            platform_match=self._service.PlatformMatchView_Get(
+                model, self._translator.language
+            ),
             strategy_availability=(
                 configuration.strategy_availability
                 if configuration is not None
@@ -534,8 +562,6 @@ class MainWindow(QMainWindow):
         self._displaying_model = True
         try:
             self.devices_page.Configuration_Set(
-                display.mcus,
-                display.model.mcu,
                 display.devices,
                 display.device_instances,
                 display.device_availability,
@@ -550,7 +576,7 @@ class MainWindow(QMainWindow):
             )
             self.flight_configuration_page.Protocols_Set(
                 display.protocol_profiles,
-                display.model.protocol_profiles,
+                display.selected_protocol_profiles,
             )
             self.flight_configuration_page.Capabilities_Set(
                 display.capability_usage
@@ -613,6 +639,7 @@ class MainWindow(QMainWindow):
                 model.hardware.assignment_fingerprint
             ),
         )
+        self.board_hardware_page.Platform_Set(display.platform_match)
         self.board_hardware_page.Resources_Set(
             display.resources,
             display.resources_valid,
@@ -842,14 +869,6 @@ class MainWindow(QMainWindow):
             self._translator.Text_Get("status.configuration_changed_simple")
         )
         self._HeaderProject_Refresh()
-
-    def _McuSelection_Change(self, component_id: str) -> None:
-        if self._displaying_model or not component_id or component_id == self._model.mcu:
-            return
-        self._ProjectConfiguration_Change(
-            lambda candidate: setattr(candidate, "mcu", component_id),
-            logging_availability_changed=True,
-        )
 
     def _DeviceInstance_Change(self, instance_id: str, component_id: str) -> None:
         if self._displaying_model:
@@ -1409,12 +1428,21 @@ class MainWindow(QMainWindow):
             logging_availability_changed=bool(changes),
         )
 
-    def _ProtocolProfile_Change(self, category: str, profile_id: str) -> None:
-        if not profile_id:
+    def _ProtocolProfile_Change(
+        self, category: str, component_id: str, profile_id: str
+    ) -> None:
+        if not component_id or not profile_id:
             return
+        manifest = self._service.Plugin_Get(component_id)
         self._ProjectConfiguration_Change(
-            lambda candidate: candidate.protocol_profiles.__setitem__(
-                category, profile_id
+            lambda candidate: candidate.protocols.__setitem__(
+                category,
+                ProtocolSelection(
+                    component=manifest.component_id,
+                    version=manifest.version,
+                    profile=profile_id,
+                    manifest_sha256=manifest.ManifestSha256_Get(),
+                ),
             ),
             logging_availability_changed=category == "logging",
         )
@@ -1650,9 +1678,15 @@ class MainWindow(QMainWindow):
                 )
             else:
                 target = self.flight_configuration_page.capability_table
-        elif code.startswith(("mcu", "device")):
+        elif code.startswith("mcu"):
+            page_index = 2
+            target = self.board_hardware_page.board_combo
+        elif code.startswith("device"):
             page_index = 0
-            target = self.devices_page.mcu_combo
+            target = next(
+                iter(self.devices_page.device_combos.values()),
+                self.devices_page,
+            )
         self.navigation_list.setCurrentRow(page_index)
         target.setProperty("validationIssue", True)
         target.style().unpolish(target)

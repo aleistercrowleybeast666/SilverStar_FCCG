@@ -20,6 +20,11 @@ def HardwarePreparationFingerprint_Get(
     data: dict[str, Any] = {
         "mode": model.hardware.mode,
         "mcu": model.mcu,
+        "platform_lock": {
+            "component": model.hardware.platform_component,
+            "version": model.hardware.platform_version,
+            "manifest_sha256": model.hardware.platform_manifest_sha256,
+        },
         "board": model.board,
         "resource_assignments": dict(sorted(model.resource_assignments.items())),
     }
@@ -94,6 +99,9 @@ def HardwareAssignmentFingerprint_Get(
                         "required": requirement.required,
                         "mode": requirement.mode.value,
                         "candidates": list(requirement.candidates),
+                        "platform_capabilities": list(
+                            requirement.platform_capabilities
+                        ),
                         "constraints": requirement.constraints,
                         "electrical_constraints": (
                             requirement.electrical_constraints
@@ -109,6 +117,9 @@ def HardwareAssignmentFingerprint_Get(
             "snapshot_id": model.hardware.snapshot_id,
             "source_digest": model.hardware.source_digest,
             "ioc_file": model.hardware.ioc_file,
+            "platform_component": model.hardware.platform_component,
+            "platform_version": model.hardware.platform_version,
+            "platform_manifest_sha256": model.hardware.platform_manifest_sha256,
         },
         "components": list(model.ComponentIds_Get()),
         "devices": [

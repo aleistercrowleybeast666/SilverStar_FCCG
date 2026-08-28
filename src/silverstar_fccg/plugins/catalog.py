@@ -44,6 +44,7 @@ class PluginCatalog:
                 else:
                     manifests[manifest.component_id] = manifest
         errors.extend(self._ProtocolAssetsErrors_Get(manifests))
+        errors.extend(self._PlatformAssetsErrors_Get(manifests))
         if errors:
             raise PluginCatalogError("\n".join(errors))
         self._components = manifests
@@ -55,6 +56,7 @@ class PluginCatalog:
     ) -> tuple[str, ...]:
         """Reject named-only protocol profiles with no complete implementation."""
         errors: list[str] = []
+        profile_owners: dict[tuple[str, str], str] = {}
         for manifest in manifests.values():
             if manifest.protocol is None:
                 continue
@@ -93,6 +95,16 @@ class PluginCatalog:
             }
             for category, profiles in manifest.protocol.profiles.items():
                 for profile in profiles:
+                    identity = (category, profile.profile_id)
+                    previous_owner = profile_owners.get(identity)
+                    if previous_owner is not None:
+                        errors.append(
+                            "Duplicate Protocol Profile "
+                            f"{category}/{profile.profile_id}: "
+                            f"{previous_owner} and {manifest.component_id}"
+                        )
+                    else:
+                        profile_owners[identity] = manifest.component_id
                     for field_name, paths in (
                         ("codec_sources", profile.codec_sources),
                         ("parser_sources", profile.parser_sources),
@@ -128,6 +140,47 @@ class PluginCatalog:
                                 f"Protocol profile {category}/{profile.profile_id} "
                                 f"documentation is missing: {relative}"
                             )
+        return tuple(errors)
+
+    @staticmethod
+    def _PlatformAssetsErrors_Get(
+        manifests: dict[str, PluginManifest],
+    ) -> tuple[str, ...]:
+        errors: list[str] = []
+        for manifest in manifests.values():
+            platform = manifest.platform
+            if platform is None:
+                continue
+            payload_files = {
+                path.relative_to(manifest.payload_root).as_posix()
+                for path in manifest.PayloadFiles_Get()
+            }
+            if not any(
+                path == platform.resource_header
+                or path.endswith("/" + platform.resource_header)
+                for path in payload_files
+            ):
+                errors.append(
+                    f"Platform {manifest.component_id} resource header is missing: "
+                    f"{platform.resource_header}"
+                )
+            for backend in platform.resource_backends.values():
+                for source in backend.sources:
+                    if source not in payload_files:
+                        errors.append(
+                            f"Platform {manifest.component_id} backend "
+                            f"{backend.backend_id} source is missing: {source}"
+                        )
+                for include_dir in backend.include_dirs:
+                    directory = manifest.payload_root.joinpath(
+                        *include_dir.split("/")
+                    )
+                    if not directory.is_dir() or directory.is_symlink():
+                        errors.append(
+                            f"Platform {manifest.component_id} backend "
+                            f"{backend.backend_id} include directory is missing: "
+                            f"{include_dir}"
+                        )
         return tuple(errors)
 
     def All_Get(self) -> tuple[PluginManifest, ...]:

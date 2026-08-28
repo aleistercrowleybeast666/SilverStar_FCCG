@@ -11,7 +11,7 @@
     "type": {
       "enum": [
         "core", "mcu", "board", "device", "algorithm", "flight_logic",
-        "os", "protocol_bundle", "hardware_configuration_provider",
+        "os", "protocol", "hardware_configuration_provider",
         "development_environment"
       ]
     },
@@ -243,25 +243,32 @@
       },
       "additionalProperties": false
     },
+    "platform": {"$ref": "#/$defs/platform"},
     "protocol": {
       "type": "object",
       "required": [
-        "logging_metadata", "maintenance_protocol_version",
+        "category", "logging_metadata", "maintenance_protocol_version",
         "firmware_version", "documentation_version"
       ],
       "properties": {
+        "category": {"enum": ["telemetry", "maintenance", "logging"]},
         "logging_metadata": {"$ref": "#/$defs/buildPath"},
         "maintenance_protocol_version": {"$ref": "#/$defs/version"},
         "firmware_version": {"$ref": "#/$defs/version"},
         "documentation_version": {"$ref": "#/$defs/version"},
         "profiles": {
           "type": "object",
-          "propertyNames": {"$ref": "#/$defs/lowerIdentifier"},
+          "propertyNames": {"enum": ["telemetry", "maintenance", "logging"]},
           "additionalProperties": {
             "type": "array",
             "minItems": 1,
             "items": {"$ref": "#/$defs/protocolProfile"}
           }
+        },
+        "extensions": {
+          "type": "object",
+          "propertyNames": {"pattern": "^[a-z0-9]+(?:[.-][a-z0-9]+)+$"},
+          "additionalProperties": {"type": "object"}
         }
       },
       "additionalProperties": false
@@ -292,17 +299,129 @@
   },
   "additionalProperties": false,
   "allOf": [
-    {"if": {"properties": {"type": {"const": "device"}}}, "then": {"required": ["instance_policy", "physical_device"]}},
+    {"if": {"properties": {"type": {"const": "device"}}}, "then": {
+      "required": ["instance_policy", "physical_device", "metadata"],
+      "properties": {
+        "metadata": {
+          "type": "object",
+          "required": ["device_category"],
+          "properties": {
+            "device_category": {
+              "type": "string",
+              "pattern": "^(?:sensor|link|storage|actuator|indicator)\\.[a-z0-9]+(?:[._-][a-z0-9]+)*$"
+            }
+          }
+        }
+      }
+    }},
     {"if": {"properties": {"type": {"const": "board"}}}, "then": {"required": ["board"]}},
+    {"if": {"properties": {"type": {"const": "mcu"}}}, "then": {"required": ["platform"]}},
     {"if": {"properties": {"type": {"const": "hardware_configuration_provider"}}}, "then": {"required": ["hardware_provider"]}},
     {"if": {"properties": {"type": {"const": "development_environment"}}}, "then": {"required": ["environment"]}},
-    {"if": {"properties": {"type": {"const": "protocol_bundle"}}}, "then": {"required": ["protocol"]}}
+    {"if": {"properties": {"type": {"const": "protocol"}}}, "then": {"required": ["protocol"]}},
+    {"if": {"properties": {"type": {"const": "protocol"}, "protocol": {"properties": {"category": {"const": "telemetry"}}}}}, "then": {"properties": {"protocol": {"properties": {"profiles": {"required": ["telemetry"], "maxProperties": 1}}}}}},
+    {"if": {"properties": {"type": {"const": "protocol"}, "protocol": {"properties": {"category": {"const": "maintenance"}}}}}, "then": {"properties": {"protocol": {"properties": {"profiles": {"required": ["maintenance"], "maxProperties": 1}}}}}},
+    {"if": {"properties": {"type": {"const": "protocol"}, "protocol": {"properties": {"category": {"const": "logging"}}}}}, "then": {"properties": {"protocol": {"properties": {"profiles": {"required": ["logging"], "maxProperties": 1}}}}}}
   ],
   "$defs": {
     "componentId": {"type": "string", "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*$"},
     "lowerIdentifier": {"type": "string", "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*$"},
     "selectionOption": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"},
     "bindingMacro": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]*$"},
+    "platform": {
+      "type": "object",
+      "required": ["abi", "provider", "match_rules", "resource_binding", "resource_backends", "support"],
+      "properties": {
+        "abi": {
+          "type": "object",
+          "required": ["id", "major", "minor"],
+          "properties": {
+            "id": {"$ref": "#/$defs/componentId"},
+            "major": {"type": "integer", "minimum": 0, "maximum": 65535},
+            "minor": {"type": "integer", "minimum": 0, "maximum": 65535}
+          },
+          "additionalProperties": false
+        },
+        "provider": {"$ref": "#/$defs/lowerIdentifier"},
+        "match_rules": {
+          "type": "array", "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["vendor"],
+            "properties": {
+              "vendor": {"type": "string", "minLength": 1},
+              "exact_part": {"type": "string", "pattern": "^[A-Za-z0-9*?_. -]*$"},
+              "family_pattern": {"type": "string", "pattern": "^[A-Za-z0-9*?_. -]*$"},
+              "package_pattern": {"type": "string", "pattern": "^[A-Za-z0-9*?_. -]*$"},
+              "core_pattern": {"type": "string", "pattern": "^[A-Za-z0-9*?_. -]*$"},
+              "priority": {"type": "integer", "minimum": 0, "maximum": 10000},
+              "specificity": {"type": "integer", "minimum": 0, "maximum": 10000},
+              "verification": {"enum": ["experimental", "supported", "verified"]}
+            },
+            "anyOf": [
+              {"required": ["exact_part"]},
+              {"required": ["family_pattern"]}
+            ],
+            "additionalProperties": false
+          }
+        },
+        "resource_binding": {
+          "type": "object",
+          "required": ["header", "bindings"],
+          "properties": {
+            "header": {"type": "string", "pattern": "^[A-Za-z0-9_./-]+\\.h$"},
+            "bindings": {
+              "type": "object", "minProperties": 1,
+              "propertyNames": {"$ref": "#/$defs/lowerIdentifier"},
+              "additionalProperties": {
+                "type": "object",
+                "required": ["collection", "include_header", "entry_kind", "id_type", "count_symbol", "table_symbol", "getter", "struct_type"],
+                "properties": {
+                  "collection": {"$ref": "#/$defs/lowerIdentifier"},
+                  "include_header": {"type": "string", "pattern": "^[A-Za-z0-9_./-]+\\.h$"},
+                  "entry_kind": {"enum": ["handle", "gpio", "pwm"]},
+                  "id_type": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"},
+                  "count_symbol": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"},
+                  "table_symbol": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"},
+                  "getter": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"},
+                  "struct_type": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$|^$"}
+                },
+                "additionalProperties": false
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "resource_backends": {
+          "type": "object",
+          "propertyNames": {"$ref": "#/$defs/lowerIdentifier"},
+          "additionalProperties": {
+            "type": "object",
+            "required": ["inventory_kinds", "sources", "provider_sources", "include_dirs", "defines", "capabilities", "ownership"],
+            "properties": {
+              "inventory_kinds": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/lowerIdentifier"}},
+              "sources": {"$ref": "#/$defs/buildPaths"},
+              "provider_sources": {"$ref": "#/$defs/buildPaths"},
+              "include_dirs": {"$ref": "#/$defs/buildPaths"},
+              "defines": {"type": "array", "uniqueItems": true, "items": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?:=[A-Za-z0-9_+.,:/() -]+)?$"}},
+              "capabilities": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/lowerIdentifier"}},
+              "ownership": {"enum": ["shared", "shared_bus_unique_address", "single_owner", "exclusive_channel_shared_timer"]}
+            },
+            "additionalProperties": false
+          }
+        },
+        "support": {
+          "type": "object",
+          "required": ["level", "limitations"],
+          "properties": {
+            "level": {"enum": ["experimental", "supported", "verified"]},
+            "limitations": {"type": "array", "items": {"type": "string", "minLength": 1}}
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
     "modeParameter": {
       "type": "object",
       "required": ["id", "type", "default", "minimum", "maximum", "unit", "generated_symbol", "display_names"],
@@ -320,6 +439,22 @@
           "additionalProperties": {"type": "string", "minLength": 1}
         }
       },
+      "allOf": [
+        {
+          "if": {
+            "required": ["kind"],
+            "properties": {
+              "kind": {"enum": ["i2c", "can_classic", "can_fd", "pwm"]}
+            }
+          },
+          "then": {
+            "required": ["platform_capabilities"],
+            "properties": {
+              "platform_capabilities": {"minItems": 1}
+            }
+          }
+        }
+      ],
       "additionalProperties": false
     },
     "protocolProfile": {
@@ -405,6 +540,7 @@
         "required": {"type": "boolean"},
         "mode": {"enum": ["exclusive", "shared"]},
         "candidates": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/resourceId"}},
+        "platform_capabilities": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/capability"}},
         "constraints": {
           "type": "object",
           "properties": {
@@ -420,6 +556,7 @@
             "uart": {"$ref": "#/$defs/uartConstraints"},
             "spi": {"$ref": "#/$defs/spiConstraints"},
             "i2c": {"$ref": "#/$defs/i2cConstraints"},
+            "can": {"$ref": "#/$defs/canConstraints"},
             "pwm": {"$ref": "#/$defs/pwmConstraints"}
           },
           "additionalProperties": false
@@ -476,8 +613,23 @@
         "maximum_bus_frequency_hz": {"type": "integer", "minimum": 1},
         "allowed_rates_hz": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "integer", "minimum": 1}},
         "address_mode": {"type": "string", "minLength": 1},
+        "address_7bit": {"type": "integer", "minimum": 8, "maximum": 119},
+        "composite_device": {"$ref": "#/$defs/lowerIdentifier"},
+        "requires_repeated_start": {"type": "boolean"},
         "required_pullup": {"type": "boolean"},
         "dma": {"type": "boolean"},
+        "irq": {"type": "boolean"}
+      },
+      "additionalProperties": false
+    },
+    "canConstraints": {
+      "type": "object",
+      "properties": {
+        "minimum_nominal_bitrate": {"type": "integer", "minimum": 1},
+        "maximum_nominal_bitrate": {"type": "integer", "minimum": 1},
+        "allowed_nominal_bitrates": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "integer", "minimum": 1}},
+        "frame_format": {"enum": ["classic", "fd"]},
+        "mode": {"type": "string", "minLength": 1},
         "irq": {"type": "boolean"}
       },
       "additionalProperties": false
@@ -485,11 +637,13 @@
     "pwmConstraints": {
       "type": "object",
       "properties": {
+        "frequency_hz": {"type": "integer", "minimum": 1},
         "minimum_frequency_hz": {"type": "integer", "minimum": 1},
         "maximum_frequency_hz": {"type": "integer", "minimum": 1},
         "minimum_resolution_bits": {"type": "integer", "minimum": 1},
         "polarity": {"type": "string", "minLength": 1},
-        "channel": {"type": "integer", "minimum": 1}
+        "channel": {"type": "integer", "minimum": 1},
+        "safe_state": {"enum": ["inactive", "low", "high"]}
       },
       "additionalProperties": false
     },

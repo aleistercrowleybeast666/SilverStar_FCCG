@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 from silverstar_fccg.plugins.catalog import PluginCatalog
 from silverstar_fccg.project.model import ProjectModel
+from silverstar_fccg.project.resources import ResourceAssignments_Resolve
 
 
 class SourceGraphError(FccgError):
@@ -57,6 +58,14 @@ def _MakeList_Render(name: str, values: tuple[str, ...]) -> list[str]:
     return lines
 
 
+def _HardwareProviderSource_Is(path: str) -> bool:
+    normalized = "/" + path.replace("\\", "/").casefold().strip("/") + "/"
+    return (
+        "/hardwaregenerated/stm32cubemx/drivers/" in normalized
+        and "hal_driver/src/" in normalized
+    )
+
+
 def SourceGraph_Resolve(model: ProjectModel, catalog: PluginCatalog) -> SourceGraph:
     sources: list[str] = []
     asm_sources: list[str] = []
@@ -70,6 +79,15 @@ def SourceGraph_Resolve(model: ProjectModel, catalog: PluginCatalog) -> SourceGr
     exclude_sources: list[str] = []
     linker_scripts: list[str] = []
     toolchain_prefixes: list[str] = []
+    required_provider_sources: list[tuple[str, str]] = []
+    available_provider_sources: list[str] = []
+    resource_resolution = ResourceAssignments_Resolve(
+        model, catalog, auto_assign=False
+    )
+    active_resource_kinds = {
+        assignment.provision.kind
+        for assignment in resource_resolution.assignments
+    }
     selected_protocol_profiles = []
     for component_id in model.ComponentIds_Get():
         manifest = catalog.Component_Get(component_id)
@@ -79,17 +97,25 @@ def SourceGraph_Resolve(model: ProjectModel, catalog: PluginCatalog) -> SourceGr
         profile_defines: set[str] = set()
         if manifest.protocol is not None:
             for category, profiles in manifest.protocol.profiles.items():
-                selected_id = model.protocol_profiles.get(category)
+                selection = model.protocols.get(category)
                 for profile in profiles:
                     profile_sources.update(profile.codec_sources)
                     profile_sources.update(profile.parser_sources)
                     profile_includes.update(profile.include_dirs)
                     profile_defines.update(profile.defines)
-                    if profile.profile_id == selected_id:
+                    if (
+                        selection is not None
+                        and selection.component == manifest.component_id
+                        and profile.profile_id == selection.profile
+                    ):
                         selected_protocol_profiles.append((category, profile))
-        sources.extend(
-            source for source in build.sources if source not in profile_sources
-        )
+        for source in build.sources:
+            if source in profile_sources:
+                continue
+            if _HardwareProviderSource_Is(source):
+                available_provider_sources.append(source)
+            else:
+                sources.append(source)
         for slot, variants in build.strategy_sources.items():
             if slot not in model.strategies:
                 raise SourceGraphError(
@@ -114,16 +140,37 @@ def SourceGraph_Resolve(model: ProjectModel, catalog: PluginCatalog) -> SourceGr
         forced_includes.extend(build.forced_includes)
         virtual_sources.extend(build.virtual_sources)
         exclude_sources.extend(build.exclude_sources)
+        if manifest.platform is not None:
+            for backend in manifest.platform.resource_backends.values():
+                if not active_resource_kinds.intersection(
+                    backend.inventory_kinds
+                ):
+                    # EIDE selects whole source directories. Explicitly exclude
+                    # inactive adapters so it resolves the same source graph as
+                    # Make even when active and inactive backends share a folder.
+                    exclude_sources.extend(backend.sources)
+                    continue
+                sources.extend(backend.sources)
+                required_provider_sources.extend(
+                    (backend.backend_id, source)
+                    for source in backend.provider_sources
+                )
+                include_dirs.extend(backend.include_dirs)
+                defines.extend(backend.defines)
         if build.linker_script:
             linker_scripts.append(build.linker_script)
         if build.toolchain_prefix:
             toolchain_prefixes.append(build.toolchain_prefix)
     selected_profile_ids = {
-        (category, profile_id)
-        for category, profile_id in model.protocol_profiles.items()
+        (category, selection.component, selection.profile)
+        for category, selection in model.protocols.items()
     }
     resolved_profile_ids = {
-        (category, profile.profile_id)
+        (
+            category,
+            model.protocols[category].component,
+            profile.profile_id,
+        )
         for category, profile in selected_protocol_profiles
     }
     if selected_profile_ids != resolved_profile_ids:
@@ -155,12 +202,55 @@ def SourceGraph_Resolve(model: ProjectModel, catalog: PluginCatalog) -> SourceGr
         if none_defines:
             defines.extend(next(iter(none_defines)))
     if model.hardware.mode == "custom":
-        sources.extend(model.hardware.build_sources)
+        provider_candidates = tuple(dict.fromkeys((
+            source
+            for source in (*available_provider_sources, *model.hardware.build_sources)
+            if _HardwareProviderSource_Is(source)
+        )))
+        selected_provider_sources: list[str] = []
+        sources.extend(
+            source
+            for source in model.hardware.build_sources
+            if not _HardwareProviderSource_Is(source)
+        )
+        for backend_id, relative in dict.fromkeys(required_provider_sources):
+            suffix = "/" + relative.casefold().strip("/")
+            matches = tuple(
+                source
+                for source in provider_candidates
+                if ("/" + source.replace("\\", "/").casefold()).endswith(suffix)
+            )
+            if len(matches) != 1:
+                raise SourceGraphError(
+                    f"Active platform backend {backend_id} requires exactly one "
+                    f"hardware-provider source: {relative}"
+                )
+            sources.append(matches[0])
+            selected_provider_sources.append(matches[0])
+        exclude_sources.extend(
+            source
+            for source in provider_candidates
+            if source not in selected_provider_sources
+        )
         asm_sources.extend(model.hardware.asm_sources)
         include_dirs.extend(model.hardware.include_dirs)
         defines.extend(model.hardware.defines)
         if model.hardware.linker_script:
             linker_scripts.append(model.hardware.linker_script)
+    elif required_provider_sources:
+        for backend_id, relative in dict.fromkeys(required_provider_sources):
+            suffix = "/" + relative.casefold().strip("/")
+            matches = tuple(
+                source
+                for source in (*available_provider_sources, *sources)
+                if source.casefold() == relative.casefold()
+                or ("/" + source.casefold()).endswith(suffix)
+            )
+            if len(matches) != 1:
+                raise SourceGraphError(
+                    f"Active platform backend {backend_id} requires exactly one "
+                    f"board/provider source: {relative}"
+                )
     generated_sources = (
         "Generated/Src/platform_resources.c",
         "Generated/Src/project_capability_routes.c",

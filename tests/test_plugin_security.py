@@ -43,7 +43,7 @@ def _Manifest_Get(component_id: str = "example.device.safe", dependency: str = "
             "defines": [],
         },
         "payload": {"roots": ["Source"]},
-        "metadata": {},
+        "metadata": {"device_category": "sensor.temperature"},
     }
 
 

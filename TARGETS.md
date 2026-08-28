@@ -1,5 +1,17 @@
 # Development targets
 
+## 2026-08-28 internal firmware/plugin refactor
+
+- [x] reproducible read-only reference snapshot plus FCCG-owned overlay provenance; external firmware remains unchanged
+- [x] three mandatory single-category Protocol plugins with locked component/version/Profile/manifest hash and deterministic format-7 migration
+- [x] project format 8 with explicit `protocols` slots and detected MCU/Platform lock; format 0–7 files remain readable and save only as format 8
+- [x] Board/imported CubeMX facts automatically match an installed MCU/Platform plugin; the Devices page no longer exposes an MCU selector
+- [x] manifest-driven Platform resource renderer with no STM32F4 header/getter or MCU-model whitelist in Python
+- [x] conditionally selected F407 I²C, Classic CAN, and PWM backends with static APIs, resolver constraints, Host mocks, and no default-SS0.5 inclusion
+- [x] strict `sensor.*`, `link.*`, `storage.*`, `actuator.*`, and `indicator.*` categories plus dynamic Devices-page grouping
+- [x] logging-plugin-owned Record Catalog and data-only `.ssdecoder` semantics covering three protocols, hardware, resources, devices, algorithms, and logging
+- [x] 33 strict builtin packages: the former three-category bundle is replaced by three independent Protocol packages
+
 ## 2026-08-28 multi-instance/decoder-profile round
 
 - [x] dynamic display of all valid installed Device manifests; Board/IOC incompatibility is deferred to Hardware Connection
@@ -28,7 +40,7 @@
 - [x] Custom STM32 Hardware as the new-draft default, with no visible unselected entry or Board-only preparation action
 - [x] fixed the three checkable-GroupBox interaction failures with visibility-only collapsible sections and visible cross-theme checkboxes
 - [x] Protocol-owned SSLOG metadata, Required/Recommended/Optional policy, capability-aware availability, and deterministic data-only `.ssdecoder`
-- [x] Project format 7 with `DeviceInstance`, manifest-driven Mode parameters, independent protocol profiles, decoder-profile hashes, assignment confirmation fingerprint, and v0-v6 migration
+- [x] Project format 8 with `DeviceInstance`, manifest-driven Mode parameters, three explicit protocol locks, Platform lock, decoder-profile hashes, assignment confirmation fingerprint, and v0-v7 migration
 - [x] Physical Device `provides` + consuming component `requires {capability,purpose}` + automatic/ambiguous provider resolution
 - [x] backward-compatible Device instance policy with independent `plugin_max` and `class_max`; repeating one model requires a context-safe driver, while different singleton models may share a class
 - [x] `.ioc` physical truth for builtin/custom Boards plus semantic `connections.json`
@@ -36,7 +48,7 @@
 - [x] separate FCCG-internal and explicitly authorized user-project roots
 - [x] localized structured error dialogs, buttons, filters, build labels, and startup failure logging
 - [x] latest-reference discovery/explicit selection and read-only provenance import
-- [x] 31 real builtin components, including declarative voltage/mission-action Devices plus System/GNSS Indicator Devices
+- [x] 33 real builtin components, including three independent Protocol plugins and declarative voltage/mission-action/System/GNSS Indicator Devices
 - [x] strict Project format migration plus generic Strategy/Mode dictionaries
 - [x] four-page GUI; File owns New/Open/Save/Save As and Plugins owns manager/install/refresh dialogs
 - [x] one-step New Project dialog with project name/output only and complete-source Save As
@@ -83,7 +95,8 @@
 - No alternate MCU, non-STM manual provider, Keil, IAR, or fictional environment project is generated.
 - FCCG inventories clocks, pin alternate functions, interrupts, and DMA, but does not solve or edit clocks, PLL, pinmux, alternate functions, or DMA streams.
 - Custom hardware is generated with an explicit unverified warning; generation does not claim official Board validation.
-- The current generated STM32 Platform binding surface has fixed reference-target enum sizes even though the IOC inventory parser itself is uncapped.
+- The current production Platform package is verified only for STM32F407VET6/SS0.5. A virtual H7 contract fixture proves renderer portability but is deliberately not an installed/supported target.
+- F407 I²C is blocking 7-bit master plus memory-register access and does not claim generic repeated-start; Classic CAN is bxCAN only and single-owner per peripheral; PWM is ordinary fixed-frequency, non-complementary output with CubeMX-owned timing.
 - FLP does not yet import `.ssdecoder`; this round defines and emits the safe profile contract without modifying FLP.
 - **Export Log Decoder Profile** writes a verified data-only package; this round still does not implement a log parser, executable decoder plugin, or version-plugin system.
 - [x] Final multi-instance Facade, 29-record catalog, decoder descriptor, and STATS/TELEMETRY_DIAG producer declarations were imported only after clean reference HEAD `cc0b377ded690556d037a412a55f87fe334c42d0` matched GitHub main and named `完善同能力多实例与日志配置契约`; no older firmware was used to infer state.

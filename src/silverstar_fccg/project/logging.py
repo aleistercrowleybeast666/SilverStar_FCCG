@@ -301,10 +301,11 @@ def ProtocolLogDefinitions_Get(
 def ProjectProtocolLogMetadataPath_Get(
     model: ProjectModel, catalog: PluginCatalog
 ) -> Path:
-    if len(model.protocol_bundles) != 1:
-        raise LogMetadataError("Exactly one protocol bundle must be selected")
-    manifest = catalog.Component_Get(model.protocol_bundles[0])
-    selected_id = model.protocol_profiles.get("logging", "")
+    selection = model.protocols.get("logging")
+    if selection is None:
+        raise LogMetadataError("Exactly one Logging Protocol must be selected")
+    manifest = catalog.Component_Get(selection.component)
+    selected_id = selection.profile
     if manifest.protocol is not None:
         matches = tuple(
             profile

@@ -5,25 +5,30 @@ FCCG intentionally generates a small surface:
 ```text
 Generated/
 ├── Inc/project_capability_routes.h
+├── Inc/project_device_instances.h
 ├── Inc/project_flight_config.h
 ├── Inc/project_log_config.h
+├── Inc/project_log_decoder_profile.h
 ├── Inc/project_resources.h
 ├── Src/platform_resources.c
 ├── Src/project_capability_routes.c
+├── Src/project_device_instances.c
 ├── Src/project_log_config.c
+├── Src/project_log_decoder_profile.c
 ├── Src/project_metadata.c
 ├── module.mk
+├── project_semantics.json
 └── project_sources.mk
 ```
 
 - `project_resources.h` binds semantic Device/Board requirements to resolved typed Platform IDs. For SS0.5 this includes logical input-voltage, launch-ignition, and parachute-pyro Device requirements mapped to ADC, P_CONTROL1, and P_CONTROL2; it never presents those physical IDs as user Devices.
-- `platform_resources.c` binds those logical IDs to Board or imported hardware handles/GPIO metadata.
+- `platform_resources.c` binds those logical IDs to Board or imported hardware handles/GPIO metadata using the matched MCU/Platform manifest's header/table/getter/struct contract. Python validates tokens but does not contain F4 symbols.
 - `project_capability_routes.*` is a static, heap-free table of capability/provider-instance/provider-plugin/consumer/purpose hashes. A sole provider is marked automatic; unresolved ambiguity prevents generation.
 - `project_flight_config.h` emits selected software-Indicator enable symbols plus the deployment trigger mask and validated thresholds. Time values such as Delay are scaled from manifest/UI seconds to a bounded `uint32` millisecond constant.
 - `project_log_config.*` contains only logging enable/policy/decimation/period selection.
 - `project_metadata.c` contains static component descriptors and the authoritative generation fingerprint digest.
 - `project_sources.mk` is the explicit Make source/include/define/forced-include graph.
-- `module.mk` lists the four generated C sources for compatibility/review; the flight configuration is a forced-include header consumed by owning firmware and mission logging.
+- `module.mk` lists the generated C sources for compatibility/review; the flight configuration is a forced-include header consumed by owning firmware and mission logging.
 
 Generated C is static, heap-free connection/configuration data. It does not implement sensor drivers, MCU backends, INS/KF math, flight decisions, protocol codecs, or serialization. Function/type names and header guards follow the embedded reference convention.
 
@@ -52,8 +57,9 @@ Generation also creates `<ProjectName>.ssdecoder`. The deterministic ZIP contain
 `README.md`; entry timestamps/modes are fixed and no Python, PowerShell, shell, DLL, EXE, hook, or
 other executable entry is present. `record_catalog.json` carries the selected Flight Log container
 and record schema, while `project_semantics.json` records physical Device instances/descriptors,
-resolved capability routes, selected Strategies/Modes, protocol profiles, record availability, and
-active logging streams.
+resolved capability routes and resource assignments, selected Algorithms/Strategies/Modes, three
+component/version/Profile/manifest protocol locks and their physical bindings, detected MCU plus
+Platform/Board/CubeMX identity, record availability, and active logging streams.
 
 Canonical JSON uses UTF-8 without BOM, sorted object keys, compact separators, stable arrays, and
 one LF terminator. SHA-256 identifies the catalog and semantics; a generation-profile hash is
@@ -95,7 +101,7 @@ HardwareGenerated/
 
 The snapshot is copied, never referenced in place. It is classified as a controlled vendor/tool-generated Power-of-Ten deviation. SilverStar-written adapters, services, Devices, Algorithms, and generated glue remain strict.
 
-The `.ioc` inside a Board or imported snapshot is the physical source of truth. FCCG's persisted `HardwareInventory` records MCU/package/core, pins/AF/GPIO/EXTI, UART/SPI/I2C/ADC/Timer/PWM/CAN, DMA, NVIC and useful clocks. `connections.json` stores only semantic alias-to-physical-resource bindings; it is not a duplicate pin/peripheral database.
+The `.ioc` inside a Board or imported snapshot is the physical source of truth. FCCG's persisted `HardwareInventory` records MCU/package/core, pins/AF/GPIO/EXTI, UART/SPI/I²C/ADC/Timer/PWM/Classic-CAN/FDCAN, DMA, NVIC and useful clocks. `connections.json` stores only semantic alias-to-physical-resource bindings; it is not a duplicate pin/peripheral database. Inventory presence alone is insufficient: an assigned resource must also be supported by the matched Platform contract, and only then does Source Graph add its conditional backend/provider sources.
 
 Ordinary Save preserves this tree. Importing a different snapshot produces a dangerous `REPLACE_TREE` plan and requires explicit confirmation, including when the current tree was manually edited. The generated README warns that CubeMX regeneration may overwrite the tree and that clocks, DMA, interrupts, GPIO electrical levels, and power must be revalidated.
 

@@ -4,6 +4,7 @@ from dataclasses import dataclass
 import math
 import re
 
+from silverstar_fccg.core.errors import FccgError
 from silverstar_fccg.plugins.catalog import PluginCatalog
 from silverstar_fccg.plugins.manifest import SelectionKind
 from silverstar_fccg.project.logging import (
@@ -252,6 +253,67 @@ def _ProtocolProfiles_Validate(
     catalog: PluginCatalog,
     issues: list[ValidationIssue],
 ) -> None:
+    for category, selected in sorted(model.protocols.items()):
+        try:
+            manifest = catalog.Component_Get(selected.component)
+        except FccgError as error:
+            issues.append(
+                ValidationIssue("error", "protocol_component", str(error))
+            )
+            continue
+        if manifest.component_type != "protocol":
+            issues.append(
+                ValidationIssue(
+                    "error",
+                    "protocol_component_type",
+                    f"Protocol {category} selects non-Protocol component "
+                    f"{selected.component}",
+                )
+            )
+            continue
+        contribution = manifest.protocol
+        if contribution is None or contribution.category != category:
+            issues.append(
+                ValidationIssue(
+                    "error",
+                    "protocol_category",
+                    f"Protocol {category} component {selected.component} "
+                    "declares an incompatible category",
+                )
+            )
+            continue
+        if selected.version != manifest.version:
+            issues.append(
+                ValidationIssue(
+                    "error",
+                    "protocol_version_lock",
+                    f"Protocol {category}/{selected.component} is locked to "
+                    f"version {selected.version}, installed version is "
+                    f"{manifest.version}",
+                )
+            )
+        installed_hash = manifest.ManifestSha256_Get()
+        if selected.manifest_sha256 != installed_hash:
+            issues.append(
+                ValidationIssue(
+                    "error",
+                    "protocol_manifest_lock",
+                    f"Protocol {category}/{selected.component}/{selected.profile} "
+                    "manifest SHA-256 does not match the project lock",
+                )
+            )
+        profiles = contribution.profiles.get(category, ())
+        if selected.profile not in {
+            profile.profile_id for profile in profiles
+        }:
+            issues.append(
+                ValidationIssue(
+                    "error",
+                    "protocol_profile",
+                    f"Protocol {category}/{selected.component} does not provide "
+                    f"Profile {selected.profile}",
+                )
+            )
     resolution = ProtocolResolution_Resolve(model, catalog)
     issues.extend(
         ValidationIssue("error", issue.code, issue.message)
@@ -265,6 +327,48 @@ def _Hardware_Validate(
     issues: list[ValidationIssue],
 ) -> None:
     mcu = catalog.Component_Get(model.mcu)
+    platform_lock = (
+        model.hardware.platform_component,
+        model.hardware.platform_version,
+        model.hardware.platform_manifest_sha256,
+    )
+    if model.hardware.mode != "unselected" and not all(platform_lock):
+        issues.append(
+            ValidationIssue(
+                "warning",
+                "platform_lock",
+                "Detected MCU/Platform plugin lock is incomplete; it will be "
+                "filled by hardware reconciliation before the next save",
+            )
+        )
+    elif all(platform_lock):
+        if model.hardware.platform_component != model.mcu:
+            issues.append(
+                ValidationIssue(
+                    "error",
+                    "platform_lock_component",
+                    "Hardware Platform lock does not match the selected MCU component",
+                )
+            )
+        if model.hardware.platform_version != mcu.version:
+            issues.append(
+                ValidationIssue(
+                    "error",
+                    "platform_lock_version",
+                    "Installed MCU/Platform plugin version differs from the project lock",
+                )
+            )
+        if (
+            model.hardware.platform_manifest_sha256
+            != mcu.ManifestSha256_Get()
+        ):
+            issues.append(
+                ValidationIssue(
+                    "error",
+                    "platform_lock_hash",
+                    "Installed MCU/Platform manifest differs from the project lock",
+                )
+            )
     mcu_vendor = str(mcu.metadata.get("vendor", ""))
     if mcu_vendor.casefold() != "stm32":
         issues.append(
@@ -437,7 +541,7 @@ def Project_Validate(model: ProjectModel, catalog: PluginCatalog) -> ProjectVali
         for component_id in model.strategies.values()
         if component_id is not None
     )
-    raw_components.extend(model.protocol_bundles)
+    raw_components.extend(model.ProtocolComponentIds_Get())
     raw_components.append(model.development_environment)
     if model.hardware.mode == "custom":
         raw_components.append(model.hardware.provider)
@@ -548,10 +652,8 @@ def Project_Validate(model: ProjectModel, catalog: PluginCatalog) -> ProjectVali
                     f"{component_id} cannot be a base flight component",
                 )
             )
-    for component_id in model.protocol_bundles:
-        _ComponentType_Validate(
-            catalog, component_id, "protocol_bundle", issues
-        )
+    for component_id in model.ProtocolComponentIds_Get():
+        _ComponentType_Validate(catalog, component_id, "protocol", issues)
     _Strategies_Validate(model, catalog, issues)
     _Modes_Validate(model, catalog, issues)
     _ModeParameters_Validate(model, catalog, issues)

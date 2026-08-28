@@ -267,7 +267,7 @@ def test_main_window_shell_navigation_theme_and_language(tmp_path: Path, qapp) -
         assert "build_release" not in window.build_page.action_buttons
         assert "flash" not in window.build_page.action_buttons
         assert window.save_as_action.shortcut().toString() == "Ctrl+Shift+S"
-        assert window.plugin_manager_dialog.panel.plugin_table.rowCount() == 31
+        assert window.plugin_manager_dialog.panel.plugin_table.rowCount() == 33
         for index in range(window.pages.count()):
             window.navigation_list.setCurrentRow(index)
             assert window.pages.currentIndex() == index
@@ -379,9 +379,18 @@ def test_devices_page_is_physical_and_capabilities_are_on_flight_page(
         assert "silverstar.device.console.uart" not in (
             window.devices_page.device_checks
         )
-        assert window.devices_page.mcu_combo.currentData() == (
-            "silverstar.mcu.stm32f407vet6"
-        )
+        assert not hasattr(window.devices_page, "mcu_combo")
+        assert set(window.board_hardware_page.platform_values) == {
+            "source",
+            "part",
+            "family",
+            "package",
+            "core",
+            "plugin",
+            "reason",
+            "verification",
+            "provenance",
+        }
         assert not hasattr(window.devices_page, "capability_table")
         assert not hasattr(window.devices_page, "capability_source_combos")
         assert window._model.hardware.mode == "custom"

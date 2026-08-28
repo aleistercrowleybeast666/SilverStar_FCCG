@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from silverstar_fccg.project.model import LogDecoderProfileReference
+from silverstar_fccg.project.record_catalog import RecordCatalog_Validate
 
 
 LOG_DECODER_PACKAGE_SCHEMA_ID = "silverstar.ssdecoder.package-schema/1.0"
@@ -50,6 +51,9 @@ class LogDecoderPackageContext:
     creation_time_utc: str
     project_generation_fingerprint: str
     supported_primitive_types: tuple[str, ...]
+    selected_protocols: dict[str, dict[str, str]]
+    firmware_components: dict[str, str]
+    hardware_identity: dict[str, Any]
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,12 +68,13 @@ class LogDecoderPackageResult:
     container_format_minor: int
     record_catalog_content: bytes
     project_semantics_content: bytes
+    container_plugin_id: str
 
     def Reference_Get(self) -> LogDecoderProfileReference:
         return LogDecoderProfileReference(
             relative_path=self.relative_path,
             package_schema=LOG_DECODER_PACKAGE_SCHEMA_VERSION,
-            container_plugin_id=LOG_DECODER_CONTAINER_PLUGIN_ID,
+            container_plugin_id=self.container_plugin_id,
             generation_profile_sha256=self.generation_profile_sha256,
             package_sha256=self.package_sha256,
         )
@@ -160,6 +165,9 @@ def LogDecoderPackage_Build(
         "project_generation_fingerprint": (
             context.project_generation_fingerprint
         ),
+        "protocols": context.selected_protocols,
+        "firmware_components": context.firmware_components,
+        "hardware": context.hardware_identity,
         "project_semantics_sha256": project_semantics_sha256,
         "record_catalog_sha256": record_catalog_sha256,
         "required_flp_minimum_version": LOG_DECODER_REQUIRED_FLP_VERSION,
@@ -210,6 +218,7 @@ def LogDecoderPackage_Build(
         container_format_minor=container_format_minor,
         record_catalog_content=record_catalog_bytes,
         project_semantics_content=project_semantics_bytes,
+        container_plugin_id=context.container_plugin_id,
     )
 
 
@@ -381,6 +390,68 @@ def LogDecoderPackage_Verify(content: bytes) -> dict[str, Any]:
         or not container_plugin["id"]
     ):
         raise ValueError("Log decoder manifest contract is invalid")
+    protocols = manifest.get("protocols")
+    if (
+        not isinstance(protocols, dict)
+        or set(protocols) != {"telemetry", "maintenance", "logging"}
+    ):
+        raise ValueError("Log decoder manifest protocol locks are incomplete")
+    for category, selection in protocols.items():
+        if (
+            not isinstance(selection, dict)
+            or set(selection)
+            != {"component", "version", "profile", "manifest_sha256"}
+            or not all(
+                isinstance(selection[field], str) and bool(selection[field])
+                for field in ("component", "version", "profile")
+            )
+            or not isinstance(selection["manifest_sha256"], str)
+            or len(selection["manifest_sha256"]) != 64
+            or any(
+                character not in "0123456789abcdef"
+                for character in selection["manifest_sha256"]
+            )
+        ):
+            raise ValueError(
+                f"Log decoder manifest protocol lock is invalid: {category}"
+            )
+    semantics = json_values["project_semantics.json"]
+    required_semantics = {
+        "schema_id",
+        "project",
+        "protocols",
+        "components",
+        "algorithms",
+        "hardware",
+        "devices",
+        "resource_assignments",
+        "strategies",
+        "modes",
+        "logging_streams",
+    }
+    if (
+        not isinstance(semantics, dict)
+        or semantics.get("schema_id") != "silverstar.project-semantics/1.0"
+        or not required_semantics.issubset(semantics)
+        or semantics.get("protocols") != protocols
+        or not isinstance(semantics.get("components"), list)
+        or not isinstance(semantics.get("algorithms"), list)
+        or not isinstance(semantics.get("hardware"), dict)
+        or not isinstance(semantics.get("devices"), list)
+        or not isinstance(semantics.get("resource_assignments"), list)
+        or not isinstance(semantics.get("logging_streams"), list)
+    ):
+        raise ValueError("Log decoder project semantics contract is invalid")
+    if (
+        not isinstance(manifest.get("firmware_components"), dict)
+        or not isinstance(manifest.get("hardware"), dict)
+        or manifest.get("selected_log_format_profile")
+        != protocols["logging"]["profile"]
+    ):
+        raise ValueError("Log decoder firmware identity contract is invalid")
+    RecordCatalog_Validate(
+        json_values["record_catalog.json"], "decoder Record Catalog"
+    )
 
     checksums: dict[str, str] = {}
     try:

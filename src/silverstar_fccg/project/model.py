@@ -33,11 +33,16 @@ TOOLCHAIN_PREFIX_PATTERN = re.compile(r"^[A-Za-z0-9_.+-]+$")
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 RELATIVE_FILE_PATTERN = re.compile(r"^[A-Za-z0-9_./+@ -]+$")
 
-PROJECT_FORMAT_VERSION = 7
+PROJECT_FORMAT_VERSION = 8
 DEFAULT_PROTOCOL_PROFILES = {
     "telemetry": "air.m0",
     "maintenance": "maintenance.serial.0_0",
     "logging": "flight_log.0_0",
+}
+DEFAULT_PROTOCOL_COMPONENTS = {
+    "telemetry": "silverstar.protocol.telemetry.air_m0",
+    "maintenance": "silverstar.protocol.maintenance.serial_0_0",
+    "logging": "silverstar.protocol.logging.sslog_0_0",
 }
 LEGACY_PROTOCOL_PROFILE_IDS = {
     "air.compact.v0": "air.m0",
@@ -110,6 +115,14 @@ class LogDecoderProfileReference:
 
 
 @dataclass(frozen=True, slots=True)
+class ProtocolSelection:
+    component: str
+    version: str
+    profile: str
+    manifest_sha256: str = ""
+
+
+@dataclass(frozen=True, slots=True)
 class HardwareResource:
     resource_id: str
     kind: str
@@ -124,6 +137,9 @@ class HardwareConfiguration:
     snapshot_id: str = ""
     ioc_file: str = ""
     mcu: str = ""
+    platform_component: str = ""
+    platform_version: str = ""
+    platform_manifest_sha256: str = ""
     capabilities: tuple[str, ...] = ()
     inventory: dict[str, Any] = field(default_factory=dict)
     resources: tuple[HardwareResource, ...] = ()
@@ -152,10 +168,7 @@ class ProjectModel:
     mode_parameters: dict[str, dict[str, dict[str, float | int]]] = field(
         default_factory=lambda: deepcopy(DEFAULT_MODE_PARAMETERS)
     )
-    protocol_bundles: list[str] = field(default_factory=list)
-    protocol_profiles: dict[str, str] = field(
-        default_factory=lambda: dict(DEFAULT_PROTOCOL_PROFILES)
-    )
+    protocols: dict[str, ProtocolSelection] = field(default_factory=dict)
     development_environment: str = ""
     hardware: HardwareConfiguration = field(default_factory=HardwareConfiguration)
     resource_assignments: dict[str, str] = field(default_factory=dict)
@@ -192,7 +205,10 @@ class ProjectModel:
             for _slot, component_id in sorted(self.strategies.items())
             if component_id is not None
         )
-        ordered.extend(self.protocol_bundles)
+        ordered.extend(
+            selection.component
+            for _category, selection in sorted(self.protocols.items())
+        )
         ordered.append(self.development_environment)
         if self.hardware.mode == "custom":
             ordered.append(self.hardware.provider)
@@ -200,6 +216,18 @@ class ProjectModel:
 
     def DevicePluginIds_Get(self) -> tuple[str, ...]:
         return tuple(instance.plugin for instance in self.device_instances)
+
+    def ProtocolComponentIds_Get(self) -> tuple[str, ...]:
+        return tuple(
+            selection.component
+            for _category, selection in sorted(self.protocols.items())
+        )
+
+    def ProtocolProfiles_Get(self) -> dict[str, str]:
+        return {
+            category: selection.profile
+            for category, selection in self.protocols.items()
+        }
 
     def DeviceInstance_Get(self, instance_id: str) -> DeviceInstance | None:
         for instance in self.device_instances:
@@ -229,7 +257,6 @@ class ProjectModel:
                 ],
                 "base": list(self.base_components),
                 "strategies": dict(sorted(self.strategies.items())),
-                "protocol_bundles": list(self.protocol_bundles),
                 "development_environment": self.development_environment,
             },
             "modes": {
@@ -243,7 +270,15 @@ class ProjectModel:
                 }
                 for slot, options in sorted(self.mode_parameters.items())
             },
-            "protocol_profiles": dict(sorted(self.protocol_profiles.items())),
+            "protocols": {
+                category: {
+                    "component": selection.component,
+                    "version": selection.version,
+                    "profile": selection.profile,
+                    "manifest_sha256": selection.manifest_sha256,
+                }
+                for category, selection in sorted(self.protocols.items())
+            },
             "hardware": {
                 "mode": self.hardware.mode,
                 "source_kind": self.hardware.source_kind,
@@ -251,6 +286,9 @@ class ProjectModel:
                 "snapshot_id": self.hardware.snapshot_id,
                 "ioc_file": self.hardware.ioc_file,
                 "mcu": self.hardware.mcu,
+                "platform_component": self.hardware.platform_component,
+                "platform_version": self.hardware.platform_version,
+                "platform_manifest_sha256": self.hardware.platform_manifest_sha256,
                 "capabilities": list(self.hardware.capabilities),
                 "inventory": self.hardware.inventory,
                 "resources": [
@@ -525,6 +563,46 @@ def _ProjectV6_Migrate(root: dict[str, Any]) -> dict[str, Any]:
         and "project_log_decoder_profile" not in generated_glue
     ):
         generated_glue.append("project_log_decoder_profile")
+    migrated["format_version"] = 7
+    return migrated
+
+
+def _ProjectV7_Migrate(root: dict[str, Any]) -> dict[str, Any]:
+    """Migrate the former all-in-one Protocol Bundle to three locked slots."""
+    migrated = deepcopy(root)
+    components = _Object_Require(migrated.get("components"), "components")
+    legacy_bundles = components.pop("protocol_bundles", [])
+    if legacy_bundles not in (
+        [],
+        ["silverstar.protocol.reference_v0"],
+    ):
+        raise ProjectModelError(
+            "Project format 7 contains an unsupported Protocol Bundle: "
+            + ", ".join(str(value) for value in legacy_bundles)
+        )
+    legacy_profiles = _Object_Require(
+        migrated.pop("protocol_profiles", {}), "protocol_profiles"
+    )
+    protocols: dict[str, dict[str, str]] = {}
+    for category, component in DEFAULT_PROTOCOL_COMPONENTS.items():
+        profile_value = legacy_profiles.get(
+            category, DEFAULT_PROTOCOL_PROFILES[category]
+        )
+        if not isinstance(profile_value, str):
+            raise ProjectModelError(
+                f"Legacy protocol profile {category} must be a string"
+            )
+        protocols[category] = {
+            "component": component,
+            "version": "0.0",
+            "profile": LEGACY_PROTOCOL_PROFILE_IDS.get(
+                profile_value, profile_value
+            ),
+            # Filled deterministically from the installed manifest during
+            # reconcile before a migrated project is saved again.
+            "manifest_sha256": "",
+        }
+    migrated["protocols"] = protocols
     migrated["format_version"] = PROJECT_FORMAT_VERSION
     return migrated
 
@@ -620,7 +698,6 @@ def _Components_Parse(data: Any) -> tuple[
     list[DeviceInstance],
     list[str],
     dict[str, str | None],
-    list[str],
     str,
 ]:
     components = _Object_Require(data, "components")
@@ -632,7 +709,6 @@ def _Components_Parse(data: Any) -> tuple[
         "devices",
         "base",
         "strategies",
-        "protocol_bundles",
         "development_environment",
     }
     if set(components) != expected:
@@ -643,7 +719,6 @@ def _Components_Parse(data: Any) -> tuple[
     os_component = _String_Require(components, "os")
     device_instances = _DeviceInstances_Parse(components.get("devices"))
     base = _StringList_Require(components, "base")
-    protocol_bundles = _StringList_Require(components, "protocol_bundles")
     environment = _String_Require(components, "development_environment")
     for name, value, allow_empty in (
         ("core component", core, False),
@@ -656,7 +731,6 @@ def _Components_Parse(data: Any) -> tuple[
     for component_id in (
         *(instance.plugin for instance in device_instances),
         *base,
-        *protocol_bundles,
     ):
         _ComponentId_Validate(component_id, "component id")
     strategy_data = _Object_Require(components.get("strategies"), "strategies")
@@ -677,7 +751,6 @@ def _Components_Parse(data: Any) -> tuple[
         device_instances,
         base,
         strategies,
-        protocol_bundles,
         environment,
     )
 
@@ -751,20 +824,47 @@ def _ModeParameters_Parse(
     return result
 
 
-def _ProtocolProfiles_Parse(value: Any) -> dict[str, str]:
-    data = _Object_Require(value, "protocol_profiles")
-    result: dict[str, str] = {}
-    for category, profile_id in data.items():
-        if (
-            not isinstance(category, str)
-            or not COMPONENT_ID_PATTERN.fullmatch(category)
-            or not isinstance(profile_id, str)
-            or not COMPONENT_ID_PATTERN.fullmatch(profile_id)
-        ):
+def _Protocols_Parse(value: Any) -> dict[str, ProtocolSelection]:
+    data = _Object_Require(value, "protocols")
+    if set(data) != set(DEFAULT_PROTOCOL_COMPONENTS):
+        raise ProjectModelError(
+            "protocols must contain exactly telemetry, maintenance and logging"
+        )
+    result: dict[str, ProtocolSelection] = {}
+    for category, selection_value in data.items():
+        selection = _Object_Require(
+            selection_value, f"protocols.{category}"
+        )
+        expected = {"component", "version", "profile", "manifest_sha256"}
+        if set(selection) != expected:
             raise ProjectModelError(
-                "protocol_profiles must map category ids to profile ids"
+                f"protocols.{category} has missing or unknown fields"
             )
-        result[category] = profile_id
+        component = _String_Require(selection, "component")
+        version = _String_Require(selection, "version")
+        profile = _String_Require(selection, "profile")
+        manifest_sha256 = _String_Require(
+            selection, "manifest_sha256", allow_empty=True
+        )
+        _ComponentId_Validate(component, f"protocols.{category}.component")
+        if not FIRMWARE_VERSION_PATTERN.fullmatch(version):
+            raise ProjectModelError(
+                f"protocols.{category}.version is invalid"
+            )
+        if not COMPONENT_ID_PATTERN.fullmatch(profile):
+            raise ProjectModelError(
+                f"protocols.{category}.profile is invalid"
+            )
+        if manifest_sha256 and not SHA256_PATTERN.fullmatch(manifest_sha256):
+            raise ProjectModelError(
+                f"protocols.{category}.manifest_sha256 is invalid"
+            )
+        result[category] = ProtocolSelection(
+            component=component,
+            version=version,
+            profile=profile,
+            manifest_sha256=manifest_sha256,
+        )
     return result
 
 
@@ -790,7 +890,12 @@ def _Hardware_Parse(value: Any, *, board: str) -> HardwareConfiguration:
         "risk_acknowledged",
         "assignment_fingerprint",
     }
-    if set(data) != expected:
+    lock_fields = {
+        "platform_component",
+        "platform_version",
+        "platform_manifest_sha256",
+    }
+    if not expected.issubset(data) or set(data) - expected - lock_fields:
         raise ProjectModelError("hardware has missing or unknown fields")
     mode = _String_Require(data, "mode")
     source_kind = _String_Require(data, "source_kind")
@@ -798,6 +903,22 @@ def _Hardware_Parse(value: Any, *, board: str) -> HardwareConfiguration:
     snapshot_id = _String_Require(data, "snapshot_id", allow_empty=True)
     ioc_file = _String_Require(data, "ioc_file", allow_empty=True)
     mcu = _String_Require(data, "mcu", allow_empty=True)
+    platform_component = str(data.get("platform_component", ""))
+    platform_version = str(data.get("platform_version", ""))
+    platform_manifest_sha256 = str(data.get("platform_manifest_sha256", ""))
+    _ComponentId_Validate(
+        platform_component, "hardware platform_component", allow_empty=True
+    )
+    if platform_version and not FIRMWARE_VERSION_PATTERN.fullmatch(platform_version):
+        raise ProjectModelError("hardware.platform_version is invalid")
+    if platform_manifest_sha256 and not SHA256_PATTERN.fullmatch(
+        platform_manifest_sha256
+    ):
+        raise ProjectModelError("hardware.platform_manifest_sha256 is invalid")
+    if any((platform_component, platform_version, platform_manifest_sha256)) and not all(
+        (platform_component, platform_version, platform_manifest_sha256)
+    ):
+        raise ProjectModelError("hardware Platform lock is incomplete")
     source_digest = _String_Require(data, "source_digest", allow_empty=True)
     source_label = _String_Require(data, "source_label", allow_empty=True)
     assignment_fingerprint = _String_Require(
@@ -876,7 +997,17 @@ def _Hardware_Parse(value: Any, *, board: str) -> HardwareConfiguration:
     ):
         raise ProjectModelError("hardware.ioc_file is invalid")
     if mode == "unselected":
-        if board or provider or snapshot_id or ioc_file or mcu or source_digest:
+        if (
+            board
+            or provider
+            or snapshot_id
+            or ioc_file
+            or mcu
+            or source_digest
+            or platform_component
+            or platform_version
+            or platform_manifest_sha256
+        ):
             raise ProjectModelError("unselected hardware must not contain a selection")
         if source_kind != "unselected":
             raise ProjectModelError("unselected hardware requires unselected source_kind")
@@ -894,6 +1025,9 @@ def _Hardware_Parse(value: Any, *, board: str) -> HardwareConfiguration:
         snapshot_id=snapshot_id,
         ioc_file=ioc_file,
         mcu=mcu,
+        platform_component=platform_component,
+        platform_version=platform_version,
+        platform_manifest_sha256=platform_manifest_sha256,
         capabilities=capabilities,
         inventory=dict(inventory),
         resources=tuple(resources),
@@ -1058,13 +1192,15 @@ def ProjectModel_Parse(data: dict[str, Any]) -> ProjectModel:
         root = _ProjectV5_Migrate(root)
     if root.get("format_version") == 6:
         root = _ProjectV6_Migrate(root)
+    if root.get("format_version") == 7:
+        root = _ProjectV7_Migrate(root)
     required_root = {
         "format_version",
         "project",
         "components",
         "modes",
         "mode_parameters",
-        "protocol_profiles",
+        "protocols",
         "hardware",
         "resources",
         "capability_sources",
@@ -1109,17 +1245,11 @@ def ProjectModel_Parse(data: dict[str, Any]) -> ProjectModel:
         device_instances,
         base,
         strategies,
-        protocol_bundles,
         environment,
     ) = _Components_Parse(root.get("components"))
     modes = _Modes_Parse(root.get("modes"))
     mode_parameters = _ModeParameters_Parse(root.get("mode_parameters"))
-    protocol_profiles = {
-        category: LEGACY_PROTOCOL_PROFILE_IDS.get(profile_id, profile_id)
-        for category, profile_id in _ProtocolProfiles_Parse(
-            root.get("protocol_profiles")
-        ).items()
-    }
+    protocols = _Protocols_Parse(root.get("protocols"))
     hardware = _Hardware_Parse(root.get("hardware"), board=board)
     resources = _Object_Require(root.get("resources"), "resources")
     if not all(
@@ -1164,8 +1294,7 @@ def ProjectModel_Parse(data: dict[str, Any]) -> ProjectModel:
         strategies=strategies,
         modes=modes,
         mode_parameters=mode_parameters,
-        protocol_bundles=protocol_bundles,
-        protocol_profiles=protocol_profiles,
+        protocols=protocols,
         development_environment=environment,
         hardware=hardware,
         resource_assignments=dict(resources),

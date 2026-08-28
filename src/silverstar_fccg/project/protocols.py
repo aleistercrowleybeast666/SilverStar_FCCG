@@ -27,7 +27,7 @@ PROTOCOL_BINDINGS = {
 @dataclass(frozen=True, slots=True)
 class ProtocolProfileSelection:
     category: str
-    bundle_id: str
+    component_id: str
     profile: ProtocolProfileContribution
 
 
@@ -71,16 +71,15 @@ def ProtocolProfileSelections_Get(
     model: ProjectModel, catalog: PluginCatalog
 ) -> tuple[ProtocolProfileSelection, ...]:
     selections: list[ProtocolProfileSelection] = []
-    for category, profile_id in sorted(model.protocol_profiles.items()):
-        for bundle_id in model.protocol_bundles:
-            contribution = catalog.Component_Get(bundle_id).protocol
-            if contribution is None:
-                continue
-            selections.extend(
-                ProtocolProfileSelection(category, bundle_id, profile)
-                for profile in contribution.profiles.get(category, ())
-                if profile.profile_id == profile_id
-            )
+    for category, selected in sorted(model.protocols.items()):
+        contribution = catalog.Component_Get(selected.component).protocol
+        if contribution is None:
+            continue
+        selections.extend(
+            ProtocolProfileSelection(category, selected.component, profile)
+            for profile in contribution.profiles.get(category, ())
+            if profile.profile_id == selected.profile
+        )
     return tuple(selections)
 
 
@@ -136,13 +135,12 @@ def ProtocolResolution_Resolve(
         selected_by_category.setdefault(selection.category, []).append(selection)
 
     declared_categories = {
-        category
-        for bundle_id in model.protocol_bundles
-        for protocol in (catalog.Component_Get(bundle_id).protocol,)
-        if protocol is not None
-        for category in protocol.profiles
+        protocol.category
+        for selection in model.protocols.values()
+        for protocol in (catalog.Component_Get(selection.component).protocol,)
+        if protocol is not None and protocol.category
     }
-    if set(model.protocol_profiles) != declared_categories:
+    if set(model.protocols) != declared_categories:
         issues.append(
             ProtocolResolutionIssue(
                 "protocol_profile_categories",
@@ -150,7 +148,8 @@ def ProtocolResolution_Resolve(
             )
         )
 
-    for category, profile_id in sorted(model.protocol_profiles.items()):
+    for category, selected in sorted(model.protocols.items()):
+        profile_id = selected.profile
         matches = selected_by_category.get(category, [])
         if len(matches) != 1:
             issues.append(

@@ -26,7 +26,7 @@ def test_gui_service_loads_catalog_opens_project_and_previews(
     service.GenerationPlan_Apply(model, initial_plan)
     project_file = project_root / "SilverStar.ssproject"
     try:
-        assert window.plugin_manager_dialog.panel.plugin_table.rowCount() == 31
+        assert window.plugin_manager_dialog.panel.plugin_table.rowCount() == 33
         assert window.plugin_manager_dialog.panel.plugin_table.columnCount() == 9
         assert len(window.devices_page.device_combos) == 3
         wizard_values = wizard.WizardData_Get()
@@ -80,7 +80,7 @@ def test_gui_service_loads_catalog_opens_project_and_previews(
         window._Resources_AutoAssign()
         assert resource_key in window._model.resource_assignments
         documentation = service.PluginDocumentationRoot_Get(
-            "silverstar.protocol.reference_v0"
+            "silverstar.protocol.telemetry.air_m0"
         )
         assert (documentation / "AIR_PROTOCOL.md").is_file()
         assert (project_root / "GeneratedReference.code-workspace").is_file()

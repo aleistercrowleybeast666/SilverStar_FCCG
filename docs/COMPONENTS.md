@@ -1,11 +1,11 @@
 # Builtin reference components
 
-The current catalog contains 31 strict declarative packages synchronized and adapted from the clean SilverStar 0.0.9 reference commit `cc0b377ded690556d037a412a55f87fe334c42d0` (`完善同能力多实例与日志配置契约`), together with FCCG's declarative selectors and logical Devices. `plugins/builtin/reference_provenance.json` records the read-only reference path, commit, branch, clean status, snapshot digest, import time, and audited source/schema/test/document groups. The synchronized SSLOG catalog contains 29 records, including the decoder-profile descriptor.
+The current catalog contains 33 strict declarative packages synchronized and adapted from the clean SilverStar 0.0.9 reference commit `cc0b377ded690556d037a412a55f87fe334c42d0` (`完善同能力多实例与日志配置契约`), together with FCCG's declarative selectors, logical Devices, three independent Protocol packages, and official Platform overlays. `plugins/builtin/reference_provenance.json` records the read-only reference path, commit, branch, clean status, snapshot digest, import time, audited groups, and protocol-source hashes. Per-manifest `source_origins` distinguishes the reference base from FCCG extensions replayed by the importer. The synchronized SSLOG catalog contains 29 records, including the decoder-profile descriptor.
 
 | Type | Builtins |
 |---|---|
 | Core | SilverStar Core 0.0.9 |
-| MCU | STM32F407VET6 / STM32F4 Platform / HAL/CMSIS / target memory contract |
+| MCU/Platform | STM32F407VET6 exact/family matching, declarative resource ABI, STM32F4 Platform, conditionally selected I²C/Classic-CAN/PWM backends, HAL/CMSIS, and target memory contract |
 | Board | SS0.5 verified `.ioc`, semantic connections, services, FatFs/SDIO, resource roles |
 | Device | JY901B, NEO-M9N, physical E28-2G4M12SX (SX1281 Driver), Serial Maintenance Protocol 0.0, input-voltage monitor, launch-ignition power output, parachute-pyro power output; instance policy separates per-model `plugin_max` from class-wide `class_max` and raises either only for a context-safe implementation |
 | Algorithm base | Common math/geodesy, Alignment Common, Calibration component |
@@ -15,7 +15,7 @@ The current catalog contains 31 strict declarative packages synchronized and ada
 | FlightLogic base | Flight Cycle/Recovery, Multi-trigger Deployment, Landing Detection Common |
 | Landing Strategy | Stillness, ImpactThenStillness, BarometerImuWindow |
 | OS | FreeRTOS Kernel 11.3.0 static subset and CM4F port |
-| ProtocolBundle | AIR Telemetry Protocol M0, Serial Maintenance Protocol 0.0, Flight Log Format 0.0 payloads, parser metadata, policy levels, and docs |
+| Protocol | Three mandatory single-category packages: AIR Telemetry Protocol M0, Serial Maintenance Protocol 0.0, and Flight Log Format 0.0, each with an independent component/version/Profile/manifest lock |
 | HardwareConfigurationProvider | Trusted STM32CubeMX importer declaration |
 | DevelopmentEnvironment | VS Code + EIDE + Arm GNU Toolchain renderer declaration |
 
@@ -43,7 +43,11 @@ Landing selectors contribute one compile-time mode definition. They all depend o
 
 Device manifests depend on Core and resource/capability contracts, not the concrete F407 MCU plugin. This permits a future supported MCU/Board to reuse the same physical Device package and driver.
 
+Device grouping is driven by strict `metadata.device_category`: only `sensor.*`, `link.*`, `storage.*`, `actuator.*`, and `indicator.*` are accepted. `sensor.imu` and `sensor.gnss` are primary sensors; all other valid sensors enter Other Sensors without a Python model branch. Misspellings or unknown top-level namespaces fail plugin scan rather than being silently reclassified.
+
 The F407 MCU/target payload retains the reference `platform_memory` contract, `.ccmram_data`, `.ccmram_bss`, `.dma_bss`, startup initialization, linker placement, forced memory header, and DMA-access rules. FCCG does not recalculate object placement.
+
+The F407 Platform contract owns the existing F4 resource getter symbols but exposes their header, tables, getters, ABI, match rules, capabilities, conditional sources, and ownership rules declaratively. I²C supports 7-bit blocking master and memory-register operations but not generic repeated-start. Classic CAN supports bxCAN frames and one upper-layer owner per peripheral. PWM uses CubeMX-static timer/channel timing, integer duty, and a safe inactive compare. The default SS0.5 inventory/assignments activate none of these optional backends.
 
 The SS0.5 Board parses `Flight_Controller0.5.ioc` at resolution time. `connections.json` binds stable Platform aliases to USART/SPI/GPIO/ADC/SDIO/time inventory entries. Device manifests impose typed bus/electrical contracts over those physical facts; strict pyro outputs require push-pull/no-pull/low-speed, inactive-low startup, and an IOC lock that prevents unsafe regeneration drift.
 

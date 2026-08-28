@@ -137,7 +137,7 @@ def test_component_cannot_claim_generated_namespace(
             "defines": [],
         },
         "payload": {"roots": ["Generated"]},
-        "metadata": {},
+        "metadata": {"device_category": "sensor.temperature"},
     }
     (package / "plugin.json").write_text(
         json.dumps(manifest), encoding="utf-8"

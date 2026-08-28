@@ -14,7 +14,7 @@ class ComponentType(StrEnum):
     ALGORITHM = "algorithm"
     FLIGHT_LOGIC = "flight_logic"
     OS = "os"
-    PROTOCOL_BUNDLE = "protocol_bundle"
+    PROTOCOL = "protocol"
     HARDWARE_CONFIGURATION_PROVIDER = "hardware_configuration_provider"
     DEVELOPMENT_ENVIRONMENT = "development_environment"
 
@@ -148,6 +148,33 @@ class LoggingStreamView:
     record_id: str = ""
     version: int = 0
     payload_size: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class ProtocolProfileView:
+    component_id: str
+    profile_id: str
+    display_name: str
+    component_name: str = ""
+    version: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class PlatformMatchView:
+    hardware_source: str = ""
+    detected_part: str = ""
+    detected_family: str = ""
+    detected_package: str = ""
+    detected_core: str = ""
+    component_id: str = ""
+    component_name: str = ""
+    reason: str = ""
+    priority: int = 0
+    specificity: int = 0
+    verification: str = ""
+    provenance: str = ""
+    valid: bool = False
+    error: str = ""
 
 
 @dataclass(frozen=True, slots=True)

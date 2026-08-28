@@ -12,6 +12,15 @@ class EideOwnershipError(ValueError):
     pass
 
 
+class _EideYamlDumper(yaml.SafeDumper):
+    """Render lists with the indentation expected by EIDE and its checks."""
+
+    def increase_indent(
+        self, flow: bool = False, indentless: bool = False
+    ) -> None:
+        return super().increase_indent(flow, False)
+
+
 def _Document_Load(text: str) -> dict[str, Any]:
     try:
         value = yaml.safe_load(text)
@@ -204,11 +213,13 @@ def EideOwnedFields_Merge(current_text: str, desired_text: str) -> str:
             "toolchainConfigMap",
         ):
             current_target[key] = deepcopy(desired_target.get(key))
-    rendered = yaml.safe_dump(
+    rendered = yaml.dump(
         current,
+        Dumper=_EideYamlDumper,
         allow_unicode=True,
         sort_keys=False,
         default_flow_style=False,
+        width=4096,
     )
     return (
         "# AUTO-GENERATED BUILD FIELDS BY SILVERSTAR_FCCG.\n"

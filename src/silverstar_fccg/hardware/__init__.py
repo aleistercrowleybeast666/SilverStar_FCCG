@@ -6,10 +6,24 @@ from silverstar_fccg.hardware.cubemx import (
     CubeMxImportResult,
     CubeMxImporter,
 )
+from silverstar_fccg.hardware.platform import (
+    DetectedMcuFacts,
+    DetectedMcuFacts_FromInventory,
+    PlatformCandidate,
+    PlatformMatchError,
+    PlatformMatchResult,
+    PlatformMatch_Resolve,
+)
 
 __all__ = [
     "BoardPluginExporter",
     "CubeMxImportError",
     "CubeMxImportResult",
     "CubeMxImporter",
+    "DetectedMcuFacts",
+    "DetectedMcuFacts_FromInventory",
+    "PlatformCandidate",
+    "PlatformMatchError",
+    "PlatformMatchResult",
+    "PlatformMatch_Resolve",
 ]

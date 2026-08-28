@@ -2,17 +2,17 @@
 
 ## Create a project
 
-Run `python main.py` and choose **File → New Project**. The compact one-step dialog uses the native title bar and asks only for project name and output directory. The sole current firmware/Core/OS/Protocol/Environment defaults are automatic; select the MCU on Devices. Configuration continues through exactly four main pages:
+Run `python main.py` and choose **File → New Project**. The compact one-step dialog uses the native title bar and asks only for project name and output directory. The sole current firmware/Core/OS/Environment defaults and three mandatory Protocol selections are automatic. MCU is derived from the selected Board/imported CubeMX data and is never selected on Devices. Configuration continues through exactly four main pages:
 
 ```text
 Devices → Flight Configuration → Hardware Connection → Code Generation & Build
 ```
 
-When only one Core, OS, Protocol Bundle, or Development Environment is installed, FCCG selects it automatically.
+When only one Core, OS, Protocol candidate per category, or Development Environment is installed, FCCG selects it automatically.
 
 ## Select physical Devices first
 
-The page starts with the STM32 MCU, then user-selectable physical instances such as `imu0`/JY901B, `gnss0`/NEO-M9N, and `telemetry0`/E28-2G4M12SX (SX1281). The system-owned `maintenance0` transport remains in the project model and source graph but is not duplicated as a user Device. Selecting the Maintenance protocol profile automatically binds that internal transport; its concrete USART, pins, and baud rate remain visible as **Maintenance Console · UART** on Hardware Connection. Pre-release project files that stored the endpoint continue to load without losing the UART requirement. Add/Remove controls follow the class-wide `class_max`; two different singleton models may coexist, while selecting the same model twice additionally requires its `plugin_max`, `same_plugin_multiple`, and `multi_instance_ready` declarations. The **Other Sensors** section remains visible; **Install Plugin** appears there only while no Other Sensors plugin is installed.
+The page starts with user-selectable physical instances such as `imu0`/JY901B, `gnss0`/NEO-M9N, and `telemetry0`/E28-2G4M12SX (SX1281); there is no MCU control. Only `sensor.imu` and `sensor.gnss` appear under **Primary Sensors**. Every other valid `sensor.*` plugin enters **Other Sensors** automatically, while `link.*`, `storage.*`, `actuator.*`, and `indicator.*` remain separate. An invalid or misspelled category prevents plugin installation/scan instead of being silently displayed in the wrong group. The system-owned `maintenance0` transport remains in the project model and source graph but is not duplicated as a user Device. Selecting the Maintenance protocol profile automatically binds that internal transport; its concrete USART, pins, and baud rate remain visible as **Maintenance Console · UART** on Hardware Connection. Pre-release project files that stored the endpoint continue to load without losing the UART requirement. Add/Remove controls follow the class-wide `class_max`; two different singleton models may coexist, while selecting the same model twice additionally requires its `plugin_max`, `same_plugin_multiple`, and `multi_instance_ready` declarations.
 
 One physical Device may provide several capabilities. The Devices page shows a concise capability summary but no capability enable/source controls. FCCG derives actual usage from selected Algorithm/Flight requirements on **Flight Configuration**. A sole provider is selected automatically; when several providers exist, capability instance 0 remains the Canonical default and the source selector stores only a non-default override. Unused physical outputs are read-only status, not project choices. The consumer implementation owns lifecycle; FCCG does not expose PRE_START/ASCENT/RECOVERY phase policy.
 
@@ -37,21 +37,23 @@ The page is named **Hardware Connection** because it resolves Device needs again
 
 ## STM32 custom hardware flow
 
-Only an MCU with a compatible HardwareConfigurationProvider offers custom hardware. The current real implementation is STM32CubeMX for STM32. A new STM32 draft selects **Custom STM32 Hardware** by default. This is a manual import workflow, so it does not show or run **Prepare Hardware Files**; Save/Build remains unavailable until a valid `.ioc` or generated CubeMX directory has been imported.
+The current real custom-hardware provider is STM32CubeMX. A new project draft selects **Custom STM32 Hardware** by default, without asking the user to choose an MCU. This is a manual import workflow, so it does not show or run **Prepare Hardware Files**; Save/Build remains unavailable until a valid `.ioc` or generated CubeMX directory has been imported and its detected MCU has matched one installed Platform plugin.
 
 ```text
-Select STM32 MCU
-  → select Devices
-  → configure peripherals in CubeMX and Generate Code
+Configure the exact MCU and peripherals in CubeMX, then Generate Code
+  → select Devices in FCCG
   → acknowledge the one-time custom-hardware risk warning
   → import the .ioc or complete generated directory
-  → FCCG validates MCU/layout/HAL/CMSIS/startup/linker/peripherals/RTOS
+  → FCCG detects the MCU and matches one installed Platform plugin
+  → FCCG validates layout/HAL/CMSIS/startup/linker/peripherals/RTOS
   → Device resources are auto-mapped, then reviewed
   → generate and run build/hardware validation
   → optionally Export Board Plugin
 ```
 
-FCCG does not edit `.ioc`, solve PLL/pinmux/DMA, install CubeMX, or replace CubeMX. It reads MCU/package/core, GPIO/AF/EXTI, UART, SPI, I2C, ADC, Timer/PWM, CAN, DMA, NVIC and useful clock fields without arbitrary peripheral-count limits. It validates UART rate/frame/DMA/IRQ, SPI mode/order/rate, I2C rate/address/pull-up, PWM frequency/resolution/polarity, and GPIO electrical/safe-start/interrupt contracts. A project containing CubeMX FreeRTOS/CMSIS-RTOS2 is rejected because SilverStar supplies its own official FreeRTOS component.
+FCCG does not edit `.ioc`, solve PLL/pinmux/DMA, install CubeMX, or replace CubeMX. It reads exact MCU/family/package/core, GPIO/AF/EXTI, UART, SPI, I²C, ADC, Timer/PWM, Classic CAN/FDCAN, DMA, NVIC and useful clock fields without arbitrary peripheral-count limits. It then automatically matches an installed MCU/Platform plugin, showing the reason, specificity/priority, verification and provenance. Zero matches or tied best matches stop before generation; FCCG never silently falls back to F407. It validates UART rate/frame/DMA/IRQ, SPI mode/order/rate, I²C rate/address/pull-up/address conflicts/repeated-start capability, Classic-CAN kind/bit timing/single ownership, PWM frequency/resolution/polarity/safe state/channel/shared-timer constraints, and GPIO electrical/safe-start/interrupt contracts. A project containing CubeMX FreeRTOS/CMSIS-RTOS2 is rejected because SilverStar supplies its own official FreeRTOS component.
+
+The official F407 Platform currently provides blocking 7-bit I²C master transfers and memory-register access, Classic CAN 2.0/bxCAN frames with one upper-layer owner per physical peripheral, and ordinary fixed-frequency non-complementary PWM using integer permille duty. It does not claim generic I²C repeated-start, CAN FD, a CAN router, dynamic timer-frequency changes, complementary/dead-time PWM, servo/control algorithms, or other STM32 families. These backends and their optional HAL sources enter a generated project only when the imported inventory and Device assignments actually use them; default SS0.5 uses none.
 
 Custom hardware is a manual import workflow, so this mode does not show or run the separate **Prepare Hardware Files** action. Save/Build still validates and stages the imported snapshot as part of normal materialization. Selecting an existing Board plugin restores the optional preparation action.
 
@@ -110,7 +112,7 @@ The normal page shows only the target and development environment, without a dup
 
 ## Current limits
 
-Only the STM32F407VET6/SS0.5 reference is fully firmware-build validated. FCCG v0.x formally supports STM32 + STM32CubeMX manual hardware configuration only. Current drivers do not yet support multiple IMU/GNSS/link/maintenance instances; sensor voting/failover and Multi-EKF are not implemented. There is no complete clock solver, real PWM actuator, alternate MCU/provider, Guidance, Control, Control Allocation, or Keil environment. No current Board/Environment pair declares a validated flash capability, so no GUI, Make, VS Code, or EIDE upload action is emitted; no electrical validation is implied by generation.
+Only the STM32F407VET6/SS0.5 reference is fully firmware-build validated. FCCG v0.x formally supports STM32 + STM32CubeMX manual hardware configuration only. Current drivers do not yet support multiple IMU/GNSS/link/maintenance instances; sensor voting/failover and Multi-EKF are not implemented. The Platform has a PWM resource backend but no concrete continuous-control actuator, Guidance, Control, or Control Allocation implementation. There is no complete clock solver, validated alternate MCU/provider, or Keil environment. No current Board/Environment pair declares a validated flash capability, so no GUI, Make, VS Code, or EIDE upload action is emitted; no electrical validation is implied by generation.
 
 ## Tool detection, results, and source export
 

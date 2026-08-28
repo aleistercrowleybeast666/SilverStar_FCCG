@@ -242,3 +242,10 @@ EVENT ALIGN STALE reason=MOTION ready_mask=0x00000005
 | `SYSTEM START RESULT EXTRA` | `BAD_FORMAT/TOKEN_COUNT` |
 
 Console RX发生断流时，未以CR/LF结束的半行必须丢弃，断流后的完整命令独立解析。
+
+
+## FCCG独立协议插件归属
+
+FCCG将本协议作为必选的单一`维护`类别插件，当前Profile为`maintenance.serial.0_0`。
+System Console源码仍由Core payload承载，但只由本Profile加入Source Graph。拆分只改变构建归属、项目锁和声明式metadata，不改变任何现有wire/Record字节。
+项目锁定component、version、Profile和manifest SHA-256；`.ssdecoder`只携带数据与语义，不携带或执行解析代码。

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import re
@@ -36,7 +37,7 @@ ALLOWED_PLUGIN_TYPES = frozenset(
         "algorithm",
         "flight_logic",
         "os",
-        "protocol_bundle",
+        "protocol",
         "hardware_configuration_provider",
         "development_environment",
     }
@@ -50,6 +51,13 @@ ALLOWED_BOARD_SOURCE_KINDS = frozenset(
 ALLOWED_PROVIDER_HANDLERS = frozenset({"stm32_cubemx"})
 ALLOWED_ENVIRONMENT_RENDERERS = frozenset({"vscode_eide_gcc"})
 ALLOWED_DEVICE_CARDINALITIES = frozenset({"single", "multiple"})
+ALLOWED_PROTOCOL_CATEGORIES = frozenset(
+    {"telemetry", "maintenance", "logging"}
+)
+DEVICE_CATEGORY_PATTERN = re.compile(
+    r"^(?:sensor|link|storage|actuator|indicator)\."
+    r"[a-z0-9]+(?:[._-][a-z0-9]+)*$"
+)
 
 
 class PluginManifestError(FccgError):
@@ -131,6 +139,7 @@ class ResourceRequirement:
     required: bool = True
     mode: ResourceMode = ResourceMode.EXCLUSIVE
     candidates: tuple[str, ...] = ()
+    platform_capabilities: tuple[str, ...] = ()
     constraints: dict[str, Any] = field(default_factory=dict)
     electrical_constraints: dict[str, Any] = field(default_factory=dict)
     display_names: dict[str, str] = field(default_factory=dict)
@@ -244,6 +253,7 @@ class ProtocolProfileContribution:
 
 @dataclass(frozen=True, slots=True)
 class ProtocolContribution:
+    category: str
     logging_metadata: str
     maintenance_protocol_version: str
     firmware_version: str
@@ -251,6 +261,58 @@ class ProtocolContribution:
     profiles: dict[str, tuple[ProtocolProfileContribution, ...]] = field(
         default_factory=dict
     )
+    extensions: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
+class PlatformMatchRule:
+    vendor: str
+    exact_part: str = ""
+    family_pattern: str = ""
+    package_pattern: str = ""
+    core_pattern: str = ""
+    priority: int = 0
+    specificity: int = 0
+    verification: str = "experimental"
+
+
+@dataclass(frozen=True, slots=True)
+class PlatformResourceBinding:
+    kind: str
+    collection: str
+    include_header: str
+    entry_kind: str
+    id_type: str
+    count_symbol: str
+    table_symbol: str
+    getter: str
+    struct_type: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class PlatformBackendContribution:
+    backend_id: str
+    inventory_kinds: tuple[str, ...]
+    sources: tuple[str, ...]
+    provider_sources: tuple[str, ...]
+    include_dirs: tuple[str, ...]
+    defines: tuple[str, ...]
+    capabilities: tuple[str, ...]
+    ownership: str
+
+
+@dataclass(frozen=True, slots=True)
+class PlatformContribution:
+    abi_id: str
+    abi_major: int
+    abi_minor: int
+    provider: str
+    match_rules: tuple[PlatformMatchRule, ...]
+    resource_header: str
+    resource_bindings: dict[str, PlatformResourceBinding]
+    resource_backends: dict[str, PlatformBackendContribution]
+    support_level: str
+    limitations: tuple[str, ...]
 
 
 PROTOCOL_PROFILE_SLOTS = {
@@ -321,6 +383,7 @@ class PluginManifest:
     selection: SelectionContribution | None = None
     board: BoardContribution | None = None
     protocol: ProtocolContribution | None = None
+    platform: PlatformContribution | None = None
     hardware_provider: HardwareProviderContribution | None = None
     environment: EnvironmentContribution | None = None
     source: str = "builtin"
@@ -386,6 +449,9 @@ class PluginManifest:
             path.relative_to(self.payload_root).as_posix(): path for path in files
         }
         return tuple(unique[name] for name in sorted(unique))
+
+    def ManifestSha256_Get(self) -> str:
+        return hashlib.sha256(self.manifest_path.read_bytes()).hexdigest()
 
 
 def _StringTuple_Get(value: Any, field_name: str) -> tuple[str, ...]:
@@ -659,7 +725,7 @@ def _BusConstraints_Validate(
         "dma_tx_required",
         "irq_required",
     }
-    typed_fields = {"uart", "spi", "i2c", "pwm"}
+    typed_fields = {"uart", "spi", "i2c", "can", "pwm"}
     unknown = set(constraints) - legacy_fields - typed_fields
     if unknown:
         raise PluginManifestError(
@@ -671,7 +737,13 @@ def _BusConstraints_Validate(
         raise PluginManifestError(
             f"Resource constraints for {name} declare multiple bus types"
         )
-    if typed and kind not in typed:
+    typed_kind = next(iter(typed), "")
+    kind_matches = (
+        not typed
+        or kind == typed_kind
+        or (typed_kind == "can" and kind in {"can_classic", "can_fd"})
+    )
+    if not kind_matches:
         raise PluginManifestError(
             f"Resource constraints for {name} declare {next(iter(typed))} "
             f"for a {kind} requirement"
@@ -733,16 +805,29 @@ def _BusConstraints_Validate(
             "maximum_bus_frequency_hz",
             "allowed_rates_hz",
             "address_mode",
+            "address_7bit",
+            "composite_device",
+            "requires_repeated_start",
             "required_pullup",
             "dma",
             "irq",
         },
+        "can": {
+            "minimum_nominal_bitrate",
+            "maximum_nominal_bitrate",
+            "allowed_nominal_bitrates",
+            "frame_format",
+            "mode",
+            "irq",
+        },
         "pwm": {
+            "frequency_hz",
             "minimum_frequency_hz",
             "maximum_frequency_hz",
             "minimum_resolution_bits",
             "polarity",
             "channel",
+            "safe_state",
         },
     }[bus_name]
     unknown_bus_fields = set(bus) - allowed_fields
@@ -799,8 +884,52 @@ def _BusConstraints_Validate(
             _PositiveIntegerList_Validate(
                 bus["allowed_rates_hz"], f"I2C allowed_rates_hz for {name}"
             )
+        if "address_7bit" in bus and (
+            not isinstance(bus["address_7bit"], int)
+            or isinstance(bus["address_7bit"], bool)
+            or not 0x08 <= bus["address_7bit"] <= 0x77
+        ):
+            raise PluginManifestError(
+                f"I2C address_7bit for {name} must be between 0x08 and 0x77"
+            )
+        if bus.get("address_mode", "7bit") != "7bit":
+            raise PluginManifestError(
+                f"I2C address_mode for {name} must be 7bit"
+            )
+        composite_device = bus.get("composite_device")
+        if composite_device is not None and (
+            not isinstance(composite_device, str)
+            or PLUGIN_ID_PATTERN.fullmatch(composite_device) is None
+        ):
+            raise PluginManifestError(
+                f"I2C composite_device for {name} must be a lower-case identifier"
+            )
+    elif bus_name == "can":
+        for field_name in (
+            "minimum_nominal_bitrate",
+            "maximum_nominal_bitrate",
+        ):
+            if field_name in bus:
+                _PositiveInteger_Validate(bus[field_name], f"CAN {field_name} for {name}")
+        if "allowed_nominal_bitrates" in bus:
+            _PositiveIntegerList_Validate(
+                bus["allowed_nominal_bitrates"],
+                f"CAN allowed_nominal_bitrates for {name}",
+            )
+        if (
+            "minimum_nominal_bitrate" in bus
+            and "maximum_nominal_bitrate" in bus
+            and bus["minimum_nominal_bitrate"] > bus["maximum_nominal_bitrate"]
+        ):
+            raise PluginManifestError(f"CAN bitrate range for {name} is reversed")
+        expected_format = "classic" if kind == "can_classic" else "fd"
+        if bus.get("frame_format", expected_format) != expected_format:
+            raise PluginManifestError(
+                f"CAN frame_format for {name} must be {expected_format}"
+            )
     else:
         for field_name in (
+            "frequency_hz",
             "minimum_frequency_hz",
             "maximum_frequency_hz",
             "minimum_resolution_bits",
@@ -823,6 +952,7 @@ def _BusConstraints_Validate(
             "irq",
             "dma",
             "required_pullup",
+            "requires_repeated_start",
         } and not isinstance(field_value, bool):
             raise PluginManifestError(
                 f"Resource {bus_name}.{field_name} for {name} must be a boolean"
@@ -834,7 +964,10 @@ def _BusConstraints_Validate(
             "cpha",
             "bit_order",
             "address_mode",
+            "composite_device",
             "polarity",
+            "frame_format",
+            "safe_state",
         } and (not isinstance(field_value, str) or not field_value):
             raise PluginManifestError(
                 f"Resource {bus_name}.{field_name} for {name} must be text"
@@ -911,6 +1044,7 @@ def _ResourceRequirements_Parse(
             "required",
             "mode",
             "candidates",
+            "platform_capabilities",
             "constraints",
             "electrical_constraints",
             "display_names",
@@ -932,6 +1066,24 @@ def _ResourceRequirements_Parse(
             entry.get("candidates", []), "resource candidates"
         )
         _BuildTokens_Validate(candidates, "resource candidates", RESOURCE_ID_PATTERN)
+        platform_capabilities = _StringTuple_Get(
+            entry.get("platform_capabilities", []),
+            "resource platform_capabilities",
+        )
+        if any(
+            PLUGIN_ID_PATTERN.fullmatch(capability) is None
+            for capability in platform_capabilities
+        ):
+            raise PluginManifestError(
+                f"Invalid resource platform capability for {name}"
+            )
+        if kind in {"i2c", "can_classic", "can_fd", "pwm"} and not (
+            platform_capabilities
+        ):
+            raise PluginManifestError(
+                f"Resource {name} ({kind}) must declare platform_capabilities; "
+                "hardware inventory alone does not prove backend support"
+            )
         binding_macro = entry.get("binding_macro", "")
         if not isinstance(binding_macro, str) or (
             binding_macro and not BINDING_MACRO_PATTERN.fullmatch(binding_macro)
@@ -970,6 +1122,7 @@ def _ResourceRequirements_Parse(
                 required=_Boolean_Get(entry, "required", True),
                 mode=mode,
                 candidates=candidates,
+                platform_capabilities=platform_capabilities,
                 constraints=dict(constraints),
                 electrical_constraints=dict(electrical_constraints),
                 display_names=dict(display_names),
@@ -1415,10 +1568,324 @@ def _Board_Parse(value: Any) -> BoardContribution | None:
     )
 
 
+def _Platform_Parse(value: Any) -> PlatformContribution | None:
+    if value is None:
+        return None
+    if not isinstance(value, dict) or set(value) != {
+        "abi",
+        "provider",
+        "match_rules",
+        "resource_binding",
+        "resource_backends",
+        "support",
+    }:
+        raise PluginManifestError(
+            "platform must contain abi, provider, match_rules, resource_binding, "
+            "resource_backends and support"
+        )
+    abi = value["abi"]
+    if (
+        not isinstance(abi, dict)
+        or set(abi) != {"id", "major", "minor"}
+        or not isinstance(abi.get("id"), str)
+        or not PLUGIN_ID_PATTERN.fullmatch(abi["id"])
+        or not isinstance(abi.get("major"), int)
+        or isinstance(abi.get("major"), bool)
+        or not isinstance(abi.get("minor"), int)
+        or isinstance(abi.get("minor"), bool)
+        or not 0 <= abi["major"] <= 0xFFFF
+        or not 0 <= abi["minor"] <= 0xFFFF
+    ):
+        raise PluginManifestError("platform.abi is invalid")
+    provider = value["provider"]
+    if not isinstance(provider, str) or not PLUGIN_ID_PATTERN.fullmatch(provider):
+        raise PluginManifestError("platform.provider is invalid")
+
+    raw_rules = value["match_rules"]
+    if not isinstance(raw_rules, list) or not raw_rules:
+        raise PluginManifestError("platform.match_rules must be non-empty")
+    match_rules: list[PlatformMatchRule] = []
+    pattern_re = re.compile(r"^[A-Za-z0-9*?_. -]+$")
+    verification_values = {"experimental", "supported", "verified"}
+    for index, entry in enumerate(raw_rules):
+        if not isinstance(entry, dict) or set(entry) - {
+            "vendor",
+            "exact_part",
+            "family_pattern",
+            "package_pattern",
+            "core_pattern",
+            "priority",
+            "specificity",
+            "verification",
+        }:
+            raise PluginManifestError(
+                f"platform.match_rules[{index}] contains invalid fields"
+            )
+        vendor = entry.get("vendor")
+        exact_part = entry.get("exact_part", "")
+        family_pattern = entry.get("family_pattern", "")
+        package_pattern = entry.get("package_pattern", "")
+        core_pattern = entry.get("core_pattern", "")
+        if not isinstance(vendor, str) or not vendor.strip():
+            raise PluginManifestError(
+                f"platform.match_rules[{index}].vendor is required"
+            )
+        for field_name, field_value in (
+            ("exact_part", exact_part),
+            ("family_pattern", family_pattern),
+            ("package_pattern", package_pattern),
+            ("core_pattern", core_pattern),
+        ):
+            if not isinstance(field_value, str) or (
+                field_value and pattern_re.fullmatch(field_value) is None
+            ):
+                raise PluginManifestError(
+                    f"platform.match_rules[{index}].{field_name} is invalid"
+                )
+        if not exact_part and not family_pattern:
+            raise PluginManifestError(
+                f"platform.match_rules[{index}] needs exact_part or family_pattern"
+            )
+        priority = entry.get("priority", 0)
+        specificity = entry.get("specificity", 0)
+        if any(
+            not isinstance(number, int)
+            or isinstance(number, bool)
+            or not 0 <= number <= 10000
+            for number in (priority, specificity)
+        ):
+            raise PluginManifestError(
+                f"platform.match_rules[{index}] priority/specificity is invalid"
+            )
+        verification = entry.get("verification", "experimental")
+        if verification not in verification_values:
+            raise PluginManifestError(
+                f"platform.match_rules[{index}].verification is invalid"
+            )
+        match_rules.append(
+            PlatformMatchRule(
+                vendor=vendor.strip(),
+                exact_part=exact_part,
+                family_pattern=family_pattern,
+                package_pattern=package_pattern,
+                core_pattern=core_pattern,
+                priority=priority,
+                specificity=specificity,
+                verification=verification,
+            )
+        )
+
+    resource_binding = value["resource_binding"]
+    if (
+        not isinstance(resource_binding, dict)
+        or set(resource_binding) != {"header", "bindings"}
+    ):
+        raise PluginManifestError("platform.resource_binding is invalid")
+    resource_header = resource_binding.get("header")
+    if (
+        not isinstance(resource_header, str)
+        or re.fullmatch(r"[A-Za-z0-9_./-]+\.h", resource_header) is None
+        or ".." in Path(resource_header).parts
+    ):
+        raise PluginManifestError("platform.resource_binding.header is unsafe")
+    raw_bindings = resource_binding.get("bindings")
+    if not isinstance(raw_bindings, dict) or not raw_bindings:
+        raise PluginManifestError(
+            "platform.resource_binding.bindings must be non-empty"
+        )
+    identifier = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+    resource_bindings: dict[str, PlatformResourceBinding] = {}
+    for kind, entry in raw_bindings.items():
+        if (
+            not isinstance(kind, str)
+            or not PLUGIN_ID_PATTERN.fullmatch(kind)
+            or not isinstance(entry, dict)
+            or set(entry)
+            != {
+                "collection",
+                "include_header",
+                "entry_kind",
+                "id_type",
+                "count_symbol",
+                "table_symbol",
+                "getter",
+                "struct_type",
+            }
+        ):
+            raise PluginManifestError(
+                f"platform resource binding {kind!r} has invalid fields"
+            )
+        collection = entry["collection"]
+        include_header = entry["include_header"]
+        entry_kind = entry["entry_kind"]
+        struct_type = entry["struct_type"]
+        if (
+            not isinstance(collection, str)
+            or not PLUGIN_ID_PATTERN.fullmatch(collection)
+            or not isinstance(include_header, str)
+            or re.fullmatch(r"[A-Za-z0-9_./-]+\.h", include_header) is None
+            or ".." in Path(include_header).parts
+            or entry_kind not in {"handle", "gpio", "pwm"}
+            or not isinstance(struct_type, str)
+            or (struct_type and identifier.fullmatch(struct_type) is None)
+            or (entry_kind != "handle" and not struct_type)
+            or any(
+                not isinstance(entry[field], str)
+                or identifier.fullmatch(entry[field]) is None
+                for field in (
+                    "id_type",
+                    "count_symbol",
+                    "table_symbol",
+                    "getter",
+                )
+            )
+        ):
+            raise PluginManifestError(
+                f"platform resource binding {kind} contains unsafe C tokens"
+            )
+        resource_bindings[kind] = PlatformResourceBinding(
+            kind=kind,
+            collection=collection,
+            include_header=include_header,
+            entry_kind=entry_kind,
+            id_type=entry["id_type"],
+            count_symbol=entry["count_symbol"],
+            table_symbol=entry["table_symbol"],
+            getter=entry["getter"],
+            struct_type=struct_type,
+        )
+
+    raw_backends = value["resource_backends"]
+    if not isinstance(raw_backends, dict):
+        raise PluginManifestError("platform.resource_backends must be an object")
+    ownership_values = {
+        "shared",
+        "shared_bus_unique_address",
+        "single_owner",
+        "exclusive_channel_shared_timer",
+    }
+    resource_backends: dict[str, PlatformBackendContribution] = {}
+    backend_kind_owners: dict[str, str] = {}
+    for backend_id, entry in raw_backends.items():
+        if (
+            not isinstance(backend_id, str)
+            or not PLUGIN_ID_PATTERN.fullmatch(backend_id)
+            or not isinstance(entry, dict)
+            or set(entry)
+            != {
+                "inventory_kinds",
+                "sources",
+                "provider_sources",
+                "include_dirs",
+                "defines",
+                "capabilities",
+                "ownership",
+            }
+        ):
+            raise PluginManifestError(
+                f"platform.resource_backends.{backend_id} is invalid"
+            )
+        inventory_kinds = _StringTuple_Get(
+            entry["inventory_kinds"],
+            f"platform.resource_backends.{backend_id}.inventory_kinds",
+        )
+        sources = _StringTuple_Get(
+            entry["sources"], f"platform.resource_backends.{backend_id}.sources"
+        )
+        provider_sources = _StringTuple_Get(
+            entry["provider_sources"],
+            f"platform.resource_backends.{backend_id}.provider_sources",
+        )
+        include_dirs = _StringTuple_Get(
+            entry["include_dirs"],
+            f"platform.resource_backends.{backend_id}.include_dirs",
+        )
+        defines = _StringTuple_Get(
+            entry["defines"], f"platform.resource_backends.{backend_id}.defines"
+        )
+        capabilities = _StringTuple_Get(
+            entry["capabilities"],
+            f"platform.resource_backends.{backend_id}.capabilities",
+        )
+        ownership = entry["ownership"]
+        if not inventory_kinds or not sources or ownership not in ownership_values:
+            raise PluginManifestError(
+                f"platform.resource_backends.{backend_id} is incomplete"
+            )
+        _BuildTokens_Validate(
+            (*sources, *provider_sources, *include_dirs),
+            f"platform.resource_backends.{backend_id} paths",
+            BUILD_PATH_PATTERN,
+        )
+        _RelativePaths_Validate(
+            (*sources, *provider_sources, *include_dirs),
+            f"platform.resource_backends.{backend_id}",
+        )
+        _BuildTokens_Validate(
+            defines,
+            f"platform.resource_backends.{backend_id}.defines",
+            DEFINE_PATTERN,
+        )
+        if any(
+            not PLUGIN_ID_PATTERN.fullmatch(item)
+            for item in (*inventory_kinds, *capabilities)
+        ):
+            raise PluginManifestError(
+                f"platform.resource_backends.{backend_id} identifiers are invalid"
+            )
+        for inventory_kind in inventory_kinds:
+            previous = backend_kind_owners.get(inventory_kind)
+            if previous is not None:
+                raise PluginManifestError(
+                    f"platform resource kind {inventory_kind} belongs to both "
+                    f"{previous} and {backend_id}"
+                )
+            if inventory_kind not in resource_bindings:
+                raise PluginManifestError(
+                    f"platform backend {backend_id} has no resource binding for "
+                    f"{inventory_kind}"
+                )
+            backend_kind_owners[inventory_kind] = backend_id
+        resource_backends[backend_id] = PlatformBackendContribution(
+            backend_id=backend_id,
+            inventory_kinds=inventory_kinds,
+            sources=sources,
+            provider_sources=provider_sources,
+            include_dirs=include_dirs,
+            defines=defines,
+            capabilities=capabilities,
+            ownership=ownership,
+        )
+
+    support = value["support"]
+    if (
+        not isinstance(support, dict)
+        or set(support) != {"level", "limitations"}
+        or support.get("level") not in verification_values
+    ):
+        raise PluginManifestError("platform.support is invalid")
+    limitations = _StringTuple_Get(
+        support.get("limitations"), "platform.support.limitations"
+    )
+    return PlatformContribution(
+        abi_id=abi["id"],
+        abi_major=abi["major"],
+        abi_minor=abi["minor"],
+        provider=provider,
+        match_rules=tuple(match_rules),
+        resource_header=resource_header,
+        resource_bindings=resource_bindings,
+        resource_backends=resource_backends,
+        support_level=support["level"],
+        limitations=limitations,
+    )
+
+
 def _Protocol_Parse(value: Any) -> ProtocolContribution | None:
     if value is None:
         return None
     required = {
+        "category",
         "logging_metadata",
         "maintenance_protocol_version",
         "firmware_version",
@@ -1427,10 +1894,25 @@ def _Protocol_Parse(value: Any) -> ProtocolContribution | None:
     if (
         not isinstance(value, dict)
         or not required.issubset(value)
-        or set(value) - {*required, "profiles"}
+        or set(value) - {*required, "profiles", "extensions"}
     ):
         raise PluginManifestError(
             "protocol must contain logging metadata and explicit version fields"
+        )
+    category = value.get("category")
+    if category not in ALLOWED_PROTOCOL_CATEGORIES:
+        raise PluginManifestError(
+            "protocol.category must be one of telemetry, maintenance or logging"
+        )
+    extensions = value.get("extensions", {})
+    if not isinstance(extensions, dict) or any(
+        not isinstance(key, str)
+        or not re.fullmatch(r"[a-z0-9]+(?:[.-][a-z0-9]+)+", key)
+        or not isinstance(extension, dict)
+        for key, extension in extensions.items()
+    ):
+        raise PluginManifestError(
+            "protocol.extensions must use reverse-domain keys with object values"
         )
     metadata_path = value.get("logging_metadata")
     if not isinstance(metadata_path, str) or not metadata_path:
@@ -1645,7 +2127,17 @@ def _Protocol_Parse(value: Any) -> ProtocolContribution | None:
                 )
             )
         profiles[category] = tuple(entries)
-    return ProtocolContribution(metadata_path, *versions, profiles=profiles)
+    if set(profiles) != {category}:
+        raise PluginManifestError(
+            "protocol.profiles must contain only protocol.category"
+        )
+    return ProtocolContribution(
+        category,
+        metadata_path,
+        *versions,
+        profiles=profiles,
+        extensions=dict(extensions),
+    )
 
 
 def _Transports_Parse(
@@ -1900,6 +2392,7 @@ def PluginManifest_Parse(
         "cardinality",
         "instance_policy",
         "physical_device",
+        "platform",
         "protocol",
         "transports",
     }
@@ -1939,6 +2432,20 @@ def PluginManifest_Parse(
             raise PluginManifestError(
                 f"metadata.{metadata_field} must map languages to non-empty strings"
             )
+    record_fragments = _StringTuple_Get(
+        metadata.get("record_catalog_fragments", []),
+        "metadata.record_catalog_fragments",
+    )
+    if record_fragments and component_type not in {"device", "algorithm"}:
+        raise PluginManifestError(
+            "Only Device and Algorithm plugins may contribute Record Catalog fragments"
+        )
+    _RelativePaths_Validate(record_fragments, "metadata.record_catalog_fragments")
+    _BuildTokens_Validate(
+        record_fragments,
+        "metadata.record_catalog_fragments",
+        BUILD_PATH_PATTERN,
+    )
 
     requires = data.get("requires", {})
     if not isinstance(requires, dict) or set(requires) - {
@@ -1964,6 +2471,7 @@ def PluginManifest_Parse(
     hardware_provider = _HardwareProvider_Parse(data.get("hardware_provider"))
     environment = _Environment_Parse(data.get("environment"))
     protocol = _Protocol_Parse(data.get("protocol"))
+    platform = _Platform_Parse(data.get("platform"))
     instance_policy = _InstancePolicy_Parse(
         data.get("instance_policy"),
         component_type=component_type,
@@ -1985,10 +2493,28 @@ def PluginManifest_Parse(
         raise PluginManifestError(
             "development environment plugins must declare environment"
         )
-    if (component_type == "protocol_bundle") != (protocol is not None):
+    if (component_type == "protocol") != (protocol is not None):
         raise PluginManifestError(
-            "protocol_bundle plugins must declare exactly one protocol block"
+            "protocol plugins must declare exactly one protocol block"
         )
+    if component_type == "protocol" and protocol.category not in ALLOWED_PROTOCOL_CATEGORIES:
+        raise PluginManifestError(
+            "protocol plugins must declare one strict protocol.category"
+        )
+    if (component_type == "mcu") != (platform is not None):
+        raise PluginManifestError(
+            "MCU plugins must declare exactly one platform contract"
+        )
+    if component_type == "device":
+        device_category = metadata.get("device_category")
+        if (
+            not isinstance(device_category, str)
+            or DEVICE_CATEGORY_PATTERN.fullmatch(device_category) is None
+        ):
+            raise PluginManifestError(
+                "metadata.device_category is invalid; expected one of "
+                "sensor.*, link.*, storage.*, actuator.* or indicator.*"
+            )
     if selection is not None and component_type not in {"algorithm", "flight_logic"}:
         raise PluginManifestError(
             "only algorithm/flight_logic plugins may select strategy/mode"
@@ -2044,6 +2570,7 @@ def PluginManifest_Parse(
         selection=selection,
         board=board,
         protocol=protocol,
+        platform=platform,
         hardware_provider=hardware_provider,
         environment=environment,
         source=source,

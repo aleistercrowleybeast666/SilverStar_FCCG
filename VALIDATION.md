@@ -1,10 +1,10 @@
 # SilverStar_FCCG validation report
 
-Validation date: 2026-08-28 (Asia/Shanghai)
+Validation date: 2026-08-29 (Asia/Shanghai)
 
 ## Result
 
-This round completes the format-7 multi-instance Device model, generated direct bindings, 29-record SSLOG catalog, deterministic log-decoder profile, real C-codec Golden sample, and the Code Generation & Build workflow for SilverStar 0.0.9, STM32F407VET6, and SS0.5.
+This round completes the format-8 internal firmware-plugin refactor: three independently locked Protocol plugins, Board/CubeMX-driven MCU detection and Platform matching, a declarative Platform resource-rendering contract, conditionally selected F407 I²C/Classic-CAN/PWM backends, strict Device categories, and a data-only `.ssdecoder` assembled from the selected Logging plugin.
 
 The reference firmware and reference GUI remained read-only. No firmware was flashed and no electrical, formal-safety, NASA, or third-party certification is claimed.
 
@@ -13,8 +13,8 @@ The reference firmware and reference GUI remained read-only. No firmware was fla
 - Read-only firmware: `C:/Users/chdxm/Desktop/stm32-1/Flight_Controller0.5`
 - Imported source: branch `main`, commit `cc0b377ded690556d037a412a55f87fe334c42d0`, subject `完善同能力多实例与日志配置契约`, clean working tree and equal remote `main`
 - Snapshot digest: `7998cace3e609d4e0c3f16f8d9e4cdf531f3f82939670638d4fe4d02f3c4e942`
-- Builtin catalog: 31 strict declarative packages: 23 reference-derived packages, three landing selector overlays, and five logical Device overlays
-- Default acceptance project: `D:/stm32_project/SS_TEST_0/` (495 files on fresh generation)
+- Builtin catalog: 33 strict declarative packages. The old three-category Protocol bundle is absent from production; telemetry, maintenance, and logging are separate packages.
+- Default acceptance project: `tests/acceptance_internal_firmware_plugin_refactor_20260829/` (499 files before build)
 - No-fusion/no-mission-output acceptance project: `tests/acceptance_optional_external_ignition_20260825_v5/` (475 generated files)
 
 The importer copied the reference component roots and therefore kept the complete owning payloads synchronized. Files specifically relevant to this round include:
@@ -52,7 +52,7 @@ Availability is resolved only from Device `provides` and Strategy `requires.capa
 
 ## Devices and logging
 
-The Device page groups are Main Controller, Primary Devices, Other Sensors, and Actuators. Input Voltage Monitor is a default-selected logical sensor, not a raw ADC. Launch Ignition Power Output and Parachute Pyro Power Output are independently optional and mapped to P_CONTROL1/GPIO4 and P_CONTROL2/GPIO5. External ignition keeps START legal without a launch binding. Removing parachute clears dependent Modes; explicit re-enable restores its stable instance and default Modes. The Other Sensors Install Plugin action is hidden whenever a matching plugin exists.
+The Device page has no MCU control. It groups only `sensor.imu`/`sensor.gnss` as Primary Sensors, routes every other valid `sensor.*` to Other Sensors, and keeps communication, storage, actuators, and indicators in their own groups. Input Voltage Monitor is a default-selected logical sensor, not a raw ADC. Launch Ignition Power Output and Parachute Pyro Power Output are independently optional and mapped to P_CONTROL1/GPIO4 and P_CONTROL2/GPIO5. External ignition keeps START legal without a launch binding. Removing parachute clears dependent Modes; explicit re-enable restores its stable instance and default Modes. The Other Sensors Install Plugin action is hidden whenever a matching plugin exists.
 
 When optional voltage/launch/parachute Devices are absent, generated resource macros use typed non-index sentinels (`PLATFORM_ADC_COUNT` / `PLATFORM_GPIO_COUNT`) and `0U` feature constants. Board services use ordinary control flow to avoid reading or driving those sentinels.
 
@@ -72,7 +72,7 @@ VS Code launcher tests validate JSON/folder/EIDE prerequisites, Windows-safe `co
 
 The latest core uses one `APP/Src/estimator_task.c` facade for both estimator states. Selecting No fusion removes the KF6 implementation sources and emits `SYSTEM_FUSION_NONE` plus `SYSTEM_BUILD_ESTIMATOR_ENABLED=0U`; Make and native EIDE receive the same graph and defines. The obsolete `estimator_task_none.c` overlay is not generated or imported.
 
-Hardware validation checks typed UART/SPI/I2C/PWM contracts and GPIO mode/output type/pull/speed/polarity/safe initial level/EXTI/IRQ/IOC-lock constraints. It rejects duplicate underlying physical resources. A successful manual assignment check stores a fingerprint that is invalidated by Device, Strategy, Mode, mapping, IOC, or hardware-source changes.
+Hardware validation checks typed UART/SPI/I²C/Classic-CAN/PWM contracts and GPIO mode/output type/pull/speed/polarity/safe initial level/EXTI/IRQ/IOC-lock constraints. It rejects duplicate underlying resources, I²C address collisions, a second owner of one F407 bxCAN peripheral, duplicate PWM channels, and conflicting base frequencies on one timer. A successful manual assignment check stores a fingerprint that is invalidated by Device, Strategy, Mode, mapping, IOC, Platform lock, or hardware-source changes.
 
 ## Generated environment and workflow
 
@@ -86,6 +86,33 @@ Hardware validation checks typed UART/SPI/I2C/PWM contracts and GPIO mode/output
 VS Code 1.133.0 exposes no command-line option for invoking an extension command, so an EIDE-native UI build was not automatically triggered or claimed. The same resolved source graph passed the generated Make Release build. Any missing J-Link temporary XML remains an external EIDE/J-Link environment issue and is irrelevant to the generated OpenOCD/no-flash validation.
 
 ## Executed verification
+
+### Internal firmware-plugin refactor final execution (2026-08-29)
+
+| Verification | Actual result |
+|---|---|
+| Read-only reference audit | branch `main`, clean tree, HEAD `cc0b377ded690556d037a412a55f87fe334c42d0`, subject `完善同能力多实例与日志配置契约`; FCCG performed no reference build or write |
+| Python compilation | `python -m compileall -q src main.py tools tests` exited 0; it reported two inaccessible historical test-output directories without a Python compilation failure |
+| Plugin/catalog scan | 33 strict manifests loaded; 45 builtin/schema JSON documents parsed; invalid schema fields/categories/paths and conflicting Protocol Profiles are covered by regression tests |
+| FCCG regression suite | `164 passed in 338.61s` |
+| Fresh generation and incrementality | 499 files added; Ready after generation and reload; second plan was 468 `PRESERVE` + 31 `UNCHANGED`; second apply changed no managed/component file and remained Ready |
+| Default Source Graph | 137 unique C sources; optional F407 I²C, Classic-CAN, PWM, HAL-I²C, and HAL-CAN sources absent; Make/EIDE equivalence passed architecture validation |
+| Protocol byte identity | AIR `4537b3588b65baa051c13605eed5715a42f530abe5a0bdfad11a4925a2a0b418`; maintenance `c1efc4849c33c9fca361015ec6068d027eeac95bd275f56d139146ea3c781d99`; SSLOG codec `b065b6733fe87dea5e220e8eaed4ef61569fff831e3dd3d14f1c218fc6aaa3bc`; SSLOG records `871b73bd1cecf9a39a2b95006f34bb32d303a5cba23d55aa02aedb934fe03d30`; importer rejects a split whose copied bytes differ |
+| `.ssdecoder` | verified five-entry data-only ZIP, 95,538 bytes, SHA-256 `5e5148244f71e936b2dbf3fd86562dd43596a4f5d4e917a4def33e8c98dc97b2`; protocols are logging/maintenance/telemetry |
+| Decoder content hashes | Record Catalog `962f9236529d2ff4375202cc2085ed5d89de03639429c368fbe87e760e5aa48f`; Project Semantics `8c6e50e6d25103675d055396bb0ad533f5f2a7f30847e04d45dcfd173539e8a5`; generation profile `2d9ccab7c995dc2bd07136c982fe4e716998b6d2ea96e5f342304ca00760aa3b` |
+| F407 optional backend checks | I²C/Classic-CAN/PWM Host mock compiled with GCC `-Werror -pedantic` and passed all boundary assertions; the same backend sources passed Arm GNU C11 `-fsyntax-only` against the synthetic HAL contract |
+| Release Arm build | passed; text 247,632, data 1,160, bss 116,688 bytes; BIN 248,792 bytes; ELF 2,627,188 bytes; HEX/MAP produced |
+| Debug Arm build | passed; text 261,224, data 1,160, bss 116,696 bytes; BIN 262,384 bytes; ELF 3,965,184 bytes; HEX/MAP produced |
+| Host Tests | 52 executables, 8,784 checks, 0 failures; 8 expected compile-success and 16 expected compile-rejection cases; Golden sample passed |
+| Architecture check | 250 checks, 0 failures; Platform boundary and Make/EIDE source-graph checks passed |
+| Power of Ten | 5,596 checks over 92 first-party C files and 2,073 functions; passed |
+| GCC static analysis | Arm GCC `-fanalyzer` compile/link/SIZE/HEX/BIN completed in the separate StaticAnalysis tree |
+| Release artifact check | FLASH/BIN 248,792 bytes; main SRAM 74,976 bytes; CCMRAM 42,872 bytes; heap reservation/runtime symbols 0 |
+
+The default SS0.5 CubeMX snapshot deliberately has no I²C/CAN configuration or corresponding HAL
+headers/sources, so it is not an active-backend fixture and those files are not forced into it.
+The optional backend implementation was validated with the synthetic HAL contract; a future
+hardware acceptance round still needs a real custom CubeMX project that enables each peripheral.
 
 ### Historical latest-reference round (2026-08-27)
 

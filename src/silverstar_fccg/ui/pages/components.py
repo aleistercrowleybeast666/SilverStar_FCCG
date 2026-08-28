@@ -28,6 +28,8 @@ from silverstar_fccg.core.view_models import (
     ComponentView,
     DeviceInstanceView,
     LoggingStreamView,
+    PlatformMatchView,
+    ProtocolProfileView,
     ResourceRequirementView,
 )
 from silverstar_fccg.project.capabilities import (
@@ -49,7 +51,6 @@ from silverstar_fccg.ui.widgets import (
 
 
 class DevicesPage(ScrollableLocalizedPage):
-    mcuChanged = Signal(str)
     instanceChanged = Signal(str, str)
     instanceAddRequested = Signal(str)
     otherDeviceToggled = Signal(str, bool)
@@ -63,19 +64,6 @@ class DevicesPage(ScrollableLocalizedPage):
 
     def __init__(self, translator: Translator) -> None:
         super().__init__(translator, "page.devices", "page.devices.description")
-        self.mcu_form = QFormLayout()
-        self.mcu_label = QLabel()
-        self.Text_Register(self.mcu_label, "field.mcu")
-        self.mcu_combo = StandardComboBox()
-        self.mcu_combo.setObjectName("mcuCombo")
-        self.mcu_combo.currentIndexChanged.connect(
-            lambda _index: self.mcuChanged.emit(
-                str(self.mcu_combo.currentData() or "")
-            )
-        )
-        self.mcu_form.addRow(self.mcu_label, self.mcu_combo)
-        self.root_layout.addWidget(self.Group_Create("group.main_controller", self.mcu_form))
-
         self.primary_form = QFormLayout()
         self.primary_group = self.Group_Create("group.primary_devices", self.primary_form)
         self.root_layout.addWidget(self.primary_group)
@@ -86,6 +74,8 @@ class DevicesPage(ScrollableLocalizedPage):
         self.other_empty_label.setWordWrap(True)
         self.Text_Register(self.other_empty_label, "device.other_empty")
         self.other_layout.addWidget(self.other_empty_label)
+        self.other_form = QFormLayout()
+        self.other_layout.addLayout(self.other_form)
         self.other_checks_container = QWidget()
         self.other_checks_layout = QVBoxLayout(self.other_checks_container)
         self.other_checks_layout.setContentsMargins(0, 0, 0, 0)
@@ -131,20 +121,29 @@ class DevicesPage(ScrollableLocalizedPage):
 
         self.telemetry_form = QFormLayout()
         self.telemetry_group = self.Group_Create(
-            "group.telemetry_links", self.telemetry_form
+            "group.communication_links", self.telemetry_form
         )
         self.telemetry_group.setObjectName("telemetryLinksGroup")
         self.root_layout.addWidget(self.telemetry_group)
+
+        self.storage_layout = QVBoxLayout()
+        self.storage_form = QFormLayout()
+        self.storage_layout.addLayout(self.storage_form)
+        self.storage_checks_container = QWidget()
+        self.storage_checks_layout = QVBoxLayout(self.storage_checks_container)
+        self.storage_checks_layout.setContentsMargins(0, 0, 0, 0)
+        self.storage_layout.addWidget(self.storage_checks_container)
+        self.storage_group = self.Group_Create("group.storage", self.storage_layout)
+        self.storage_group.setObjectName("storageGroup")
+        self.root_layout.addWidget(self.storage_group)
 
         self.root_layout.addStretch(1)
         self.device_combos: dict[str, StandardComboBox] = {}
         self.device_checks: dict[str, StandardCheckBox] = {}
         self.add_buttons: dict[str, QPushButton] = {}
         self.remove_buttons: dict[str, QPushButton] = {}
-        self._mcus: tuple[ComponentView, ...] = ()
         self._components: tuple[ComponentView, ...] = ()
         self._instances: tuple[DeviceInstanceView, ...] = ()
-        self._selected_mcu = ""
         self._device_availability: dict[str, SelectionAvailability] = {}
         self.Language_Apply(translator)
 
@@ -159,29 +158,18 @@ class DevicesPage(ScrollableLocalizedPage):
 
     def Configuration_Set(
         self,
-        mcus: Iterable[ComponentView],
-        selected_mcu: str,
         components: Iterable[ComponentView],
         instances: Iterable[DeviceInstanceView],
         device_availability: dict[str, SelectionAvailability] | None = None,
     ) -> None:
-        self._mcus = tuple(mcus)
         self._components = tuple(components)
         self._instances = tuple(instances)
-        self._selected_mcu = selected_mcu
         self._device_availability = dict(device_availability or {})
-
-        self.mcu_combo.blockSignals(True)
-        self.mcu_combo.clear()
-        for mcu in self._mcus:
-            self.mcu_combo.addItem(mcu.name, mcu.component_id)
-        mcu_index = self.mcu_combo.findData(selected_mcu)
-        if mcu_index >= 0:
-            self.mcu_combo.setCurrentIndex(mcu_index)
-        self.mcu_combo.blockSignals(False)
 
         self._Layout_Clear(self.primary_form)
         self._Layout_Clear(self.telemetry_form)
+        self._Layout_Clear(self.other_form)
+        self._Layout_Clear(self.storage_form)
         self.device_combos.clear()
         self.add_buttons.clear()
         self.remove_buttons.clear()
@@ -196,6 +184,7 @@ class DevicesPage(ScrollableLocalizedPage):
             component
             for component in self._components
             if component.options.get("device_selection_style") == "instance"
+            and not component.options.get("internal", False)
             and component.component_class != "console"
         )
         instance_classes = sorted(
@@ -211,7 +200,9 @@ class DevicesPage(ScrollableLocalizedPage):
         )
         group_forms = {
             "primary_devices": self.primary_form,
-            "telemetry_links": self.telemetry_form,
+            "other_sensors": self.other_form,
+            "communication_links": self.telemetry_form,
+            "storage": self.storage_form,
         }
         populated_groups: set[str] = set()
         for component_class in instance_classes:
@@ -225,9 +216,17 @@ class DevicesPage(ScrollableLocalizedPage):
             ]
             if not candidates:
                 continue
-            group_name = str(
-                candidates[0].options.get("device_group") or "primary_devices"
-            )
+            category = str(candidates[0].options.get("device_category", ""))
+            if category in {"sensor.imu", "sensor.gnss"}:
+                group_name = "primary_devices"
+            elif category.startswith("sensor."):
+                group_name = "other_sensors"
+            elif category.startswith("link."):
+                group_name = "communication_links"
+            elif category.startswith("storage."):
+                group_name = "storage"
+            else:
+                continue
             form = group_forms.get(group_name, self.primary_form)
             populated_groups.add(
                 group_name if group_name in group_forms else "primary_devices"
@@ -368,19 +367,22 @@ class DevicesPage(ScrollableLocalizedPage):
                 self.add_buttons[component_class] = add_button
 
         self.primary_group.setVisible("primary_devices" in populated_groups)
-        self.telemetry_group.setVisible("telemetry_links" in populated_groups)
+        self.telemetry_group.setVisible("communication_links" in populated_groups)
+        self.storage_group.setVisible("storage" in populated_groups)
 
         self._Layout_Clear(self.other_checks_layout)
         self._Layout_Clear(self.indicator_checks_layout)
         self._Layout_Clear(self.actuator_checks_layout)
+        self._Layout_Clear(self.storage_checks_layout)
         self.device_checks.clear()
         other_components = sorted(
             (
                 component
                 for component in self._components
                 if component.options.get("device_selection_style") != "instance"
-                and component.options.get("device_group")
-                not in {"actuators", "indicators"}
+                and str(component.options.get("device_category", "")).startswith(
+                    "sensor."
+                )
             ),
             key=lambda item: (
                 int(item.options.get("device_group_order", 100)), item.name
@@ -390,7 +392,9 @@ class DevicesPage(ScrollableLocalizedPage):
             (
                 component
                 for component in self._components
-                if component.options.get("device_group") == "actuators"
+                if str(component.options.get("device_category", "")).startswith(
+                    "actuator."
+                )
             ),
             key=lambda item: (item.component_id, item.name),
         )
@@ -398,7 +402,9 @@ class DevicesPage(ScrollableLocalizedPage):
             (
                 component
                 for component in self._components
-                if component.options.get("device_group") == "indicators"
+                if str(component.options.get("device_category", "")).startswith(
+                    "indicator."
+                )
             ),
             key=lambda item: (
                 item.options.get("indicator_role") != "system",
@@ -409,8 +415,20 @@ class DevicesPage(ScrollableLocalizedPage):
         instances_by_plugin = {
             instance.plugin_id: instance for instance in self._instances
         }
+        storage_components = sorted(
+            (
+                component
+                for component in self._components
+                if component.options.get("device_selection_style") != "instance"
+                and str(component.options.get("device_category", "")).startswith(
+                    "storage."
+                )
+            ),
+            key=lambda item: item.name,
+        )
         for components, layout in (
             (other_components, self.other_checks_layout),
+            (storage_components, self.storage_checks_layout),
             (indicator_components, self.indicator_checks_layout),
             (actuator_components, self.actuator_checks_layout),
         ):
@@ -419,7 +437,9 @@ class DevicesPage(ScrollableLocalizedPage):
                 required = bool(
                     instance is not None
                     and instance.required
-                    and component.options.get("device_group") != "actuators"
+                    and not str(
+                        component.options.get("device_category", "")
+                    ).startswith("actuator.")
                 )
                 check = (
                     LockedCheckBox(component.name)
@@ -467,11 +487,18 @@ class DevicesPage(ScrollableLocalizedPage):
                     )
                 layout.addWidget(check)
                 self.device_checks[component.component_id] = check
-        self.other_empty_label.setVisible(not other_components)
+        other_populated = bool(other_components) or (
+            "other_sensors" in populated_groups
+        )
+        self.other_empty_label.setVisible(not other_populated)
         self.other_checks_container.setVisible(bool(other_components))
-        self.install_button.setVisible(not other_components)
+        self.install_button.setVisible(not other_populated)
         self.indicator_checks_container.setVisible(bool(indicator_components))
         self.indicator_group.setVisible(bool(indicator_components))
+        self.storage_checks_container.setVisible(bool(storage_components))
+        self.storage_group.setVisible(
+            "storage" in populated_groups or bool(storage_components)
+        )
         self.actuator_empty_label.setVisible(not actuator_components)
         self.actuator_checks_container.setVisible(bool(actuator_components))
 
@@ -479,8 +506,6 @@ class DevicesPage(ScrollableLocalizedPage):
         super().Language_Apply(translator)
         if self._components:
             self.Configuration_Set(
-                self._mcus,
-                self._selected_mcu,
                 self._components,
                 self._instances,
                 self._device_availability,
@@ -579,6 +604,30 @@ class BoardHardwarePage(ScrollableLocalizedPage):
             self.Group_Create("group.board_selection", selection_form)
         )
 
+        self.platform_form = QFormLayout()
+        self.platform_values: dict[str, QLabel] = {}
+        for field, key in (
+            ("source", "field.hardware_source"),
+            ("part", "field.detected_mcu_part"),
+            ("family", "field.detected_mcu_family"),
+            ("package", "field.detected_mcu_package"),
+            ("core", "field.detected_mcu_core"),
+            ("plugin", "field.matched_platform"),
+            ("reason", "field.platform_match_reason"),
+            ("verification", "field.platform_verification"),
+            ("provenance", "field.platform_provenance"),
+        ):
+            label = QLabel()
+            self.Text_Register(label, key)
+            value = QLabel("—")
+            value.setObjectName(f"platform_{field}")
+            value.setWordWrap(True)
+            self.platform_form.addRow(label, value)
+            self.platform_values[field] = value
+        self.root_layout.addWidget(
+            self.Group_Create("group.detected_platform", self.platform_form)
+        )
+
         self.provider_notice = QLabel()
         self.provider_notice.setWordWrap(True)
         self.provider_notice.setObjectName("noticeLabel")
@@ -665,7 +714,42 @@ class BoardHardwarePage(ScrollableLocalizedPage):
         self._hardware_mode = "unselected"
         self._resources_valid = False
         self._assignment_confirmed = False
+        self._platform = PlatformMatchView()
         self.Language_Apply(translator)
+
+    def Platform_Set(self, platform: PlatformMatchView) -> None:
+        self._platform = platform
+        source_key = f"hardware.source.{platform.hardware_source}"
+        source_text = self._translator.Text_Get(source_key)
+        if source_text == source_key:
+            source_text = platform.hardware_source or "—"
+        values = {
+            "source": source_text,
+            "part": platform.detected_part or "—",
+            "family": platform.detected_family or "—",
+            "package": platform.detected_package or "—",
+            "core": platform.detected_core or "—",
+            "plugin": (
+                f"{platform.component_name} ({platform.component_id})"
+                if platform.component_id
+                else "—"
+            ),
+            "reason": platform.reason or platform.error or "—",
+            "verification": (
+                self._translator.Text_Get(
+                    f"platform.verification.{platform.verification}"
+                )
+                if platform.verification
+                else "—"
+            ),
+            "provenance": platform.provenance or "—",
+        }
+        for field, text in values.items():
+            self.platform_values[field].setText(text)
+            self.platform_values[field].setToolTip(text)
+            self.platform_values[field].setProperty(
+                "validationIssue", bool(platform.error and field == "reason")
+            )
 
     def Boards_Set(
         self,
@@ -884,6 +968,7 @@ class BoardHardwarePage(ScrollableLocalizedPage):
 
     def Language_Apply(self, translator: Translator) -> None:
         super().Language_Apply(translator)
+        self.Platform_Set(self._platform)
         self.advanced_section.Title_Set(
             translator.Text_Get("group.advanced_resources")
         )
@@ -1015,7 +1100,7 @@ class FlightConfigurationPage(ScrollableLocalizedPage):
     capabilitySourceChanged = Signal(str, str)
     loggingChanged = Signal()
     modeParameterChanged = Signal(str, str, str, object)
-    protocolProfileChanged = Signal(str, str)
+    protocolProfileChanged = Signal(str, str, str)
     logDecoderExportRequested = Signal()
 
     def __init__(self, translator: Translator) -> None:
@@ -1136,10 +1221,8 @@ class FlightConfigurationPage(ScrollableLocalizedPage):
         self._mode_parameters: dict[
             str, dict[str, dict[str, float | int]]
         ] = {}
-        self._protocol_profiles: dict[
-            str, tuple[tuple[str, str], ...]
-        ] = {}
-        self._selected_protocol_profiles: dict[str, str] = {}
+        self._protocol_profiles: dict[str, tuple[ProtocolProfileView, ...]] = {}
+        self._selected_protocol_profiles: dict[str, tuple[str, str]] = {}
         self._streams: list[LoggingStreamView] = []
         self._capabilities: tuple[CapabilityUsageView, ...] = ()
         self._strategy_availability: dict[str, SelectionAvailability] = {}
@@ -1329,8 +1412,8 @@ class FlightConfigurationPage(ScrollableLocalizedPage):
 
     def Protocols_Set(
         self,
-        profiles: dict[str, tuple[tuple[str, str], ...]],
-        selected: dict[str, str],
+        profiles: dict[str, tuple[ProtocolProfileView, ...]],
+        selected: dict[str, tuple[str, str]],
     ) -> None:
         self._protocol_profiles = {
             category: tuple(values) for category, values in profiles.items()
@@ -1346,15 +1429,21 @@ class FlightConfigurationPage(ScrollableLocalizedPage):
                 continue
             combo = StandardComboBox()
             combo.setObjectName(f"protocolProfile_{category}")
-            for profile_id, display_name in values:
-                combo.addItem(display_name, profile_id)
-            index = combo.findData(selected.get(category, ""))
+            component_count = len({value.component_id for value in values})
+            for value in values:
+                display_name = value.display_name
+                if component_count > 1:
+                    display_name = f"{value.component_name} · {display_name}"
+                combo.addItem(
+                    display_name,
+                    (value.component_id, value.profile_id),
+                )
+            index = combo.findData(selected.get(category, ("", "")))
             combo.setCurrentIndex(max(0, index))
             combo.currentIndexChanged.connect(
                 lambda _index, selected_category=category,
-                selected_combo=combo: self.protocolProfileChanged.emit(
-                    selected_category,
-                    str(selected_combo.currentData() or ""),
+                selected_combo=combo: self._Protocol_Emit(
+                    selected_category, selected_combo
                 )
             )
             editor = combo
@@ -1367,6 +1456,14 @@ class FlightConfigurationPage(ScrollableLocalizedPage):
                 ),
                 editor,
             )
+
+    def _Protocol_Emit(
+        self, category: str, combo: StandardComboBox
+    ) -> None:
+        value = combo.currentData()
+        if not isinstance(value, tuple) or len(value) != 2:
+            return
+        self.protocolProfileChanged.emit(category, str(value[0]), str(value[1]))
 
     def Capabilities_Set(
         self, capabilities: Iterable[CapabilityUsageView]

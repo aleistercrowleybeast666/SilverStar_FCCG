@@ -1,15 +1,15 @@
 # SilverStar.ssproject format
 
-`SilverStar.ssproject` is strict JSON with `format_version: 7`; the formal shape is `schemas/project.schema.json`. Formats 0–6 migrate through the Strategy/Mode, Hardware Inventory, Device-instance, derived-capability, Mode-parameter, protocol-profile, manual-assignment-confirmation, and log-decoder-profile changes. All supported older files are saved as format 7.
+`SilverStar.ssproject` is strict JSON with `format_version: 8`; the formal shape is `schemas/project.schema.json`. Formats 0–7 migrate through Strategy/Mode, Hardware Inventory, Device-instance, capability, Mode-parameter, protocol-profile, assignment-confirmation, decoder-profile, independent-Protocol, and Platform-lock changes. All supported older files are saved only as format 8.
 
 ## Sections
 
 - `project`: name, firmware version, and embedded build target.
-- `components`: exactly one Core, MCU, OS, and DevelopmentEnvironment; an optional Board while custom hardware is active; ordered `devices: [{instance_id, plugin}]`, base components/Protocol Bundles; and generic `strategies: {slot: component-id | null}`.
+- `components`: exactly one Core, automatically matched MCU/Platform, OS, and DevelopmentEnvironment; an optional Board while custom hardware is active; ordered `devices: [{instance_id, plugin}]`, base components, and generic `strategies: {slot: component-id | null}`. Protocol components no longer live in this block.
 - `modes`: generic `{slot: [option, ...]}` selections. Slot rules and labels come from manifests.
 - `mode_parameters`: generic `{slot: {option: {parameter: number}}}` values. Types, units, ranges, defaults, generated symbols, and scaling come from the owning Mode manifest.
-- `protocol_profiles`: independent protocol-category selections; the reference uses telemetry `air.m0`, maintenance `maintenance.serial.0_0`, and logging `flight_log.0_0`. Format-0 pre-release IDs migrate directly from `air.compact.v0`, `maintenance.v0_0`, and `sslog0`.
-- `hardware`: `unselected`, `board_plugin`, or `custom`, plus source kind/provider, immutable import snapshot/provenance, detected MCU/capabilities/resources, persisted `inventory`, trusted build contributions, first-import risk acknowledgement, and `assignment_fingerprint`. The fingerprint is retained only while all resource-validity inputs are unchanged.
+- `protocols`: exactly `telemetry`, `maintenance`, and `logging`; each stores the selected component ID, plugin version, Profile ID, and manifest SHA-256. Format-7 `protocol_bundles`/`protocol_profiles` and pre-release IDs migrate deterministically to the three official plugins.
+- `hardware`: `unselected`, `board_plugin`, or `custom`, plus source kind/provider, immutable import snapshot/provenance, detected MCU/capabilities/resources, persisted `inventory`, trusted build contributions, matched `platform_component`/`platform_version`/`platform_manifest_sha256`, first-import risk acknowledgement, and `assignment_fingerprint`. The Platform lock and fingerprint are refreshed by reconcile and retained only while the underlying hardware/resource validity inputs are unchanged.
 - `resources`: `device-instance-id:requirement-name` (or non-Device component ID) to provided physical/logical resource ID.
 - `capability_sources`: only non-default user decisions for a required capability with several providers, mapping capability to the selected physical Device instance; absent values bind Canonical Source to capability instance 0.
 - `logging.streams`: the selected Protocol metadata order plus enable state, policy, decimation, and period. Record definitions and Required/Recommended/Optional levels do not live in the project file.
@@ -20,7 +20,7 @@
 
 The persisted Device record identifies one physical module. Capability Endpoint Instances are derived from that module's declarative descriptor contributions and receive contiguous indices within each capability class during generation. Canonical Source Selection is separate again: current single-estimator algorithms consume one endpoint per capability and default to class instance 0; no Sensor Voting or Multi-EKF state is implied by adding another physical Device.
 
-Readiness never compares the complete JSON dictionary. `ProjectGenerationState_Normalize()` retains fields that can change generated code or structure (MCU, hardware source/inventory, Device instances including Indicators, Strategies, Modes/parameters, capability sources, protocol profiles, logging, resource assignments, environment, and source-graph configuration). It removes host tool paths/detection data, provenance/display fields, assignment confirmation, GUI preferences, and the derived `log_decoder_profile` hashes. This prevents a package hash from feeding back into the generation identity it describes. The same normalized state feeds `ProjectGenerationFingerprint_Get()`, embedded metadata, stale detection, decoder semantics, and ownership metadata.
+Readiness never compares the complete JSON dictionary. `ProjectGenerationState_Normalize()` retains fields that can change generated code or structure (matched Platform and hardware source/inventory, Device instances including Indicators, Strategies, Modes/parameters, capability sources, three protocol locks, logging, resource assignments, environment, and source-graph configuration). It removes host tool paths/detection data, provenance/display fields, assignment confirmation, GUI preferences, and derived decoder hashes, then normalizes tuples/lists through strict JSON so a save/load round trip cannot create a false stale result. The same normalized state feeds `ProjectGenerationFingerprint_Get()`, embedded metadata, stale detection, decoder semantics, and ownership metadata.
 
 Unknown/missing fields, wrong types, duplicate instance IDs/selections/records, instance-policy violations, invalid or unnecessary capability-source overrides, invalid component IDs, unsafe target/path tokens, unsupported policies, invalid numeric ranges, malformed custom snapshot IDs, hardware paths outside `HardwareGenerated/STM32CubeMX/`, a changed Protocol record order, disabled available Required records, or enabled unavailable records are rejected.
 
@@ -69,10 +69,25 @@ Logging does not persist a second capability database. Protocol metadata names R
       "Delay": {"delay": 60.0}
     }
   },
-  "protocol_profiles": {
-    "telemetry": "air.m0",
-    "maintenance": "maintenance.serial.0_0",
-    "logging": "flight_log.0_0"
+  "protocols": {
+    "telemetry": {
+      "component": "silverstar.protocol.telemetry.air_m0",
+      "version": "0.0",
+      "profile": "air.m0",
+      "manifest_sha256": "<64 lowercase hex digits>"
+    },
+    "maintenance": {
+      "component": "silverstar.protocol.maintenance.serial_0_0",
+      "version": "0.0",
+      "profile": "maintenance.serial.0_0",
+      "manifest_sha256": "<64 lowercase hex digits>"
+    },
+    "logging": {
+      "component": "silverstar.protocol.logging.sslog_0_0",
+      "version": "0.0",
+      "profile": "flight_log.0_0",
+      "manifest_sha256": "<64 lowercase hex digits>"
+    }
   }
 }
 ```
@@ -124,10 +139,11 @@ The JSON is machine state. `SilverStar_Configuration.md` is its generated human-
 
 ## Protocol, local-tool, and quality state
 
-`protocol_profiles` stores one profile ID for each of `telemetry`, `maintenance`, and `logging`;
-their manifests map those categories to `telemetry_protocol`, `maintenance_protocol`, and
-`log_format`. Installed manifests—not a Python record table—supply full profile sources, binding,
-transport requirements, decoder data, docs, and tests. Transport provider selection is resolved
+`protocols` stores one independently locked plugin/Profile for each of `telemetry`, `maintenance`,
+and `logging`; a plugin is allowed to own only its declared strict category. Installed manifests—not
+a Python record table—supply full profile sources, binding, transport requirements, decoder data,
+docs, and tests. Duplicate `(category, profile)` providers are rejected rather than selected by scan
+order. Transport provider selection is resolved
 from selected physical Device and Board/storage contributions and is emitted into the generated
 decoder/configuration review.
 

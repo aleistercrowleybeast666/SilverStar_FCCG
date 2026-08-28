@@ -1,10 +1,16 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
+from silverstar_fccg.core.errors import FccgError
 from silverstar_fccg.plugins.catalog import PluginCatalog
 from silverstar_fccg.plugins.manifest import PluginManifest, SelectionKind
+from silverstar_fccg.hardware.platform import (
+    DetectedMcuFacts,
+    DetectedMcuFacts_FromInventory,
+    PlatformMatch_Resolve,
+)
 from silverstar_fccg.project.capabilities import (
     CapabilityResolution,
     CapabilityResolution_Resolve,
@@ -15,8 +21,10 @@ from silverstar_fccg.project.model import (
     DeviceInstance,
     HardwareConfiguration,
     ProjectModel,
+    ProtocolSelection,
 )
 from silverstar_fccg.project.resources import (
+    BoardHardwareInventory_Get,
     ResourceAssignmentResult,
     ResourceAssignments_Resolve,
     ResourceRequirementOptions_Get,
@@ -320,24 +328,51 @@ def _ModeParameters_Reconcile(
 def _ProtocolProfiles_Reconcile(
     model: ProjectModel, catalog: PluginCatalog
 ) -> None:
-    available: dict[str, tuple[str, ...]] = {}
-    for component_id in model.protocol_bundles:
-        protocol = catalog.Component_Get(component_id).protocol
-        if protocol is None:
-            continue
-        for category, profiles in protocol.profiles.items():
-            available[category] = tuple(profile.profile_id for profile in profiles)
-    if not available:
-        return
-    model.protocol_profiles = {
-        category: (
-            model.protocol_profiles.get(category, "")
-            if model.protocol_profiles.get(category, "") in profile_ids
-            else profile_ids[0]
-        )
-        for category, profile_ids in available.items()
-        if profile_ids
+    available: dict[str, list] = {
+        "telemetry": [],
+        "maintenance": [],
+        "logging": [],
     }
+    for manifest in catalog.Type_Get("protocol"):
+        protocol = manifest.protocol
+        if protocol is not None and protocol.category in available:
+            available[protocol.category].append(manifest)
+    reconciled = dict(model.protocols)
+    for category, manifests in available.items():
+        selected = reconciled.get(category)
+        if selected is None and manifests:
+            manifest = manifests[0]
+            profiles = manifest.protocol.profiles[category]
+            reconciled[category] = ProtocolSelection(
+                component=manifest.component_id,
+                version=manifest.version,
+                profile=profiles[0].profile_id,
+                manifest_sha256=manifest.ManifestSha256_Get(),
+            )
+            continue
+        if selected is None:
+            continue
+        try:
+            manifest = catalog.Component_Get(selected.component)
+        except FccgError:
+            continue
+        protocol = manifest.protocol
+        if protocol is None or protocol.category != category:
+            continue
+        profile_ids = {
+            profile.profile_id
+            for profile in protocol.profiles.get(category, ())
+        }
+        if selected.profile not in profile_ids:
+            continue
+        if not selected.manifest_sha256:
+            reconciled[category] = ProtocolSelection(
+                component=selected.component,
+                version=manifest.version,
+                profile=selected.profile,
+                manifest_sha256=manifest.ManifestSha256_Get(),
+            )
+    model.protocols = reconciled
 
 
 def _HardwareAssignmentConfirmation_Reconcile(
@@ -370,25 +405,87 @@ def _Hardware_Reconcile(
             reset = True
         else:
             board = catalog.Component_Get(model.board)
-            reset = (
-                board.board is None
-                or model.mcu not in board.board.compatible_mcus
-            )
+            if board.board is None:
+                reset = True
+            else:
+                inventory = BoardHardwareInventory_Get(board)
+                if inventory is None:
+                    raise FccgError(
+                        "error.platform_match",
+                        {},
+                        f"Board {model.board} has no CubeMX inventory",
+                    )
+                provider_manifest = catalog.Component_Get(board.board.provider)
+                provider = provider_manifest.hardware_provider
+                if provider is None:
+                    raise FccgError(
+                        "error.platform_match",
+                        {},
+                        f"Board {model.board} has no hardware provider contract",
+                    )
+                matched = PlatformMatch_Resolve(
+                    DetectedMcuFacts_FromInventory(
+                        inventory,
+                        vendor=provider.vendor,
+                        provider=provider.handler,
+                    ),
+                    catalog,
+                )
+                model.mcu = matched.selected.component_id
+                matched_manifest = catalog.Component_Get(model.mcu)
+                model.hardware = replace(
+                    model.hardware,
+                    provider=board.board.provider,
+                    ioc_file=board.board.ioc_file,
+                    mcu=inventory.mcu_part,
+                    platform_component=matched_manifest.component_id,
+                    platform_version=matched_manifest.version,
+                    platform_manifest_sha256=matched_manifest.ManifestSha256_Get(),
+                    capabilities=tuple(
+                        sorted(
+                            {
+                                f"peripheral.{resource.kind}"
+                                for resource in inventory.HardwareResources_Get()
+                            }
+                        )
+                    ),
+                    inventory=inventory.Dictionary_Get(),
+                    source_label=board.name,
+                )
+                reset = model.mcu not in board.board.compatible_mcus
     elif model.hardware.mode == "custom":
-        mcu = catalog.Component_Get(model.mcu)
         provider = (
             catalog.Component_Get(model.hardware.provider)
             if model.hardware.provider
             else None
         )
-        expected_mcu = str(mcu.metadata.get("mcu_model", mcu.name))
         reset = (
             provider is None
             or provider.hardware_provider is None
-            or provider.hardware_provider.vendor
-            != str(mcu.metadata.get("vendor", ""))
-            or bool(model.hardware.mcu and model.hardware.mcu != expected_mcu)
         )
+        if not reset and model.hardware.snapshot_id:
+            inventory = model.hardware.inventory
+            matched = PlatformMatch_Resolve(
+                DetectedMcuFacts(
+                    vendor=provider.hardware_provider.vendor,
+                    part=str(
+                        inventory.get("mcu_part", model.hardware.mcu)
+                    ),
+                    family=str(inventory.get("mcu_family", "")),
+                    package=str(inventory.get("package", "")),
+                    core=str(inventory.get("core", "")),
+                    provider=provider.hardware_provider.handler,
+                ),
+                catalog,
+            )
+            model.mcu = matched.selected.component_id
+            matched_manifest = catalog.Component_Get(model.mcu)
+            model.hardware = replace(
+                model.hardware,
+                platform_component=matched_manifest.component_id,
+                platform_version=matched_manifest.version,
+                platform_manifest_sha256=matched_manifest.ManifestSha256_Get(),
+            )
     if not reset:
         return ()
     model.board = ""

@@ -71,6 +71,13 @@ REFERENCE_REQUIRED_FILES = (
     "docs/details/VALIDATION_REQUIREMENTS.md",
 )
 
+PROTOCOL_SOURCE_PATHS = (
+    "Protocol/Src/air_protocol.c",
+    "System/Src/system_console.c",
+    "Protocol/SSLOG/Src/sslog_protocol.c",
+    "Protocol/SSLOG/Src/sslog_records.c",
+)
+
 REFERENCE_IMPORT_GROUPS = (
     "Generated device-instance facade contract",
     "Generated decoder-profile descriptor and project-semantics contract",
@@ -171,7 +178,29 @@ def ReferenceProvenance_Get(reference: Path) -> dict[str, Any]:
         "working_tree": "clean" if not status_lines else "modified",
         "status": list(status_lines),
         "snapshot_digest": _ReferenceSnapshotDigest_Get(reference),
+        "protocol_source_sha256": {
+            relative: hashlib.sha256(
+                reference.joinpath(*relative.split("/")).read_bytes()
+            ).hexdigest()
+            for relative in PROTOCOL_SOURCE_PATHS
+        },
         "recorded_at_utc": datetime.now(UTC).isoformat(timespec="seconds"),
+    }
+
+
+def _ManifestReferenceProvenance_Get(
+    provenance: dict[str, Any],
+) -> dict[str, str]:
+    """Return only immutable reference identity for generated manifests.
+
+    The complete path, branch/status audit and import timestamp remain in the
+    catalog-level reference_provenance.json.  Excluding those display/audit
+    fields here keeps raw manifest locks reproducible for the same snapshot.
+    """
+    return {
+        "source_kind": "reference_snapshot",
+        "commit": str(provenance["commit"]),
+        "snapshot_digest": str(provenance["snapshot_digest"]),
     }
 
 
@@ -260,9 +289,11 @@ def _Component(
     environment: dict[str, Any] | None = None,
     instance_policy: dict[str, Any] | None = None,
     physical_device: dict[str, str] | None = None,
-    protocol: dict[str, str] | None = None,
+    platform: dict[str, Any] | None = None,
+    protocol: dict[str, Any] | None = None,
     transports: list[dict[str, Any]] | None = None,
     docs: list[str] | None = None,
+    overlay_files: dict[str, str] | None = None,
     version: str = "0.0.9",
 ) -> dict[str, Any]:
     build: dict[str, Any] = {
@@ -297,7 +328,7 @@ def _Component(
         "build": build,
         "payload": {"roots": roots},
         "metadata": {
-            "reference": provenance,
+            "reference": _ManifestReferenceProvenance_Get(provenance),
             **(metadata or {}),
         },
     }
@@ -308,12 +339,17 @@ def _Component(
         ("environment", environment),
         ("instance_policy", instance_policy),
         ("physical_device", physical_device),
+        ("platform", platform),
         ("protocol", protocol),
         ("transports", transports),
     ):
         if value is not None:
             manifest[key] = value
-    return {"manifest": manifest, "docs": docs or []}
+    return {
+        "manifest": manifest,
+        "docs": docs or [],
+        "overlay_files": dict(overlay_files or {}),
+    }
 
 
 def _PlatformResources_Get() -> tuple[list[dict[str, Any]], dict[str, Any]]:
@@ -390,6 +426,144 @@ def _PlatformResources_Get() -> tuple[list[dict[str, Any]], dict[str, Any]]:
         ],
     }
     return provisions, platform
+
+
+def _Stm32F407PlatformContract_Get() -> dict[str, Any]:
+    def binding(
+        collection: str,
+        include_header: str,
+        entry_kind: str,
+        id_type: str,
+        count_symbol: str,
+        table_symbol: str,
+        getter: str,
+        struct_type: str = "",
+    ) -> dict[str, Any]:
+        return {
+            "collection": collection,
+            "include_header": include_header,
+            "entry_kind": entry_kind,
+            "id_type": id_type,
+            "count_symbol": count_symbol,
+            "table_symbol": table_symbol,
+            "getter": getter,
+            "struct_type": struct_type,
+        }
+
+    return {
+        "abi": {
+            "id": "silverstar.platform.resources",
+            "major": 1,
+            "minor": 0,
+        },
+        "provider": "stm32_cubemx",
+        "match_rules": [
+            {
+                "vendor": "STM32",
+                "exact_part": "STM32F407VET6",
+                "family_pattern": "STM32F4*",
+                "package_pattern": "LQFP100",
+                "core_pattern": "",
+                "priority": 100,
+                "specificity": 1000,
+                "verification": "verified",
+            }
+        ],
+        "resource_binding": {
+            "header": "platform_stm32f4_resources.h",
+            "bindings": {
+                "uart": binding(
+                    "uarts", "usart.h", "handle", "PlatformUartId",
+                    "PLATFORM_UART_COUNT", "s_uart_handles",
+                    "PlatformStm32f4Resource_UartHandleGet",
+                ),
+                "spi": binding(
+                    "spis", "spi.h", "handle", "PlatformSpiId",
+                    "PLATFORM_SPI_COUNT", "s_spi_handles",
+                    "PlatformStm32f4Resource_SpiHandleGet",
+                ),
+                "adc": binding(
+                    "adcs", "adc.h", "handle", "PlatformAdcId",
+                    "PLATFORM_ADC_COUNT", "s_adc_handles",
+                    "PlatformStm32f4Resource_AdcHandleGet",
+                ),
+                "gpio": binding(
+                    "gpios", "main.h", "gpio", "PlatformGpioId",
+                    "PLATFORM_GPIO_COUNT", "s_gpio_resources",
+                    "PlatformStm32f4Resource_GpioGet",
+                    "PlatformStm32f4GpioResource",
+                ),
+                "i2c": binding(
+                    "i2cs", "i2c.h", "handle", "PlatformI2cId",
+                    "PLATFORM_I2C_COUNT", "s_i2c_handles",
+                    "PlatformStm32f4Resource_I2cHandleGet",
+                ),
+                "can_classic": binding(
+                    "cans", "can.h", "handle", "PlatformCanId",
+                    "PLATFORM_CAN_COUNT", "s_can_handles",
+                    "PlatformStm32f4Resource_CanHandleGet",
+                ),
+                "pwm": binding(
+                    "pwms", "tim.h", "pwm", "PlatformPwmId",
+                    "PLATFORM_PWM_COUNT", "s_pwm_resources",
+                    "PlatformStm32f4Resource_PwmGet",
+                    "PlatformStm32f4PwmResource",
+                ),
+            },
+        },
+        "resource_backends": {
+            "i2c": {
+                "inventory_kinds": ["i2c"],
+                "sources": [
+                    "Platform/STM32F4/Src/platform_i2c_stm32f4.c",
+                ],
+                "provider_sources": [
+                    "Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_i2c.c",
+                    "Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_i2c_ex.c",
+                ],
+                "include_dirs": [],
+                "defines": [],
+                "capabilities": [
+                    "i2c.master_blocking",
+                    "i2c.memory_read_write",
+                ],
+                "ownership": "shared_bus_unique_address",
+            },
+            "can_classic": {
+                "inventory_kinds": ["can_classic"],
+                "sources": [
+                    "Platform/STM32F4/Src/platform_can_stm32f4.c",
+                ],
+                "provider_sources": [
+                    "Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_can.c",
+                ],
+                "include_dirs": [],
+                "defines": [],
+                "capabilities": ["can.classic_bxcan"],
+                "ownership": "single_owner",
+            },
+            "pwm": {
+                "inventory_kinds": ["pwm"],
+                "sources": [
+                    "Platform/STM32F4/Src/platform_pwm_stm32f4.c"
+                ],
+                "provider_sources": [],
+                "include_dirs": [],
+                "defines": [],
+                "capabilities": ["pwm.output_fixed_frequency"],
+                "ownership": "exclusive_channel_shared_timer",
+            },
+        },
+        "support": {
+            "level": "verified",
+            "limitations": [
+                "Validated production target: STM32F407VET6 and SS0.5",
+                "I2C v0 provides blocking master transfers and memory-register operations; generic repeated-start is not advertised",
+                "Classic CAN v0 permits one upper-layer owner per physical bxCAN peripheral",
+                "PWM v0 uses CubeMX static timer frequency and ordinary non-complementary output channels",
+            ],
+        },
+    }
 
 
 def _BoardRoles_Get() -> list[dict[str, Any]]:
@@ -477,19 +651,37 @@ def _Components_Get(
         path
         for path in first_party
         if path.startswith(("APP/", "Common/", "Modules/", "System/"))
+        and path != "System/Src/system_console.c"
     ]
     board_sources = [path for path in first_party if path.startswith("Core/")]
     board_sources += _ManifestValues_Get(reference, "Board/SilverStar_0_5/module.mk", "C_SOURCES")
     board_sources += _ManifestValues_Get(reference, "BuildSystem/fatfs.mk", "C_SOURCES")
-    mcu_sources = _ManifestValues_Get(reference, "Platform/STM32F4/module.mk", "C_SOURCES")
-    mcu_sources += _ManifestValues_Get(reference, "BuildSystem/stm32_hal.mk", "C_SOURCES")
+    optional_platform_sources = {
+        "Platform/STM32F4/Src/platform_i2c_stm32f4.c",
+        "Platform/STM32F4/Src/platform_can_stm32f4.c",
+        "Platform/STM32F4/Src/platform_pwm_stm32f4.c",
+        "Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_i2c.c",
+        "Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_i2c_ex.c",
+        "Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_can.c",
+    }
+    mcu_sources = [
+        path
+        for path in (
+            _ManifestValues_Get(
+                reference, "Platform/STM32F4/module.mk", "C_SOURCES"
+            )
+            + _ManifestValues_Get(
+                reference, "BuildSystem/stm32_hal.mk", "C_SOURCES"
+            )
+        )
+        if path not in optional_platform_sources
+    ]
     os_sources = [
         path
         for path in first_party
         if path.startswith(("OS/", "Targets/SilverStar_F407/Src/freertos"))
     ]
     os_sources += _ManifestValues_Get(reference, "BuildSystem/freertos.mk", "C_SOURCES")
-    protocol_sources = [path for path in first_party if path.startswith("Protocol/")]
     core_id = "silverstar.core.0_0_9"
     mcu_id = "silverstar.mcu.stm32f407vet6"
     board_id = "silverstar.board.silverstar_0_5"
@@ -543,8 +735,18 @@ def _Components_Get(
             includes=["Platform/Inc", "Platform/STM32F4/Inc", "Drivers/STM32F4xx_HAL_Driver/Inc", "Drivers/STM32F4xx_HAL_Driver/Inc/Legacy", "Drivers/CMSIS/Device/ST/STM32F4xx/Include", "Drivers/CMSIS/Include", "Targets/SilverStar_F407/Inc"],
             defines=["USE_HAL_DRIVER", "STM32F407xx"],
             provides=["mcu.cortex_m4f", "platform.stm32f4", "memory.ccmram", "hardware_provider.stm32_cubemx"],
+            platform=_Stm32F407PlatformContract_Get(),
             build_extra={"mcu_flags": ["-mcpu=cortex-m4", "-mthumb", "-mfpu=fpv4-sp-d16", "-mfloat-abi=hard"], "specs": ["-specs=nano.specs"], "libraries": ["-lc", "-lm", "-lnosys"], "forced_includes": ["Targets/SilverStar_F407/Inc/platform_memory_target.h"], "linker_script": "STM32F407XX_FLASH.ld", "toolchain_prefix": "arm-none-eabi-"},
-            metadata={"vendor": "STM32", "mcu_model": "STM32F407VET6", "display_names": {"zh_CN": "STM32F407VET6", "en_US": "STM32F407VET6"}, "supported_environments": ["silverstar.environment.vscode_eide_gcc"], "supported_toolchains": ["arm-none-eabi-gcc"]},
+            metadata={"vendor": "STM32", "mcu_model": "STM32F407VET6", "display_names": {"zh_CN": "STM32F407VET6", "en_US": "STM32F407VET6"}, "supported_environments": ["silverstar.environment.vscode_eide_gcc"], "supported_toolchains": ["arm-none-eabi-gcc"], "source_origins": {"Platform/Inc/platform_i2c.h": "fccg_extension", "Platform/Inc/platform_can.h": "fccg_extension", "Platform/Inc/platform_pwm.h": "fccg_extension", "Platform/STM32F4/Inc/platform_stm32f4_resources.h": "fccg_extension", "Platform/STM32F4/Src/platform_i2c_stm32f4.c": "fccg_extension", "Platform/STM32F4/Src/platform_can_stm32f4.c": "fccg_extension", "Platform/STM32F4/Src/platform_pwm_stm32f4.c": "fccg_extension", "default": "reference_base"}},
+            overlay_files={
+                "Platform/Inc/platform_i2c.h": "platform/platform_i2c.h",
+                "Platform/Inc/platform_can.h": "platform/platform_can.h",
+                "Platform/Inc/platform_pwm.h": "platform/platform_pwm.h",
+                "Platform/STM32F4/Inc/platform_stm32f4_resources.h": "platform/platform_stm32f4_resources.h",
+                "Platform/STM32F4/Src/platform_i2c_stm32f4.c": "platform/platform_i2c_stm32f4.c",
+                "Platform/STM32F4/Src/platform_can_stm32f4.c": "platform/platform_can_stm32f4.c",
+                "Platform/STM32F4/Src/platform_pwm_stm32f4.c": "platform/platform_pwm_stm32f4.c",
+            },
             docs=["docs/details/PLATFORM_INTERFACE.md", "docs/details/BUILD_AND_TARGETS.md"],
         )
     )
@@ -698,7 +900,15 @@ def _Components_Get(
             "device_group": device_group,
             "device_group_order": device_group_order,
             "device_selection_style": "instance",
+            "device_category": {
+                "imu": "sensor.imu",
+                "gnss": "sensor.gnss",
+                "telemetry": "link.telemetry",
+                "console": "link.maintenance",
+            }[component_class],
         }
+        if component_class == "console":
+            device_metadata["internal"] = True
         facade_bindings: dict[str, dict[str, Any]] = {
             "silverstar.device.imu.jy901b": {
                 "SYSTEM_DEVICE_CLASS_IMU": {"function_prefix": "SystemImu"},
@@ -833,7 +1043,7 @@ def _Components_Get(
             ],
             ["power.voltage", "power.monitor"],
             {
-                "device_category": "sensor",
+                "device_category": "sensor.voltage",
                 "device_group": "other_sensors",
                 "device_group_order": 40,
                 "device_selection_style": "toggle",
@@ -880,7 +1090,7 @@ def _Components_Get(
             ],
             ["actuator.mission_action.launch_ignition"],
             {
-                "device_category": "mission_action_actuator",
+                "device_category": "actuator.mission",
                 "device_group": "actuators",
                 "device_group_order": 50,
                 "device_selection_style": "toggle",
@@ -928,7 +1138,7 @@ def _Components_Get(
             ],
             ["actuator.mission_action.parachute_deploy"],
             {
-                "device_category": "mission_action_actuator",
+                "device_category": "actuator.mission",
                 "device_group": "actuators",
                 "device_group_order": 50,
                 "device_selection_style": "toggle",
@@ -995,7 +1205,7 @@ def _Components_Get(
                 provides=provides,
                 instance_policy={
                     "plugin_max": 1,
-                    "class_max": 4 if component_class == "other_sensor" else 1,
+                    "class_max": 4,
                     "same_plugin_multiple": False,
                     "multi_instance_ready": False,
                 },
@@ -1102,7 +1312,7 @@ def _Components_Get(
                 provides=[f"device.indicator.{indicator_role}_status"],
                 instance_policy={
                     "plugin_max": 1,
-                    "class_max": 1,
+                    "class_max": 8,
                     "same_plugin_multiple": False,
                     "multi_instance_ready": False,
                 },
@@ -1116,7 +1326,7 @@ def _Components_Get(
                     "declarative": True,
                     "logical_device": True,
                     "optional_device": indicator_role == "gnss",
-                    "device_category": "indicator",
+                    "device_category": "indicator.status",
                     "device_group": "indicators",
                     "device_group_order": 45,
                     "device_selection_style": "toggle",
@@ -1366,94 +1576,148 @@ def _Components_Get(
             build_extra={"virtual_sources": ["ThirdParty/FreeRTOS-Kernel/list.c", "ThirdParty/FreeRTOS-Kernel/queue.c", "ThirdParty/FreeRTOS-Kernel/tasks.c"]}, metadata={"display_names": {"zh_CN": "FreeRTOS Kernel 11.3.0", "en_US": "FreeRTOS Kernel 11.3.0"}}, docs=["docs/details/BUILD_AND_TARGETS.md"], version="11.3.0",
         )
     )
+    protocol_source_origin = {
+        "reference_base": {
+            "commit": provenance["commit"],
+            "snapshot_digest": provenance["snapshot_digest"],
+        },
+        "fccg_extension": {
+            "source_root": "tools/reference_overlays",
+            "purpose": "independent protocol ownership and metadata",
+        },
+    }
     components.append(
         _Component(
-            "silverstar.protocol.reference_v0", "SilverStar Protocol Bundle 0.0", "protocol_bundle", "reference_protocols", ["Protocol"],
-            description="Complete AIR, SSLOG, Maintenance protocol sources and documentation.", provenance=provenance,
-            sources=protocol_sources, includes=["Protocol/Inc", "Protocol/SSLOG/Inc"], dependencies=[core_id], provides=["protocol.air", "protocol.sslog", "protocol.maintenance"], metadata={"display_names": {"zh_CN": "SilverStar 协议包 0.0", "en_US": "SilverStar Protocol Bundle 0.0"}}, docs=["docs/details/AIR_PROTOCOL.md", "docs/details/STORAGE_AND_FLIGHT_LOG.md", "docs/details/MAINTENANCE_PROTOCOL.md"],
+            "silverstar.protocol.telemetry.air_m0",
+            "AIR Telemetry Protocol M0",
+            "protocol",
+            "telemetry",
+            [
+                "Protocol/Inc/air_protocol.h",
+                "Protocol/Src/air_protocol.c",
+                "Protocol/metadata/air_m0.json",
+            ],
+            description="AIR M0 telemetry protocol with unchanged wire codec.",
+            provenance=provenance,
+            dependencies=[core_id],
+            provides=["protocol.air"],
+            metadata={
+                "display_names": {
+                    "zh_CN": "AIR遥测协议 M0",
+                    "en_US": "AIR Telemetry Protocol M0",
+                },
+                "source_origins": protocol_source_origin,
+            },
+            docs=["docs/details/AIR_PROTOCOL.md"],
+            overlay_files={
+                "Protocol/metadata/air_m0.json": "protocol/air_m0.json"
+            },
             protocol={
+                "category": "telemetry",
+                "logging_metadata": "Protocol/metadata/air_m0.json",
+                "maintenance_protocol_version": "0.0",
+                "firmware_version": "0.0.9",
+                "documentation_version": "0.0.9",
+                "profiles": {"telemetry": [{
+                    "id": "air.m0", "version": "0.0",
+                    "display_names": {"zh_CN": "AIR遥测协议 M0", "en_US": "AIR Telemetry Protocol M0"},
+                    "service": "telemetry_service", "slot": "telemetry_protocol",
+                    "codec_sources": ["Protocol/Src/air_protocol.c"],
+                    "parser_sources": ["Protocol/Src/air_protocol.c"],
+                    "include_dirs": ["Protocol/Inc"], "defines": [],
+                    "binding": "telemetry_transport",
+                    "transport": {"capability": "transport.packet", "kind": "packet", "minimum_mtu": 50, "ordered": True, "bidirectional": True, "reliable": False, "mode": "datagram"},
+                    "decoder_metadata": "Protocol/metadata/air_m0.json",
+                    "documentation": ["docs/AIR_PROTOCOL.md"],
+                    "host_tests": ["Tests/Host/test_air_kf.c", "Tests/Host/test_telemetry.c"],
+                    "golden_tests": ["Tests/Host/test_air_kf.c", "Tests/Host/test_telemetry.c"],
+                }]},
+            },
+            version="0.0",
+        )
+    )
+    components.append(
+        _Component(
+            "silverstar.protocol.maintenance.serial_0_0",
+            "Serial Maintenance Protocol 0.0",
+            "protocol",
+            "maintenance",
+            ["Protocol/metadata/maintenance_serial_0_0.json"],
+            description="Serial maintenance profile; its unchanged Core source is selected only by this plugin.",
+            provenance=provenance,
+            dependencies=[core_id],
+            provides=["protocol.maintenance"],
+            metadata={
+                "display_names": {"zh_CN": "串口维护协议 0.0", "en_US": "Serial Maintenance Protocol 0.0"},
+                "source_origins": protocol_source_origin,
+            },
+            docs=["docs/details/MAINTENANCE_PROTOCOL.md"],
+            overlay_files={
+                "Protocol/metadata/maintenance_serial_0_0.json": "protocol/maintenance_serial_0_0.json"
+            },
+            protocol={
+                "category": "maintenance",
+                "logging_metadata": "Protocol/metadata/maintenance_serial_0_0.json",
+                "maintenance_protocol_version": "0.0",
+                "firmware_version": "0.0.9",
+                "documentation_version": "0.0.9",
+                "profiles": {"maintenance": [{
+                    "id": "maintenance.serial.0_0", "version": "0.0",
+                    "display_names": {"zh_CN": "串口维护协议 0.0", "en_US": "Serial Maintenance Protocol 0.0"},
+                    "service": "maintenance_service", "slot": "maintenance_protocol",
+                    "codec_sources": ["System/Src/system_console.c"],
+                    "parser_sources": ["System/Src/system_console.c"],
+                    "include_dirs": ["System/Inc", "Interfaces/Inc"], "defines": [],
+                    "binding": "maintenance_console",
+                    "transport": {"capability": "transport.byte_stream", "kind": "byte_stream", "minimum_mtu": 1, "ordered": True, "bidirectional": True, "reliable": True, "mode": "stream"},
+                    "decoder_metadata": "Protocol/metadata/maintenance_serial_0_0.json",
+                    "documentation": ["docs/MAINTENANCE_PROTOCOL.md"],
+                    "host_tests": ["Tests/Host/test_console.c"],
+                    "golden_tests": ["Tests/Host/test_console.c"],
+                }]},
+            },
+            version="0.0",
+        )
+    )
+    components.append(
+        _Component(
+            "silverstar.protocol.logging.sslog_0_0",
+            "Flight Log Format 0.0",
+            "protocol",
+            "logging",
+            ["Protocol/SSLOG"],
+            description="SSLOG 0.0 container, Record Catalog and declarative decoder metadata.",
+            provenance=provenance,
+            dependencies=[core_id],
+            provides=["protocol.sslog"],
+            metadata={
+                "display_names": {"zh_CN": "飞行日志格式 0.0", "en_US": "Flight Log Format 0.0"},
+                "source_origins": protocol_source_origin,
+                "container_decoder": {"id": "silverstar.sslog.container/0.0", "version": "0.0"},
+            },
+            docs=["docs/details/STORAGE_AND_FLIGHT_LOG.md"],
+            protocol={
+                "category": "logging",
                 "logging_metadata": "Protocol/SSLOG/schema/sslog_parser_metadata.json",
                 "maintenance_protocol_version": "0.0",
                 "firmware_version": "0.0.9",
                 "documentation_version": "0.0.9",
-                "profiles": {
-                    "telemetry": [{
-                        "id": "air.m0",
-                        "version": "0.0",
-                        "display_names": {"zh_CN": "AIR遥测协议 M0", "en_US": "AIR Telemetry Protocol M0"},
-                        "service": "telemetry_service",
-                        "slot": "telemetry_protocol",
-                        "codec_sources": ["Protocol/Src/air_protocol.c"],
-                        "parser_sources": ["Protocol/Src/air_protocol.c"],
-                        "include_dirs": ["Protocol/Inc"],
-                        "defines": [],
-                        "binding": "telemetry_transport",
-                        "transport": {
-                            "capability": "transport.packet",
-                            "kind": "packet",
-                            "minimum_mtu": 50,
-                            "ordered": True,
-                            "bidirectional": True,
-                            "reliable": False,
-                            "mode": "datagram",
-                        },
-                        "decoder_metadata": "Protocol/metadata/air_m0.json",
-                        "documentation": ["docs/AIR_PROTOCOL.md"],
-                        "host_tests": ["Tests/Host/test_air_kf.c", "Tests/Host/test_telemetry.c"],
-                        "golden_tests": ["Tests/Host/test_air_kf.c", "Tests/Host/test_telemetry.c"],
-                    }],
-                    "maintenance": [{
-                        "id": "maintenance.serial.0_0",
-                        "version": "0.0",
-                        "display_names": {"zh_CN": "串口维护协议 0.0", "en_US": "Serial Maintenance Protocol 0.0"},
-                        "service": "maintenance_service",
-                        "slot": "maintenance_protocol",
-                        "codec_sources": ["System/Src/system_console.c"],
-                        "parser_sources": ["System/Src/system_console.c"],
-                        "include_dirs": ["System/Inc", "Interfaces/Inc"],
-                        "defines": [],
-                        "binding": "maintenance_console",
-                        "transport": {
-                            "capability": "transport.byte_stream",
-                            "kind": "byte_stream",
-                            "minimum_mtu": 1,
-                            "ordered": True,
-                            "bidirectional": True,
-                            "reliable": True,
-                            "mode": "stream",
-                        },
-                        "decoder_metadata": "Protocol/metadata/maintenance_serial_0_0.json",
-                        "documentation": ["docs/MAINTENANCE_PROTOCOL.md"],
-                        "host_tests": ["Tests/Host/test_console.c"],
-                        "golden_tests": ["Tests/Host/test_console.c"],
-                    }],
-                    "logging": [{
-                        "id": "flight_log.0_0",
-                        "version": "0.0",
-                        "display_names": {"zh_CN": "飞行日志格式 0.0", "en_US": "Flight Log Format 0.0"},
-                        "service": "flight_log_service",
-                        "slot": "log_format",
-                        "codec_sources": ["Protocol/SSLOG/Src/sslog_protocol.c", "Protocol/SSLOG/Src/sslog_records.c"],
-                        "parser_sources": ["Protocol/SSLOG/Src/sslog_protocol.c"],
-                        "include_dirs": ["Protocol/SSLOG/Inc"],
-                        "defines": [],
-                        "binding": "flight_log_sink",
-                        "transport": {
-                            "capability": "transport.sequential_file_sink",
-                            "kind": "sequential_file_sink",
-                            "minimum_mtu": 280,
-                            "ordered": True,
-                            "bidirectional": False,
-                            "reliable": True,
-                            "mode": "file",
-                        },
-                        "decoder_metadata": "Protocol/SSLOG/schema/sslog_parser_metadata.json",
-                        "documentation": ["docs/STORAGE_AND_FLIGHT_LOG.md"],
-                        "host_tests": ["Tests/Host/test_logger.c", "Tests/Host/test_device_native_log.c"],
-                        "golden_tests": ["Tests/Host/test_logger.c"],
-                    }],
-                },
+                "profiles": {"logging": [{
+                    "id": "flight_log.0_0", "version": "0.0",
+                    "display_names": {"zh_CN": "飞行日志格式 0.0", "en_US": "Flight Log Format 0.0"},
+                    "service": "flight_log_service", "slot": "log_format",
+                    "codec_sources": ["Protocol/SSLOG/Src/sslog_protocol.c", "Protocol/SSLOG/Src/sslog_records.c"],
+                    "parser_sources": ["Protocol/SSLOG/Src/sslog_protocol.c"],
+                    "include_dirs": ["Protocol/SSLOG/Inc"], "defines": [],
+                    "binding": "flight_log_sink",
+                    "transport": {"capability": "transport.sequential_file_sink", "kind": "sequential_file_sink", "minimum_mtu": 280, "ordered": True, "bidirectional": False, "reliable": True, "mode": "file"},
+                    "decoder_metadata": "Protocol/SSLOG/schema/sslog_parser_metadata.json",
+                    "documentation": ["docs/STORAGE_AND_FLIGHT_LOG.md"],
+                    "host_tests": ["Tests/Host/test_logger.c", "Tests/Host/test_device_native_log.c"],
+                    "golden_tests": ["Tests/Host/test_logger.c"],
+                }]},
             },
+            version="0.0",
         )
     )
     components.append(
@@ -2257,50 +2521,26 @@ def _PowerTenChecker_Adapt(path: Path, policy: WorkspacePolicy) -> None:
 def _ProtocolProfileMetadata_Write(
     staged_builtin: Path, policy: WorkspacePolicy
 ) -> None:
-    metadata_root = (
+    del policy
+    expected = (
         staged_builtin
-        / "silverstar_protocol_reference_v0"
+        / "silverstar_protocol_telemetry_air_m0"
         / "payload"
         / "Protocol"
         / "metadata"
+        / "air_m0.json",
+        staged_builtin
+        / "silverstar_protocol_maintenance_serial_0_0"
+        / "payload"
+        / "Protocol"
+        / "metadata"
+        / "maintenance_serial_0_0.json",
     )
-    documents = {
-        "air_m0.json": {
-            "format_version": 1,
-            "profile_id": "air.m0",
-            "service": "telemetry_service",
-            "slot": "telemetry_protocol",
-            "wire_value": 0,
-            "framing": "packet",
-            "minimum_mtu": 50,
-            "sensor_status": {
-                "message_type": "AIR_TYPE_SENSOR_STATUS",
-                "device_identity_fields": ["sensor_id", "instance_id"],
-                "wire_layout_unchanged": True,
-            },
-        },
-        "maintenance_serial_0_0.json": {
-            "format_version": 1,
-            "profile_id": "maintenance.serial.0_0",
-            "service": "maintenance_service",
-            "slot": "maintenance_protocol",
-            "framing": "utf8_line",
-            "transport": "byte_stream",
-            "device_addressing": {
-                "classes": ["IMU", "BARO", "GNSS"],
-                "instance_range": [0, 255],
-                "identity_fields": [
-                    "descriptor_id",
-                    "instance_id",
-                    "physical_device_id",
-                ],
-            },
-        },
-    }
-    for filename, document in documents.items():
-        policy.Text_AtomicWrite(
-            metadata_root / filename,
-            json.dumps(document, ensure_ascii=False, indent=2) + "\n",
+    missing = [str(path) for path in expected if not path.is_file()]
+    if missing:
+        raise RuntimeError(
+            "FCCG-owned protocol metadata overlay is incomplete: "
+            + ", ".join(missing)
         )
 
 
@@ -2696,8 +2936,89 @@ def _ImportedDocumentation_Adapt(
         adapted = content
         for old, new in replacements:
             adapted = adapted.replace(old, new)
+        package_name = path.parent.parent.name
+        if (
+            package_name == "silverstar_mcu_stm32f407vet6"
+            and path.name == "PLATFORM_INTERFACE.md"
+        ):
+            adapted += """
+
+## 8. FCCG Platform插件扩展与所有权
+
+本节以及`tools/reference_overlays/platform/`中的I²C、Classic CAN和PWM实现属于FCCG，
+不属于外部参考固件commit。reference importer先复制只读snapshot，再重放这些overlay；
+最终manifest的`metadata.source_origins`分别标记`reference_base`和`fccg_extension`。
+
+F407 Platform manifest声明资源header、getter、Platform ABI、CubeMX匹配规则和条件backend。
+只有实际硬件inventory包含相应资源且已选Device确实分配该资源时，Source Graph才加入backend：
+
+- I²C：7-bit未左移地址、阻塞master读写和memory-register读写；不声明通用repeated-start；
+- Classic CAN：bxCAN标准/扩展ID、0..8-byte data frame、有界收发和静态诊断；每个物理CAN当前只允许一个上层owner；
+- PWM：普通非互补输出、整数permille duty和安全inactive compare；频率、极性、ARR及channel由CubeMX静态确定。
+
+默认SS0.5没有I²C/CAN/PWM分配，因此不编译这些backend，也不加入无关HAL I²C/CAN源码。
+当前production support仍仅为STM32F407VET6/SS0.5；renderer可消费其他Platform契约不代表其他MCU已经验证。
+"""
+        protocol_notes = {
+            "silverstar_protocol_telemetry_air_m0": (
+                "遥测", "`air.m0`", "AIR M0 codec字节保持参考snapshot不变"
+            ),
+            "silverstar_protocol_maintenance_serial_0_0": (
+                "维护", "`maintenance.serial.0_0`", "System Console源码仍由Core payload承载，但只由本Profile加入Source Graph"
+            ),
+            "silverstar_protocol_logging_sslog_0_0": (
+                "日志", "`flight_log.0_0`", "本插件独立拥有SSLOG 0.0容器、Record Catalog和decoder metadata"
+            ),
+        }
+        if package_name in protocol_notes:
+            category, profile, ownership = protocol_notes[package_name]
+            adapted += f"""
+
+## FCCG独立协议插件归属
+
+FCCG将本协议作为必选的单一`{category}`类别插件，当前Profile为{profile}。
+{ownership}。拆分只改变构建归属、项目锁和声明式metadata，不改变任何现有wire/Record字节。
+项目锁定component、version、Profile和manifest SHA-256；`.ssdecoder`只携带数据与语义，不携带或执行解析代码。
+"""
         if adapted != content:
             policy.Text_AtomicWrite(path, adapted)
+
+
+def _BuiltinReadme_Render(manifest: dict[str, Any], provenance: dict[str, Any]) -> str:
+    source_origins = manifest.get("metadata", {}).get("source_origins")
+    origin_text = (
+        "Reference-derived files retain the recorded snapshot provenance; "
+        "FCCG-owned overlays are replayed from `tools/reference_overlays/` and "
+        "are identified separately in `metadata.source_origins`."
+        if source_origins
+        else "The payload retains its recorded read-only reference provenance."
+    )
+    details = ""
+    if manifest["type"] == "protocol":
+        protocol = manifest["protocol"]
+        category = protocol["category"]
+        profiles = ", ".join(
+            profile["id"] for profile in protocol["profiles"][category]
+        )
+        details = (
+            f"\n\nThis plugin owns only the `{category}` protocol category "
+            f"and Profile {profiles}. It changes build ownership and declarative "
+            "metadata only; current wire/Record bytes remain unchanged."
+        )
+    elif manifest["type"] == "mcu" and "platform" in manifest:
+        details = (
+            "\n\nThis MCU/Platform plugin declares automatic CubeMX matching, "
+            "the Platform resource-binding ABI, and conditionally selected I2C, "
+            "Classic CAN, and PWM backends. Production validation remains limited "
+            "to STM32F407VET6/SS0.5."
+        )
+    return (
+        f"# {manifest['name']}\n\n"
+        f"Declarative SilverStar_FCCG builtin `{manifest['type']}` plugin.\n\n"
+        f"Reference baseline: `{provenance['branch']}` at "
+        f"`{provenance['commit']}`. {origin_text} Plugin payload is data and is "
+        f"never executed.{details}\n"
+    )
 
 
 def Components_Import(reference: Path, *, force: bool = False) -> dict[str, Any]:
@@ -2729,9 +3050,26 @@ def Components_Import(reference: Path, *, force: bool = False) -> dict[str, Any]
             package_root = staged_builtin / slug
             payload_root = package_root / "payload"
             package_root.mkdir(parents=True)
+            overlay_files = component.get("overlay_files", {})
             for relative_text in manifest["payload"]["roots"]:
                 relative = Path(*relative_text.split("/"))
-                _Tree_Copy(policy, reference / relative, payload_root / relative)
+                overlay_source = overlay_files.get(relative_text)
+                if overlay_source is not None:
+                    policy.File_Copy(
+                        REFERENCE_OVERLAY_ROOT
+                        / Path(*overlay_source.split("/")),
+                        payload_root / relative,
+                    )
+                else:
+                    _Tree_Copy(policy, reference / relative, payload_root / relative)
+            root_names = set(manifest["payload"]["roots"])
+            for target_text, overlay_text in sorted(overlay_files.items()):
+                if target_text in root_names:
+                    continue
+                policy.File_Copy(
+                    REFERENCE_OVERLAY_ROOT / Path(*overlay_text.split("/")),
+                    payload_root / Path(*target_text.split("/")),
+                )
             for doc_text in component["docs"]:
                 source = reference / Path(*doc_text.split("/"))
                 if source.is_file():
@@ -2740,12 +3078,7 @@ def Components_Import(reference: Path, *, force: bool = False) -> dict[str, Any]
                 package_root / "plugin.json",
                 json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
             )
-            readme = (
-                f"# {manifest['name']}\n\n"
-                f"Declarative SilverStar_FCCG builtin `{manifest['type']}` plugin.\n\n"
-                f"Imported read-only from `{provenance['branch']}` at "
-                f"`{provenance['commit']}`. Plugin payload is data and is never executed.\n"
-            )
+            readme = _BuiltinReadme_Render(manifest, provenance)
             policy.Text_AtomicWrite(package_root / "README.md", readme)
         _ArchitectureChecker_Adapt(
             staged_builtin
@@ -2797,7 +3130,7 @@ def Components_Import(reference: Path, *, force: bool = False) -> dict[str, Any]
         _ProtocolProfileMetadata_Write(staged_builtin, policy)
         _ProtocolMetadata_Adapt(
             staged_builtin
-            / "silverstar_protocol_reference_v0"
+            / "silverstar_protocol_logging_sslog_0_0"
             / "payload"
             / "Protocol"
             / "SSLOG"
@@ -2806,6 +3139,38 @@ def Components_Import(reference: Path, *, force: bool = False) -> dict[str, Any]
             REFERENCE_OVERLAY_ROOT / "sslog_fccg_metadata.json",
             policy,
         )
+        protocol_targets = {
+            "Protocol/Src/air_protocol.c": (
+                "silverstar_protocol_telemetry_air_m0",
+                "Protocol/Src/air_protocol.c",
+            ),
+            "System/Src/system_console.c": (
+                "silverstar_core_0_0_9",
+                "System/Src/system_console.c",
+            ),
+            "Protocol/SSLOG/Src/sslog_protocol.c": (
+                "silverstar_protocol_logging_sslog_0_0",
+                "Protocol/SSLOG/Src/sslog_protocol.c",
+            ),
+            "Protocol/SSLOG/Src/sslog_records.c": (
+                "silverstar_protocol_logging_sslog_0_0",
+                "Protocol/SSLOG/Src/sslog_records.c",
+            ),
+        }
+        for reference_path, (package, payload_path) in protocol_targets.items():
+            actual = hashlib.sha256(
+                (
+                    staged_builtin
+                    / package
+                    / "payload"
+                    / Path(*payload_path.split("/"))
+                ).read_bytes()
+            ).hexdigest()
+            expected = provenance["protocol_source_sha256"][reference_path]
+            if actual != expected:
+                raise RuntimeError(
+                    f"Protocol source changed during plugin split: {reference_path}"
+                )
         policy.Text_AtomicWrite(
             staged_builtin
             / "silverstar_board_silverstar_0_5"

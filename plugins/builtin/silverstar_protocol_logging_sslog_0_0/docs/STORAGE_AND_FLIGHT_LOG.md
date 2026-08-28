@@ -276,3 +276,10 @@ Storage/Log失败不得阻止、拒绝或回滚START、Deploy或Landing；它只
 ## 13. 验收边界
 
 Host测试覆盖29类payload双向codec字节往返、Record长度、endian、完整Record解码错误、CRC、descriptor、stream policy、queue和finalization；同时验证双实例Native分流/独立去重/故障隔离、Decoder Profile三项hash与one-shot调用，以及STATS/TELEMETRY_DIAG生产路径。架构检查验证真实producer、Count/Instance facade、Catalog/C mirror、无registry/heap、Host fixture不进入Target图，并确认authoritative manifest不调用Python或生成器。ARM编译证明F407 Storage/Log Board Service可链接；没有TF卡长时间写入、断电注入和文件恢复实测时，不得声称Storage硬件已经验证。
+
+
+## FCCG独立协议插件归属
+
+FCCG将本协议作为必选的单一`日志`类别插件，当前Profile为`flight_log.0_0`。
+本插件独立拥有SSLOG 0.0容器、Record Catalog和decoder metadata。拆分只改变构建归属、项目锁和声明式metadata，不改变任何现有wire/Record字节。
+项目锁定component、version、Profile和manifest SHA-256；`.ssdecoder`只携带数据与语义，不携带或执行解析代码。

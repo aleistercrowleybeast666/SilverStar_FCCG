@@ -24,6 +24,7 @@ from silverstar_fccg.core.view_models import (
     ComponentType,
     ComponentView,
     DeviceInstanceView,
+    PlatformMatchView,
     ResourceRequirementView,
 )
 from silverstar_fccg.core.errors import FccgError
@@ -38,7 +39,13 @@ from silverstar_fccg.generator.render import LogDecoderProfile_Render
 from silverstar_fccg.generator.hardware_preparation import (
     HardwarePreparationFingerprint_Get,
 )
-from silverstar_fccg.hardware import BoardPluginExporter, CubeMxImportResult, CubeMxImporter
+from silverstar_fccg.hardware import (
+    BoardPluginExporter,
+    CubeMxImportResult,
+    CubeMxImporter,
+    DetectedMcuFacts,
+    PlatformMatch_Resolve,
+)
 from silverstar_fccg.plugins.catalog import PluginCatalog
 from silverstar_fccg.plugins.installer import PluginInstaller
 from silverstar_fccg.plugins.manifest import PluginManifest
@@ -728,19 +735,18 @@ class FccgService:
         risk_acknowledged: bool,
         progress_callback: Callable[[int, int, str, bool], None] | None = None,
     ) -> CubeMxImportResult:
-        mcu = self.catalog.Component_Get(model.mcu)
-        expected_mcu = str(mcu.metadata.get("mcu_model", mcu.name))
         providers = [
             component
             for component in self.catalog.Type_Get("hardware_configuration_provider")
             if component.hardware_provider is not None
-            and component.hardware_provider.vendor == str(mcu.metadata.get("vendor", ""))
+            and component.hardware_provider.handler == "stm32_cubemx"
         ]
         if len(providers) != 1:
-            raise ValueError("Selected MCU requires exactly one compatible hardware provider")
+            raise ValueError(
+                "CubeMX import requires exactly one STM32CubeMX provider"
+            )
         return self.hardware_importer.Project_Import(
             input_path,
-            expected_mcu=expected_mcu,
             provider_id=providers[0].component_id,
             risk_acknowledged=risk_acknowledged,
             progress_callback=progress_callback,
@@ -756,6 +762,77 @@ class FccgService:
             and component.hardware_provider.vendor == vendor
         ]
         return providers[0] if len(providers) == 1 else ""
+
+    def PlatformMatchView_Get(
+        self, model: ProjectModel, language: str = "zh_CN"
+    ) -> PlatformMatchView:
+        inventory = model.hardware.inventory
+        provider_id = model.hardware.provider
+        if not provider_id and model.board:
+            board = self.catalog.Component_Get(model.board)
+            if board.board is not None:
+                provider_id = board.board.provider
+        if not inventory or not provider_id:
+            return PlatformMatchView(
+                hardware_source=model.hardware.source_kind,
+                error="CubeMX hardware inventory has not been imported",
+            )
+        provider_manifest = self.catalog.Component_Get(provider_id)
+        provider = provider_manifest.hardware_provider
+        if provider is None:
+            return PlatformMatchView(
+                hardware_source=model.hardware.source_kind,
+                error="Hardware provider contract is unavailable",
+            )
+        facts = DetectedMcuFacts(
+            vendor=provider.vendor,
+            part=str(inventory.get("mcu_part", model.hardware.mcu)),
+            family=str(inventory.get("mcu_family", "")),
+            package=str(inventory.get("package", "")),
+            core=str(inventory.get("core", "")),
+            provider=provider.handler,
+        )
+        try:
+            match = PlatformMatch_Resolve(facts, self.catalog)
+        except FccgError as error:
+            return PlatformMatchView(
+                hardware_source=model.hardware.source_kind,
+                detected_part=facts.part,
+                detected_family=facts.family,
+                detected_package=facts.package,
+                detected_core=facts.core,
+                error=str(error),
+            )
+        manifest = self.catalog.Component_Get(match.selected.component_id)
+        reference = manifest.metadata.get("reference", {})
+        provenance = ""
+        if isinstance(reference, dict):
+            commit = str(reference.get("commit", ""))
+            snapshot = str(reference.get("snapshot_digest", ""))
+            provenance = " / ".join(
+                value
+                for value in (
+                    f"commit {commit[:12]}" if commit else "",
+                    f"snapshot {snapshot[:12]}" if snapshot else "",
+                    manifest.source,
+                )
+                if value
+            )
+        return PlatformMatchView(
+            hardware_source=model.hardware.source_kind,
+            detected_part=facts.part,
+            detected_family=facts.family,
+            detected_package=facts.package,
+            detected_core=facts.core,
+            component_id=manifest.component_id,
+            component_name=manifest.DisplayName_Get(language),
+            reason=match.selected.reason,
+            priority=match.selected.rule.priority,
+            specificity=match.selected.rule.specificity,
+            verification=match.selected.rule.verification,
+            provenance=provenance,
+            valid=True,
+        )
 
     def CustomBoardPlugin_Export(
         self,

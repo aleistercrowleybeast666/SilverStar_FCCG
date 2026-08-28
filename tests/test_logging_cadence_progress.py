@@ -277,7 +277,7 @@ def test_logging_bulk_selection_respects_availability_and_configuration_refresh(
             window._model.ComponentIds_Get(),
             deepcopy(window._model.strategies),
             deepcopy(window._model.modes),
-            deepcopy(window._model.protocol_profiles),
+            deepcopy(window._model.protocols),
             deepcopy(window._model.resource_assignments),
         )
 
@@ -306,7 +306,7 @@ def test_logging_bulk_selection_respects_availability_and_configuration_refresh(
             window._model.ComponentIds_Get(),
             window._model.strategies,
             window._model.modes,
-            window._model.protocol_profiles,
+            window._model.protocols,
             window._model.resource_assignments,
         ) == unrelated_configuration
 

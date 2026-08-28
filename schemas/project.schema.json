@@ -5,12 +5,12 @@
   "type": "object",
   "required": [
     "format_version", "project", "components", "modes", "mode_parameters",
-    "protocol_profiles", "hardware",
+    "protocols", "hardware",
     "resources", "capability_sources", "logging", "log_decoder_profile", "build", "generated_glue",
     "component_provenance", "reference_provenance"
   ],
   "properties": {
-    "format_version": {"const": 7},
+    "format_version": {"const": 8},
     "project": {
       "type": "object",
       "required": ["name", "firmware_version", "build_target"],
@@ -23,7 +23,7 @@
     },
     "components": {
       "type": "object",
-      "required": ["core", "mcu", "board", "os", "devices", "base", "strategies", "protocol_bundles", "development_environment"],
+      "required": ["core", "mcu", "board", "os", "devices", "base", "strategies", "development_environment"],
       "properties": {
         "core": {"$ref": "#/$defs/componentId"},
         "mcu": {"$ref": "#/$defs/componentId"},
@@ -40,7 +40,6 @@
           "propertyNames": {"$ref": "#/$defs/lowerIdentifier"},
           "additionalProperties": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/componentId"}]}
         },
-        "protocol_bundles": {"$ref": "#/$defs/componentIds"},
         "development_environment": {"$ref": "#/$defs/componentId"}
       },
       "additionalProperties": false
@@ -66,10 +65,15 @@
         }
       }
     },
-    "protocol_profiles": {
+    "protocols": {
       "type": "object",
-      "propertyNames": {"$ref": "#/$defs/lowerIdentifier"},
-      "additionalProperties": {"$ref": "#/$defs/lowerIdentifier"}
+      "required": ["telemetry", "maintenance", "logging"],
+      "properties": {
+        "telemetry": {"$ref": "#/$defs/protocolSelection"},
+        "maintenance": {"$ref": "#/$defs/protocolSelection"},
+        "logging": {"$ref": "#/$defs/protocolSelection"}
+      },
+      "additionalProperties": false
     },
     "hardware": {
       "type": "object",
@@ -86,6 +90,9 @@
         "snapshot_id": {"oneOf": [{"const": ""}, {"$ref": "#/$defs/sha256"}]},
         "ioc_file": {"type": "string", "pattern": "^(?:[A-Za-z0-9_./+@-]+)?$"},
         "mcu": {"type": "string"},
+        "platform_component": {"oneOf": [{"const": ""}, {"$ref": "#/$defs/componentId"}]},
+        "platform_version": {"oneOf": [{"const": ""}, {"$ref": "#/$defs/version"}]},
+        "platform_manifest_sha256": {"oneOf": [{"const": ""}, {"$ref": "#/$defs/sha256"}]},
         "capabilities": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/lowerIdentifier"}},
         "inventory": {"type": "object"},
         "resources": {
@@ -211,6 +218,19 @@
       "properties": {
         "instance_id": {"$ref": "#/$defs/instanceId"},
         "plugin": {"$ref": "#/$defs/componentId"}
+      },
+      "additionalProperties": false
+    },
+    "protocolSelection": {
+      "type": "object",
+      "required": ["component", "version", "profile", "manifest_sha256"],
+      "properties": {
+        "component": {"$ref": "#/$defs/componentId"},
+        "version": {"$ref": "#/$defs/version"},
+        "profile": {"$ref": "#/$defs/lowerIdentifier"},
+        "manifest_sha256": {
+          "oneOf": [{"const": ""}, {"$ref": "#/$defs/sha256"}]
+        }
       },
       "additionalProperties": false
     },

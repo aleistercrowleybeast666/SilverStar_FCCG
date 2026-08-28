@@ -4,6 +4,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from silverstar_fccg.plugins.manifest import PluginManifest_Load
+from silverstar_fccg.hardware.platform import (
+    DetectedMcuFacts_FromInventory,
+    PlatformMatch_Resolve,
+)
 from silverstar_fccg.project.logging import (
     LoggingProfile_SelectAllAvailable,
     ProtocolLogDefinitions_Load,
@@ -19,12 +23,13 @@ from silverstar_fccg.project.model import (
     LogStreamConfig,
     ProjectIdentity,
     ProjectModel,
+    ProtocolSelection,
 )
+from silverstar_fccg.project.resources import BoardHardwareInventory_Get
 
 
 REFERENCE_COMPONENT_IDS = {
     "core": "silverstar.core.0_0_9",
-    "mcu": "silverstar.mcu.stm32f407vet6",
     "board": "silverstar.board.silverstar_0_5",
     "os": "silverstar.os.freertos_11_3_0",
     "jy901b": "silverstar.device.imu.jy901b",
@@ -46,7 +51,9 @@ REFERENCE_COMPONENT_IDS = {
     "deployment": "silverstar.flight_logic.deployment.multi_trigger",
     "landing_common": "silverstar.flight_logic.landing.baro_imu_window",
     "landing": "silverstar.flight_logic.landing.baro_imu_window_strategy",
-    "protocol": "silverstar.protocol.reference_v0",
+    "protocol_telemetry": "silverstar.protocol.telemetry.air_m0",
+    "protocol_maintenance": "silverstar.protocol.maintenance.serial_0_0",
+    "protocol_logging": "silverstar.protocol.logging.sslog_0_0",
     "environment": "silverstar.environment.vscode_eide_gcc",
     "hardware_provider": "silverstar.hardware_provider.stm32_cubemx",
 }
@@ -63,7 +70,7 @@ def ProtocolDefaultStreams_Get() -> list[LogStreamConfig]:
         repository_root
         / "plugins"
         / "builtin"
-        / "silverstar_protocol_reference_v0"
+        / "silverstar_protocol_logging_sslog_0_0"
         / "plugin.json"
     )
     return [
@@ -111,10 +118,59 @@ def ReferenceProject_Create(
     catalog: PluginCatalog | None = None,
 ) -> ProjectModel:
     ids = REFERENCE_COMPONENT_IDS
+    if catalog is None:
+        from silverstar_fccg.plugins.catalog import PluginCatalog
+
+        repository_root = Path(__file__).resolve().parents[3]
+        catalog = PluginCatalog(
+            repository_root / "plugins" / "builtin",
+            repository_root / "plugins" / "installed",
+        )
+        catalog.Scan()
+
+    protocol_components = {
+        "telemetry": ids["protocol_telemetry"],
+        "maintenance": ids["protocol_maintenance"],
+        "logging": ids["protocol_logging"],
+    }
+    protocols = {
+        category: ProtocolSelection(
+            component=component_id,
+            version=catalog.Component_Get(component_id).version,
+            profile={
+                "telemetry": "air.m0",
+                "maintenance": "maintenance.serial.0_0",
+                "logging": "flight_log.0_0",
+            }[category],
+            manifest_sha256=(
+                catalog.Component_Get(component_id).ManifestSha256_Get()
+            ),
+        )
+        for category, component_id in protocol_components.items()
+    }
+    board_manifest = catalog.Component_Get(ids["board"])
+    inventory = BoardHardwareInventory_Get(board_manifest)
+    if inventory is None or board_manifest.board is None:
+        raise ValueError("Reference Board has no CubeMX hardware inventory")
+    provider_manifest = catalog.Component_Get(board_manifest.board.provider)
+    provider = provider_manifest.hardware_provider
+    if provider is None:
+        raise ValueError("Reference Board has no hardware provider contract")
+    platform_match = PlatformMatch_Resolve(
+        DetectedMcuFacts_FromInventory(
+            inventory,
+            vendor=provider.vendor,
+            provider=provider.handler,
+        ),
+        catalog,
+    )
+    platform_manifest = catalog.Component_Get(
+        platform_match.selected.component_id
+    )
     model = ProjectModel(
         identity=ProjectIdentity(name=name),
         core=ids["core"],
-        mcu=ids["mcu"],
+        mcu=platform_match.selected.component_id,
         board=ids["board"],
         os=ids["os"],
         device_instances=[
@@ -145,25 +201,32 @@ def ReferenceProject_Create(
             "calibration": ["Existing", "OneFace", "SixFace"],
             "deployment": ["ApogeeVerticalVelocity", "Tilt"],
         },
-        protocol_bundles=[ids["protocol"]],
+        protocols=protocols,
         development_environment=ids["environment"],
         hardware=HardwareConfiguration(
             mode="board_plugin",
             source_kind="verified_builtin",
+            provider=board_manifest.board.provider,
+            ioc_file=board_manifest.board.ioc_file,
+            mcu=inventory.mcu_part,
+            platform_component=platform_manifest.component_id,
+            platform_version=platform_manifest.version,
+            platform_manifest_sha256=platform_manifest.ManifestSha256_Get(),
+            capabilities=tuple(
+                sorted(
+                    {
+                        f"peripheral.{resource.kind}"
+                        for resource in inventory.HardwareResources_Get()
+                    }
+                )
+            ),
+            inventory=inventory.Dictionary_Get(),
+            source_label=board_manifest.name,
         ),
         resource_assignments=ReferenceResourceAssignments_Get(),
         logging_streams=ProtocolDefaultStreams_Get(),
         build=BuildOptions(),
         reference_provenance=dict(reference_provenance or {}),
     )
-    if catalog is None:
-        from silverstar_fccg.plugins.catalog import PluginCatalog
-
-        repository_root = Path(__file__).resolve().parents[3]
-        catalog = PluginCatalog(
-            repository_root / "plugins" / "builtin",
-            repository_root / "plugins" / "installed",
-        )
-        catalog.Scan()
     LoggingProfile_SelectAllAvailable(model, catalog)
     return model

@@ -66,13 +66,21 @@ def test_reference_import_definition_preserves_current_fccg_overlays(
     monkeypatch.setattr(
         reference_import, "_ManifestValues_Get", lambda *_arguments: []
     )
-    components = reference_import._Components_Get(Path("unused"), {})
+    components = reference_import._Components_Get(
+        Path("unused"),
+        {"commit": "fixture-commit", "snapshot_digest": "fixture-snapshot"},
+    )
     manifests = {
         component["manifest"]["id"]: component["manifest"]
         for component in components
     }
 
-    assert len(manifests) == 31
+    assert len(manifests) == 33
+    assert {
+        "silverstar.protocol.telemetry.air_m0",
+        "silverstar.protocol.maintenance.serial_0_0",
+        "silverstar.protocol.logging.sslog_0_0",
+    }.issubset(manifests)
     board = manifests["silverstar.board.silverstar_0_5"]
     assert board["name"] == "SS0.5"
     assert board["metadata"]["build_symbol"] == "SILVERSTAR_0_5"
@@ -112,6 +120,35 @@ def test_reference_import_definition_preserves_current_fccg_overlays(
         "silverstar.device.actuator.launch_ignition",
         "silverstar.device.actuator.parachute_pyro",
     }.issubset(manifests)
+
+
+def test_manifest_reference_provenance_excludes_dynamic_audit_fields() -> None:
+    first = reference_import._ManifestReferenceProvenance_Get(
+        {
+            "path": r"C:\reference-a",
+            "branch": "main",
+            "commit": "abc123",
+            "snapshot_digest": "def456",
+            "recorded_at_utc": "2026-08-28T00:00:00+00:00",
+            "status": [],
+        }
+    )
+    second = reference_import._ManifestReferenceProvenance_Get(
+        {
+            "path": r"D:\reference-b",
+            "branch": "detached",
+            "commit": "abc123",
+            "snapshot_digest": "def456",
+            "recorded_at_utc": "2026-08-29T00:00:00+00:00",
+            "status": ["ignored-for-manifest-lock"],
+        }
+    )
+
+    assert first == second == {
+        "source_kind": "reference_snapshot",
+        "commit": "abc123",
+        "snapshot_digest": "def456",
+    }
 
 
 def test_reference_payload_sync_and_environment_templates_are_read_only(
@@ -184,17 +221,17 @@ def test_reference_payload_sync_and_environment_templates_are_read_only(
         ),
         (
             "Protocol/SSLOG/schema/sslog_schema.json",
-            "plugins/builtin/silverstar_protocol_reference_v0/payload/"
+            "plugins/builtin/silverstar_protocol_logging_sslog_0_0/payload/"
             "Protocol/SSLOG/schema/sslog_schema.json",
         ),
         (
             "Protocol/SSLOG/Inc/sslog_records.h",
-            "plugins/builtin/silverstar_protocol_reference_v0/payload/"
+            "plugins/builtin/silverstar_protocol_logging_sslog_0_0/payload/"
             "Protocol/SSLOG/Inc/sslog_records.h",
         ),
         (
             "Protocol/SSLOG/Src/sslog_records.c",
-            "plugins/builtin/silverstar_protocol_reference_v0/payload/"
+            "plugins/builtin/silverstar_protocol_logging_sslog_0_0/payload/"
             "Protocol/SSLOG/Src/sslog_records.c",
         ),
         (
@@ -441,7 +478,7 @@ def test_protocol_can_add_a_record_without_fccg_source_changes(
         workspace_root
         / "plugins"
         / "builtin"
-        / "silverstar_protocol_reference_v0"
+        / "silverstar_protocol_logging_sslog_0_0"
         / "payload"
         / "Protocol"
         / "SSLOG"
@@ -481,7 +518,7 @@ def test_reference_import_restores_protocol_owned_fccg_metadata(
         workspace_root
         / "plugins"
         / "builtin"
-        / "silverstar_protocol_reference_v0"
+        / "silverstar_protocol_logging_sslog_0_0"
         / "payload"
         / "Protocol"
         / "SSLOG"
@@ -634,7 +671,10 @@ def test_cubemx_inventory_covers_all_supported_resource_categories() -> None:
         "sck": "PB13",
     }
     assert inventory.adcs[0].pins == {"in8": "PB0"}
-    assert inventory.pwms[0].pins == {"ch1": "PA6"}
+    assert inventory.pwms[0].pins == {"out": "PA6"}
+    assert inventory.pwms[0].instance == "TIM3_CH1"
+    assert inventory.pwms[0].settings["physical_resource"] == "TIM3:CH1"
+    assert inventory.cans[0].kind == "can_classic"
     assert inventory.dmas[0].instance == "DMA1_Stream3"
     assert inventory.nvic[0].enabled
     assert inventory.clocks["RCC.APB1Freq_Value"] == 42_000_000
@@ -864,6 +904,7 @@ def test_other_sensors_are_plugin_driven_and_empty_state_stays_visible(qapp) -> 
             project_max=4,
             same_plugin_multiple=True,
             multi_instance_ready=True,
+            options={"device_category": "sensor.temperature"},
         )
         for index in (1, 2)
     )
@@ -883,12 +924,12 @@ def test_other_sensors_are_plugin_driven_and_empty_state_stays_visible(qapp) -> 
         same_plugin_multiple=True,
         multi_instance_ready=True,
     )
-    page.Configuration_Set((), "", components, (instance,))
+    page.Configuration_Set(components, (instance,))
     assert page.device_checks[components[0].component_id].isChecked()
     page.device_checks[components[1].component_id].setChecked(True)
     qapp.processEvents()
     assert emitted[-1] == ("fixture.device.sensor_2", True)
-    page.Configuration_Set((), "", (), ())
+    page.Configuration_Set((), ())
     assert not page.device_checks
     assert not page.other_group.isHidden()
     assert not page.other_empty_label.isHidden()
@@ -909,8 +950,9 @@ def test_instance_device_rows_expose_add_and_remove_actions(qapp) -> None:
         same_plugin_multiple=True,
         multi_instance_ready=True,
         options={
-            "device_selection_style": "instance",
-            "device_group": "primary_devices",
+                "device_selection_style": "instance",
+                "device_category": "sensor.imu",
+                "device_group": "primary_devices",
             "device_group_order": 20,
         },
     )
@@ -934,7 +976,7 @@ def test_instance_device_rows_expose_add_and_remove_actions(qapp) -> None:
         lambda instance_id, plugin_id: changes.append((instance_id, plugin_id))
     )
     page.instanceAddRequested.connect(additions.append)
-    page.Configuration_Set((), "", (component,), (instance,))
+    page.Configuration_Set((component,), (instance,))
     try:
         assert "imu0" in page.remove_buttons
         assert "imu" in page.add_buttons
@@ -951,6 +993,7 @@ def test_instance_device_row_can_add_a_different_singleton_model(qapp) -> None:
     page = DevicesPage(translator)
     options = {
         "device_selection_style": "instance",
+        "device_category": "sensor.imu",
         "device_group": "primary_devices",
         "device_group_order": 20,
     }
@@ -996,7 +1039,7 @@ def test_instance_device_row_can_add_a_different_singleton_model(qapp) -> None:
     )
     additions: list[str] = []
     page.instanceAddRequested.connect(additions.append)
-    page.Configuration_Set((), "", (first, second), (instance,))
+    page.Configuration_Set((first, second), (instance,))
     try:
         assert "imu" in page.add_buttons
         combo = page.device_combos["imu0"]

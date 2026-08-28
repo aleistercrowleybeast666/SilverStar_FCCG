@@ -91,6 +91,7 @@ def _MultiBarometerCatalog_Create(
         },
         "payload": {"roots": ["Fixture"]},
         "metadata": {
+            "device_category": "sensor.barometer",
             "display_names": {"zh_CN": "BMP280", "en_US": "BMP280"},
             **(
                 {
@@ -173,6 +174,11 @@ def _MultiInstanceDeviceCatalog_Create(
             },
             "payload": {"roots": [f"Fixture/{component_class}"]},
             "metadata": {
+                "device_category": (
+                    "sensor.imu"
+                    if component_class == "imu"
+                    else "sensor.gnss"
+                ),
                 "display_names": {
                     "zh_CN": f"上下文化 {component_class.upper()}",
                     "en_US": f"Contextual {component_class.upper()}",
@@ -288,6 +294,7 @@ def _MixedSingletonDeviceCatalog_Create(
             },
             "payload": {"roots": [f"Fixture/{suffix}"]},
             "metadata": {
+                "device_category": "sensor.imu",
                 "display_names": {
                     "zh_CN": f"单实例 IMU {suffix.upper()}",
                     "en_US": f"Singleton IMU {suffix.upper()}",
@@ -325,7 +332,7 @@ def test_project_v2_migrates_devices_and_resource_owners() -> None:
     data["generated_glue"].remove("project_capability_routes")
 
     migrated = ProjectModel_Parse(data)
-    assert migrated.format_version == 7
+    assert migrated.format_version == 8
     assert [instance.instance_id for instance in migrated.device_instances] == [
         "imu0",
         "gnss0",
@@ -348,7 +355,7 @@ def test_project_v3_migrates_without_capability_selections() -> None:
 
     migrated = ProjectModel_Parse(data)
 
-    assert migrated.format_version == 7
+    assert migrated.format_version == 8
     assert "capability_selections" not in migrated.Dictionary_Get()
 
 
@@ -361,7 +368,7 @@ def test_project_v4_removes_legacy_capability_and_build_choices() -> None:
     migrated = ProjectModel_Parse(data)
 
     serialized = migrated.Dictionary_Get()
-    assert migrated.format_version == 7
+    assert migrated.format_version == 8
     assert "capability_selections" not in serialized
     assert "configuration" not in serialized["build"]
 
@@ -370,15 +377,18 @@ def test_project_v5_adds_mode_protocol_and_assignment_contracts() -> None:
     data = ReferenceProject_Create("MigrateV5").Dictionary_Get()
     data["format_version"] = 5
     data.pop("mode_parameters")
-    data.pop("protocol_profiles")
+    data.pop("protocols")
+    data["components"]["protocol_bundles"] = [
+        "silverstar.protocol.reference_v0"
+    ]
     data["hardware"].pop("assignment_fingerprint")
     data["generated_glue"].remove("project_flight_config")
 
     migrated = ProjectModel_Parse(data)
 
-    assert migrated.format_version == 7
+    assert migrated.format_version == 8
     assert migrated.mode_parameters["deployment"]["Delay"]["delay"] == 60.0
-    assert migrated.protocol_profiles["telemetry"] == "air.m0"
+    assert migrated.ProtocolProfiles_Get()["telemetry"] == "air.m0"
     assert migrated.hardware.assignment_fingerprint == ""
     assert "project_flight_config" in migrated.generated_glue
 
@@ -391,7 +401,7 @@ def test_project_v6_adds_log_decoder_profile_reference() -> None:
 
     migrated = ProjectModel_Parse(data)
 
-    assert migrated.format_version == 7
+    assert migrated.format_version == 8
     assert migrated.log_decoder_profile.relative_path == "MigrateV6.ssdecoder"
     assert migrated.log_decoder_profile.package_schema == "1.0"
     assert migrated.log_decoder_profile.container_plugin_id == (
@@ -404,6 +414,11 @@ def test_project_v6_adds_log_decoder_profile_reference() -> None:
 
 def test_pre_release_protocol_profile_ids_migrate_to_public_ids() -> None:
     data = ReferenceProject_Create("MigrateProtocolIds").Dictionary_Get()
+    data["format_version"] = 7
+    data.pop("protocols")
+    data["components"]["protocol_bundles"] = [
+        "silverstar.protocol.reference_v0"
+    ]
     data["protocol_profiles"] = {
         "telemetry": "air.compact.v0",
         "maintenance": "maintenance.v0_0",
@@ -412,7 +427,7 @@ def test_pre_release_protocol_profile_ids_migrate_to_public_ids() -> None:
 
     migrated = ProjectModel_Parse(data)
 
-    assert migrated.protocol_profiles == {
+    assert migrated.ProtocolProfiles_Get() == {
         "telemetry": "air.m0",
         "maintenance": "maintenance.serial.0_0",
         "logging": "flight_log.0_0",
@@ -927,11 +942,17 @@ def test_physical_names_and_protocol_versions_are_structured(
 
     console = builtin_catalog.Component_Get("silverstar.device.console.uart")
     assert console.DisplayName_Get("zh_CN") == "串口维护协议 0.0"
-    protocol = builtin_catalog.Component_Get("silverstar.protocol.reference_v0")
-    assert protocol.protocol is not None
-    assert protocol.protocol.maintenance_protocol_version == "0.0"
-    assert protocol.protocol.firmware_version == "0.0.9"
-    assert protocol.protocol.documentation_version == "0.0.9"
+    for component_id, category in (
+        ("silverstar.protocol.telemetry.air_m0", "telemetry"),
+        ("silverstar.protocol.maintenance.serial_0_0", "maintenance"),
+        ("silverstar.protocol.logging.sslog_0_0", "logging"),
+    ):
+        protocol = builtin_catalog.Component_Get(component_id)
+        assert protocol.protocol is not None
+        assert protocol.protocol.category == category
+        assert protocol.protocol.maintenance_protocol_version == "0.0"
+        assert protocol.protocol.firmware_version == "0.0.9"
+        assert protocol.protocol.documentation_version == "0.0.9"
 
 
 def test_save_as_copies_full_source_and_excludes_intermediates(
@@ -1092,3 +1113,10 @@ def test_eide_ui_changes_are_preserved_and_build_changes_are_reported(
     ]["incList"]
     assert applied["currentTarget"] == "Debug"
     assert applied["targets"]["Release"]["uiState"] == {"expanded": True}
+    merged_text = eide.read_text(encoding="utf-8")
+    assert "\nsrcDirs:\n  - APP/Src\n" in merged_text
+    assert "\n        - APP/Inc\n" in merged_text
+    assert (
+        "C_FLAGS: -include Targets/SilverStar_F407/Inc/platform_memory_target.h "
+        "-include Generated/Inc/project_flight_config.h"
+    ) in merged_text

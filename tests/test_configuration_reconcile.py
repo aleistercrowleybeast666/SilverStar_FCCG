@@ -76,6 +76,7 @@ def _AccelOnlyCatalog_Create(
         },
         "payload": {"roots": ["Fixture"]},
         "metadata": {
+            "device_category": "sensor.imu",
             "display_names": {
                 "zh_CN": "仅加速度与角速度的IMU",
                 "en_US": "Acceleration-only IMU",

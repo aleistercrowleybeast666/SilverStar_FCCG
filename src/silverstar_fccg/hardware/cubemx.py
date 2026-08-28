@@ -62,7 +62,7 @@ class CubeMxImporter:
         self,
         input_path: Path,
         *,
-        expected_mcu: str,
+        expected_mcu: str = "",
         provider_id: str = "silverstar.hardware_provider.stm32_cubemx",
         risk_acknowledged: bool = False,
         progress_callback: Callable[[int, int, str, bool], None] | None = None,
@@ -105,7 +105,7 @@ class CubeMxImporter:
         progress(4, True)
 
         progress(5, False)
-        if not self._Mcu_Matches(actual_mcu, expected_mcu):
+        if expected_mcu and not self._Mcu_Matches(actual_mcu, expected_mcu):
             raise CubeMxImportError(
                 f"CubeMX MCU {actual_mcu!r} does not match selected MCU {expected_mcu!r}"
             )
@@ -124,7 +124,24 @@ class CubeMxImporter:
             for path in sorted(core_source_root.glob("*.c"))
             if path.name.casefold() not in {"freertos.c", "sysmem.c"}
         )
-        include_dirs = (f"{prefix}/Core/Inc",)
+        provider_sources = tuple(
+            f"{prefix}/{path.relative_to(root).as_posix()}"
+            for path in source_files
+            if path.suffix.casefold() == ".c"
+            and "Drivers" in path.relative_to(root).parts
+            and any(
+                part.casefold().endswith("hal_driver")
+                for part in path.relative_to(root).parts
+            )
+            and "Src" in path.relative_to(root).parts
+        )
+        build_sources = (*build_sources, *provider_sources)
+        provider_include_dirs = tuple(
+            f"{prefix}/{path.relative_to(root).as_posix()}"
+            for path in sorted(root.glob("Drivers/STM32*xx_HAL_Driver/Inc"))
+            if path.is_dir()
+        )
+        include_dirs = (f"{prefix}/Core/Inc", *provider_include_dirs)
         hardware = HardwareConfiguration(
             mode="custom",
             source_kind="manual_import",

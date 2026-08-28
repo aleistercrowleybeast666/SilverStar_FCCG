@@ -68,3 +68,20 @@ MCU backend同样不得认识具体设备或具体Board；它只消费由项目�
 6. 若有D-Cache/DMA一致性需求，先扩展最小Platform DMA cache契约，不得让Device直接调用vendor cache API。
 
 0.0.9只完成STM32F407 backend的实现、静态检查和ARM编译；其他MCU仅为架构可扩展目标，不得宣称已支持。
+
+
+## 8. FCCG Platform插件扩展与所有权
+
+本节以及`tools/reference_overlays/platform/`中的I²C、Classic CAN和PWM实现属于FCCG，
+不属于外部参考固件commit。reference importer先复制只读snapshot，再重放这些overlay；
+最终manifest的`metadata.source_origins`分别标记`reference_base`和`fccg_extension`。
+
+F407 Platform manifest声明资源header、getter、Platform ABI、CubeMX匹配规则和条件backend。
+只有实际硬件inventory包含相应资源且已选Device确实分配该资源时，Source Graph才加入backend：
+
+- I²C：7-bit未左移地址、阻塞master读写和memory-register读写；不声明通用repeated-start；
+- Classic CAN：bxCAN标准/扩展ID、0..8-byte data frame、有界收发和静态诊断；每个物理CAN当前只允许一个上层owner；
+- PWM：普通非互补输出、整数permille duty和安全inactive compare；频率、极性、ARR及channel由CubeMX静态确定。
+
+默认SS0.5没有I²C/CAN/PWM分配，因此不编译这些backend，也不加入无关HAL I²C/CAN源码。
+当前production support仍仅为STM32F407VET6/SS0.5；renderer可消费其他Platform契约不代表其他MCU已经验证。

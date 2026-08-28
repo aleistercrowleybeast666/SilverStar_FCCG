@@ -23,7 +23,12 @@ def ProjectGenerationState_Normalize(model: ProjectModel) -> dict[str, Any]:
         "toolchain_prefix": build["toolchain_prefix"],
         "eide_mode": build["eide_mode"],
     }
-    return data
+    # Project files are strict JSON, so tuple-backed in-memory inventory values
+    # and their list-backed loaded representation describe the same state.
+    # Normalize through JSON before direct readiness comparisons as well as
+    # fingerprinting; otherwise opening a freshly generated project can make
+    # its hardware inventory appear stale without any semantic change.
+    return json.loads(json.dumps(data, ensure_ascii=False))
 
 
 def ProjectGenerationFingerprint_Get(model: ProjectModel) -> int:

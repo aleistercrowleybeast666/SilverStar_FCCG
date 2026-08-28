@@ -39,7 +39,7 @@ def test_deployment_parameters_and_protocol_profiles_reach_all_outputs(
     model = ReferenceProject_Create("FlightConfigurationContract", catalog=builtin_catalog)
     assert model.modes["calibration"] == ["Existing", "OneFace", "SixFace"]
     assert model.modes["deployment"] == ["ApogeeVerticalVelocity", "Tilt"]
-    assert model.protocol_profiles == {
+    assert model.ProtocolProfiles_Get() == {
         "telemetry": "air.m0",
         "maintenance": "maintenance.serial.0_0",
         "logging": "flight_log.0_0",
@@ -88,7 +88,15 @@ def test_deployment_parameters_and_protocol_profiles_reach_all_outputs(
     with zipfile.ZipFile(io.BytesIO(metadata["FlightConfigurationContract.ssdecoder"])) as archive:
         profile = json.loads(archive.read("project_semantics.json"))
     assert profile["mode_parameters"] == model.mode_parameters
-    assert profile["protocol_profiles"] == model.protocol_profiles
+    assert profile["protocols"] == {
+        category: {
+            "component": selection.component,
+            "version": selection.version,
+            "profile": selection.profile,
+            "manifest_sha256": selection.manifest_sha256,
+        }
+        for category, selection in model.protocols.items()
+    }
     assert ProjectModel_Parse(model.Dictionary_Get()).Dictionary_Get() == (
         model.Dictionary_Get()
     )

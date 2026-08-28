@@ -71,7 +71,7 @@ SilverStar Generated Glue
 STM32 Platform
 ```
 
-An MCU plugin describes chip-family capabilities, Platform backend, HAL/CMSIS dependencies, CPU/FPU flags, memory/CCMRAM contract, linker/startup support, and compatible environments/providers. It does not contain sensor selection or PCB pin meaning.
+An MCU/Platform plugin describes chip-family capabilities, Platform backend, HAL/CMSIS dependencies, CPU/FPU flags, memory/CCMRAM contract, linker/startup support, compatible providers, and deterministic exact/family/package/core matching rules. It does not contain sensor selection or PCB pin meaning. The user never selects it on Devices: Board/imported CubeMX facts are matched with exact-part precedence, and zero/tied candidates are explicit errors. The project persists the detected facts and component/version/manifest lock.
 
 A Board plugin describes one PCB profile: compatible MCUs, an immutable `.ioc`/vendor snapshot, semantic aliases and connections, legal alternatives, fixed/reserved roles, Board services, provenance, verification state, and `source_kind` (`verified_builtin`, `manual_import`, or `third_party`). Physical pins, peripheral settings, DMA, IRQ, and clocks are parsed from `.ioc`; they are not duplicated in manifest metadata. The same MCU plugin is reused unchanged by multiple Boards.
 
@@ -81,7 +81,11 @@ Software indicators use the same declarative Device/resource path. The System St
 
 A Hardware Configuration Provider is a trusted FCCG handler used to create a Board. The current provider imports STM32CubeMX output as data. Imported vendor code remains below `HardwareGenerated/STM32CubeMX/`; it never enters `Platform/`, `Devices/`, `System/`, `Algorithm/`, or `FlightLogic/`. After mapping and validation, the snapshot can be exported as a reusable Board plugin.
 
-`HardwareInventory` retains every recognized peripheral without artificial count slicing. It models MCU/package/core, pins/AF/GPIO/EXTI, UART, SPI, I2C, ADC, Timer/PWM, CAN, DMA, NVIC and useful clocks. Requirements validate typed bus roles/rates/frame/mode/order/DMA/IRQ and GPIO mode/output type/pull/speed/polarity/safe initial level/EXTI/priority/glitch-free locking. The resolver detects logical and underlying physical-resource collisions. A successful manual check stores a fingerprint over hardware truth, assignments, Devices, Strategies, and Modes; relevant changes invalidate it.
+`HardwareInventory` retains every recognized peripheral without artificial count slicing. It models MCU/package/core, pins/AF/GPIO/EXTI, UART, SPI, I²C, ADC, Timer/PWM, Classic CAN versus FDCAN, DMA, NVIC and useful clocks. Requirements validate typed bus roles/rates/frame/mode/order/address/DMA/IRQ, Platform capabilities, CAN ownership, PWM channel/shared-timer timing, and GPIO electrical/safe-start contracts. The resolver detects logical and underlying physical-resource collisions. A successful manual check stores a fingerprint over hardware truth, Platform lock, assignments, Devices, Strategies, and Modes; relevant changes invalidate it.
+
+The renderer consumes the selected Platform manifest's resource binding contract: resource header, collection, vendor include, ID/table/getter/struct symbols, ABI, and conditional backend contributions. Python validates C identifiers and paths but contains no STM32F4 getter/header or MCU model table. Existing F4 symbol names remain in the F4 plugin. A virtual H7 test contract proves that a different header/getter can render without becoming a production-supported MCU.
+
+Conditional backend selection is the intersection of actual inventory and assigned Device resources. An active I²C, Classic-CAN, or PWM assignment adds its Platform backend and declared provider HAL sources; missing provider source is an error. Default SS0.5 selects none, so its Source Graph remains free of these optional backends and unrelated I²C/CAN HAL code.
 
 ## Strategy and Mode model
 
@@ -95,7 +99,7 @@ Algorithm / FlightLogic manifests
               Resolved source graph / glue
 ```
 
-Slots are manifest strings, not permanent fields in Python. Current Strategy slots are Alignment, INS, Estimator, and Landing. Current Mode slots are Calibration and Deployment. Mode manifests may own typed numeric parameters and generated symbols; protocol bundles independently own telemetry, maintenance, and logging profile categories. `Estimator=None` contributes `SYSTEM_FUSION_NONE`, excludes KF6, keeps BARO_NATIVE recordable, and disables estimator-derived BARO_MEASUREMENT.
+Slots are manifest strings, not permanent fields in Python. Current Strategy slots are Alignment, INS, Estimator, and Landing. Current Mode slots are Calibration and Deployment. Mode manifests may own typed numeric parameters and generated symbols. Three independently selected Protocol plugins each own exactly one telemetry, maintenance, or logging category. `Estimator=None` contributes `SYSTEM_FUSION_NONE`, excludes KF6, keeps BARO_NATIVE recordable, and disables estimator-derived BARO_MEASUREMENT.
 
 Capabilities have two explicit semantic kinds. Raw/Data capabilities (for example `magnetometer.field`) say that a physical Device can produce data. Qualified capabilities use the stable `_qualified` suffix (for example `magnetometer.absolute_vector_qualified`) and say that the current driver/hardware/system contract approves that data for a specific use. Device manifests provide both kinds; Strategy/Mode manifests require the qualified contract they actually need. The resolver contains no JY901B model-name special case.
 
@@ -152,14 +156,18 @@ Subprocesses use argument arrays and explicit project working directories. Tool 
 
 ## Device discovery and protocol composition
 
-The Device page enumerates every valid installed `type = device` manifest and groups it from
-manifest metadata. It never uses Board/IOC resource sufficiency as selection availability.
+The Device page enumerates every valid installed `type = device` manifest and groups it from the
+strict `metadata.device_category` namespace. `sensor.imu` and `sensor.gnss` are primary sensors;
+other `sensor.*`, `link.*`, `storage.*`, `actuator.*`, and `indicator.*` remain separate dynamic
+groups. Unknown namespaces fail plugin scan instead of falling into Other Sensors. It never uses
+Board/IOC resource sufficiency as selection availability and contains no MCU selector.
 Selected logical Devices feed capability and hardware requirements into the shared reconcile
 pipeline; Hardware Connection alone resolves those requirements against Board or imported IOC
 facts. The project owns one MCU, one target profile, and one hardware configuration, while
 Device and capability endpoints may have instances.
 
-Protocols use four explicit layers: a fixed System Service selects one complete Protocol Profile;
+Protocols use four explicit layers: a fixed System Service selects one complete Protocol Profile
+from its independently locked single-category plugin;
 the profile declares a Transport Binding and constraints; resolution chooses exactly one
 compatible physical Device or storage provider. Profile source/include/define contributions enter
 the one resolved graph only when selected. Decoder metadata records the same profile, binding,

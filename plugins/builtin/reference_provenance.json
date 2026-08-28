@@ -6,7 +6,13 @@
   "working_tree": "clean",
   "status": [],
   "snapshot_digest": "7998cace3e609d4e0c3f16f8d9e4cdf531f3f82939670638d4fe4d02f3c4e942",
-  "recorded_at_utc": "2026-08-27T18:46:24+00:00",
+  "protocol_source_sha256": {
+    "Protocol/Src/air_protocol.c": "4537b3588b65baa051c13605eed5715a42f530abe5a0bdfad11a4925a2a0b418",
+    "System/Src/system_console.c": "c1efc4849c33c9fca361015ec6068d027eeac95bd275f56d139146ea3c781d99",
+    "Protocol/SSLOG/Src/sslog_protocol.c": "b065b6733fe87dea5e220e8eaed4ef61569fff831e3dd3d14f1c218fc6aaa3bc",
+    "Protocol/SSLOG/Src/sslog_records.c": "871b73bd1cecf9a39a2b95006f34bb32d303a5cba23d55aa02aedb934fe03d30"
+  },
+  "recorded_at_utc": "2026-08-28T16:53:53+00:00",
   "audit": {
     "required_files": [
       "Generated/Inc/project_device_instances.h",
