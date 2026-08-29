@@ -151,3 +151,16 @@ F407 Target用forced include把`PLATFORM_CPU_FAST_BSS`映射到`.ccmram_bss`，l
 4. OS port、interrupt priority和tick分工正确；
 5. architecture check扩展到新backend；
 6. 文档只声明实际完成的编译/硬件验证范围。
+
+
+## 11. FCCG自定义CubeMX来源边界
+
+F407 Platform manifest将CubeMX 6.15.0、`STM32Cube FW_F4 V1.28.3`和
+`plugin_payload_authoritative`作为当前精确兼容契约。自定义snapshot中的
+`Core/Src`外设初始化、MSP、IRQ及`Core/Inc`可以进入生成项目；其HAL/CMSIS Drivers、
+startup和linker只用于审计与重导入，不进入Make、EIDE或VS Code的Source Graph。
+版本或来源政策不匹配时在导入/Readiness阶段停止，不通过混合两套vendor source试编译。
+
+I²C和PWM后端仅在真实Device consumer已分配相应资源时加入。Classic CAN后端为
+`reserved`，即使inventory存在CAN也不能由普通consumer启用。software supported只表示
+自动测试覆盖，不表示外部上拉、PWM波形或目标板电气行为已经实机verified。

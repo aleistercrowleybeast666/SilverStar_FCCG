@@ -17,6 +17,7 @@ def ProjectGenerationState_Normalize(model: ProjectModel) -> dict[str, Any]:
     hardware.pop("source_label", None)
     hardware.pop("risk_acknowledged", None)
     hardware.pop("assignment_fingerprint", None)
+    hardware.pop("i2c_external_pullup_confirmations", None)
     build = data["build"]
     data["build"] = {
         "target_profile": build["target_profile"],

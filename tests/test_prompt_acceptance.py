@@ -75,7 +75,7 @@ def test_reference_import_definition_preserves_current_fccg_overlays(
         for component in components
     }
 
-    assert len(manifests) == 33
+    assert len(manifests) == 36
     assert {
         "silverstar.protocol.telemetry.air_m0",
         "silverstar.protocol.maintenance.serial_0_0",
@@ -269,7 +269,8 @@ def test_reference_payload_sync_and_environment_templates_are_read_only(
         "Targets/SilverStar_F407/Inc/target_system_config.h"
     ).read_text(encoding="utf-8")
     assert target_builtin == target_reference.replace(
-        "SilverStar 0.5 Board services", "SS0.5 Board services"
+        "Adapters and SilverStar 0.5 Board services",
+        "Adapters and internal hardware services",
     )
 
     provenance = json.loads(
@@ -311,11 +312,11 @@ def test_reference_import_normalizes_board_user_visible_names(
     staged_builtin = tmp_path / "builtin"
     power_service = (
         staged_builtin
-        / "silverstar_board_silverstar_0_5"
+        / "silverstar_device_sensor_input_voltage"
         / "payload"
-        / "Board"
-        / "SilverStar_0_5"
-        / "Services"
+        / "Devices"
+        / "Power"
+        / "InputVoltage"
         / "Src"
         / "power_service.c"
     )
@@ -342,7 +343,7 @@ def test_reference_import_normalizes_board_user_visible_names(
     )
 
     assert '"SS0.5 Voltage Input"' in power_service.read_text(encoding="utf-8")
-    assert "Adapters and SS0.5 Board services" in target_config.read_text(
+    assert "Adapters and internal hardware services" in target_config.read_text(
         encoding="utf-8"
     )
 
@@ -627,6 +628,7 @@ def test_cubemx_inventory_covers_all_supported_resource_categories() -> None:
             "PB7.Signal=I2C1_SDA",
             "PB0.Signal=ADC1_IN8",
             "PA6.Signal=TIM3_CH1",
+            "SH.S_TIM3_CH1.0=TIM3_CH1,PWM Generation1 CH1",
             "PB8.Signal=CAN1_RX",
             "PB9.Signal=CAN1_TX",
             "PC13.Signal=GPIO_EXTI13",
@@ -656,7 +658,23 @@ def test_cubemx_inventory_covers_all_supported_resource_categories() -> None:
             "RCC.APB1Freq_Value=42000000",
         )
     )
-    inventory = CubeMxInventory_Parse(synthetic)
+    inventory = CubeMxInventory_Parse(
+        synthetic,
+        generated_sources=(
+            """
+TIM_HandleTypeDef htim3;
+void MX_TIM3_Init(void)
+{
+    TIM_OC_InitTypeDef sConfigOC = {0};
+    htim3.Instance = TIM3;
+    htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
+    sConfigOC.OCMode = TIM_OCMODE_PWM1;
+    sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+    HAL_TIM_PWM_ConfigChannel(&htim3, &sConfigOC, TIM_CHANNEL_1);
+}
+""",
+        ),
+    )
     assert inventory.core == "ARM Cortex-M4"
     assert len(inventory.uarts) == 1
     assert len(inventory.spis) == 1

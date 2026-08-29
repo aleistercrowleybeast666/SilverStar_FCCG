@@ -3,6 +3,7 @@ from __future__ import annotations
 from silverstar_fccg.core.errors import FccgError
 
 from dataclasses import dataclass
+import fnmatch
 
 from silverstar_fccg.plugins.catalog import PluginCatalog
 from silverstar_fccg.project.model import ProjectModel
@@ -66,6 +67,40 @@ def _HardwareProviderSource_Is(path: str) -> bool:
     )
 
 
+def _ImportedVendorArtifact_Is(path: str) -> bool:
+    normalized = path.replace("\\", "/").casefold().strip("/")
+    if not normalized.startswith("hardwaregenerated/stm32cubemx/"):
+        return False
+    relative = normalized.removeprefix("hardwaregenerated/stm32cubemx/")
+    return (
+        relative.startswith("drivers/")
+        or "/cmsis/" in "/" + relative
+        or relative.startswith("startup_")
+        or relative.endswith(".ld")
+    )
+
+
+def _ModuleProviderActive_Is(
+    provider,
+    inventory_modules: tuple[str, ...],
+    generated_sources: tuple[str, ...],
+) -> bool:
+    if provider.always:
+        return True
+    module_match = any(
+        fnmatch.fnmatchcase(module.casefold(), pattern.casefold())
+        for module in inventory_modules
+        for pattern in provider.inventory_modules
+    )
+    source_match = any(
+        source.casefold() == expected.casefold()
+        or source.casefold().endswith("/" + expected.casefold().lstrip("/"))
+        for source in generated_sources
+        for expected in provider.init_sources
+    )
+    return module_match or source_match
+
+
 def SourceGraph_Resolve(model: ProjectModel, catalog: PluginCatalog) -> SourceGraph:
     sources: list[str] = []
     asm_sources: list[str] = []
@@ -81,6 +116,7 @@ def SourceGraph_Resolve(model: ProjectModel, catalog: PluginCatalog) -> SourceGr
     toolchain_prefixes: list[str] = []
     required_provider_sources: list[tuple[str, str]] = []
     available_provider_sources: list[str] = []
+    declared_module_provider_sources: list[str] = []
     resource_resolution = ResourceAssignments_Resolve(
         model, catalog, auto_assign=False
     )
@@ -141,6 +177,64 @@ def SourceGraph_Resolve(model: ProjectModel, catalog: PluginCatalog) -> SourceGr
         virtual_sources.extend(build.virtual_sources)
         exclude_sources.extend(build.exclude_sources)
         if manifest.platform is not None:
+            inventory_modules = tuple(
+                str(value)
+                for value in model.hardware.inventory.get("peripherals", ())
+                if isinstance(value, str)
+            )
+            generated_source_paths = tuple(
+                str(value)
+                for value in model.hardware.inventory.get(
+                    "generated_sources", ()
+                )
+                if isinstance(value, str)
+            )
+            module_providers = manifest.platform.module_providers
+            matched_modules: set[str] = set()
+            for provider in module_providers.values():
+                declared_module_provider_sources.extend(
+                    (*provider.provider_sources, *provider.middleware_sources)
+                )
+                if not _ModuleProviderActive_Is(
+                    provider, inventory_modules, generated_source_paths
+                ):
+                    continue
+                matched_modules.update(
+                    module
+                    for module in inventory_modules
+                    if any(
+                        fnmatch.fnmatchcase(
+                            module.casefold(), pattern.casefold()
+                        )
+                        for pattern in provider.inventory_modules
+                    )
+                )
+                provider_owned_sources = (
+                    *provider.provider_sources,
+                    *provider.middleware_sources,
+                )
+                if (
+                    manifest.platform.compatibility.source_policy
+                    == "plugin_payload_authoritative"
+                ):
+                    sources.extend(provider_owned_sources)
+                else:
+                    required_provider_sources.extend(
+                        (provider.provider_id, source)
+                        for source in provider_owned_sources
+                    )
+                include_dirs.extend(provider.include_dirs)
+                defines.extend(provider.defines)
+            unsupported_modules = tuple(
+                module
+                for module in inventory_modules
+                if module not in matched_modules
+            )
+            if module_providers and unsupported_modules:
+                raise SourceGraphError(
+                    "CubeMX modules have no declarative Platform provider: "
+                    + ", ".join(unsupported_modules)
+                )
             for backend in manifest.platform.resource_backends.values():
                 if not active_resource_kinds.intersection(
                     backend.inventory_kinds
@@ -151,10 +245,18 @@ def SourceGraph_Resolve(model: ProjectModel, catalog: PluginCatalog) -> SourceGr
                     exclude_sources.extend(backend.sources)
                     continue
                 sources.extend(backend.sources)
-                required_provider_sources.extend(
-                    (backend.backend_id, source)
-                    for source in backend.provider_sources
-                )
+                if module_providers:
+                    pass
+                elif (
+                    manifest.platform.compatibility.source_policy
+                    == "plugin_payload_authoritative"
+                ):
+                    sources.extend(backend.provider_sources)
+                else:
+                    required_provider_sources.extend(
+                        (backend.backend_id, source)
+                        for source in backend.provider_sources
+                    )
                 include_dirs.extend(backend.include_dirs)
                 defines.extend(backend.defines)
         if build.linker_script:
@@ -202,41 +304,63 @@ def SourceGraph_Resolve(model: ProjectModel, catalog: PluginCatalog) -> SourceGr
         if none_defines:
             defines.extend(next(iter(none_defines)))
     if model.hardware.mode == "custom":
-        provider_candidates = tuple(dict.fromkeys((
-            source
-            for source in (*available_provider_sources, *model.hardware.build_sources)
-            if _HardwareProviderSource_Is(source)
-        )))
-        selected_provider_sources: list[str] = []
-        sources.extend(
-            source
-            for source in model.hardware.build_sources
-            if not _HardwareProviderSource_Is(source)
-        )
-        for backend_id, relative in dict.fromkeys(required_provider_sources):
-            suffix = "/" + relative.casefold().strip("/")
-            matches = tuple(
+        if model.hardware.hal_cmsis_source_policy == "plugin_payload_authoritative":
+            imported_paths = (
+                *model.hardware.build_sources,
+                *model.hardware.asm_sources,
+                *model.hardware.include_dirs,
+                model.hardware.linker_script,
+            )
+            invalid_imported_paths = tuple(
+                path
+                for path in imported_paths
+                if path and _ImportedVendorArtifact_Is(path)
+            )
+            if invalid_imported_paths:
+                raise SourceGraphError(
+                    "Imported HAL/CMSIS, startup or linker artifacts violate "
+                    "plugin_payload_authoritative: "
+                    + ", ".join(invalid_imported_paths)
+                )
+            sources.extend(model.hardware.build_sources)
+            include_dirs.extend(model.hardware.include_dirs)
+            defines.extend(model.hardware.defines)
+        else:
+            provider_candidates = tuple(dict.fromkeys((
+                source
+                for source in (*available_provider_sources, *model.hardware.build_sources)
+                if _HardwareProviderSource_Is(source)
+            )))
+            selected_provider_sources: list[str] = []
+            sources.extend(
+                source
+                for source in model.hardware.build_sources
+                if not _HardwareProviderSource_Is(source)
+            )
+            for backend_id, relative in dict.fromkeys(required_provider_sources):
+                suffix = "/" + relative.casefold().strip("/")
+                matches = tuple(
+                    source
+                    for source in provider_candidates
+                    if ("/" + source.replace("\\", "/").casefold()).endswith(suffix)
+                )
+                if len(matches) != 1:
+                    raise SourceGraphError(
+                        f"Active platform backend {backend_id} requires exactly one "
+                        f"hardware-provider source: {relative}"
+                    )
+                sources.append(matches[0])
+                selected_provider_sources.append(matches[0])
+            exclude_sources.extend(
                 source
                 for source in provider_candidates
-                if ("/" + source.replace("\\", "/").casefold()).endswith(suffix)
+                if source not in selected_provider_sources
             )
-            if len(matches) != 1:
-                raise SourceGraphError(
-                    f"Active platform backend {backend_id} requires exactly one "
-                    f"hardware-provider source: {relative}"
-                )
-            sources.append(matches[0])
-            selected_provider_sources.append(matches[0])
-        exclude_sources.extend(
-            source
-            for source in provider_candidates
-            if source not in selected_provider_sources
-        )
-        asm_sources.extend(model.hardware.asm_sources)
-        include_dirs.extend(model.hardware.include_dirs)
-        defines.extend(model.hardware.defines)
-        if model.hardware.linker_script:
-            linker_scripts.append(model.hardware.linker_script)
+            asm_sources.extend(model.hardware.asm_sources)
+            include_dirs.extend(model.hardware.include_dirs)
+            defines.extend(model.hardware.defines)
+            if model.hardware.linker_script:
+                linker_scripts.append(model.hardware.linker_script)
     elif required_provider_sources:
         for backend_id, relative in dict.fromkeys(required_provider_sources):
             suffix = "/" + relative.casefold().strip("/")
@@ -251,6 +375,19 @@ def SourceGraph_Resolve(model: ProjectModel, catalog: PluginCatalog) -> SourceGr
                     f"Active platform backend {backend_id} requires exactly one "
                     f"board/provider source: {relative}"
                 )
+    # EIDE discovers every C/assembly file below each selected source
+    # directory. Keep every plugin-owned HAL provider that was not selected by
+    # the declarative module map in the exclusion graph so EIDE and Make see
+    # the same exact source set. This is an exclusion only; it must never turn
+    # into an implicit compile-all fallback.
+    exclude_sources.extend(
+        source
+        for source in (
+            *available_provider_sources,
+            *declared_module_provider_sources,
+        )
+        if source not in sources
+    )
     generated_sources = (
         "Generated/Src/platform_resources.c",
         "Generated/Src/project_capability_routes.c",

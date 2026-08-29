@@ -445,7 +445,7 @@ def test_strict_validation_navigates_to_and_highlights_hardware_issue(
         assert window.navigation_list.currentRow() == 2
         assert window.pages.currentWidget() is window.board_hardware_page
         assert (
-            window.board_hardware_page.resource_table.property("validationIssue")
+            window.board_hardware_page.board_combo.property("validationIssue")
             is True
         )
         assert len(errors) == 1

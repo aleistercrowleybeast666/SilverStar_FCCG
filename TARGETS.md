@@ -1,16 +1,27 @@
 # Development targets
 
+## 2026-08-30 internal software release-candidate closeout
+
+- [x] project format 10 with actual imported-MCU-first matching, strict Platform compatibility, declarative CubeMX module/provider activation, FatFs/timebase inventory, and deterministic format 0–9 migration
+- [x] Device-owned single-instance `silverstar.device.storage.sd_sdio_fatfs`; Board supplies only verified physical mappings, MCU supplies controlled FatFs core/HAL providers, and CubeMX supplies SDIO plus App/Target glue
+- [x] generated storage source moved to `Devices/Storage/SdSdioFatFs`, so format-9 projects retain legacy Board files without collision while the Source Graph compiles the new owner exactly once
+- [x] dynamic CubeMX HAL timebase validation and rendering with no hidden TIM1 assumption; invalid SysTick, missing/mismatched init, frequency, IRQ, and PWM/timebase collisions are rejected
+- [x] I²C/PWM provider boundaries, reserved Classic CAN consumer rejection, strict HAL/CMSIS single-source policy, and no default compile-all behavior
+- [x] 36 strict builtin packages and 48 builtin/schema JSON documents
+- [x] fresh default and custom-F407 generation/build/Host validation plus architecture, Power of Ten, static-analysis, artifact, GUI, migration, and schema regression coverage
+- [x] status remains **Software Release Candidate / Pre-Hardware-Validation**; no tag, push, public release, flash, electrical, or flight claim
+
 ## 2026-08-28 internal firmware/plugin refactor
 
 - [x] reproducible read-only reference snapshot plus FCCG-owned overlay provenance; external firmware remains unchanged
 - [x] three mandatory single-category Protocol plugins with locked component/version/Profile/manifest hash and deterministic format-7 migration
-- [x] project format 8 with explicit `protocols` slots and detected MCU/Platform lock; format 0–7 files remain readable and save only as format 8
+- [x] at the 2026-08-28 checkpoint, project format 8 added explicit `protocols` slots and the detected MCU/Platform lock; format 0–7 files remained readable and saved as format 8 at that checkpoint
 - [x] Board/imported CubeMX facts automatically match an installed MCU/Platform plugin; the Devices page no longer exposes an MCU selector
 - [x] manifest-driven Platform resource renderer with no STM32F4 header/getter or MCU-model whitelist in Python
 - [x] conditionally selected F407 I²C, Classic CAN, and PWM backends with static APIs, resolver constraints, Host mocks, and no default-SS0.5 inclusion
 - [x] strict `sensor.*`, `link.*`, `storage.*`, `actuator.*`, and `indicator.*` categories plus dynamic Devices-page grouping
 - [x] logging-plugin-owned Record Catalog and data-only `.ssdecoder` semantics covering three protocols, hardware, resources, devices, algorithms, and logging
-- [x] 33 strict builtin packages: the former three-category bundle is replaced by three independent Protocol packages
+- [x] 36 strict builtin packages: the former three-category bundle is replaced by three independent Protocol packages and hardware-facing services have explicit owners
 
 ## 2026-08-28 multi-instance/decoder-profile round
 
@@ -40,7 +51,7 @@
 - [x] Custom STM32 Hardware as the new-draft default, with no visible unselected entry or Board-only preparation action
 - [x] fixed the three checkable-GroupBox interaction failures with visibility-only collapsible sections and visible cross-theme checkboxes
 - [x] Protocol-owned SSLOG metadata, Required/Recommended/Optional policy, capability-aware availability, and deterministic data-only `.ssdecoder`
-- [x] Project format 8 with `DeviceInstance`, manifest-driven Mode parameters, three explicit protocol locks, Platform lock, decoder-profile hashes, assignment confirmation fingerprint, and v0-v7 migration
+- [x] Project format 10 with `DeviceInstance`, manifest-driven Mode parameters, three explicit protocol locks, Platform lock, decoder-profile hashes, assignment confirmation fingerprint, FatFs/timebase facts, and v0-v9 migration
 - [x] Physical Device `provides` + consuming component `requires {capability,purpose}` + automatic/ambiguous provider resolution
 - [x] backward-compatible Device instance policy with independent `plugin_max` and `class_max`; repeating one model requires a context-safe driver, while different singleton models may share a class
 - [x] `.ioc` physical truth for builtin/custom Boards plus semantic `connections.json`
@@ -48,7 +59,7 @@
 - [x] separate FCCG-internal and explicitly authorized user-project roots
 - [x] localized structured error dialogs, buttons, filters, build labels, and startup failure logging
 - [x] latest-reference discovery/explicit selection and read-only provenance import
-- [x] 33 real builtin components, including three independent Protocol plugins and declarative voltage/mission-action/System/GNSS Indicator Devices
+- [x] 36 real builtin components, including three independent Protocol plugins, a physical storage Device, internal mission-action/indicator services, and declarative voltage/mission-action/System/GNSS Indicator Devices
 - [x] strict Project format migration plus generic Strategy/Mode dictionaries
 - [x] four-page GUI; File owns New/Open/Save/Save As and Plugins owns manager/install/refresh dialogs
 - [x] one-step New Project dialog with project name/output only and complete-source Save As
@@ -91,7 +102,7 @@
 
 ## Deliberate limits / future work
 
-- No Guidance, Control, Control Allocation, or continuous-control actuator implementation is supplied. The current launch-ignition and parachute-pyro Power Output plugins are declarative one-shot devices backed by existing Board services.
+- No Guidance, Control, Control Allocation, or continuous-control actuator implementation is supplied. The current launch-ignition and parachute-pyro Power Output plugins are declarative one-shot Devices backed by an explicit internal mission-action service, not by Board ownership.
 - No alternate MCU, non-STM manual provider, Keil, IAR, or fictional environment project is generated.
 - FCCG inventories clocks, pin alternate functions, interrupts, and DMA, but does not solve or edit clocks, PLL, pinmux, alternate functions, or DMA streams.
 - Custom hardware is generated with an explicit unverified warning; generation does not claim official Board validation.

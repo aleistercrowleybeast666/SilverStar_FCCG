@@ -88,7 +88,10 @@
     "device_group_order": 70,
     "device_selection_style": "instance",
     "device_category": "link.maintenance",
-    "internal": true
+    "internal": true,
+    "build_feature_symbols": [
+      "SYSTEM_USER_CONSOLE_ENABLE"
+    ]
   },
   "instance_policy": {
     "plugin_max": 1,

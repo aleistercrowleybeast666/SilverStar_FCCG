@@ -69,7 +69,7 @@ Ground Station 遇到尚未认识的 sensor ID 时应显示 `Unknown Sensor 0xNN
 
 - IMU / GNSS / Barometer / Magnetometer 型号变化；
 - 新增普通传感器 class 或 sensor ID；
-- Target Device Adapter/Board Service组合变化；
+- Target Device Adapter/内部服务组件组合变化；
 - Alignment / Calibration 算法变化；
 - accel / gyro 实际 full scale 变化；
 - LoRa SF / BW / CR / TxPower 变化；

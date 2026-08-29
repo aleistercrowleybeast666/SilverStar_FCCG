@@ -13,6 +13,7 @@ from silverstar_fccg.generator.render import (
     ComponentProvenance_Get,
     GeneratedFiles_Render,
     MetadataFiles_Render,
+    _PlatformResources_Render,
 )
 from silverstar_fccg.generator.source_graph import SourceGraph_Resolve
 from silverstar_fccg.hardware import (
@@ -175,22 +176,33 @@ def test_same_mcu_supports_two_board_resource_maps(workspace_root: Path) -> None
             ),
         ]
         model.board = board_id
+        platform = catalog.Component_Get(model.mcu)
+        assert platform.platform is not None
         model.hardware = HardwareConfiguration(
-            mode="board_plugin", source_kind="third_party"
+            mode="board_plugin",
+            source_kind="third_party",
+            platform_component=platform.component_id,
+            platform_version=platform.version,
+            platform_manifest_sha256=platform.ManifestSha256_Get(),
+            cubemx_version="6.15.0",
+            firmware_package="STM32Cube FW_F4 V1.28.3",
+            hal_cmsis_source_policy=(
+                platform.platform.compatibility.source_policy
+            ),
         )
         model.resource_assignments = {}
         resolution = ResourceAssignments_Resolve(model, catalog, auto_assign=True)
         assert resolution.valid
         LoggingProfile_Reconcile(model, catalog)
-        assert Project_Validate(model, catalog).valid
+        validation = Project_Validate(model, catalog)
+        assert any(
+            issue.code == "log_sink_cardinality"
+            for issue in validation.issues
+        )
         graph = SourceGraph_Resolve(model, catalog)
         graphs.append(graph)
         mappings.append(dict(model.resource_assignments))
-        platform_sources.append(
-            GeneratedFiles_Render(model, catalog, graph)[
-                "Generated/Src/platform_resources.c"
-            ].decode("utf-8")
-        )
+        platform_sources.append(_PlatformResources_Render(model, catalog))
 
     imu_key = "imu0:data"
     gnss_key = "gnss0:data"
@@ -267,13 +279,17 @@ def test_cubemx_import_generate_export_install_and_reuse(
     model.device_instances = [
         instance
         for instance in model.device_instances
-        if instance.plugin != "silverstar.device.indicator.system_status"
+        if instance.plugin
+        not in {
+            "silverstar.device.indicator.system_status",
+            "silverstar.device.storage.sd_sdio_fatfs",
+        }
     ]
     model.resource_assignments = {}
     resources = ResourceAssignments_Resolve(model, catalog, auto_assign=True)
     assert resources.valid
     LoggingProfile_Reconcile(model, catalog)
-    assert len(resources.assignments) == 16
+    assert len(resources.assignments) == 19
     assert imported.snapshot_root.is_relative_to(tmp_path)
     assert imported.hardware.provider == "silverstar.hardware_provider.stm32_cubemx"
     assert imported.hardware.build_sources == (
@@ -282,6 +298,8 @@ def test_cubemx_import_generate_export_install_and_reuse(
     validation = Project_Validate(model, catalog)
     assert not validation.valid
     assert any(issue.code == "protocol_transport" for issue in validation.issues)
+    assert any(issue.code == "log_sink_cardinality" for issue in validation.issues)
+    assert any(issue.code == "hardware_timebase" for issue in validation.issues)
     assert any(issue.code == "hardware_manual" for issue in validation.issues)
 
     assembler = ProjectAssembler(policy, catalog)
@@ -315,7 +333,11 @@ def test_cubemx_import_generate_export_install_and_reuse(
     second.device_instances = [
         instance
         for instance in second.device_instances
-        if instance.plugin != "silverstar.device.indicator.system_status"
+        if instance.plugin
+        not in {
+            "silverstar.device.indicator.system_status",
+            "silverstar.device.storage.sd_sdio_fatfs",
+        }
     ]
     second.resource_assignments = {}
     second_resources = ResourceAssignments_Resolve(

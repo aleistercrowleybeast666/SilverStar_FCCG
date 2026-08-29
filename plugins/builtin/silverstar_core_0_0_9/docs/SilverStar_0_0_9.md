@@ -1,6 +1,6 @@
 # SilverStar 0.0.9 平台规范
 
-SilverStar 0.0.9是首次发布前的FCCG-ready reference firmware。本版把System、具体Device与MCU实现分离，引入独立Interfaces、Device Adapter、Board Service、FlightLogic组件、vendor无关Platform契约、薄Generated glue、显式Target manifest和官方FreeRTOS-Kernel V11.3.0。当前真实实现和编译目标仍只有STM32F407VET6；“可移植”表示依赖边界成立，不表示其他MCU已经受支持或上板验证。
+SilverStar 0.0.9是首次发布前的FCCG-ready reference firmware。本版把System、具体Device与MCU实现分离，引入独立Interfaces、Device Adapter、Device-owned service、内部硬件服务与FlightLogic组件、vendor无关Platform契约、薄Generated glue、显式Target manifest和官方FreeRTOS-Kernel V11.3.0。当前真实实现和编译目标仍只有STM32F407VET6；“可移植”表示依赖边界成立，不表示其他MCU已经受支持或上板验证。
 
 ## 1. 版本与兼容性
 
@@ -24,7 +24,7 @@ System / APP / Algorithm / FlightLogic / Protocol
          Interfaces
              |
              v
- Device Adapter / Board Service
+ Device Adapter / Device-owned service / internal hardware service
              |
              v
            Devices
@@ -140,7 +140,7 @@ LoggerBus       = bounded static record queue
 LoggerTask      = consume + encode + flush + sink
 SystemLogPolicy = per-record stream policy
 Generated       = project-enabled stream selection
-Board LogSink   = target storage destination
+Storage Device LogSink = target storage destination
 ```
 
 `Protocol/SSLOG/Inc/sslog_records.h`与`Protocol/SSLOG/Src/sslog_records.c`是Record ID、version、payload size、metadata及wire codec的正常受控源码。serializer/deserializer按字段显式读写little-endian整数和float bit pattern；payload C struct只用于内存，禁止按结构体布局直接复制到wire或从wire强制转换。`Protocol/SSLOG/schema/sslog_schema.json`同时是FCCG/解析器使用的声明式Record Catalog真源，JSON Schema限制有限基础类型、固定数组和纯数据语义；Host离线validator核对字段与padding总和、parser metadata、C ID/size/codec、Generated stream配置及profile哈希。firmware build不读取JSON或执行Python。
@@ -172,7 +172,7 @@ CubeMX只管理STM32时钟、GPIO、DMA、UART、SPI、SDIO、ADC、NVIC和HAL�
 
 0.0.9交付必须运行：
 
-- `mingw32-make host-tests`：接口、Platform mock、Device Driver+Adapter、Board Service、算法、Calibration/Alignment、Lifecycle/Recovery、AIR、SSLOG和编译期能力契约；
+- `mingw32-make host-tests`：接口、Platform mock、Device Driver+Adapter、Device-owned/internal services、算法、Calibration/Alignment、Lifecycle/Recovery、AIR、SSLOG和编译期能力契约；
 - `mingw32-make architecture-check`：依赖边界、旧架构残留、Generated薄glue、无Python构建、heap/CMSIS、manifest和FreeRTOS源集；
 - clean Debug与clean Release ARM GCC构建，并分别运行`artifact-check`，核对ELF/MAP/HEX/BIN、源集、层级对象路径及无libc/RTOS heap符号。
 - `mingw32-make power10-check`和`mingw32-make static-analysis`：第一方严格Power of Ten、warning=0和Arm GCC analyzer；

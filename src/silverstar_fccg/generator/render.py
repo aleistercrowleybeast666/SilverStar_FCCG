@@ -96,6 +96,9 @@ def GeneratedFiles_Render(
             LogDecoderProfileHeader_Render(decoder_reference)
         ),
         "Generated/Inc/project_resources.h": _ResourceHeader_Render(model, catalog),
+        "Generated/Inc/project_storage_binding.h": _StorageBindingHeader_Render(
+            model, catalog
+        ),
         "Generated/Src/platform_resources.c": _PlatformResources_Render(model, catalog),
         "Generated/Src/project_capability_routes.c": _CapabilityRoutesSource_Render(
             model, catalog
@@ -300,6 +303,28 @@ def _FlightConfigHeader_Render(
     model: ProjectModel, catalog: PluginCatalog
 ) -> str:
     definitions: list[tuple[str, str]] = []
+    selected_components = set(model.ComponentIds_Get())
+    feature_symbols: dict[str, bool] = {}
+    for manifest in catalog.All_Get():
+        raw_symbols = manifest.metadata.get("build_feature_symbols", [])
+        if not isinstance(raw_symbols, list) or not all(
+            isinstance(symbol, str) for symbol in raw_symbols
+        ):
+            raise ValueError(
+                f"Component {manifest.component_id} build_feature_symbols is invalid"
+            )
+        for symbol in raw_symbols:
+            if re.fullmatch(r"[A-Z][A-Z0-9_]*", symbol) is None:
+                raise ValueError(
+                    f"Component {manifest.component_id} build feature symbol is invalid"
+                )
+            feature_symbols[symbol] = feature_symbols.get(symbol, False) or (
+                manifest.component_id in selected_components
+            )
+    definitions.extend(
+        (symbol, "1U" if enabled else "0U")
+        for symbol, enabled in sorted(feature_symbols.items())
+    )
     selected_devices = set(model.DevicePluginIds_Get())
     indicator_symbols: dict[str, str] = {}
     for manifest in catalog.Type_Get("device"):
@@ -347,7 +372,10 @@ def _FlightConfigHeader_Render(
                     )
                 )
     rows = "\n".join(
-        f"#define {symbol:<48} {value}" for symbol, value in definitions
+        f"#ifndef {symbol}\n"
+        f"#define {symbol:<48} {value}\n"
+        f"#endif"
+        for symbol, value in definitions
     )
     return f"""#ifndef __PROJECT_FLIGHT_CONFIG_H
 #define __PROJECT_FLIGHT_CONFIG_H
@@ -379,13 +407,26 @@ def _ResourceHeader_Render(model: ProjectModel, catalog: PluginCatalog) -> str:
             raise ValueError(f"Resource binding macro is ambiguous: {macro}")
         values[macro] = str(c_id)
         assigned_macros.add(macro)
-    optional_bindings: tuple[object, ...] = ()
-    if model.board:
-        board = catalog.Component_Get(model.board)
-        raw_bindings = board.metadata.get("optional_resource_bindings", [])
+    optional_bindings_by_macro: dict[str, object] = {}
+    for manifest in catalog.All_Get():
+        raw_bindings = manifest.metadata.get("optional_resource_bindings", [])
         if not isinstance(raw_bindings, list):
-            raise ValueError("Board optional_resource_bindings must be an array")
-        optional_bindings = tuple(raw_bindings)
+            raise ValueError(
+                f"Component {manifest.component_id} optional_resource_bindings "
+                "must be an array"
+            )
+        for binding in raw_bindings:
+            if not isinstance(binding, dict):
+                raise ValueError("Component optional resource binding is invalid")
+            macro = binding.get("binding_macro")
+            if not isinstance(macro, str):
+                raise ValueError("Component optional resource binding is invalid")
+            previous = optional_bindings_by_macro.setdefault(macro, binding)
+            if previous != binding:
+                raise ValueError(
+                    f"Optional resource binding is ambiguous: {macro}"
+                )
+    optional_bindings = tuple(optional_bindings_by_macro.values())
     identifier_pattern = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
     macro_pattern = re.compile(r"[A-Z][A-Z0-9_]*")
     for binding in optional_bindings:
@@ -395,7 +436,7 @@ def _ResourceHeader_Render(model: ProjectModel, catalog: PluginCatalog) -> str:
             "fallback",
             "header",
         }:
-            raise ValueError("Board optional resource binding is invalid")
+            raise ValueError("Component optional resource binding is invalid")
         macro = binding.get("binding_macro")
         enabled_macro = binding.get("enabled_macro")
         fallback = binding.get("fallback")
@@ -411,7 +452,7 @@ def _ResourceHeader_Render(model: ProjectModel, catalog: PluginCatalog) -> str:
             or re.fullmatch(r"[A-Za-z0-9_./-]+\.h", header) is None
             or ".." in Path(header).parts
         ):
-            raise ValueError("Board optional resource binding token is unsafe")
+            raise ValueError("Component optional resource binding token is unsafe")
         includes.add(header)
         values.setdefault(macro, fallback)
         values[enabled_macro] = "1U" if macro in assigned_macros else "0U"
@@ -429,6 +470,57 @@ def _ResourceHeader_Render(model: ProjectModel, catalog: PluginCatalog) -> str:
 {define_text}
 
 #endif /* __PROJECT_RESOURCES_H */
+"""
+
+
+def _StorageBindingHeader_Render(
+    model: ProjectModel, catalog: PluginCatalog
+) -> str:
+    storage_instances = tuple(
+        instance
+        for instance in model.device_instances
+        if "service.storage" in catalog.Component_Get(instance.plugin).provides
+    )
+    if len(storage_instances) != 1:
+        raise ValueError(
+            "Exactly one physical Storage Device must provide service.storage"
+        )
+    result = ResourceAssignments_Resolve(model, catalog)
+    assignment = next(
+        (
+            item
+            for item in result.assignments
+            if item.component_id == storage_instances[0].instance_id
+            and item.requirement.kind == "sdio"
+        ),
+        None,
+    )
+    if assignment is None:
+        raise ValueError("Storage Device has no resolved SDIO resource")
+    fatfs = assignment.provision.metadata.get("fatfs", {})
+    if not isinstance(fatfs, dict) or fatfs.get("errors"):
+        raise ValueError("Storage Device has no valid CubeMX FatFs binding")
+    object_symbol = _CIdentifier_Require(
+        fatfs.get("object_symbol"), "FatFs object symbol"
+    )
+    path_symbol = _CIdentifier_Require(
+        fatfs.get("path_symbol"), "FatFs path symbol"
+    )
+    driver_symbol = _CIdentifier_Require(
+        fatfs.get("driver_symbol"), "FatFs driver symbol"
+    )
+    return f"""#ifndef __PROJECT_STORAGE_BINDING_H
+#define __PROJECT_STORAGE_BINDING_H
+
+{AUTOGEN_C_COMMENT}
+
+#include "fatfs.h"
+
+#define PROJECT_STORAGE_FATFS_OBJECT {object_symbol}
+#define PROJECT_STORAGE_FATFS_PATH   {path_symbol}
+#define PROJECT_STORAGE_FATFS_DRIVER {driver_symbol}
+
+#endif /* __PROJECT_STORAGE_BINDING_H */
 """
 
 
@@ -450,6 +542,28 @@ def _PlatformResources_Render(model: ProjectModel, catalog: PluginCatalog) -> st
         collections = _BoardPlatformResources_Get(
             board, active_resource_ids
         )
+    raw_capacities = manifest.metadata.get("resource_capacities", {})
+    if not isinstance(raw_capacities, dict):
+        raise ValueError("Platform resource_capacities must be an object")
+    for collection, entries in collections.items():
+        capacity = raw_capacities.get(collection)
+        if capacity is None:
+            continue
+        if not isinstance(capacity, int) or isinstance(capacity, bool) or capacity <= 0:
+            raise ValueError(
+                f"Platform resource capacity is invalid: {collection}"
+            )
+        for fallback_index, entry in enumerate(entries):
+            logical_index = entry.get("logical_index", fallback_index)
+            if (
+                not isinstance(logical_index, int)
+                or isinstance(logical_index, bool)
+                or logical_index < 0
+                or logical_index >= capacity
+            ):
+                raise ValueError(
+                    f"Platform resource {collection} exceeds capacity {capacity}"
+                )
     includes: set[str] = set()
     sections: list[str] = []
     for kind, binding in contract.resource_bindings.items():
@@ -484,8 +598,14 @@ def _CIdentifier_Require(value: Any, field_name: str) -> str:
 
 def _PlatformBinding_Render(binding, entries: list[dict[str, Any]]) -> str:
     values: list[str] = []
+    valid_values: list[str] = []
+    declarations: list[str] = []
     for entry in entries:
-        c_id = _CIdentifier_Require(entry.get("c_id"), "c_id")
+        logical_index = entry.get("logical_index")
+        if isinstance(logical_index, int) and 0 <= logical_index <= 0xFFFF:
+            designator = f"{logical_index}U"
+        else:
+            designator = _CIdentifier_Require(entry.get("c_id"), "c_id")
         if binding.entry_kind == "handle":
             handle = _CIdentifier_Require(entry.get("handle"), "handle")
             initializer = f"&{handle}"
@@ -501,8 +621,15 @@ def _PlatformBinding_Render(binding, entries: list[dict[str, Any]]) -> str:
             channel = _CIdentifier_Require(
                 entry.get("channel_token"), "PWM channel"
             )
+            pwm_mode = {
+                "pwm1": "PLATFORM_PWM_MODE_1",
+                "pwm2": "PLATFORM_PWM_MODE_2",
+            }.get(str(entry.get("pwm_mode", "")).casefold())
+            if pwm_mode is None:
+                raise ValueError(
+                    "PWM resource has no supported CubeMX PWM1/PWM2 mode"
+                )
             numeric_fields = (
-                int(entry.get("safe_inactive_compare", 0)),
                 int(entry.get("frequency_hz", 0)),
                 int(entry.get("resolution_bits", 0)),
                 int(bool(entry.get("active_high", 1))),
@@ -511,14 +638,34 @@ def _PlatformBinding_Render(binding, entries: list[dict[str, Any]]) -> str:
                 raise ValueError("PWM resource metadata is out of range")
             initializer = (
                 f"{{&{handle}, {channel}, {numeric_fields[0]}U, "
-                f"{numeric_fields[1]}U, {numeric_fields[2]}U, "
-                f"{numeric_fields[3]}U}}"
+                f"{numeric_fields[1]}U, {pwm_mode}, "
+                f"{numeric_fields[2]}U}}"
+            )
+        elif binding.entry_kind == "timebase":
+            handle = _CIdentifier_Require(entry.get("handle"), "Timebase handle")
+            handle_type = _CIdentifier_Require(
+                entry.get("handle_type"), "Timebase handle type"
+            )
+            declaration = f"extern {handle_type} {handle};"
+            if declaration not in declarations:
+                declarations.append(declaration)
+            numeric_fields = (
+                int(entry.get("counter_frequency_hz", 0)),
+                int(entry.get("period_counts", 0)),
+                int(entry.get("tick_frequency_hz", 0)),
+            )
+            if any(value <= 0 or value > 0xFFFFFFFF for value in numeric_fields):
+                raise ValueError("Timebase resource metadata is out of range")
+            initializer = (
+                f"{{&{handle}, {numeric_fields[0]}U, {numeric_fields[1]}U, "
+                f"{numeric_fields[2]}U}}"
             )
         else:
             raise ValueError(
                 f"Unsupported Platform resource entry kind: {binding.entry_kind}"
             )
-        values.append(f"    [{c_id}] = {initializer}")
+        values.append(f"    [{designator}] = {initializer}")
+        valid_values.append(f"    [{designator}] = 1U")
     initializer_text = ",\n".join(values)
     if binding.entry_kind == "handle":
         return f"""static void * const {binding.table_symbol}[{binding.count_symbol}] =
@@ -531,10 +678,19 @@ void *{binding.getter}({binding.id_type} id)
     return ((uint32_t)id < (uint32_t){binding.count_symbol}) ?
         {binding.table_symbol}[id] : NULL;
 }}"""
-    return f"""static const {binding.struct_type}
+    declaration_text = "\n".join(declarations)
+    declaration_block = f"{declaration_text}\n\n" if declaration_text else ""
+    validity_text = ",\n".join(valid_values)
+    validity_symbol = f"{binding.table_symbol}_valid"
+    return f"""{declaration_block}static const {binding.struct_type}
     {binding.table_symbol}[{binding.count_symbol}] =
 {{
 {initializer_text}
+}};
+
+static const uint8_t {validity_symbol}[{binding.count_symbol}] =
+{{
+{validity_text}
 }};
 
 uint8_t {binding.getter}(
@@ -542,6 +698,7 @@ uint8_t {binding.getter}(
     {binding.struct_type} *resource)
 {{
     if (((uint32_t)id >= (uint32_t){binding.count_symbol}) ||
+        ({validity_symbol}[id] == 0U) ||
         (resource == NULL))
     {{
         return 0U;
@@ -562,6 +719,7 @@ def _CustomPlatformResources_Get(
         "i2cs": [],
         "cans": [],
         "pwms": [],
+        "timebases": [],
     }
     destinations = {
         "uart": "uarts",
@@ -570,12 +728,13 @@ def _CustomPlatformResources_Get(
         "i2c": "i2cs",
         "can_classic": "cans",
         "pwm": "pwms",
+        "time": "timebases",
     }
     for resource in model.hardware.resources:
         metadata = resource.metadata
         destination = destinations.get(resource.kind)
         if (
-            resource.kind in {"i2c", "can_classic", "pwm"}
+            resource.kind in {"i2c", "can_classic", "pwm", "time"}
             and resource.resource_id not in active_resource_ids
         ):
             continue
@@ -624,6 +783,7 @@ def _BoardPlatformResources_Get(
         "i2cs": [],
         "cans": [],
         "pwms": [],
+        "timebases": [],
     }
     destinations = {
         "uart": "uarts",
@@ -632,12 +792,13 @@ def _BoardPlatformResources_Get(
         "i2c": "i2cs",
         "can_classic": "cans",
         "pwm": "pwms",
+        "time": "timebases",
     }
     for provision in BoardResourceProvisions_Get(board):
         metadata = provision.metadata
         destination = destinations.get(provision.kind)
         if (
-            provision.kind in {"i2c", "can_classic", "pwm"}
+            provision.kind in {"i2c", "can_classic", "pwm", "time"}
             and provision.resource_id not in active_resource_ids
         ):
             continue
@@ -712,6 +873,16 @@ def LogDecoderProfile_Render(
             for category, selection in sorted(model.protocols.items())
         },
         "components": list(model.ComponentIds_Get()),
+        "component_locks": [
+            {
+                "component": component_id,
+                "version": catalog.Component_Get(component_id).version,
+                "manifest_sha256": catalog.Component_Get(
+                    component_id
+                ).ManifestSha256_Get(),
+            }
+            for component_id in model.ComponentIds_Get()
+        ],
         "algorithms": [
             component_id
             for component_id in model.ComponentIds_Get()
@@ -732,6 +903,9 @@ def LogDecoderProfile_Render(
             "mcu_family": model.hardware.inventory.get("mcu_family", ""),
             "package": model.hardware.inventory.get("package", ""),
             "core": model.hardware.inventory.get("core", ""),
+            "cubemx_version": model.hardware.cubemx_version,
+            "firmware_package": model.hardware.firmware_package,
+            "hal_cmsis_source_policy": model.hardware.hal_cmsis_source_policy,
             "snapshot_id": model.hardware.snapshot_id,
             "source_digest": model.hardware.source_digest,
             "assignment_fingerprint": model.hardware.assignment_fingerprint,
@@ -925,6 +1099,9 @@ def LogDecoderProfile_Render(
                 },
                 "snapshot_id": model.hardware.snapshot_id,
                 "source_digest": model.hardware.source_digest,
+                "cubemx_version": model.hardware.cubemx_version,
+                "firmware_package": model.hardware.firmware_package,
+                "hal_cmsis_source_policy": model.hardware.hal_cmsis_source_policy,
                 "assignment_fingerprint": model.hardware.assignment_fingerprint,
                 "platform_lock": {
                     "component": model.hardware.platform_component,
@@ -2484,6 +2661,13 @@ def _Configuration_Render(model: ProjectModel, catalog: PluginCatalog, graph: So
             f"decimation={stream.decimation}, period_us={stream.period_us}"
         )
     lines.extend(("", "## Hardware provenance", ""))
+    lines.extend(
+        (
+            f"- CubeMX version: `{model.hardware.cubemx_version}`",
+            f"- STM32Cube firmware package: `{model.hardware.firmware_package}`",
+            f"- HAL/CMSIS source policy: `{model.hardware.hal_cmsis_source_policy}`",
+        )
+    )
     if model.hardware.mode == "custom":
         lines.extend(
             (

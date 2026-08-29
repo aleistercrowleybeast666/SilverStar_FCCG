@@ -23,6 +23,18 @@ from silverstar_fccg.plugins.catalog import PluginCatalog  # noqa: E402
 
 BUILTIN_ROOT = WORKSPACE_ROOT / "plugins" / "builtin"
 REFERENCE_OVERLAY_ROOT = WORKSPACE_ROOT / "tools" / "reference_overlays"
+STM32CUBE_F4_PACKAGE = "STM32Cube_FW_F4_V1.28.3"
+STM32CUBE_F4_VENDOR_HASHES = {
+    "Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_i2c.c": (
+        "d3686886a87d018a6a5f26c9760fc7a80ad2d520b9e856916a983302fc6a3442"
+    ),
+    "Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_i2c_ex.c": (
+        "6f0863aaf210e9f446f194c34035b59b7de4ad617743e7e94a0f7a4232c96596"
+    ),
+    "Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_can.c": (
+        "67be4e0b3a9dc93552eb0a506991f5b4042b38c125270d9e703133808c2d40d3"
+    ),
+}
 REFERENCE_MARKERS = (
     "SilverStar.ssproject",
     "AGENTS.md",
@@ -294,6 +306,8 @@ def _Component(
     transports: list[dict[str, Any]] | None = None,
     docs: list[str] | None = None,
     overlay_files: dict[str, str] | None = None,
+    reference_files: dict[str, str] | None = None,
+    vendor_files: dict[str, str] | None = None,
     version: str = "0.0.9",
 ) -> dict[str, Any]:
     build: dict[str, Any] = {
@@ -349,7 +363,38 @@ def _Component(
         "manifest": manifest,
         "docs": docs or [],
         "overlay_files": dict(overlay_files or {}),
+        "reference_files": dict(reference_files or {}),
+        "vendor_files": dict(vendor_files or {}),
     }
+
+
+def _Stm32CubeF4VendorRoot_Get() -> Path:
+    configured = os.environ.get("SILVERSTAR_STM32CUBE_F4_ROOT", "").strip()
+    candidates = (
+        Path(configured) if configured else None,
+        Path.home() / "STM32Cube" / "Repository" / STM32CUBE_F4_PACKAGE,
+    )
+    for candidate in candidates:
+        if candidate is None or not candidate.is_dir():
+            continue
+        mismatches: list[str] = []
+        for relative_text, expected_digest in STM32CUBE_F4_VENDOR_HASHES.items():
+            source = candidate / Path(*relative_text.split("/"))
+            if not source.is_file():
+                mismatches.append(f"missing {relative_text}")
+                continue
+            actual_digest = hashlib.sha256(source.read_bytes()).hexdigest()
+            if actual_digest != expected_digest:
+                mismatches.append(
+                    f"digest mismatch {relative_text}: {actual_digest}"
+                )
+        if not mismatches:
+            return candidate.resolve()
+    raise RuntimeError(
+        "The exact STM32Cube FW_F4 V1.28.3 vendor package is required to "
+        "import the I2C/CAN provider assets. Install it in the STM32Cube "
+        "repository or set SILVERSTAR_STM32CUBE_F4_ROOT to its package root."
+    )
 
 
 def _PlatformResources_Get() -> tuple[list[dict[str, Any]], dict[str, Any]]:
@@ -509,10 +554,69 @@ def _Stm32F407PlatformContract_Get() -> dict[str, Any]:
                     "PlatformStm32f4Resource_PwmGet",
                     "PlatformStm32f4PwmResource",
                 ),
+                "time": binding(
+                    "timebases", "stm32f4xx_hal_tim.h", "timebase",
+                    "PlatformTimeId", "PLATFORM_TIME_COUNT",
+                    "s_time_resources", "PlatformStm32f4Resource_TimeGet",
+                    "PlatformStm32f4TimeResource",
+                ),
             },
         },
         "resource_backends": {
+            "uart": {
+                "maturity": "verified",
+                "inventory_kinds": ["uart"],
+                "sources": ["Platform/STM32F4/Src/platform_uart_stm32f4.c"],
+                "provider_sources": [],
+                "include_dirs": [],
+                "defines": [],
+                "capabilities": ["uart.blocking", "uart.interrupt_dma"],
+                "ownership": "shared",
+            },
+            "spi": {
+                "maturity": "verified",
+                "inventory_kinds": ["spi"],
+                "sources": ["Platform/STM32F4/Src/platform_spi_stm32f4.c"],
+                "provider_sources": [],
+                "include_dirs": [],
+                "defines": [],
+                "capabilities": ["spi.master_blocking"],
+                "ownership": "shared",
+            },
+            "adc": {
+                "maturity": "verified",
+                "inventory_kinds": ["adc"],
+                "sources": ["Platform/STM32F4/Src/platform_adc_stm32f4.c"],
+                "provider_sources": [],
+                "include_dirs": [],
+                "defines": [],
+                "capabilities": ["adc.polling"],
+                "ownership": "single_owner",
+            },
+            "gpio": {
+                "maturity": "verified",
+                "inventory_kinds": [
+                    "gpio_input", "gpio_output", "gpio_interrupt"
+                ],
+                "sources": ["Platform/STM32F4/Src/platform_gpio_stm32f4.c"],
+                "provider_sources": [],
+                "include_dirs": [],
+                "defines": [],
+                "capabilities": ["gpio.digital", "gpio.exti"],
+                "ownership": "single_owner",
+            },
+            "time": {
+                "maturity": "verified",
+                "inventory_kinds": ["time"],
+                "sources": ["Platform/STM32F4/Src/platform_time_stm32f4.c"],
+                "provider_sources": [],
+                "include_dirs": [],
+                "defines": [],
+                "capabilities": ["time.monotonic_us"],
+                "ownership": "shared",
+            },
             "i2c": {
+                "maturity": "supported",
                 "inventory_kinds": ["i2c"],
                 "sources": [
                     "Platform/STM32F4/Src/platform_i2c_stm32f4.c",
@@ -530,6 +634,7 @@ def _Stm32F407PlatformContract_Get() -> dict[str, Any]:
                 "ownership": "shared_bus_unique_address",
             },
             "can_classic": {
+                "maturity": "reserved",
                 "inventory_kinds": ["can_classic"],
                 "sources": [
                     "Platform/STM32F4/Src/platform_can_stm32f4.c",
@@ -543,6 +648,7 @@ def _Stm32F407PlatformContract_Get() -> dict[str, Any]:
                 "ownership": "single_owner",
             },
             "pwm": {
+                "maturity": "supported",
                 "inventory_kinds": ["pwm"],
                 "sources": [
                     "Platform/STM32F4/Src/platform_pwm_stm32f4.c"
@@ -554,12 +660,182 @@ def _Stm32F407PlatformContract_Get() -> dict[str, Any]:
                 "ownership": "exclusive_channel_shared_timer",
             },
         },
+        "module_providers": {
+            "base": {
+                "inventory_modules": ["NVIC", "RCC", "SYS"],
+                "init_sources": ["Core/Src/main.c"],
+                "provider_sources": [
+                    "Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal.c",
+                    "Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_cortex.c",
+                    "Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_exti.c",
+                    "Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_flash.c",
+                    "Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_flash_ex.c",
+                    "Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_flash_ramfunc.c",
+                    "Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_pwr.c",
+                    "Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_pwr_ex.c",
+                    "Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_rcc.c",
+                    "Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_rcc_ex.c",
+                ],
+                "middleware_sources": [],
+                "include_dirs": [],
+                "defines": [],
+                "capabilities": ["hal.base"],
+                "limitations": [],
+                "always": True,
+            },
+            "gpio": {
+                "inventory_modules": ["GPIO"],
+                "init_sources": ["Core/Src/gpio.c"],
+                "provider_sources": [
+                    "Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_gpio.c"
+                ],
+                "middleware_sources": [],
+                "include_dirs": [],
+                "defines": [],
+                "capabilities": ["hal.gpio"],
+                "limitations": [],
+                "always": False,
+            },
+            "dma": {
+                "inventory_modules": ["DMA"],
+                "init_sources": ["Core/Src/dma.c"],
+                "provider_sources": [
+                    "Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_dma.c",
+                    "Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_dma_ex.c",
+                ],
+                "middleware_sources": [],
+                "include_dirs": [],
+                "defines": [],
+                "capabilities": ["hal.dma"],
+                "limitations": [],
+                "always": False,
+            },
+            "uart": {
+                "inventory_modules": ["USART*", "UART*", "LPUART*"],
+                "init_sources": ["Core/Src/usart.c"],
+                "provider_sources": [
+                    "Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_uart.c"
+                ],
+                "middleware_sources": [],
+                "include_dirs": [],
+                "defines": [],
+                "capabilities": ["hal.uart"],
+                "limitations": [],
+                "always": False,
+            },
+            "spi": {
+                "inventory_modules": ["SPI*"],
+                "init_sources": ["Core/Src/spi.c"],
+                "provider_sources": [
+                    "Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_spi.c"
+                ],
+                "middleware_sources": [],
+                "include_dirs": [],
+                "defines": [],
+                "capabilities": ["hal.spi"],
+                "limitations": [],
+                "always": False,
+            },
+            "adc": {
+                "inventory_modules": ["ADC*"],
+                "init_sources": ["Core/Src/adc.c"],
+                "provider_sources": [
+                    "Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_adc.c",
+                    "Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_adc_ex.c",
+                    "Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_ll_adc.c",
+                ],
+                "middleware_sources": [],
+                "include_dirs": [],
+                "defines": [],
+                "capabilities": ["hal.adc"],
+                "limitations": [],
+                "always": False,
+            },
+            "i2c": {
+                "inventory_modules": ["I2C*"],
+                "init_sources": ["Core/Src/i2c.c"],
+                "provider_sources": [
+                    "Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_i2c.c",
+                    "Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_i2c_ex.c",
+                ],
+                "middleware_sources": [],
+                "include_dirs": [],
+                "defines": [],
+                "capabilities": ["hal.i2c"],
+                "limitations": [],
+                "always": False,
+            },
+            "tim": {
+                "inventory_modules": ["TIM*", "LPTIM*"],
+                "init_sources": [
+                    "Core/Src/tim.c",
+                    "Core/Src/stm32f4xx_hal_timebase_tim.c",
+                ],
+                "provider_sources": [
+                    "Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_tim.c",
+                    "Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_tim_ex.c",
+                ],
+                "middleware_sources": [],
+                "include_dirs": [],
+                "defines": [],
+                "capabilities": ["hal.tim"],
+                "limitations": ["TIM HAL Timebase must prove a 1 MHz counter"],
+                "always": False,
+            },
+            "can": {
+                "inventory_modules": ["CAN*"],
+                "init_sources": ["Core/Src/can.c"],
+                "provider_sources": [
+                    "Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_can.c"
+                ],
+                "middleware_sources": [],
+                "include_dirs": [],
+                "defines": [],
+                "capabilities": ["hal.can_classic"],
+                "limitations": ["Classic CAN Device consumption remains reserved"],
+                "always": False,
+            },
+            "sdio": {
+                "inventory_modules": ["SDIO"],
+                "init_sources": ["Core/Src/sdio.c"],
+                "provider_sources": [
+                    "Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_sd.c",
+                    "Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_ll_sdmmc.c",
+                ],
+                "middleware_sources": [],
+                "include_dirs": [],
+                "defines": [],
+                "capabilities": ["hal.sdio"],
+                "limitations": ["STM32F407 SDIO only"],
+                "always": False,
+            },
+            "fatfs": {
+                "inventory_modules": ["FATFS"],
+                "init_sources": ["FATFS/App/fatfs.c"],
+                "provider_sources": [],
+                "middleware_sources": [
+                    "Middlewares/Third_Party/FatFs/src/diskio.c",
+                    "Middlewares/Third_Party/FatFs/src/ff.c",
+                    "Middlewares/Third_Party/FatFs/src/ff_gen_drv.c",
+                ],
+                "include_dirs": ["Middlewares/Third_Party/FatFs/src"],
+                "defines": [],
+                "capabilities": ["middleware.fatfs"],
+                "limitations": ["CubeMX FatFs App/Target glue remains hardware-owned"],
+                "always": False,
+            },
+        },
+        "compatibility": {
+            "cubemx_versions": ["6.15.0"],
+            "firmware_packages": ["STM32Cube FW_F4 V1.28.3"],
+            "source_policy": "plugin_payload_authoritative",
+        },
         "support": {
             "level": "verified",
             "limitations": [
                 "Validated production target: STM32F407VET6 and SS0.5",
                 "I2C v0 provides blocking master transfers and memory-register operations; generic repeated-start is not advertised",
-                "Classic CAN v0 permits one upper-layer owner per physical bxCAN peripheral",
+                "Classic CAN inventory is recognized, but the STM32F407 backend is reserved and unavailable to normal consumers",
                 "PWM v0 uses CubeMX static timer frequency and ordinary non-complementary output channels",
             ],
         },
@@ -601,7 +877,16 @@ def _BoardRoles_Get() -> list[dict[str, Any]]:
             "adc",
             "PLATFORM_ADC_1",
         ),
-        ("flight_controller_board:storage", "sdio", "PLATFORM_SDIO_1"),
+        (
+            "silverstar.device.storage.sd_sdio_fatfs:storage",
+            "sdio",
+            "PLATFORM_SDIO_1",
+        ),
+        (
+            "silverstar.device.storage.sd_sdio_fatfs:time",
+            "time",
+            "PLATFORM_TIME_1",
+        ),
     )
     return [
         {
@@ -655,7 +940,27 @@ def _Components_Get(
     ]
     board_sources = [path for path in first_party if path.startswith("Core/")]
     board_sources += _ManifestValues_Get(reference, "Board/SilverStar_0_5/module.mk", "C_SOURCES")
-    board_sources += _ManifestValues_Get(reference, "BuildSystem/fatfs.mk", "C_SOURCES")
+    board_sources = [
+        path
+        for path in board_sources
+        if not path.endswith(
+            (
+                "/storage_service.c",
+                "/log_sink_service.c",
+                "/mission_action_service.c",
+                "/output_service.c",
+                "/power_service.c",
+                "/indicator_service.c",
+            )
+        )
+    ]
+    board_sources += [
+        path
+        for path in _ManifestValues_Get(
+            reference, "BuildSystem/fatfs.mk", "C_SOURCES"
+        )
+        if path.startswith(("FATFS/App/", "FATFS/Target/"))
+    ]
     optional_platform_sources = {
         "Platform/STM32F4/Src/platform_i2c_stm32f4.c",
         "Platform/STM32F4/Src/platform_can_stm32f4.c",
@@ -666,15 +971,13 @@ def _Components_Get(
     }
     mcu_sources = [
         path
-        for path in (
-            _ManifestValues_Get(
-                reference, "Platform/STM32F4/module.mk", "C_SOURCES"
-            )
-            + _ManifestValues_Get(
-                reference, "BuildSystem/stm32_hal.mk", "C_SOURCES"
-            )
+        for path in _ManifestValues_Get(
+            reference, "Platform/STM32F4/module.mk", "C_SOURCES"
         )
-        if path not in optional_platform_sources
+        if path in {
+            "Platform/STM32F4/Src/platform_critical_stm32f4.c",
+            "Platform/STM32F4/Src/platform_memory_stm32f4.c",
+        }
     ]
     os_sources = [
         path
@@ -685,6 +988,13 @@ def _Components_Get(
     core_id = "silverstar.core.0_0_9"
     mcu_id = "silverstar.mcu.stm32f407vet6"
     board_id = "silverstar.board.silverstar_0_5"
+    storage_id = "silverstar.device.storage.sd_sdio_fatfs"
+    mission_action_service_id = (
+        "silverstar.flight_logic.mission_action.gpio_output_service"
+    )
+    indicator_service_id = (
+        "silverstar.flight_logic.indicator.gpio_status_service"
+    )
     device_flags = "SYSTEM_DESCRIPTOR_FLAG_ENABLED"
     primary_flags = f"{device_flags} | SYSTEM_DESCRIPTOR_FLAG_PRIMARY"
     components: list[dict[str, Any]] = []
@@ -727,7 +1037,7 @@ def _Components_Get(
             "STM32F407VET6",
             "mcu",
             "stm32f4",
-            ["Platform", "Drivers", "BuildSystem/stm32_hal.mk", "Targets/SilverStar_F407/Inc/platform_memory_target.h", "Targets/SilverStar_F407/Inc/target_system_config.h", "Targets/SilverStar_F407/Inc/target_build_capabilities.h", "startup_stm32f407xx.s", "STM32F407XX_FLASH.ld"],
+            ["Platform", "Drivers", "Middlewares/Third_Party/FatFs", "BuildSystem/stm32_hal.mk", "Targets/SilverStar_F407/Inc/platform_memory_target.h", "Targets/SilverStar_F407/Inc/target_system_config.h", "Targets/SilverStar_F407/Inc/target_build_capabilities.h", "Targets/SilverStar_F407/Inc/mission_action_output_build_capabilities.h", "startup_stm32f407xx.s", "STM32F407XX_FLASH.ld"],
             description="STM32F407VET6 capabilities, STM32F4 Platform backend, HAL/CMSIS dependency and target memory contract.",
             provenance=provenance,
             sources=mcu_sources,
@@ -736,17 +1046,25 @@ def _Components_Get(
             defines=["USE_HAL_DRIVER", "STM32F407xx"],
             provides=["mcu.cortex_m4f", "platform.stm32f4", "memory.ccmram", "hardware_provider.stm32_cubemx"],
             platform=_Stm32F407PlatformContract_Get(),
-            build_extra={"mcu_flags": ["-mcpu=cortex-m4", "-mthumb", "-mfpu=fpv4-sp-d16", "-mfloat-abi=hard"], "specs": ["-specs=nano.specs"], "libraries": ["-lc", "-lm", "-lnosys"], "forced_includes": ["Targets/SilverStar_F407/Inc/platform_memory_target.h"], "linker_script": "STM32F407XX_FLASH.ld", "toolchain_prefix": "arm-none-eabi-"},
-            metadata={"vendor": "STM32", "mcu_model": "STM32F407VET6", "display_names": {"zh_CN": "STM32F407VET6", "en_US": "STM32F407VET6"}, "supported_environments": ["silverstar.environment.vscode_eide_gcc"], "supported_toolchains": ["arm-none-eabi-gcc"], "source_origins": {"Platform/Inc/platform_i2c.h": "fccg_extension", "Platform/Inc/platform_can.h": "fccg_extension", "Platform/Inc/platform_pwm.h": "fccg_extension", "Platform/STM32F4/Inc/platform_stm32f4_resources.h": "fccg_extension", "Platform/STM32F4/Src/platform_i2c_stm32f4.c": "fccg_extension", "Platform/STM32F4/Src/platform_can_stm32f4.c": "fccg_extension", "Platform/STM32F4/Src/platform_pwm_stm32f4.c": "fccg_extension", "default": "reference_base"}},
+            build_extra={"mcu_flags": ["-mcpu=cortex-m4", "-mthumb", "-mfpu=fpv4-sp-d16", "-mfloat-abi=hard"], "specs": ["-specs=nano.specs"], "libraries": ["-lc", "-lm", "-lnosys"], "forced_includes": ["Targets/SilverStar_F407/Inc/platform_memory_target.h"], "linker_script": "STM32F407XX_FLASH.ld", "toolchain_prefix": "arm-none-eabi-", "exclude_sources": ["Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_mmc.c"]},
+            metadata={"vendor": "STM32", "mcu_model": "STM32F407VET6", "display_names": {"zh_CN": "STM32F407VET6", "en_US": "STM32F407VET6"}, "supported_environments": ["silverstar.environment.vscode_eide_gcc"], "supported_toolchains": ["arm-none-eabi-gcc"], "resource_capacities": {"uarts": 6, "spis": 3, "adcs": 3, "gpios": 96, "i2cs": 3, "cans": 2, "pwms": 64, "timebases": 1}, "source_origins": {"Platform/Inc/platform_uart.h": "fccg_extension", "Platform/Inc/platform_spi.h": "fccg_extension", "Platform/Inc/platform_adc.h": "fccg_extension", "Platform/Inc/platform_gpio.h": "fccg_extension", "Platform/Inc/platform_i2c.h": "fccg_extension", "Platform/Inc/platform_can.h": "fccg_extension", "Platform/Inc/platform_pwm.h": "fccg_extension", "Platform/Inc/platform_time.h": "fccg_extension", "Platform/STM32F4/Inc/platform_stm32f4_resources.h": "fccg_extension", "Platform/STM32F4/Src/platform_i2c_stm32f4.c": "fccg_extension", "Platform/STM32F4/Src/platform_can_stm32f4.c": "fccg_extension", "Platform/STM32F4/Src/platform_pwm_stm32f4.c": "fccg_extension", "Platform/STM32F4/Src/platform_time_stm32f4.c": "fccg_extension", "Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_i2c.c": "stm32cube_fw_f4_v1_28_3", "Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_i2c_ex.c": "stm32cube_fw_f4_v1_28_3", "Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_can.c": "stm32cube_fw_f4_v1_28_3", "default": "reference_base"}},
             overlay_files={
+                "Platform/Inc/platform_uart.h": "platform/platform_uart.h",
+                "Platform/Inc/platform_spi.h": "platform/platform_spi.h",
+                "Platform/Inc/platform_adc.h": "platform/platform_adc.h",
+                "Platform/Inc/platform_gpio.h": "platform/platform_gpio.h",
                 "Platform/Inc/platform_i2c.h": "platform/platform_i2c.h",
                 "Platform/Inc/platform_can.h": "platform/platform_can.h",
                 "Platform/Inc/platform_pwm.h": "platform/platform_pwm.h",
+                "Platform/Inc/platform_time.h": "platform/platform_time.h",
                 "Platform/STM32F4/Inc/platform_stm32f4_resources.h": "platform/platform_stm32f4_resources.h",
                 "Platform/STM32F4/Src/platform_i2c_stm32f4.c": "platform/platform_i2c_stm32f4.c",
                 "Platform/STM32F4/Src/platform_can_stm32f4.c": "platform/platform_can_stm32f4.c",
                 "Platform/STM32F4/Src/platform_pwm_stm32f4.c": "platform/platform_pwm_stm32f4.c",
+                "Platform/STM32F4/Src/platform_time_stm32f4.c": "platform/platform_time_stm32f4.c",
+                "Targets/SilverStar_F407/Inc/mission_action_output_build_capabilities.h": "target/mission_action_output_build_capabilities.h",
             },
+            vendor_files={path: path for path in STM32CUBE_F4_VENDOR_HASHES},
             docs=["docs/details/PLATFORM_INTERFACE.md", "docs/details/BUILD_AND_TARGETS.md"],
         )
     )
@@ -758,18 +1076,16 @@ def _Components_Get(
             "SS0.5",
             "board",
             "flight_controller_board",
-            ["Board/SilverStar_0_5", "Core", "FATFS", "Middlewares/Third_Party/FatFs", "BuildSystem/fatfs.mk", "Flight_Controller0.5.ioc", ".mxproject"],
+            ["Board/SilverStar_0_5", "Core", "FATFS", "BuildSystem/fatfs.mk", "Flight_Controller0.5.ioc", ".mxproject"],
             description="Verified SS0.5 PCB, CubeMX hardware source, fixed services and resource mapping.",
             provenance=provenance,
             sources=board_sources,
-            includes=["Core/Inc", "Board/SilverStar_0_5/Services/Inc", "FATFS/Target", "FATFS/App", "Middlewares/Third_Party/FatFs/src"],
+            includes=["Core/Inc", "FATFS/Target", "FATFS/App"],
             dependencies=[core_id, mcu_id],
-            resources_required=[
-                {"name": "storage", "kind": "sdio"},
-            ],
+            resources_required=[],
             resources_provided=provisions,
             resource_roles=_BoardRoles_Get(),
-            provides=["board.silverstar_0_5", "hardware.stm32.generated", "service.output", "service.storage", "service.log_sink", "transport.sequential_file_sink"],
+            provides=["board.silverstar_0_5", "hardware.stm32.generated"],
             metadata={
                 "build_symbol": "SILVERSTAR_0_5",
                 "display_names": {"zh_CN": "SS0.5（已验证）", "en_US": "SS0.5 (Validated)"},
@@ -777,47 +1093,176 @@ def _Components_Get(
                     "zh_CN": "已验证的SS0.5板卡、CubeMX硬件源、固定服务与资源映射。",
                     "en_US": "Verified SS0.5 PCB, CubeMX hardware source, fixed services, and resource mapping.",
                 },
-                "optional_resource_bindings": [
-                    {
-                        "binding_macro": "PROJECT_RESOURCE_SYSTEM_INDICATOR",
-                        "enabled_macro": "PROJECT_FEATURE_SYSTEM_STATUS_INDICATOR",
-                        "fallback": "PLATFORM_GPIO_COUNT",
-                        "header": "platform_gpio.h",
+                "device_descriptors": [],
+            },
+            build_extra={"exclude_sources": ["Core/Src/sysmem.c"]},
+            board={"source_kind": "verified_builtin", "compatible_mcus": [mcu_id], "vendor": "STM32", "provider": "silverstar.hardware_provider.stm32_cubemx", "verified": True, "hardware_root": "Core", "ioc_file": "payload/Flight_Controller0.5.ioc", "connections_file": "connections.json"},
+            docs=["docs/details/BUILD_AND_TARGETS.md"],
+        )
+    )
+
+    components.append(
+        _Component(
+            mission_action_service_id,
+            "GPIO Mission-Action Output Service",
+            "flight_logic",
+            "mission_action_output_service",
+            [
+                "FlightLogic/MissionAction/GpioOutput/Src/mission_action_service.c",
+                "FlightLogic/MissionAction/GpioOutput/Src/output_service.c",
+                "FlightLogic/MissionAction/GpioOutput/Inc/mission_action_output_config.h",
+            ],
+            description=(
+                "Board-independent SilverStar mission-action and timed GPIO "
+                "output service selected as an internal dependency of an "
+                "ignition or parachute output Device."
+            ),
+            provenance=provenance,
+            sources=[
+                "FlightLogic/MissionAction/GpioOutput/Src/mission_action_service.c",
+                "FlightLogic/MissionAction/GpioOutput/Src/output_service.c",
+            ],
+            includes=["FlightLogic/MissionAction/GpioOutput/Inc"],
+            dependencies=[core_id],
+            provides=["service.output", "service.mission_action"],
+            metadata={
+                "internal_dependency": True,
+                "display_names": {
+                    "zh_CN": "GPIO 任务动作输出服务",
+                    "en_US": "GPIO Mission-Action Output Service",
+                },
+            },
+            reference_files={
+                "FlightLogic/MissionAction/GpioOutput/Src/mission_action_service.c": "Board/SilverStar_0_5/Services/Src/mission_action_service.c",
+                "FlightLogic/MissionAction/GpioOutput/Src/output_service.c": "Board/SilverStar_0_5/Services/Src/output_service.c",
+                "FlightLogic/MissionAction/GpioOutput/Inc/mission_action_output_config.h": "Board/SilverStar_0_5/Services/Inc/mission_action_output_config.h",
+            },
+            docs=["docs/details/FCCG_COMPONENT_BOUNDARIES.md"],
+        )
+    )
+
+    components.append(
+        _Component(
+            indicator_service_id,
+            "GPIO Status Indicator Service",
+            "flight_logic",
+            "status_indicator_service",
+            ["FlightLogic/Indicator/GpioStatus/Src/indicator_service.c"],
+            description=(
+                "Board-independent status-indicator adapter selected as an "
+                "internal dependency of a software-controlled Indicator Device."
+            ),
+            provenance=provenance,
+            sources=["FlightLogic/Indicator/GpioStatus/Src/indicator_service.c"],
+            dependencies=[core_id],
+            provides=["service.status_indicator"],
+            metadata={
+                "internal_dependency": True,
+                "display_names": {
+                    "zh_CN": "GPIO 状态指示服务",
+                    "en_US": "GPIO Status Indicator Service",
+                },
+            },
+            reference_files={
+                "FlightLogic/Indicator/GpioStatus/Src/indicator_service.c": "Board/SilverStar_0_5/Services/Src/indicator_service.c"
+            },
+            docs=["docs/details/FCCG_COMPONENT_BOUNDARIES.md"],
+        )
+    )
+
+    components.append(
+        _Component(
+            storage_id,
+            "SD/TF Card · STM32 SDIO + FatFs",
+            "device",
+            "storage",
+            [
+                "Devices/Storage/SdSdioFatFs/Src/storage_service.c",
+                "Devices/Storage/SdSdioFatFs/Src/log_sink_service.c",
+            ],
+            description="Single-instance SD/TF physical storage and sequential SSLOG sink using CubeMX SDIO and FatFs glue.",
+            provenance=provenance,
+            sources=[
+                "Devices/Storage/SdSdioFatFs/Src/storage_service.c",
+                "Devices/Storage/SdSdioFatFs/Src/log_sink_service.c",
+            ],
+            includes=[],
+            dependencies=[core_id, mcu_id],
+            resources_required=[
+                {
+                    "name": "storage",
+                    "kind": "sdio",
+                    "constraints": {
+                        "storage": {
+                            "fatfs": True,
+                            "dma_rx": True,
+                            "dma_tx": True,
+                            "irq": True,
+                            "sdio_only": True,
+                        }
                     },
-                    {
-                        "binding_macro": "PROJECT_RESOURCE_GNSS_INDICATOR",
-                        "enabled_macro": "PROJECT_FEATURE_GNSS_STATUS_INDICATOR",
-                        "fallback": "PLATFORM_GPIO_COUNT",
-                        "header": "platform_gpio.h",
+                    "display_names": {
+                        "zh_CN": "SD/TF 卡 · SDIO + FatFs",
+                        "en_US": "SD/TF Card · SDIO + FatFs",
                     },
-                    {
-                        "binding_macro": "PROJECT_RESOURCE_INPUT_VOLTAGE_ADC",
-                        "enabled_macro": "PROJECT_FEATURE_INPUT_VOLTAGE_MONITOR",
-                        "fallback": "PLATFORM_ADC_COUNT",
-                        "header": "platform_adc.h",
+                },
+                {
+                    "name": "time",
+                    "kind": "time",
+                    "mode": "shared",
+                    "display_names": {
+                        "zh_CN": "单调时间基准",
+                        "en_US": "Monotonic Timebase",
                     },
-                    {
-                        "binding_macro": "PROJECT_RESOURCE_LAUNCH_IGNITION_OUTPUT",
-                        "enabled_macro": "PROJECT_FEATURE_LAUNCH_IGNITION_OUTPUT",
-                        "fallback": "PLATFORM_GPIO_COUNT",
-                        "header": "platform_gpio.h",
-                    },
-                    {
-                        "binding_macro": "PROJECT_RESOURCE_PARACHUTE_PYRO_OUTPUT",
-                        "enabled_macro": "PROJECT_FEATURE_PARACHUTE_PYRO_OUTPUT",
-                        "fallback": "PLATFORM_GPIO_COUNT",
-                        "header": "platform_gpio.h",
-                    },
+                },
+            ],
+            provides=[
+                "service.storage",
+                "service.log_sink",
+                "transport.sequential_file_sink",
+            ],
+            metadata={
+                "display_names": {
+                    "zh_CN": "SD/TF 卡（STM32 SDIO + FatFs）",
+                    "en_US": "SD/TF Card (STM32 SDIO + FatFs)",
+                },
+                "descriptions": {
+                    "zh_CN": "使用 CubeMX SDIO、FatFs App/Target 胶水及受控 FatFs core 的单实例物理存储与日志接收端。",
+                    "en_US": "Single-instance physical storage and log sink using CubeMX SDIO/FatFs App/Target glue and a controlled FatFs core.",
+                },
+                "device_category": "storage.sd_card",
+                "device_group": "storage",
+                "device_group_order": 10,
+                "device_selection_style": "toggle",
+                "default_instance_id": "storage0",
+                "hardware_contract_required": True,
+                "build_feature_symbols": [
+                    "SYSTEM_USER_STORAGE_ENABLE",
+                    "SYSTEM_USER_LOG_SINK_ENABLE",
                 ],
                 "device_descriptors": [
                     {"order": 8, "physical_device_id": "PROJECT_PHYSICAL_DEVICE_ID_STORAGE", "class": "SYSTEM_DEVICE_CLASS_STORAGE", "flags": f"{device_flags} | SYSTEM_DESCRIPTOR_FLAG_SHARED_PHYSICAL", "capability": "SYSTEM_CAPABILITY_STORAGE", "rate": "0U", "driver_hash": "0xF02E45D5UL", "name_hash": "0x3A7B5375UL"},
                     {"order": 9, "physical_device_id": "PROJECT_PHYSICAL_DEVICE_ID_STORAGE", "class": "SYSTEM_DEVICE_CLASS_LOG_SINK", "flags": f"{device_flags} | SYSTEM_DESCRIPTOR_FLAG_SHARED_PHYSICAL", "capability": "SYSTEM_CAPABILITY_STORAGE", "rate": "0U", "driver_hash": "0x6DB00410UL", "name_hash": "0xCD7C84A3UL"},
                 ],
             },
-            build_extra={"exclude_sources": ["Core/Src/sysmem.c"]},
-            board={"source_kind": "verified_builtin", "compatible_mcus": [mcu_id], "vendor": "STM32", "provider": "silverstar.hardware_provider.stm32_cubemx", "verified": True, "hardware_root": "Core", "ioc_file": "payload/Flight_Controller0.5.ioc", "connections_file": "connections.json"},
+            instance_policy={
+                "plugin_max": 1,
+                "class_max": 1,
+                "same_plugin_multiple": False,
+                "multi_instance_ready": False,
+            },
+            physical_device={
+                "vendor": "Generic",
+                "model": "SD/TF Card",
+                "chipset": "STM32 SDIO",
+                "driver": "CubeMX FatFs",
+            },
             transports=[{"capability": "transport.sequential_file_sink", "kind": "sequential_file_sink", "mtu": 65535, "ordered": True, "bidirectional": False, "reliable": True, "mode": "file"}],
-            docs=["docs/details/STORAGE_AND_FLIGHT_LOG.md", "docs/details/BUILD_AND_TARGETS.md"],
+            reference_files={
+                "Devices/Storage/SdSdioFatFs/Src/storage_service.c": "Board/SilverStar_0_5/Services/Src/storage_service.c",
+                "Devices/Storage/SdSdioFatFs/Src/log_sink_service.c": "Board/SilverStar_0_5/Services/Src/log_sink_service.c",
+            },
+            docs=["docs/details/STORAGE_AND_FLIGHT_LOG.md"],
         )
     )
 
@@ -909,6 +1354,17 @@ def _Components_Get(
         }
         if component_class == "console":
             device_metadata["internal"] = True
+        build_feature_symbols = {
+            "imu": [
+                "SYSTEM_USER_IMU_ENABLE",
+                "SYSTEM_USER_BAROMETER_ENABLE",
+                "SYSTEM_USER_HARDWARE_QUATERNION_ENABLE",
+            ],
+            "gnss": ["SYSTEM_USER_GNSS_ENABLE"],
+            "telemetry": ["SYSTEM_USER_TELEMETRY_ENABLE"],
+            "console": ["SYSTEM_USER_CONSOLE_ENABLE"],
+        }[component_class]
+        device_metadata["build_feature_symbols"] = build_feature_symbols
         facade_bindings: dict[str, dict[str, Any]] = {
             "silverstar.device.imu.jy901b": {
                 "SYSTEM_DEVICE_CLASS_IMU": {"function_prefix": "SystemImu"},
@@ -1039,7 +1495,16 @@ def _Components_Get(
                         "zh_CN": "输入电压监测",
                         "en_US": "Input Voltage Monitor",
                     },
-                }
+                },
+                {
+                    "name": "time",
+                    "kind": "time",
+                    "mode": "shared",
+                    "display_names": {
+                        "zh_CN": "单调时间基准",
+                        "en_US": "Monotonic Timebase",
+                    },
+                },
             ],
             ["power.voltage", "power.monitor"],
             {
@@ -1049,6 +1514,15 @@ def _Components_Get(
                 "device_selection_style": "toggle",
                 "default_instance_id": "voltage_monitor0",
                 "recordable_outputs": {"power.voltage": {"enabled": True}},
+                "build_feature_symbols": ["SYSTEM_USER_POWER_ENABLE"],
+                "optional_resource_bindings": [
+                    {
+                        "binding_macro": "PROJECT_RESOURCE_INPUT_VOLTAGE_ADC",
+                        "enabled_macro": "PROJECT_FEATURE_INPUT_VOLTAGE_MONITOR",
+                        "fallback": "PLATFORM_ADC_COUNT",
+                        "header": "platform_adc.h",
+                    }
+                ],
                 "device_descriptors": [
                     {
                         "order": 7,
@@ -1086,7 +1560,16 @@ def _Components_Get(
                         "zh_CN": "起飞点火功率输出",
                         "en_US": "Launch Ignition Power Output",
                     },
-                }
+                },
+                {
+                    "name": "time",
+                    "kind": "time",
+                    "mode": "shared",
+                    "display_names": {
+                        "zh_CN": "单调时间基准",
+                        "en_US": "Monotonic Timebase",
+                    },
+                },
             ],
             ["actuator.mission_action.launch_ignition"],
             {
@@ -1097,6 +1580,19 @@ def _Components_Get(
                 "independent_class_member": True,
                 "default_instance_id": "launch_ignition0",
                 "auto_select_when_required": False,
+                "build_feature_symbols": [
+                    "SYSTEM_USER_OUTPUT_ENABLE",
+                    "SYSTEM_USER_MISSION_ACTION_ENABLE",
+                    "MISSION_ACTION_OUTPUT_BUILD_START_ACTION_AVAILABLE",
+                ],
+                "optional_resource_bindings": [
+                    {
+                        "binding_macro": "PROJECT_RESOURCE_LAUNCH_IGNITION_OUTPUT",
+                        "enabled_macro": "PROJECT_FEATURE_LAUNCH_IGNITION_OUTPUT",
+                        "fallback": "PLATFORM_GPIO_COUNT",
+                        "header": "platform_gpio.h",
+                    }
+                ],
                 "device_descriptors": [
                     {
                         "order": 10,
@@ -1134,7 +1630,16 @@ def _Components_Get(
                         "zh_CN": "火工开伞功率输出",
                         "en_US": "Parachute Pyro Power Output",
                     },
-                }
+                },
+                {
+                    "name": "time",
+                    "kind": "time",
+                    "mode": "shared",
+                    "display_names": {
+                        "zh_CN": "单调时间基准",
+                        "en_US": "Monotonic Timebase",
+                    },
+                },
             ],
             ["actuator.mission_action.parachute_deploy"],
             {
@@ -1145,6 +1650,19 @@ def _Components_Get(
                 "independent_class_member": True,
                 "default_instance_id": "parachute_pyro0",
                 "auto_select_when_required": False,
+                "build_feature_symbols": [
+                    "SYSTEM_USER_OUTPUT_ENABLE",
+                    "SYSTEM_USER_MISSION_ACTION_ENABLE",
+                    "MISSION_ACTION_OUTPUT_BUILD_PARACHUTE_DEPLOY_AVAILABLE",
+                ],
+                "optional_resource_bindings": [
+                    {
+                        "binding_macro": "PROJECT_RESOURCE_PARACHUTE_PYRO_OUTPUT",
+                        "enabled_macro": "PROJECT_FEATURE_PARACHUTE_PYRO_OUTPUT",
+                        "fallback": "PLATFORM_GPIO_COUNT",
+                        "header": "platform_gpio.h",
+                    }
+                ],
                 "device_descriptors": [
                     {
                         "order": 11,
@@ -1189,18 +1707,39 @@ def _Components_Get(
                 "driver": "output_service",
             },
         }
+        payload_roots: list[str] = []
+        sources: list[str] = []
+        includes: list[str] = []
+        dependencies = [core_id]
+        description = (
+            "Declarative physical-resource Device backed by an internal "
+            "SilverStar service component rather than by a Board plugin."
+        )
+        if component_id == "silverstar.device.sensor.input_voltage":
+            payload_roots = [
+                "Devices/Power/InputVoltage/Src/power_service.c",
+                "Devices/Power/InputVoltage/Inc/adc_power_config.h",
+            ]
+            sources = ["Devices/Power/InputVoltage/Src/power_service.c"]
+            includes = ["Devices/Power/InputVoltage/Inc"]
+            description = (
+                "ADC input-voltage Device owning the SilverStar power adapter; "
+                "the selected hardware supplies ADC and monotonic-time bindings."
+            )
+        else:
+            dependencies.append(mission_action_service_id)
         components.append(
             _Component(
                 component_id,
                 name,
                 "device",
                 component_class,
-                [],
-                description=(
-                    "Declarative logical device backed by the selected Board service; "
-                    "it owns capability and physical-resource selection, not Board source."
-                ),
+                payload_roots,
+                description=description,
                 provenance=provenance,
+                sources=sources,
+                includes=includes,
+                dependencies=dependencies,
                 resources_required=resources,
                 provides=provides,
                 instance_policy={
@@ -1210,8 +1749,16 @@ def _Components_Get(
                     "multi_instance_ready": False,
                 },
                 physical_device=physical_devices[component_id],
+                reference_files=(
+                    {
+                        "Devices/Power/InputVoltage/Src/power_service.c": "Board/SilverStar_0_5/Services/Src/power_service.c",
+                        "Devices/Power/InputVoltage/Inc/adc_power_config.h": "Board/SilverStar_0_5/Services/Inc/adc_power_config.h",
+                    }
+                    if component_id == "silverstar.device.sensor.input_voltage"
+                    else {}
+                ),
                 metadata={
-                    "declarative": True,
+                    **({"declarative": True} if not sources else {}),
                     "logical_device": True,
                     "display_names": {"zh_CN": chinese_name, "en_US": name},
                     **(
@@ -1287,7 +1834,7 @@ def _Components_Get(
                 [],
                 description="Declarative software-controlled status indicator.",
                 provenance=provenance,
-                dependencies=[core_id],
+                dependencies=[core_id, indicator_service_id],
                 resources_required=[
                     {
                         "name": "output",
@@ -1333,6 +1880,18 @@ def _Components_Get(
                     "default_instance_id": instance_id,
                     "indicator_role": indicator_role,
                     "indicator_enable_symbol": enable_symbol,
+                    "optional_resource_bindings": [
+                        {
+                            "binding_macro": binding_macro,
+                            "enabled_macro": (
+                                "PROJECT_FEATURE_SYSTEM_STATUS_INDICATOR"
+                                if indicator_role == "system"
+                                else "PROJECT_FEATURE_GNSS_STATUS_INDICATOR"
+                            ),
+                            "fallback": "PLATFORM_GPIO_COUNT",
+                            "header": "platform_gpio.h",
+                        }
+                    ],
                     "display_names": {
                         "zh_CN": chinese_name,
                         "en_US": name,
@@ -1802,6 +2361,7 @@ else {
         "Generated\\Inc\\project_capability_routes.h",
         "Generated\\Src\\project_capability_routes.c",
         "Generated\\Inc\\project_flight_config.h",
+        "Generated\\Inc\\project_storage_binding.h",
         "Generated\\project_sources.mk",
     )
     missing_generated_files = tuple(
@@ -2278,6 +2838,59 @@ def _HostTestRunner_Adapt(path: Path, policy: WorkspacePolicy) -> None:
         text = text.replace(legacy_output, current_output, 1)
     elif current_output not in text:
         raise RuntimeError("Reference host test output directory contract changed")
+    generated_config_marker = "# FCCG generated configuration is force-included"
+    if generated_config_marker not in text:
+        include_anchor = "$includeArgs = @(\n"
+        if include_anchor not in text:
+            raise RuntimeError("Reference host test include arguments changed")
+        text = text.replace(
+            include_anchor,
+            generated_config_marker
+            + " so Host Tests use the same selected-component feature gates "
+            + "as Make.\n"
+            + "$includeArgs = @(\n"
+            + "    '-include',\n"
+            + "    \"$repoRoot\\Generated\\Inc\\project_flight_config.h\",\n",
+            1,
+        )
+    apogee_gate = (
+        "'-DSYSTEM_FLIGHT_DEPLOY_TRIGGER_MASK="
+        "SYSTEM_DEPLOY_TRIGGER_APOGEE_VZ'"
+    )
+    apogee_confirm_block = (
+        "Invoke-HostTest -Name 'flight_recovery_apogee' -ExtraCompilerArgs @(\n"
+        "    '-DTEST_EXPECT_APOGEE=1', "
+        "'-DSYSTEM_FLIGHT_DEPLOY_CONFIRM_MS=100U'\n"
+        ") -Sources $recoverySources"
+    )
+    apogee_immediate_block = (
+        "Invoke-HostTest -Name 'flight_recovery_apogee_immediate' "
+        "-ExtraCompilerArgs @(\n"
+        "    '-DTEST_EXPECT_APOGEE=1'\n"
+        ") -Sources $recoverySources"
+    )
+    if apogee_gate not in text:
+        if apogee_confirm_block not in text or apogee_immediate_block not in text:
+            raise RuntimeError("Reference Host apogee recovery variants changed")
+        text = text.replace(
+            apogee_confirm_block,
+            "Invoke-HostTest -Name 'flight_recovery_apogee' "
+            "-ExtraCompilerArgs @(\n"
+            "    '-DTEST_EXPECT_APOGEE=1',\n"
+            f"    {apogee_gate},\n"
+            "    '-DSYSTEM_FLIGHT_DEPLOY_CONFIRM_MS=100U'\n"
+            ") -Sources $recoverySources",
+            1,
+        )
+        text = text.replace(
+            apogee_immediate_block,
+            "Invoke-HostTest -Name 'flight_recovery_apogee_immediate' "
+            "-ExtraCompilerArgs @(\n"
+            "    '-DTEST_EXPECT_APOGEE=1',\n"
+            f"    {apogee_gate}\n"
+            ") -Sources $recoverySources",
+            1,
+        )
     marker = "$fccgMissingSources"
     if marker not in text:
         needle = "    $executable = Join-Path $outputDir ($Name + '.exe')"
@@ -2390,6 +3003,57 @@ $env:SILVERSTAR_GOLDEN_OUTPUT = Join-Path $goldenDirectory $goldenFilename
 
 '''
         text = text.replace(collection_anchor, golden_job + collection_anchor, 1)
+    policy.Text_AtomicWrite(path, text)
+
+
+def _HostPlatformMock_Adapt(path: Path, policy: WorkspacePolicy) -> None:
+    text = path.read_text(encoding="utf-8")
+    old = '''PlatformResult PlatformI2c_WriteRead(PlatformI2cId id, uint16_t address,
+                                     const uint8_t *tx_data,
+                                     uint16_t tx_length,
+                                     uint8_t *rx_data,
+                                     uint16_t rx_length,
+                                     uint32_t timeout_ms)
+{
+    PlatformResult result = PlatformI2c_Write(
+        id, address, tx_data, tx_length, timeout_ms);
+
+    return (result == PLATFORM_OK) ? PlatformI2c_Read(
+        id, address, rx_data, rx_length, timeout_ms) : result;
+}
+'''
+    new = '''PlatformResult PlatformI2c_MemoryWrite(
+    PlatformI2cId id, uint16_t address, uint16_t memory_address,
+    PlatformI2cMemoryAddressSize memory_address_size,
+    const uint8_t *data, uint16_t length, uint32_t timeout_ms)
+{
+    (void)memory_address;
+    if ((memory_address_size != PLATFORM_I2C_MEMORY_ADDRESS_8_BIT) &&
+        (memory_address_size != PLATFORM_I2C_MEMORY_ADDRESS_16_BIT))
+    {
+        return PLATFORM_INVALID_ARGUMENT;
+    }
+    return PlatformI2c_Write(id, address, data, length, timeout_ms);
+}
+
+PlatformResult PlatformI2c_MemoryRead(
+    PlatformI2cId id, uint16_t address, uint16_t memory_address,
+    PlatformI2cMemoryAddressSize memory_address_size,
+    uint8_t *data, uint16_t length, uint32_t timeout_ms)
+{
+    (void)memory_address;
+    if ((memory_address_size != PLATFORM_I2C_MEMORY_ADDRESS_8_BIT) &&
+        (memory_address_size != PLATFORM_I2C_MEMORY_ADDRESS_16_BIT))
+    {
+        return PLATFORM_INVALID_ARGUMENT;
+    }
+    return PlatformI2c_Read(id, address, data, length, timeout_ms);
+}
+'''
+    if old in text:
+        text = text.replace(old, new, 1)
+    elif "PlatformResult PlatformI2c_MemoryWrite(" not in text:
+        raise RuntimeError("Reference Host Platform I2C mock contract changed")
     policy.Text_AtomicWrite(path, text)
 
 
@@ -2669,11 +3333,11 @@ def _BoardUserVisibleNames_Adapt(
     replacements = (
         (
             staged_builtin
-            / "silverstar_board_silverstar_0_5"
+            / "silverstar_device_sensor_input_voltage"
             / "payload"
-            / "Board"
-            / "SilverStar_0_5"
-            / "Services"
+            / "Devices"
+            / "Power"
+            / "InputVoltage"
             / "Src"
             / "power_service.c",
             '"SilverStar 0.5 Voltage Input"',
@@ -2688,7 +3352,7 @@ def _BoardUserVisibleNames_Adapt(
             / "Inc"
             / "target_system_config.h",
             "Adapters and SilverStar 0.5 Board services",
-            "Adapters and SS0.5 Board services",
+            "Adapters and internal hardware services",
         ),
     )
     for path, legacy_text, current_text in replacements:
@@ -2707,11 +3371,11 @@ def _BoardLogicalDevices_Adapt(
 ) -> None:
     service_root = (
         staged_builtin
-        / "silverstar_board_silverstar_0_5"
+        / "silverstar_flight_logic_mission_action_gpio_output_service"
         / "payload"
-        / "Board"
-        / "SilverStar_0_5"
-        / "Services"
+        / "FlightLogic"
+        / "MissionAction"
+        / "GpioOutput"
         / "Src"
     )
     output_path = service_root / "output_service.c"
@@ -2842,7 +3506,16 @@ def _BoardLogicalDevices_Adapt(
     )
     policy.Text_AtomicWrite(output_path, output_text)
 
-    power_path = service_root / "power_service.c"
+    power_path = (
+        staged_builtin
+        / "silverstar_device_sensor_input_voltage"
+        / "payload"
+        / "Devices"
+        / "Power"
+        / "InputVoltage"
+        / "Src"
+        / "power_service.c"
+    )
     power_text = power_path.read_text(encoding="utf-8")
     adc_read = (
         "    platform_result = PlatformAdc_Read(PROJECT_RESOURCE_INPUT_VOLTAGE_ADC,\n"
@@ -2868,6 +3541,91 @@ def _BoardLogicalDevices_Adapt(
         adc_read, adc_read_optional, 1
     )
     policy.Text_AtomicWrite(power_path, power_text)
+
+
+def _BoardGenericServices_Remove(
+    staged_builtin: Path, policy: WorkspacePolicy
+) -> None:
+    """Remove generic Device/service implementations from the Board owner."""
+    board_services = (
+        staged_builtin
+        / "silverstar_board_silverstar_0_5"
+        / "payload"
+        / "Board"
+        / "SilverStar_0_5"
+        / "Services"
+    )
+    relative_files = (
+        Path("Src/mission_action_service.c"),
+        Path("Src/output_service.c"),
+        Path("Src/power_service.c"),
+        Path("Src/indicator_service.c"),
+        Path("Inc/mission_action_output_build_capabilities.h"),
+        Path("Inc/mission_action_output_config.h"),
+        Path("Inc/adc_power_config.h"),
+    )
+    for relative in relative_files:
+        policy.Tree_Remove(board_services / relative)
+
+    module_path = board_services.parent / "module.mk"
+    module_text = module_path.read_text(encoding="utf-8")
+    expected_services = (
+        "indicator_service.c",
+        "log_sink_service.c",
+        "mission_action_service.c",
+        "output_service.c",
+        "power_service.c",
+        "storage_service.c",
+    )
+    if not all(service in module_text for service in expected_services):
+        raise RuntimeError("Reference Board service module manifest changed")
+    policy.Text_AtomicWrite(
+        module_path,
+        "BUILD_MANIFESTS += Board/SilverStar_0_5/module.mk\n\n"
+        "# Generic services are owned by selected FCCG Device/Flight components.\n",
+    )
+
+
+def _StorageDevice_Adapt(
+    staged_builtin: Path, policy: WorkspacePolicy
+) -> None:
+    relative_sources = (
+        Path("Devices/Storage/SdSdioFatFs/Src/storage_service.c"),
+        Path("Devices/Storage/SdSdioFatFs/Src/log_sink_service.c"),
+    )
+    board_payload = (
+        staged_builtin / "silverstar_board_silverstar_0_5" / "payload"
+    )
+    device_payload = (
+        staged_builtin
+        / "silverstar_device_storage_sd_sdio_fatfs"
+        / "payload"
+    )
+    storage_path = device_payload / relative_sources[0]
+    storage_text = storage_path.read_text(encoding="utf-8")
+    if '#include "fatfs.h"' not in storage_text:
+        raise RuntimeError("Reference Storage service FatFs include changed")
+    storage_text = storage_text.replace(
+        '#include "fatfs.h"', '#include "project_storage_binding.h"', 1
+    )
+    if "f_mount(&SDFatFS, SDPath, 1U)" not in storage_text:
+        raise RuntimeError("Reference Storage service FatFs symbols changed")
+    storage_text = storage_text.replace(
+        "f_mount(&SDFatFS, SDPath, 1U)",
+        "f_mount(&PROJECT_STORAGE_FATFS_OBJECT, "
+        "PROJECT_STORAGE_FATFS_PATH, 1U)",
+        1,
+    )
+    policy.Text_AtomicWrite(storage_path, storage_text)
+    for name in ("storage_service.c", "log_sink_service.c"):
+        policy.Tree_Remove(
+            board_payload
+            / "Board"
+            / "SilverStar_0_5"
+            / "Services"
+            / "Src"
+            / name
+        )
 
 
 def _EnvironmentTemplates_Copy(
@@ -2930,17 +3688,104 @@ def _ImportedDocumentation_Adapt(
         ("build/Host/Tests/", "build/FCCG/Host/Tests/"),
         ("build/Host/Tests", "build/FCCG/Host/Tests"),
         ("build/<Target>/<Debug|Release>", "build/FCCG/<Target>/<Debug|Release>"),
+        (
+            "| Board | `Board/SilverStar_0_5/` | SilverStar PCB 0.5的indicator、output、mission action、power、storage和log sink服务 |",
+            "| Board | `Board/SilverStar_0_5/` | SilverStar PCB 0.5的已验证物理资源、连接和语义映射；通用服务由Device或内部组件拥有 |",
+        ),
+        (
+            "Device Adapter 或 Board Service",
+            "Device Adapter、Device-owned service或内部硬件服务",
+        ),
+        (
+            "Board/SilverStar_0_5/        当前PCB特有的Board Services",
+            "Board/SilverStar_0_5/        当前PCB特有的物理映射与连接",
+        ),
+        (
+            "Board Service可以看到Interface与Board配置",
+            "硬件服务组件可以看到Interface与Generated资源配置",
+        ),
+        (
+            "SilverStar 0.5 Board LogSink/Storage Service",
+            "SDIO/FatFs Storage Device LogSink/Storage Service",
+        ),
+        (
+            "Board mission_action_service / output_service",
+            "FlightLogic mission_action_service / output_service",
+        ),
+        (
+            "板级Interface由`Board/SilverStar_0_5/Services`实现",
+            "存储Device与内部硬件服务组件实现其各自Interface",
+        ),
+        (
+            "Board mission/output services",
+            "FlightLogic mission-action services",
+        ),
+        (
+            "Power/Output/Storage等归`Board/SilverStar_0_5`",
+            "Power/Storage归各自Device，Mission Output与Indicator归内部FlightLogic服务组件",
+        ),
+        (
+            "Board LogSink   = target storage destination",
+            "Storage Device LogSink = target storage destination",
+        ),
+        (
+            "Power与Mission Action Board Service",
+            "Power Device与Mission Action内部服务",
+        ),
+        (
+            "SilverStar 0.5 Board Service和受控Generated glue",
+            "SilverStar 0.5 Board映射、存储Device、内部硬件服务和受控Generated glue",
+        ),
+        (
+            "Device Adapter / Board Service",
+            "Device Adapter / Device-owned service / internal hardware service",
+        ),
+        (
+            "Device Adapter、Board Service、FlightLogic组件",
+            "Device Adapter、Device-owned service、内部硬件服务与FlightLogic组件",
+        ),
+        (
+            "Device Driver+Adapter、Board Service、Alignment",
+            "Device Driver+Adapter、Device-owned/internal services、Alignment",
+        ),
+        (
+            "Target Device Adapter/Board Service组合变化",
+            "Target Device Adapter/内部服务组件组合变化",
+        ),
+        (
+            "F407 Storage/Log Board Service可链接",
+            "F407 Storage Device/Log Sink可链接",
+        ),
+        (
+            "当前Adapter或Board Service不实现该公共能力",
+            "当前Adapter、Device-owned service或内部硬件服务不实现该公共能力",
+        ),
+        (
+            "具体Device选择、构建资格映射、Board Service、项目资源和MCU backend属于"
+            "`Targets/`、`Devices/*/Adapter`、`Board/`、`Generated/`与`Platform/`",
+            "具体Device选择、构建资格映射、Device-owned/内部硬件服务、Board物理映射、"
+            "项目资源和MCU backend属于`Targets/`、`Devices/`、`FlightLogic/`、`Board/`、"
+            "`Generated/`与`Platform/`",
+        ),
+        (
+            "更新`Generated/`项目资源/project descriptor、Board Service与module manifest",
+            "更新`Generated/`项目资源/project descriptor、所属Device/内部服务与module manifest",
+        ),
     )
-    for path in staged_builtin.glob("*/docs/*.md"):
+    for path in staged_builtin.rglob("*.md"):
         content = path.read_text(encoding="utf-8")
         adapted = content
         for old, new in replacements:
             adapted = adapted.replace(old, new)
-        package_name = path.parent.parent.name
+        package_name = path.relative_to(staged_builtin).parts[0]
         if (
             package_name == "silverstar_mcu_stm32f407vet6"
             and path.name == "PLATFORM_INTERFACE.md"
         ):
+            adapted = adapted.replace(
+                "- `PlatformI2c_Write/Read/WriteRead`保留未来设备所需的通用地址事务；当前F407目标没有选中I2C设备，但backend必须可编译；",
+                "- `PlatformI2c_Write/Read`提供阻塞式7-bit master事务，`PlatformI2c_MemoryWrite/MemoryRead`使用Platform自有的8/16-bit寄存器地址枚举；不提供伪装成任意repeated-start的`WriteRead`；",
+            )
             adapted += """
 
 ## 8. FCCG Platform插件扩展与所有权
@@ -2952,12 +3797,48 @@ def _ImportedDocumentation_Adapt(
 F407 Platform manifest声明资源header、getter、Platform ABI、CubeMX匹配规则和条件backend。
 只有实际硬件inventory包含相应资源且已选Device确实分配该资源时，Source Graph才加入backend：
 
-- I²C：7-bit未左移地址、阻塞master读写和memory-register读写；不声明通用repeated-start；
-- Classic CAN：bxCAN标准/扩展ID、0..8-byte data frame、有界收发和静态诊断；每个物理CAN当前只允许一个上层owner；
-- PWM：普通非互补输出、整数permille duty和安全inactive compare；频率、极性、ARR及channel由CubeMX静态确定。
+- I²C（supported，不等于硬件verified）：7-bit未左移地址、阻塞master读写及8/16-bit memory-register读写；公共ABI不含HAL常量，不声明DMA/IRQ或任意repeated-start。SCL/SDA必须Open Drain；NOPULL必须由Board的external_verified元数据或自定义snapshot绑定确认提供外部上拉证据；
+- Classic CAN（reserved）：仍可盘点CAN/FDCAN库存，但普通consumer会在资源解析阶段被拒绝；当前不声明Filter、Router、Bus-Off恢复或实机验证；
+- PWM（supported，不等于硬件verified）：仅接受CubeMX PWM Generation + `HAL_TIM_PWM_ConfigChannel`共同证明的普通CH1..4、edge-aligned up-counter、PWM1/PWM2。模式、极性、prescaler、ARR和基频均来自CubeMX，Device不能覆盖极性；0/100%使用forced inactive/active端点，中间duty恢复原PWM模式，Stop先置逻辑inactive再停channel。
 
-默认SS0.5没有I²C/CAN/PWM分配，因此不编译这些backend，也不加入无关HAL I²C/CAN源码。
+HAL/CMSIS采用单一来源政策`plugin_payload_authoritative`：HAL、CMSIS、startup、linker和Platform backend来自本插件；自定义CubeMX快照只贡献受控的`Core/Src`和`Core/Inc`，其Drivers/CMSIS/startup/linker不得进入Source Graph。当前兼容门禁精确要求CubeMX 6.15.0与`STM32Cube FW_F4 V1.28.3`。
+
+默认SS0.5没有I²C/CAN/PWM consumer，因此不编译这些backend，也不加入无关I²C/CAN/PWM代码。外部参考固件保持只读，以上能力只由FCCG overlay持有。
 当前production support仍仅为STM32F407VET6/SS0.5；renderer可消费其他Platform契约不代表其他MCU已经验证。
+"""
+        if path.name == "STORAGE_AND_FLIGHT_LOG.md":
+            stale_ownership = (
+                "当前TF/SDIO Storage和文件Log Sink实现位于"
+                "`Board/SilverStar_0_5/Services`，因为它们是板级/FatFs glue。"
+                "未来换介质只替换Board Service和Target选择，不改变System、LoggerBus或Maintenance命令。"
+            )
+            if stale_ownership not in adapted:
+                raise RuntimeError("Reference Storage ownership documentation changed")
+            adapted = adapted.replace(
+                stale_ownership,
+                "当前TF/SDIO Storage和文件Log Sink由存储Device插件拥有，生成到"
+                "`Devices/Storage/SdSdioFatFs`；Board只提供已验证的物理资源映射，"
+                "CubeMX快照提供SDIO与FatFs App/Target glue，MCU/Platform插件提供受控FatFs core。"
+                "因此换介质只替换存储Device及其硬件契约，不改变System、LoggerBus或Maintenance命令。",
+                1,
+            )
+        if (
+            package_name == "silverstar_mcu_stm32f407vet6"
+            and path.name == "BUILD_AND_TARGETS.md"
+        ):
+            adapted += """
+
+## 11. FCCG自定义CubeMX来源边界
+
+F407 Platform manifest将CubeMX 6.15.0、`STM32Cube FW_F4 V1.28.3`和
+`plugin_payload_authoritative`作为当前精确兼容契约。自定义snapshot中的
+`Core/Src`外设初始化、MSP、IRQ及`Core/Inc`可以进入生成项目；其HAL/CMSIS Drivers、
+startup和linker只用于审计与重导入，不进入Make、EIDE或VS Code的Source Graph。
+版本或来源政策不匹配时在导入/Readiness阶段停止，不通过混合两套vendor source试编译。
+
+I²C和PWM后端仅在真实Device consumer已分配相应资源时加入。Classic CAN后端为
+`reserved`，即使inventory存在CAN也不能由普通consumer启用。software supported只表示
+自动测试覆盖，不表示外部上拉、PWM波形或目标板电气行为已经实机verified。
 """
         protocol_notes = {
             "silverstar_protocol_telemetry_air_m0": (
@@ -3008,9 +3889,11 @@ def _BuiltinReadme_Render(manifest: dict[str, Any], provenance: dict[str, Any]) 
     elif manifest["type"] == "mcu" and "platform" in manifest:
         details = (
             "\n\nThis MCU/Platform plugin declares automatic CubeMX matching, "
-            "the Platform resource-binding ABI, and conditionally selected I2C, "
-            "Classic CAN, and PWM backends. Production validation remains limited "
-            "to STM32F407VET6/SS0.5."
+            "the Platform resource-binding ABI, supported I2C/PWM backends, and a "
+            "reserved Classic CAN backend. It enforces CubeMX 6.15.0, STM32Cube "
+            "FW_F4 V1.28.3, and plugin-owned HAL/CMSIS as one exact source policy. "
+            "Production validation remains limited to STM32F407VET6/SS0.5; "
+            "software support does not claim electrical verification."
         )
     return (
         f"# {manifest['name']}\n\n"
@@ -3035,6 +3918,7 @@ def Components_Import(reference: Path, *, force: bool = False) -> dict[str, Any]
             + ", ".join(audit["missing_required_files"])
         )
     provenance["audit"] = audit
+    vendor_root = _Stm32CubeF4VendorRoot_Get()
     policy = WorkspacePolicy(WORKSPACE_ROOT)
     builtin_root = policy.Path_Resolve(BUILTIN_ROOT, allow_root=False)
     if builtin_root.exists() and not force:
@@ -3051,13 +3935,25 @@ def Components_Import(reference: Path, *, force: bool = False) -> dict[str, Any]
             payload_root = package_root / "payload"
             package_root.mkdir(parents=True)
             overlay_files = component.get("overlay_files", {})
+            reference_files = component.get("reference_files", {})
+            vendor_files = component.get("vendor_files", {})
             for relative_text in manifest["payload"]["roots"]:
                 relative = Path(*relative_text.split("/"))
                 overlay_source = overlay_files.get(relative_text)
+                reference_source = reference_files.get(relative_text)
+                if overlay_source is not None and reference_source is not None:
+                    raise RuntimeError(
+                        f"Payload root has two source owners: {relative_text}"
+                    )
                 if overlay_source is not None:
                     policy.File_Copy(
                         REFERENCE_OVERLAY_ROOT
                         / Path(*overlay_source.split("/")),
+                        payload_root / relative,
+                    )
+                elif reference_source is not None:
+                    policy.File_Copy(
+                        reference / Path(*reference_source.split("/")),
                         payload_root / relative,
                     )
                 else:
@@ -3068,6 +3964,26 @@ def Components_Import(reference: Path, *, force: bool = False) -> dict[str, Any]
                     continue
                 policy.File_Copy(
                     REFERENCE_OVERLAY_ROOT / Path(*overlay_text.split("/")),
+                    payload_root / Path(*target_text.split("/")),
+                )
+            for target_text, reference_text in sorted(reference_files.items()):
+                if target_text in root_names:
+                    continue
+                policy.File_Copy(
+                    reference / Path(*reference_text.split("/")),
+                    payload_root / Path(*target_text.split("/")),
+                )
+            for target_text, vendor_text in sorted(vendor_files.items()):
+                source = vendor_root / Path(*vendor_text.split("/"))
+                expected_digest = STM32CUBE_F4_VENDOR_HASHES[target_text]
+                actual_digest = hashlib.sha256(source.read_bytes()).hexdigest()
+                if actual_digest != expected_digest:
+                    raise RuntimeError(
+                        f"STM32Cube vendor asset changed: {vendor_text}: "
+                        f"{actual_digest}"
+                    )
+                policy.File_Copy(
+                    source,
                     payload_root / Path(*target_text.split("/")),
                 )
             for doc_text in component["docs"]:
@@ -3097,6 +4013,15 @@ def Components_Import(reference: Path, *, force: bool = False) -> dict[str, Any]
             / "run_tests.ps1",
             policy,
         )
+        _HostPlatformMock_Adapt(
+            staged_builtin
+            / "silverstar_core_0_0_9"
+            / "payload"
+            / "Tests"
+            / "Host"
+            / "host_platform_mock.c",
+            policy,
+        )
         policy.File_Copy(
             REFERENCE_OVERLAY_ROOT / "generate_golden_sample.c",
             staged_builtin
@@ -3124,6 +4049,8 @@ def Components_Import(reference: Path, *, force: bool = False) -> dict[str, Any]
         )
         _BoardUserVisibleNames_Adapt(staged_builtin, policy)
         _BoardLogicalDevices_Adapt(staged_builtin, policy)
+        _StorageDevice_Adapt(staged_builtin, policy)
+        _BoardGenericServices_Remove(staged_builtin, policy)
         _ImportedDocumentation_Adapt(staged_builtin, policy)
         _EnvironmentTemplates_Copy(reference, staged_builtin, policy)
         _GeneratedFacadeTemplates_Copy(reference, staged_builtin, policy)

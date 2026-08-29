@@ -53,7 +53,7 @@ mingw32-make TARGET_PROFILE=SilverStar_F407 CONFIG=Release artifact-check
 - Attitude、Alignment、Calibration、Pure Inertial；
 - AIR和KF6；
 - JY901B、NEO-M9N、SX1281 native Device；
-- JY901B与NEO-M9N native-to-common Adapter、Power与Mission Action Board Service；
+- JY901B与NEO-M9N native-to-common Adapter、Power Device与Mission Action内部服务；
 - GNSS/Barometer质量、pending与Sensor Status；
 - descriptor class count/find、Generated双IMU/双GNSS Host静态facade、实例0/1不同sample/health/descriptor、越界NOT_PRESENT和共享physical I/O owner；正式Target仍只绑定instance 0；
 - Maintenance indexed成功/LIST/旧无实例拒绝/非数字/负数/溢出/不存在实例/多余token，以及所有实例响应携带实例号；
@@ -84,7 +84,7 @@ Debug和Release均从目标输出目录clean后构建。验收：
 5. 七个APP任务由`xTaskCreateStatic`创建，Idle storage hook存在；
 6. `configSUPPORT_STATIC_ALLOCATION=1`、`configSUPPORT_DYNAMIC_ALLOCATION=0`、priority count=8；
 7. SysTick进入FreeRTOS port，HAL tick仍为TIM1；
-8. 当前Target只包含STM32F4 backend、JY901B、NEO-M9N、SX1281、UART Console及对应Adapter、SilverStar 0.5 Board Service和受控Generated glue；
+8. 当前Target只包含STM32F4 backend、JY901B、NEO-M9N、SX1281、UART Console及对应Adapter、SilverStar 0.5 Board映射、存储Device、内部硬件服务和受控Generated glue；
 9. warning按Makefile策略为0，关键未检查返回/隐式声明/类型不兼容/return error为构建失败；
 10. 记录Flash、data和bss；与基线异常变化时分析静态stack/buffer贡献。
 

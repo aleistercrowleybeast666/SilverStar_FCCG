@@ -77,7 +77,27 @@ def BoardHardwareInventory_Get(manifest: PluginManifest) -> HardwareInventory | 
         return None
     ioc_path = manifest.package_root.joinpath(*manifest.board.ioc_file.split("/"))
     try:
-        return CubeMxInventory_Parse(ioc_path.read_text(encoding="utf-8-sig"))
+        generated_files = {
+            path.relative_to(ioc_path.parent).as_posix(): path.read_text(
+                encoding="utf-8-sig"
+            )
+            for relative_root in (
+                "Core/Src",
+                "Core/Inc",
+                "FATFS/App",
+                "FATFS/Target",
+            )
+            for directory in (
+                ioc_path.parent.joinpath(*relative_root.split("/")),
+            )
+            if directory.is_dir()
+            for path in sorted(directory.glob("*"))
+            if path.is_file() and path.suffix.casefold() in {".c", ".h"}
+        }
+        return CubeMxInventory_Parse(
+            ioc_path.read_text(encoding="utf-8-sig"),
+            generated_files=generated_files,
+        )
     except (OSError, UnicodeError) as error:
         raise ValueError(f"Cannot read Board CubeMX inventory: {error}") from error
 
@@ -166,6 +186,7 @@ def _RequirementConstraintsErrors_Get(
     key: str,
     requirement: ResourceRequirement,
     provision: ResourceProvision,
+    model: ProjectModel,
 ) -> tuple[str, ...]:
     constraints = requirement.constraints
     electrical = requirement.electrical_constraints
@@ -316,18 +337,54 @@ def _RequirementConstraintsErrors_Get(
         if "address_mode" in i2c and metadata.get("address_mode") != i2c["address_mode"]:
             mismatch("i2c.address_mode", i2c["address_mode"], metadata.get("address_mode"))
         pin_electrical = metadata.get("pin_electrical", {})
-        if i2c.get("required_pullup") and not (
+        pins_open_drain = (
             isinstance(pin_electrical, dict)
             and pin_electrical
             and all(
                 isinstance(pin, dict)
-                and pin.get("pull") == "up"
-                and pin.get("output_type") in {"", "open_drain"}
+                and pin.get("output_type") == "open_drain"
                 for pin in pin_electrical.values()
             )
-        ):
+        )
+        if not pins_open_drain:
             errors.append(
-                f"Resource contract mismatch for {key}: I2C open-drain pull-up is required"
+                f"Resource contract mismatch for {key}: I2C SCL/SDA must both be open-drain"
+            )
+        internal_pullup = (
+            isinstance(pin_electrical, dict)
+            and pin_electrical
+            and all(
+                isinstance(pin, dict) and pin.get("pull") == "up"
+                for pin in pin_electrical.values()
+            )
+        )
+        board_external_pullup = (
+            metadata.get("external_pullup_verified") is True
+            or metadata.get("pullup_source") == "external_verified"
+        )
+        binding = model.hardware.i2c_external_pullup_confirmations.get(
+            provision.resource_id, {}
+        )
+        custom_external_pullup = (
+            model.hardware.mode == "custom"
+            and binding.get("source_digest") == model.hardware.source_digest
+            and binding.get("snapshot_id") == model.hardware.snapshot_id
+        )
+        if i2c.get("required_pullup") and not (
+            internal_pullup or board_external_pullup or custom_external_pullup
+        ):
+            pin_summary = ", ".join(
+                f"{role.upper()}={pin}"
+                for role, pin in sorted(metadata.get("pins", {}).items())
+            )
+            physical = str(
+                metadata.get("physical_resource", provision.resource_id)
+            )
+            errors.append(
+                f"Resource contract mismatch for {key}: I2C {physical} "
+                f"({pin_summary or 'pins unknown'}) requires internal pull-ups, "
+                "verified Board external pull-ups, or a snapshot-bound custom "
+                "external pull-up confirmation"
             )
         if i2c.get("dma") and not dma_present():
             errors.append(f"Resource contract mismatch for {key}: I2C DMA is required")
@@ -378,11 +435,45 @@ def _RequirementConstraintsErrors_Get(
             mismatch("pwm.maximum_frequency_hz", f"<={pwm['maximum_frequency_hz']}", actual_frequency)
         if "minimum_resolution_bits" in pwm and actual_resolution < pwm["minimum_resolution_bits"]:
             mismatch("pwm.minimum_resolution_bits", f">={pwm['minimum_resolution_bits']}", actual_resolution)
-        for field_name in ("polarity", "channel"):
+        for field_name in ("channel",):
             if field_name in pwm and metadata.get(field_name) != pwm[field_name]:
                 mismatch(f"pwm.{field_name}", pwm[field_name], metadata.get(field_name))
         if "safe_state" in pwm and metadata.get("safe_state") != pwm["safe_state"]:
             mismatch("pwm.safe_state", pwm["safe_state"], metadata.get("safe_state"))
+
+    storage = constraints.get("storage")
+    if isinstance(storage, dict):
+        fatfs = metadata.get("fatfs", {})
+        fatfs_valid = (
+            isinstance(fatfs, dict)
+            and fatfs.get("enabled") is True
+            and not fatfs.get("errors")
+            and bool(fatfs.get("object_symbol"))
+            and bool(fatfs.get("path_symbol"))
+            and bool(fatfs.get("driver_symbol"))
+        )
+        if storage.get("fatfs") and not fatfs_valid:
+            errors.append(
+                f"Resource contract mismatch for {key}: unique CubeMX FatFs "
+                "App/Target symbols are required / 需要唯一的 CubeMX FatFs "
+                "App/Target 符号"
+            )
+        if storage.get("sdio_only") and str(
+            metadata.get("peripheral", "")
+        ).upper() != "SDIO":
+            mismatch("storage.sdio_only", "SDIO", metadata.get("peripheral"))
+        if storage.get("dma_rx") and not dma_present("rx"):
+            errors.append(
+                f"Resource contract mismatch for {key}: SDIO RX DMA is required"
+            )
+        if storage.get("dma_tx") and not dma_present("tx"):
+            errors.append(
+                f"Resource contract mismatch for {key}: SDIO TX DMA is required"
+            )
+        if storage.get("irq") and not irq_enabled():
+            errors.append(
+                f"Resource contract mismatch for {key}: enabled SDIO IRQ is required"
+            )
 
     if electrical:
         expected_mode = electrical.get("mode")
@@ -723,8 +814,24 @@ def ResourceAssignments_Resolve(
             if isinstance(i2c_constraints, dict) and i2c_constraints.get(
                 "requires_repeated_start"
             ):
-                required_platform_capabilities.add("i2c.repeated_start")
+                errors.append(
+                    f"i2c.repeated_start is not supported by the blocking "
+                    f"memory/register API: {key}"
+                )
+                continue
             if backend is not None:
+                if backend.maturity == "reserved":
+                    errors.append(
+                        f"Platform backend reserved / 平台后端保留、尚未验证: "
+                        f"{backend.backend_id} for {key}"
+                    )
+                    continue
+                if backend.maturity == "experimental":
+                    errors.append(
+                        f"Experimental Platform backend is disabled for normal projects: "
+                        f"{backend.backend_id} for {key}"
+                    )
+                    continue
                 missing_capabilities = required_platform_capabilities - set(
                     backend.capabilities
                 )
@@ -764,7 +871,9 @@ def ResourceAssignments_Resolve(
                 if physical_resource:
                     physical_claimed[physical_resource] = key
             errors.extend(
-                _RequirementConstraintsErrors_Get(key, requirement, provision)
+                _RequirementConstraintsErrors_Get(
+                    key, requirement, provision, model
+                )
             )
             assignments.append(
                 AssignedResource(key, owner_id, requirement, provision, role)

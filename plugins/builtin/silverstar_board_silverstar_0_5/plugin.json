@@ -17,12 +17,7 @@
         "optional": false
       }
     ],
-    "resources": [
-      {
-        "name": "storage",
-        "kind": "sdio"
-      }
-    ],
+    "resources": [],
     "capabilities": []
   },
   "resources": {
@@ -305,11 +300,20 @@
         "fixed": true
       },
       {
-        "key": "flight_controller_board:storage",
+        "key": "silverstar.device.storage.sd_sdio_fatfs:storage",
         "kind": "sdio",
         "default": "PLATFORM_SDIO_1",
         "candidates": [
           "PLATFORM_SDIO_1"
+        ],
+        "fixed": true
+      },
+      {
+        "key": "silverstar.device.storage.sd_sdio_fatfs:time",
+        "kind": "time",
+        "default": "PLATFORM_TIME_1",
+        "candidates": [
+          "PLATFORM_TIME_1"
         ],
         "fixed": true
       }
@@ -318,11 +322,7 @@
   },
   "provides": [
     "board.silverstar_0_5",
-    "hardware.stm32.generated",
-    "service.output",
-    "service.storage",
-    "service.log_sink",
-    "transport.sequential_file_sink"
+    "hardware.stm32.generated"
   ],
   "build": {
     "sources": [
@@ -338,27 +338,16 @@
       "Core/Src/spi.c",
       "Core/Src/adc.c",
       "Core/Src/sdio.c",
-      "Board/SilverStar_0_5/Services/Src/indicator_service.c",
-      "Board/SilverStar_0_5/Services/Src/log_sink_service.c",
-      "Board/SilverStar_0_5/Services/Src/mission_action_service.c",
-      "Board/SilverStar_0_5/Services/Src/output_service.c",
-      "Board/SilverStar_0_5/Services/Src/power_service.c",
-      "Board/SilverStar_0_5/Services/Src/storage_service.c",
       "FATFS/Target/bsp_driver_sd.c",
       "FATFS/Target/sd_diskio.c",
       "FATFS/Target/fatfs_platform.c",
-      "FATFS/App/fatfs.c",
-      "Middlewares/Third_Party/FatFs/src/diskio.c",
-      "Middlewares/Third_Party/FatFs/src/ff.c",
-      "Middlewares/Third_Party/FatFs/src/ff_gen_drv.c"
+      "FATFS/App/fatfs.c"
     ],
     "asm_sources": [],
     "include_dirs": [
       "Core/Inc",
-      "Board/SilverStar_0_5/Services/Inc",
       "FATFS/Target",
-      "FATFS/App",
-      "Middlewares/Third_Party/FatFs/src"
+      "FATFS/App"
     ],
     "defines": [],
     "exclude_sources": [
@@ -370,7 +359,6 @@
       "Board/SilverStar_0_5",
       "Core",
       "FATFS",
-      "Middlewares/Third_Party/FatFs",
       "BuildSystem/fatfs.mk",
       "Flight_Controller0.5.ioc",
       ".mxproject"
@@ -391,60 +379,7 @@
       "zh_CN": "已验证的SS0.5板卡、CubeMX硬件源、固定服务与资源映射。",
       "en_US": "Verified SS0.5 PCB, CubeMX hardware source, fixed services, and resource mapping."
     },
-    "optional_resource_bindings": [
-      {
-        "binding_macro": "PROJECT_RESOURCE_SYSTEM_INDICATOR",
-        "enabled_macro": "PROJECT_FEATURE_SYSTEM_STATUS_INDICATOR",
-        "fallback": "PLATFORM_GPIO_COUNT",
-        "header": "platform_gpio.h"
-      },
-      {
-        "binding_macro": "PROJECT_RESOURCE_GNSS_INDICATOR",
-        "enabled_macro": "PROJECT_FEATURE_GNSS_STATUS_INDICATOR",
-        "fallback": "PLATFORM_GPIO_COUNT",
-        "header": "platform_gpio.h"
-      },
-      {
-        "binding_macro": "PROJECT_RESOURCE_INPUT_VOLTAGE_ADC",
-        "enabled_macro": "PROJECT_FEATURE_INPUT_VOLTAGE_MONITOR",
-        "fallback": "PLATFORM_ADC_COUNT",
-        "header": "platform_adc.h"
-      },
-      {
-        "binding_macro": "PROJECT_RESOURCE_LAUNCH_IGNITION_OUTPUT",
-        "enabled_macro": "PROJECT_FEATURE_LAUNCH_IGNITION_OUTPUT",
-        "fallback": "PLATFORM_GPIO_COUNT",
-        "header": "platform_gpio.h"
-      },
-      {
-        "binding_macro": "PROJECT_RESOURCE_PARACHUTE_PYRO_OUTPUT",
-        "enabled_macro": "PROJECT_FEATURE_PARACHUTE_PYRO_OUTPUT",
-        "fallback": "PLATFORM_GPIO_COUNT",
-        "header": "platform_gpio.h"
-      }
-    ],
-    "device_descriptors": [
-      {
-        "order": 8,
-        "physical_device_id": "PROJECT_PHYSICAL_DEVICE_ID_STORAGE",
-        "class": "SYSTEM_DEVICE_CLASS_STORAGE",
-        "flags": "SYSTEM_DESCRIPTOR_FLAG_ENABLED | SYSTEM_DESCRIPTOR_FLAG_SHARED_PHYSICAL",
-        "capability": "SYSTEM_CAPABILITY_STORAGE",
-        "rate": "0U",
-        "driver_hash": "0xF02E45D5UL",
-        "name_hash": "0x3A7B5375UL"
-      },
-      {
-        "order": 9,
-        "physical_device_id": "PROJECT_PHYSICAL_DEVICE_ID_STORAGE",
-        "class": "SYSTEM_DEVICE_CLASS_LOG_SINK",
-        "flags": "SYSTEM_DESCRIPTOR_FLAG_ENABLED | SYSTEM_DESCRIPTOR_FLAG_SHARED_PHYSICAL",
-        "capability": "SYSTEM_CAPABILITY_STORAGE",
-        "rate": "0U",
-        "driver_hash": "0x6DB00410UL",
-        "name_hash": "0xCD7C84A3UL"
-      }
-    ]
+    "device_descriptors": []
   },
   "board": {
     "source_kind": "verified_builtin",
@@ -457,16 +392,5 @@
     "hardware_root": "Core",
     "ioc_file": "payload/Flight_Controller0.5.ioc",
     "connections_file": "connections.json"
-  },
-  "transports": [
-    {
-      "capability": "transport.sequential_file_sink",
-      "kind": "sequential_file_sink",
-      "mtu": 65535,
-      "ordered": true,
-      "bidirectional": false,
-      "reliable": true,
-      "mode": "file"
-    }
-  ]
+  }
 }

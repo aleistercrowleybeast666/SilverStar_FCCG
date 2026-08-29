@@ -21,7 +21,7 @@ System Profile描述启用能力、Required/Optional策略和算法配置，不�
 
 ## 2. Target composition
 
-当前`SilverStar_F407`目标选择JY901B、NEO-M9N、SX1281、UART Console、STM32F4 backend与SilverStar PCB 0.5 Board。Target直接include所选`module.mk`；Device Interface由所选Device组件内Adapter实现，板级Interface由`Board/SilverStar_0_5/Services`实现。
+当前`SilverStar_F407`目标选择JY901B、NEO-M9N、SX1281、UART Console、STM32F4 backend与SilverStar PCB 0.5 Board。Target直接include所选`module.mk`；Device Interface由所选Device组件内Adapter实现，存储Device与内部硬件服务组件实现其各自Interface。
 
 `target_system_config.h`是允许认识设备构建资格的组合点，例如把设备包的accel/gyro能力、Estimator噪声建议、absolute magnetic vector资格、hardware quaternion预飞/任务期资格、Landing静止/impact资格和Mission Action能力映射为通用宏。System只读取映射后的宏。
 

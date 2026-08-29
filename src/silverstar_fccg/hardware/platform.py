@@ -58,6 +58,48 @@ class PlatformMatchResult:
     candidates: tuple[PlatformCandidate, ...]
 
 
+def PlatformCompatibilityErrors_Get(
+    manifest: PluginManifest,
+    *,
+    cubemx_version: str,
+    firmware_package: str,
+    source_policy: str = "",
+) -> tuple[str, ...]:
+    platform = manifest.platform
+    if platform is None:
+        return (f"{manifest.component_id} has no Platform compatibility contract",)
+    contract = platform.compatibility
+    errors: list[str] = []
+    if not cubemx_version:
+        errors.append(
+            f"CubeMX version is missing; {manifest.component_id} requires "
+            + ", ".join(contract.cubemx_versions)
+        )
+    elif cubemx_version not in contract.cubemx_versions:
+        errors.append(
+            f"CubeMX version mismatch for {manifest.component_id}: detected "
+            f"{cubemx_version}, required "
+            + ", ".join(contract.cubemx_versions)
+        )
+    if not firmware_package:
+        errors.append(
+            f"STM32Cube firmware package is missing; {manifest.component_id} requires "
+            + ", ".join(contract.firmware_packages)
+        )
+    elif firmware_package not in contract.firmware_packages:
+        errors.append(
+            f"STM32Cube firmware package mismatch for {manifest.component_id}: "
+            f"detected {firmware_package}, required "
+            + ", ".join(contract.firmware_packages)
+        )
+    if source_policy and source_policy != contract.source_policy:
+        errors.append(
+            f"HAL/CMSIS source policy mismatch for {manifest.component_id}: "
+            f"project uses {source_policy}, Platform requires {contract.source_policy}"
+        )
+    return tuple(errors)
+
+
 def DetectedMcuFacts_FromInventory(
     inventory: HardwareInventory,
     *,

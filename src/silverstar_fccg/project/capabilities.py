@@ -88,7 +88,9 @@ class CapabilityResolution:
 
 
 def Capability_UserSelectable_Is(capability: str) -> bool:
-    return not capability.startswith(("device.", "transport.", "maintenance."))
+    return not capability.startswith(
+        ("device.", "transport.", "maintenance.", "service.")
+    )
 
 
 def _Requirements_Get(

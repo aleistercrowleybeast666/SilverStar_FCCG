@@ -1,5 +1,7 @@
 File.Version=6
 Mcu.CPN=STM32F407VET6
+MxCube.Version=6.15.0
+ProjectManager.FirmwarePackage=STM32Cube FW_F4 V1.28.3
 Mcu.Family=STM32F4
 Mcu.Name=STM32F407VETx
 Mcu.Package=LQFP100

@@ -11,7 +11,10 @@
 
 static I2C_HandleTypeDef s_i2c;
 static CAN_HandleTypeDef s_can;
-static TIM_HandleTypeDef s_timer = {{999U}};
+static TIM_TypeDef s_timer_registers;
+static TIM_HandleTypeDef s_timer = {&s_timer_registers, {999U}};
+static TIM_TypeDef s_small_timer_registers;
+static TIM_HandleTypeDef s_small_timer = {&s_small_timer_registers, {99U}};
 static HAL_StatusTypeDef s_result = HAL_OK;
 static uint16_t s_i2c_address;
 static uint16_t s_memory_address;
@@ -20,7 +23,7 @@ static CAN_TxHeaderTypeDef s_tx_header;
 static uint32_t s_mailbox_free = 1U;
 static uint32_t s_rx_ready;
 static uint32_t s_tick;
-static uint32_t s_compare;
+static uint32_t s_compare[5];
 static uint32_t s_pwm_channel;
 
 void *PlatformStm32f4Resource_I2cHandleGet(PlatformI2cId id)
@@ -36,13 +39,25 @@ void *PlatformStm32f4Resource_CanHandleGet(PlatformCanId id)
 uint8_t PlatformStm32f4Resource_PwmGet(
     PlatformPwmId id, PlatformStm32f4PwmResource *resource)
 {
-    if ((id != PLATFORM_PWM_1) || (resource == NULL)) { return 0U; }
-    resource->handle = &s_timer;
-    resource->channel = TIM_CHANNEL_1;
-    resource->safe_inactive_compare = 0U;
+    static const uint32_t channels[5] = {
+        TIM_CHANNEL_1, TIM_CHANNEL_2, TIM_CHANNEL_3,
+        TIM_CHANNEL_4, TIM_CHANNEL_1
+    };
+    static const PlatformPwmMode modes[5] = {
+        PLATFORM_PWM_MODE_1, PLATFORM_PWM_MODE_1,
+        PLATFORM_PWM_MODE_2, PLATFORM_PWM_MODE_2,
+        PLATFORM_PWM_MODE_1
+    };
+    static const uint8_t active_high[5] = {1U, 0U, 1U, 0U, 1U};
+    uint32_t index = (uint32_t)id;
+
+    if ((resource == NULL) || (index >= 5U)) { return 0U; }
+    resource->handle = (index == 4U) ? &s_small_timer : &s_timer;
+    resource->channel = channels[index];
     resource->frequency_hz = 1000U;
     resource->resolution_bits = 9U;
-    resource->active_high = 1U;
+    resource->mode = modes[index];
+    resource->active_high = active_high[index];
     return 1U;
 }
 
@@ -165,9 +180,26 @@ HAL_StatusTypeDef HAL_TIM_PWM_Stop(
 void TestHal_TimCompareSet(
     TIM_HandleTypeDef *handle, uint32_t channel, uint32_t compare)
 {
-    assert(handle == &s_timer);
+    assert((handle == &s_timer) || (handle == &s_small_timer));
     s_pwm_channel = channel;
-    s_compare = compare;
+    s_compare[channel / 4U] = compare;
+}
+
+static uint32_t PlatformPwm_ModeGet(uint32_t channel)
+{
+    if (channel == TIM_CHANNEL_1)
+    {
+        return s_timer_registers.CCMR1 & TIM_CCMR1_OC1M;
+    }
+    if (channel == TIM_CHANNEL_2)
+    {
+        return (s_timer_registers.CCMR1 & TIM_CCMR1_OC2M) >> 8U;
+    }
+    if (channel == TIM_CHANNEL_3)
+    {
+        return s_timer_registers.CCMR2 & TIM_CCMR2_OC3M;
+    }
+    return (s_timer_registers.CCMR2 & TIM_CCMR2_OC4M) >> 8U;
 }
 
 static void PlatformI2c_Test(void)
@@ -196,13 +228,20 @@ static void PlatformI2c_Test(void)
     assert(PlatformI2c_Read(
         PLATFORM_I2C_1, 0x68U, buffer, 1U, 10U) == PLATFORM_TIMEOUT);
     s_result = HAL_OK;
-    assert(PlatformI2c_WriteRead(
-        PLATFORM_I2C_1, 0x68U, buffer, 3U, buffer, 2U, 10U) ==
-        PLATFORM_UNSUPPORTED);
-    assert(PlatformI2c_WriteRead(
-        PLATFORM_I2C_1, 0x68U, buffer, 2U, buffer, 2U, 10U) == PLATFORM_OK);
+    assert(PlatformI2c_MemoryRead(
+        PLATFORM_I2C_1, 0x68U, 0x12U,
+        PLATFORM_I2C_MEMORY_ADDRESS_8_BIT, buffer, 2U, 10U) == PLATFORM_OK);
+    assert(s_memory_address == 0x12U);
+    assert(s_memory_address_size == I2C_MEMADD_SIZE_8BIT);
+    assert(PlatformI2c_MemoryWrite(
+        PLATFORM_I2C_1, 0x68U, 0x1234U,
+        PLATFORM_I2C_MEMORY_ADDRESS_16_BIT, buffer, 2U, 10U) == PLATFORM_OK);
     assert(s_memory_address == 0x1234U);
     assert(s_memory_address_size == I2C_MEMADD_SIZE_16BIT);
+    assert(PlatformI2c_MemoryRead(
+        PLATFORM_I2C_1, 0x68U, 0x12U,
+        (PlatformI2cMemoryAddressSize)99, buffer, 2U, 10U) ==
+        PLATFORM_INVALID_ARGUMENT);
 }
 
 static void PlatformCan_Test(void)
@@ -241,20 +280,52 @@ static void PlatformCan_Test(void)
 static void PlatformPwm_Test(void)
 {
     PlatformPwmDiagnostics diagnostics;
+    const PlatformPwmId ids[4] = {
+        PLATFORM_PWM_1, PLATFORM_PWM_2,
+        PLATFORM_PWM_3, PLATFORM_PWM_4
+    };
+    const uint32_t channels[4] = {
+        TIM_CHANNEL_1, TIM_CHANNEL_2,
+        TIM_CHANNEL_3, TIM_CHANNEL_4
+    };
+    const uint32_t intermediate_modes[4] = {
+        TIM_OCMODE_PWM1, TIM_OCMODE_PWM1,
+        TIM_OCMODE_PWM2, TIM_OCMODE_PWM2
+    };
+    uint32_t index;
 
-    assert(PlatformPwm_Start(PLATFORM_PWM_1) == PLATFORM_OK);
-    assert(s_pwm_channel == TIM_CHANNEL_1);
-    assert(PlatformPwm_DutyPermilleSet(
-        PLATFORM_PWM_1, 500U) == PLATFORM_OK);
-    assert(s_compare == 500U);
+    for (index = 0U; index < 4U; index++)
+    {
+        assert(PlatformPwm_Start(ids[index]) == PLATFORM_OK);
+        assert(s_pwm_channel == channels[index]);
+        assert(PlatformPwm_ModeGet(channels[index]) ==
+               TIM_OCMODE_FORCED_INACTIVE);
+        assert(PlatformPwm_DutyPermilleSet(ids[index], 1U) == PLATFORM_OK);
+        assert(s_compare[index] == ((index < 2U) ? 1U : 999U));
+        assert(PlatformPwm_ModeGet(channels[index]) ==
+               intermediate_modes[index]);
+        assert(PlatformPwm_DutyPermilleSet(ids[index], 500U) == PLATFORM_OK);
+        assert(s_compare[index] == 500U);
+        assert(PlatformPwm_DutyPermilleSet(ids[index], 999U) == PLATFORM_OK);
+        assert(s_compare[index] == ((index < 2U) ? 999U : 1U));
+        assert(PlatformPwm_DutyPermilleSet(ids[index], 1000U) == PLATFORM_OK);
+        assert(s_compare[index] == 999U);
+        assert(PlatformPwm_ModeGet(channels[index]) ==
+               TIM_OCMODE_FORCED_ACTIVE);
+        assert(PlatformPwm_SafeInactiveSet(ids[index]) == PLATFORM_OK);
+        assert(s_compare[index] == 0U);
+        assert(PlatformPwm_ModeGet(channels[index]) ==
+               TIM_OCMODE_FORCED_INACTIVE);
+    }
     assert(PlatformPwm_DutyPermilleSet(
         PLATFORM_PWM_1, 1001U) == PLATFORM_INVALID_ARGUMENT);
-    assert(PlatformPwm_SafeInactiveSet(PLATFORM_PWM_1) == PLATFORM_OK);
-    assert(s_compare == 0U);
+    assert(PlatformPwm_DutyPermilleSet(
+        PLATFORM_PWM_5, 1U) == PLATFORM_UNSUPPORTED);
     assert(PlatformPwm_DiagnosticsGet(
-        PLATFORM_PWM_1, &diagnostics) == PLATFORM_OK);
+        PLATFORM_PWM_2, &diagnostics) == PLATFORM_OK);
     assert((diagnostics.frequency_hz == 1000U) &&
            (diagnostics.resolution_bits == 9U) &&
+           (diagnostics.active_high == 0U) &&
            (diagnostics.started == 0U));
 }
 

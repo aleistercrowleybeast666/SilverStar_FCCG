@@ -12,7 +12,7 @@
     "Protocol/SSLOG/Src/sslog_protocol.c": "b065b6733fe87dea5e220e8eaed4ef61569fff831e3dd3d14f1c218fc6aaa3bc",
     "Protocol/SSLOG/Src/sslog_records.c": "871b73bd1cecf9a39a2b95006f34bb32d303a5cba23d55aa02aedb934fe03d30"
   },
-  "recorded_at_utc": "2026-08-28T16:53:53+00:00",
+  "recorded_at_utc": "2026-08-29T18:44:50+00:00",
   "audit": {
     "required_files": [
       "Generated/Inc/project_device_instances.h",

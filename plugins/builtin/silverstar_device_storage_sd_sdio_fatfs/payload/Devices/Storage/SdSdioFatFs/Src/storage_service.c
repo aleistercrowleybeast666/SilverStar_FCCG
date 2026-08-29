@@ -3,7 +3,7 @@
 #include <stddef.h>
 #include <string.h>
 
-#include "fatfs.h"
+#include "project_storage_binding.h"
 #include "platform_critical.h"
 #include "platform_memory.h"
 #include "platform_time.h"
@@ -79,7 +79,7 @@ static SystemDeviceResult SilverStarStorageService_Mount(void)
                       SILVERSTAR_ASSERT_REASON_STATE_INVARIANT);
     if (s_initialized == 0U) { return SYSTEM_DEVICE_NOT_READY; }
     if (s_mounted != 0U) { return SYSTEM_DEVICE_ALREADY_MATCHED; }
-    result = f_mount(&SDFatFS, SDPath, 1U);
+    result = f_mount(&PROJECT_STORAGE_FATFS_OBJECT, PROJECT_STORAGE_FATFS_PATH, 1U);
     if (result != FR_OK)
     {
         primask = SilverStarStorageService_IrqLock();

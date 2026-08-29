@@ -299,6 +299,28 @@ class PlatformBackendContribution:
     defines: tuple[str, ...]
     capabilities: tuple[str, ...]
     ownership: str
+    maturity: str
+
+
+@dataclass(frozen=True, slots=True)
+class PlatformModuleProviderContribution:
+    provider_id: str
+    inventory_modules: tuple[str, ...]
+    init_sources: tuple[str, ...]
+    provider_sources: tuple[str, ...]
+    middleware_sources: tuple[str, ...]
+    include_dirs: tuple[str, ...]
+    defines: tuple[str, ...]
+    capabilities: tuple[str, ...]
+    limitations: tuple[str, ...]
+    always: bool
+
+
+@dataclass(frozen=True, slots=True)
+class PlatformCompatibilityContribution:
+    cubemx_versions: tuple[str, ...]
+    firmware_packages: tuple[str, ...]
+    source_policy: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -311,6 +333,8 @@ class PlatformContribution:
     resource_header: str
     resource_bindings: dict[str, PlatformResourceBinding]
     resource_backends: dict[str, PlatformBackendContribution]
+    module_providers: dict[str, PlatformModuleProviderContribution]
+    compatibility: PlatformCompatibilityContribution
     support_level: str
     limitations: tuple[str, ...]
 
@@ -725,7 +749,7 @@ def _BusConstraints_Validate(
         "dma_tx_required",
         "irq_required",
     }
-    typed_fields = {"uart", "spi", "i2c", "can", "pwm"}
+    typed_fields = {"uart", "spi", "i2c", "can", "pwm", "storage"}
     unknown = set(constraints) - legacy_fields - typed_fields
     if unknown:
         raise PluginManifestError(
@@ -742,6 +766,7 @@ def _BusConstraints_Validate(
         not typed
         or kind == typed_kind
         or (typed_kind == "can" and kind in {"can_classic", "can_fd"})
+        or (typed_kind == "storage" and kind == "sdio")
     )
     if not kind_matches:
         raise PluginManifestError(
@@ -825,9 +850,15 @@ def _BusConstraints_Validate(
             "minimum_frequency_hz",
             "maximum_frequency_hz",
             "minimum_resolution_bits",
-            "polarity",
             "channel",
             "safe_state",
+        },
+        "storage": {
+            "fatfs",
+            "dma_rx",
+            "dma_tx",
+            "irq",
+            "sdio_only",
         },
     }[bus_name]
     unknown_bus_fields = set(bus) - allowed_fields
@@ -927,7 +958,7 @@ def _BusConstraints_Validate(
             raise PluginManifestError(
                 f"CAN frame_format for {name} must be {expected_format}"
             )
-    else:
+    elif bus_name == "pwm":
         for field_name in (
             "frequency_hz",
             "minimum_frequency_hz",
@@ -953,6 +984,10 @@ def _BusConstraints_Validate(
             "dma",
             "required_pullup",
             "requires_repeated_start",
+            "fatfs",
+            "dma_rx",
+            "dma_tx",
+            "sdio_only",
         } and not isinstance(field_value, bool):
             raise PluginManifestError(
                 f"Resource {bus_name}.{field_name} for {name} must be a boolean"
@@ -965,7 +1000,6 @@ def _BusConstraints_Validate(
             "bit_order",
             "address_mode",
             "composite_device",
-            "polarity",
             "frame_format",
             "safe_state",
         } and (not isinstance(field_value, str) or not field_value):
@@ -1571,17 +1605,23 @@ def _Board_Parse(value: Any) -> BoardContribution | None:
 def _Platform_Parse(value: Any) -> PlatformContribution | None:
     if value is None:
         return None
-    if not isinstance(value, dict) or set(value) != {
+    required_fields = {
         "abi",
         "provider",
         "match_rules",
         "resource_binding",
         "resource_backends",
+        "compatibility",
         "support",
-    }:
+    }
+    if (
+        not isinstance(value, dict)
+        or not required_fields.issubset(value)
+        or set(value) - (required_fields | {"module_providers"})
+    ):
         raise PluginManifestError(
             "platform must contain abi, provider, match_rules, resource_binding, "
-            "resource_backends and support"
+            "resource_backends, compatibility and support"
         )
     abi = value["abi"]
     if (
@@ -1725,7 +1765,7 @@ def _Platform_Parse(value: Any) -> PlatformContribution | None:
             or not isinstance(include_header, str)
             or re.fullmatch(r"[A-Za-z0-9_./-]+\.h", include_header) is None
             or ".." in Path(include_header).parts
-            or entry_kind not in {"handle", "gpio", "pwm"}
+            or entry_kind not in {"handle", "gpio", "pwm", "timebase"}
             or not isinstance(struct_type, str)
             or (struct_type and identifier.fullmatch(struct_type) is None)
             or (entry_kind != "handle" and not struct_type)
@@ -1780,6 +1820,7 @@ def _Platform_Parse(value: Any) -> PlatformContribution | None:
                 "defines",
                 "capabilities",
                 "ownership",
+                "maturity",
             }
         ):
             raise PluginManifestError(
@@ -1808,7 +1849,13 @@ def _Platform_Parse(value: Any) -> PlatformContribution | None:
             f"platform.resource_backends.{backend_id}.capabilities",
         )
         ownership = entry["ownership"]
-        if not inventory_kinds or not sources or ownership not in ownership_values:
+        maturity = entry["maturity"]
+        if (
+            not inventory_kinds
+            or not sources
+            or ownership not in ownership_values
+            or maturity not in {"reserved", "experimental", "supported", "verified"}
+        ):
             raise PluginManifestError(
                 f"platform.resource_backends.{backend_id} is incomplete"
             )
@@ -1840,7 +1887,10 @@ def _Platform_Parse(value: Any) -> PlatformContribution | None:
                     f"platform resource kind {inventory_kind} belongs to both "
                     f"{previous} and {backend_id}"
                 )
-            if inventory_kind not in resource_bindings:
+            binding_kind = (
+                "gpio" if inventory_kind.startswith("gpio_") else inventory_kind
+            )
+            if binding_kind not in resource_bindings:
                 raise PluginManifestError(
                     f"platform backend {backend_id} has no resource binding for "
                     f"{inventory_kind}"
@@ -1855,7 +1905,134 @@ def _Platform_Parse(value: Any) -> PlatformContribution | None:
             defines=defines,
             capabilities=capabilities,
             ownership=ownership,
+            maturity=maturity,
         )
+
+    raw_module_providers = value.get("module_providers", {})
+    if not isinstance(raw_module_providers, dict):
+        raise PluginManifestError("platform.module_providers must be an object")
+    module_providers: dict[str, PlatformModuleProviderContribution] = {}
+    module_pattern = re.compile(r"^[A-Za-z0-9_*?.-]+$")
+    for provider_id, entry in raw_module_providers.items():
+        expected_fields = {
+            "inventory_modules",
+            "init_sources",
+            "provider_sources",
+            "middleware_sources",
+            "include_dirs",
+            "defines",
+            "capabilities",
+            "limitations",
+            "always",
+        }
+        if (
+            not isinstance(provider_id, str)
+            or not PLUGIN_ID_PATTERN.fullmatch(provider_id)
+            or not isinstance(entry, dict)
+            or set(entry) != expected_fields
+            or not isinstance(entry.get("always"), bool)
+        ):
+            raise PluginManifestError(
+                f"platform.module_providers.{provider_id} is invalid"
+            )
+        inventory_modules = _StringTuple_Get(
+            entry["inventory_modules"],
+            f"platform.module_providers.{provider_id}.inventory_modules",
+        )
+        init_sources = _StringTuple_Get(
+            entry["init_sources"],
+            f"platform.module_providers.{provider_id}.init_sources",
+        )
+        provider_sources = _StringTuple_Get(
+            entry["provider_sources"],
+            f"platform.module_providers.{provider_id}.provider_sources",
+        )
+        middleware_sources = _StringTuple_Get(
+            entry["middleware_sources"],
+            f"platform.module_providers.{provider_id}.middleware_sources",
+        )
+        include_dirs = _StringTuple_Get(
+            entry["include_dirs"],
+            f"platform.module_providers.{provider_id}.include_dirs",
+        )
+        defines = _StringTuple_Get(
+            entry["defines"],
+            f"platform.module_providers.{provider_id}.defines",
+        )
+        capabilities = _StringTuple_Get(
+            entry["capabilities"],
+            f"platform.module_providers.{provider_id}.capabilities",
+        )
+        limitations = _StringTuple_Get(
+            entry["limitations"],
+            f"platform.module_providers.{provider_id}.limitations",
+        )
+        if (
+            not entry["always"]
+            and not inventory_modules
+            and not init_sources
+        ):
+            raise PluginManifestError(
+                f"platform.module_providers.{provider_id} has no activation rule"
+            )
+        if any(module_pattern.fullmatch(item) is None for item in inventory_modules):
+            raise PluginManifestError(
+                f"platform.module_providers.{provider_id}.inventory_modules is invalid"
+            )
+        _BuildTokens_Validate(
+            (*init_sources, *provider_sources, *middleware_sources, *include_dirs),
+            f"platform.module_providers.{provider_id} paths",
+            BUILD_PATH_PATTERN,
+        )
+        _RelativePaths_Validate(
+            (*init_sources, *provider_sources, *middleware_sources, *include_dirs),
+            f"platform.module_providers.{provider_id}",
+        )
+        _BuildTokens_Validate(
+            defines,
+            f"platform.module_providers.{provider_id}.defines",
+            DEFINE_PATTERN,
+        )
+        if any(not PLUGIN_ID_PATTERN.fullmatch(item) for item in capabilities):
+            raise PluginManifestError(
+                f"platform.module_providers.{provider_id}.capabilities is invalid"
+            )
+        module_providers[provider_id] = PlatformModuleProviderContribution(
+            provider_id=provider_id,
+            inventory_modules=inventory_modules,
+            init_sources=init_sources,
+            provider_sources=provider_sources,
+            middleware_sources=middleware_sources,
+            include_dirs=include_dirs,
+            defines=defines,
+            capabilities=capabilities,
+            limitations=limitations,
+            always=entry["always"],
+        )
+
+    compatibility = value["compatibility"]
+    if (
+        not isinstance(compatibility, dict)
+        or set(compatibility)
+        != {"cubemx_versions", "firmware_packages", "source_policy"}
+    ):
+        raise PluginManifestError("platform.compatibility is invalid")
+    cubemx_versions = _StringTuple_Get(
+        compatibility["cubemx_versions"],
+        "platform.compatibility.cubemx_versions",
+    )
+    firmware_packages = _StringTuple_Get(
+        compatibility["firmware_packages"],
+        "platform.compatibility.firmware_packages",
+    )
+    if (
+        not cubemx_versions
+        or not firmware_packages
+        or any(not item.strip() for item in (*cubemx_versions, *firmware_packages))
+        or compatibility["source_policy"]
+        not in {"plugin_payload_authoritative", "imported_tree_authoritative"}
+    ):
+        raise PluginManifestError("platform.compatibility is incomplete")
 
     support = value["support"]
     if (
@@ -1876,6 +2053,12 @@ def _Platform_Parse(value: Any) -> PlatformContribution | None:
         resource_header=resource_header,
         resource_bindings=resource_bindings,
         resource_backends=resource_backends,
+        module_providers=module_providers,
+        compatibility=PlatformCompatibilityContribution(
+            cubemx_versions=cubemx_versions,
+            firmware_packages=firmware_packages,
+            source_policy=compatibility["source_policy"],
+        ),
         support_level=support["level"],
         limitations=limitations,
     )

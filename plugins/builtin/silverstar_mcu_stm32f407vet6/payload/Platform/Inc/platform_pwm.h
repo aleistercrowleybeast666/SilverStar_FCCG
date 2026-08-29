@@ -17,8 +17,14 @@ typedef enum
     PLATFORM_PWM_6,
     PLATFORM_PWM_7,
     PLATFORM_PWM_8,
-    PLATFORM_PWM_COUNT
+    PLATFORM_PWM_COUNT = 64
 } PlatformPwmId;
+
+typedef enum
+{
+    PLATFORM_PWM_MODE_1 = 0,
+    PLATFORM_PWM_MODE_2
+} PlatformPwmMode;
 
 typedef struct
 {

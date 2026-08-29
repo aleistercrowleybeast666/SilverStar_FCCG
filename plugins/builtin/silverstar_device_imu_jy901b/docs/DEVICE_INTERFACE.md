@@ -30,7 +30,7 @@ Device native类型不得包含System结构；Interface不得包含具体Device�
 | `ALREADY_MATCHED` | 当前状态/配置已满足，无需重复动作 |
 | `NOT_READY` | 已选择但尚未达到执行条件 |
 | `OFFLINE` | 设备存在但当前通信离线 |
-| `UNSUPPORTED` | 当前Adapter或Board Service不实现该公共能力 |
+| `UNSUPPORTED` | 当前Adapter、Device-owned service或内部硬件服务不实现该公共能力 |
 | `INVALID_ARGUMENT` | NULL、范围或组合非法 |
 | `TIMEOUT` | 有界事务超时 |
 | `IO_ERROR` | transport/外设失败 |

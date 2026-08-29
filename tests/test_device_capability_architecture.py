@@ -33,6 +33,7 @@ from silverstar_fccg.project.logging import (
 )
 from silverstar_fccg.project.model import (
     DeviceInstance,
+    PROJECT_FORMAT_VERSION,
     ProjectModel_Load,
     ProjectModel_Parse,
 )
@@ -332,13 +333,14 @@ def test_project_v2_migrates_devices_and_resource_owners() -> None:
     data["generated_glue"].remove("project_capability_routes")
 
     migrated = ProjectModel_Parse(data)
-    assert migrated.format_version == 8
+    assert migrated.format_version == PROJECT_FORMAT_VERSION
     assert [instance.instance_id for instance in migrated.device_instances] == [
         "imu0",
         "gnss0",
-        "telemetry0",
-        "maintenance0",
-        "sensor0",
+            "telemetry0",
+            "maintenance0",
+            "storage0",
+            "sensor0",
         "actuator0",
         "actuator1",
         "indicator0",
@@ -355,7 +357,7 @@ def test_project_v3_migrates_without_capability_selections() -> None:
 
     migrated = ProjectModel_Parse(data)
 
-    assert migrated.format_version == 8
+    assert migrated.format_version == PROJECT_FORMAT_VERSION
     assert "capability_selections" not in migrated.Dictionary_Get()
 
 
@@ -368,7 +370,7 @@ def test_project_v4_removes_legacy_capability_and_build_choices() -> None:
     migrated = ProjectModel_Parse(data)
 
     serialized = migrated.Dictionary_Get()
-    assert migrated.format_version == 8
+    assert migrated.format_version == PROJECT_FORMAT_VERSION
     assert "capability_selections" not in serialized
     assert "configuration" not in serialized["build"]
 
@@ -386,7 +388,7 @@ def test_project_v5_adds_mode_protocol_and_assignment_contracts() -> None:
 
     migrated = ProjectModel_Parse(data)
 
-    assert migrated.format_version == 8
+    assert migrated.format_version == PROJECT_FORMAT_VERSION
     assert migrated.mode_parameters["deployment"]["Delay"]["delay"] == 60.0
     assert migrated.ProtocolProfiles_Get()["telemetry"] == "air.m0"
     assert migrated.hardware.assignment_fingerprint == ""
@@ -401,7 +403,7 @@ def test_project_v6_adds_log_decoder_profile_reference() -> None:
 
     migrated = ProjectModel_Parse(data)
 
-    assert migrated.format_version == 8
+    assert migrated.format_version == PROJECT_FORMAT_VERSION
     assert migrated.log_decoder_profile.relative_path == "MigrateV6.ssdecoder"
     assert migrated.log_decoder_profile.package_schema == "1.0"
     assert migrated.log_decoder_profile.container_plugin_id == (

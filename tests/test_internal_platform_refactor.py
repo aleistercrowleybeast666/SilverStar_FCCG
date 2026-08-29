@@ -17,12 +17,19 @@ from silverstar_fccg.generator.render import (
     _PlatformBinding_Render,
     _PlatformResources_Render,
 )
-from silverstar_fccg.generator.source_graph import SourceGraph_Resolve
+from silverstar_fccg.generator.source_graph import (
+    SourceGraphError,
+    SourceGraph_Resolve,
+)
+from silverstar_fccg.app.service import FccgService
 from silverstar_fccg.core.workspace import WorkspacePolicy
+from silverstar_fccg.core.i18n import Translator
+from silverstar_fccg.core.view_models import I2cPullupEvidenceView
 from silverstar_fccg.hardware.cubemx import CubeMxImporter
 from silverstar_fccg.hardware.inventory import CubeMxInventory_Parse
 from silverstar_fccg.hardware.platform import (
     DetectedMcuFacts,
+    PlatformCompatibilityErrors_Get,
     PlatformMatchError,
     PlatformMatch_Resolve,
 )
@@ -33,10 +40,20 @@ from silverstar_fccg.plugins.manifest import (
     PluginManifest_Load,
 )
 from silverstar_fccg.project.configuration import ProjectConfiguration_Reconcile
-from silverstar_fccg.project.model import DeviceInstance, HardwareConfiguration
+from silverstar_fccg.project.generation_state import (
+    ProjectGenerationFingerprint_Get,
+)
+from silverstar_fccg.project.model import (
+    DeviceInstance,
+    HardwareConfiguration,
+    PROJECT_FORMAT_VERSION,
+    ProjectModel_Parse,
+)
 from silverstar_fccg.project.reference import ReferenceProject_Create
 from silverstar_fccg.project.resources import ResourceAssignments_Resolve
 from silverstar_fccg.project.validation import Project_Validate
+from silverstar_fccg.ui.pages.components import BoardHardwarePage
+from silverstar_fccg.ui.widgets import StandardCheckBox
 
 
 def _Device_Write(
@@ -116,9 +133,12 @@ def _Inventory_Create() -> object:
         "\n".join(
             (
                 "Mcu.CPN=STM32F407VET6",
+                "Mcu.Name=STM32F407V(E-G)Tx",
                 "Mcu.Family=STM32F4",
                 "Mcu.Package=LQFP100",
                 "Mcu.Core=ARM Cortex-M4",
+                "MxCube.Version=6.15.0",
+                "ProjectManager.FirmwarePackage=STM32Cube FW_F4 V1.28.3",
                 "Mcu.IP0=I2C1",
                 "Mcu.IP1=CAN1",
                 "Mcu.IP2=TIM3",
@@ -132,6 +152,8 @@ def _Inventory_Create() -> object:
                 "PB9.Signal=CAN1_TX",
                 "PA6.Signal=TIM3_CH1",
                 "PA7.Signal=TIM3_CH2",
+                "SH.S_TIM3_CH1.0=TIM3_CH1,PWM Generation1 CH1",
+                "SH.S_TIM3_CH2.0=TIM3_CH2,PWM Generation2 CH2",
                 "I2C1.ClockSpeed=400000",
                 "I2C1.AddressingMode=I2C_ADDRESSINGMODE_7BIT",
                 "CAN1.Prescaler=6",
@@ -142,7 +164,24 @@ def _Inventory_Create() -> object:
                 "TIM3.Period=19999",
                 "RCC.APB1Freq_Value=42000000",
             )
-        )
+        ),
+        generated_sources=(
+            """
+TIM_HandleTypeDef htim3;
+void MX_TIM3_Init(void)
+{
+    TIM_OC_InitTypeDef sConfigOC = {0};
+    htim3.Instance = TIM3;
+    htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
+    sConfigOC.OCMode = TIM_OCMODE_PWM1;
+    sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+    HAL_TIM_PWM_ConfigChannel(&htim3, &sConfigOC, TIM_CHANNEL_1);
+    sConfigOC.OCMode = TIM_OCMODE_PWM2;
+    sConfigOC.OCPolarity = TIM_OCPOLARITY_LOW;
+    HAL_TIM_PWM_ConfigChannel(&htim3, &sConfigOC, TIM_CHANNEL_2);
+}
+""",
+        ),
     )
 
 
@@ -157,7 +196,18 @@ def _CustomModel_Create(catalog: PluginCatalog, devices: list[DeviceInstance]):
         source_kind="manual_import",
         provider="silverstar.hardware_provider.stm32_cubemx",
         snapshot_id="a" * 64,
+        source_digest="a" * 64,
         mcu="STM32F407VET6",
+        platform_component="silverstar.mcu.stm32f407vet6",
+        platform_version=catalog.Component_Get(
+            "silverstar.mcu.stm32f407vet6"
+        ).version,
+        platform_manifest_sha256=catalog.Component_Get(
+            "silverstar.mcu.stm32f407vet6"
+        ).ManifestSha256_Get(),
+        cubemx_version=inventory.cubemx_version,
+        firmware_package=inventory.firmware_package,
+        hal_cmsis_source_policy="plugin_payload_authoritative",
         capabilities=tuple(
             sorted(
                 {
@@ -170,13 +220,9 @@ def _CustomModel_Create(catalog: PluginCatalog, devices: list[DeviceInstance]):
         resources=inventory.HardwareResources_Get(),
         build_sources=(
             "HardwareGenerated/STM32CubeMX/Core/Src/main.c",
-            "HardwareGenerated/STM32CubeMX/Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_i2c.c",
-            "HardwareGenerated/STM32CubeMX/Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_i2c_ex.c",
-            "HardwareGenerated/STM32CubeMX/Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_can.c",
         ),
         include_dirs=(
             "HardwareGenerated/STM32CubeMX/Core/Inc",
-            "HardwareGenerated/STM32CubeMX/Drivers/STM32F4xx_HAL_Driver/Inc",
         ),
     )
     return model
@@ -200,6 +246,57 @@ def test_default_reference_does_not_select_optional_platform_backends(
     assert not any(
         source.endswith(optional_tokens) for source in graph.sources
     )
+    assert all(
+        any(excluded.endswith(token) for excluded in graph.exclude_sources)
+        for token in optional_tokens
+    )
+
+
+def test_cubemx_modules_keep_hal_providers_without_device_backends(
+    builtin_catalog: PluginCatalog,
+) -> None:
+    model = _CustomModel_Create(builtin_catalog, [])
+    graph = SourceGraph_Resolve(model, builtin_catalog)
+    for provider_source in (
+        "stm32f4xx_hal_i2c.c",
+        "stm32f4xx_hal_i2c_ex.c",
+        "stm32f4xx_hal_can.c",
+        "stm32f4xx_hal_tim.c",
+        "stm32f4xx_hal_tim_ex.c",
+    ):
+        assert any(
+            source.endswith(provider_source) for source in graph.sources
+        )
+    for backend_source in (
+        "platform_i2c_stm32f4.c",
+        "platform_can_stm32f4.c",
+        "platform_pwm_stm32f4.c",
+    ):
+        assert not any(
+            source.endswith(backend_source) for source in graph.sources
+        )
+    assert any(
+        source.endswith("stm32f4xx_hal_mmc.c")
+        for source in graph.exclude_sources
+    )
+
+
+def test_unknown_cubemx_module_has_no_implicit_compile_all_fallback(
+    builtin_catalog: PluginCatalog,
+) -> None:
+    model = _CustomModel_Create(builtin_catalog, [])
+    model.hardware = replace(
+        model.hardware,
+        inventory={
+            **model.hardware.inventory,
+            "peripherals": [
+                *model.hardware.inventory["peripherals"],
+                "USB_OTG_FS",
+            ],
+        },
+    )
+    with pytest.raises(SourceGraphError, match="no declarative Platform provider"):
+        SourceGraph_Resolve(model, builtin_catalog)
 
 
 def test_hardware_inventory_json_has_case_insensitive_unique_keys(
@@ -254,7 +351,10 @@ def test_i2c_inventory_assignment_glue_and_conditional_sources(
     assert "Platform/STM32F4/Src/platform_i2c_stm32f4.c" in graph.sources
     assert any(source.endswith("stm32f4xx_hal_i2c.c") for source in graph.sources)
     assert any(source.endswith("stm32f4xx_hal_i2c_ex.c") for source in graph.sources)
-    assert not any(source.endswith("stm32f4xx_hal_can.c") for source in graph.sources)
+    # The CubeMX fixture enables CAN1, so its generated init source must retain
+    # the HAL provider even though no CAN Device may consume the reserved backend.
+    assert any(source.endswith("stm32f4xx_hal_can.c") for source in graph.sources)
+    assert "Platform/STM32F4/Src/platform_can_stm32f4.c" not in graph.sources
     glue = _PlatformResources_Render(model, catalog)
     assert '#include "i2c.h"' in glue
     assert "&hi2c1" in glue
@@ -416,18 +516,15 @@ def test_classic_can_single_owner_and_fdcan_do_not_cross_match(
         [DeviceInstance("can0", "fixture.device.classic_can")],
     )
     model.resource_assignments["can0:bus"] = "CAN1"
-    assert ResourceAssignments_Resolve(model, catalog).valid
-    graph = SourceGraph_Resolve(model, catalog)
-    assert "Platform/STM32F4/Src/platform_can_stm32f4.c" in graph.sources
-    assert any(source.endswith("stm32f4xx_hal_can.c") for source in graph.sources)
-    assert "&hcan1" in _PlatformResources_Render(model, catalog)
+    reserved = ResourceAssignments_Resolve(model, catalog)
+    assert any("backend reserved" in error for error in reserved.errors)
 
     model.device_instances.append(
         DeviceInstance("can1", "fixture.device.classic_can")
     )
     model.resource_assignments["can1:bus"] = "CAN1"
     conflict = ResourceAssignments_Resolve(model, catalog)
-    assert any("ownership conflict" in error for error in conflict.errors)
+    assert any("backend reserved" in error for error in conflict.errors)
 
     fdcan = CubeMxInventory_Parse(
         "\n".join(
@@ -456,7 +553,6 @@ def test_pwm_channel_identity_shared_timer_and_frequency_conflict(
             "pwm": {
                 "frequency_hz": 50,
                 "minimum_resolution_bits": 12,
-                "polarity": "active_high",
                 "safe_state": "inactive",
             }
         },
@@ -575,7 +671,7 @@ def test_renderer_uses_virtual_non_f4_platform_binding_without_fixed_symbols() -
     assert "stm32f4" not in inspect.getsource(_PlatformResources_Render).casefold()
 
 
-def test_cubemx_import_retains_conditional_hal_source_candidates(
+def test_cubemx_import_keeps_vendor_hal_out_of_source_graph(
     tmp_path: Path, workspace_root: Path
 ) -> None:
     fixture = tmp_path / "cubemx_optional_backends"
@@ -594,6 +690,7 @@ def test_cubemx_import_retains_conditional_hal_source_candidates(
                 "PB8.Signal=CAN1_RX",
                 "PB9.Signal=CAN1_TX",
                 "PC6.Signal=TIM3_CH1",
+                "SH.S_TIM3_CH1.0=TIM3_CH1,PWM Generation1 CH1",
                 "I2C1.ClockSpeed=400000",
                 "CAN1.Mode=CAN_MODE_NORMAL",
                 "TIM3.Prescaler=83",
@@ -612,22 +709,31 @@ def test_cubemx_import_retains_conditional_hal_source_candidates(
         "stm32f4xx_hal_tim.c",
     ):
         (hal_source / name).write_text("/* CubeMX fixture. */\n", encoding="utf-8")
+    (fixture / "Core" / "Src" / "tim.c").write_text(
+        """
+TIM_HandleTypeDef htim3;
+void MX_TIM3_Init(void)
+{
+    TIM_OC_InitTypeDef sConfigOC = {0};
+    htim3.Instance = TIM3;
+    htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
+    sConfigOC.OCMode = TIM_OCMODE_PWM1;
+    sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+    HAL_TIM_PWM_ConfigChannel(&htim3, &sConfigOC, TIM_CHANNEL_1);
+}
+""",
+        encoding="utf-8",
+    )
 
     imported = CubeMxImporter(WorkspacePolicy(tmp_path)).Project_Import(fixture)
     assert {item.kind for item in imported.inventory.i2cs} == {"i2c"}
     assert {item.kind for item in imported.inventory.cans} == {"can_classic"}
     assert imported.inventory.pwms[0].instance == "TIM3_CH1"
-    assert any(
-        source.endswith("stm32f4xx_hal_i2c.c")
-        for source in imported.hardware.build_sources
+    assert not any(
+        "/Drivers/" in source for source in imported.hardware.build_sources
     )
-    assert any(
-        source.endswith("stm32f4xx_hal_can.c")
-        for source in imported.hardware.build_sources
-    )
-    assert any(
-        path.endswith("STM32F4xx_HAL_Driver/Inc")
-        for path in imported.hardware.include_dirs
+    assert imported.hardware.include_dirs == (
+        "HardwareGenerated/STM32CubeMX/Core/Inc",
     )
 
 
@@ -704,3 +810,428 @@ def test_decoder_profile_records_hardware_resources_and_three_protocol_locks(
         and assignment["logical_resource"] == "PLATFORM_UART_1"
         for assignment in semantics["resource_assignments"]
     )
+
+
+def _I2cPullupModel_Create(
+    tmp_path: Path, workspace_root: Path
+) -> tuple[PluginCatalog, object]:
+    installed = tmp_path / "installed_pullup"
+    component_id = "fixture.device.i2c_pullup_required"
+    _Device_Write(
+        installed,
+        component_id,
+        "i2c",
+        {
+            "i2c": {
+                "maximum_bus_frequency_hz": 400000,
+                "address_mode": "7bit",
+                "address_7bit": 0x48,
+                "required_pullup": True,
+            }
+        },
+        ["i2c.master_blocking"],
+    )
+    catalog = _Catalog_Create(workspace_root, installed)
+    model = _CustomModel_Create(
+        catalog,
+        [DeviceInstance("temperature0", component_id)],
+    )
+    resources = []
+    for resource in model.hardware.resources:
+        if resource.resource_id != "I2C1":
+            resources.append(resource)
+            continue
+        pin_electrical = {
+            role: {**electrical, "pull": "none"}
+            for role, electrical in resource.metadata["pin_electrical"].items()
+        }
+        resources.append(
+            replace(
+                resource,
+                metadata={
+                    **resource.metadata,
+                    "pin_electrical": pin_electrical,
+                },
+            )
+        )
+    model.hardware = replace(model.hardware, resources=tuple(resources))
+    model.resource_assignments["temperature0:bus"] = "I2C1"
+    return catalog, model
+
+
+def test_custom_i2c_external_pullup_evidence_is_snapshot_bound_and_not_generated(
+    tmp_path: Path,
+    workspace_root: Path,
+) -> None:
+    catalog, model = _I2cPullupModel_Create(tmp_path, workspace_root)
+    missing = ResourceAssignments_Resolve(model, catalog)
+    assert any(
+        "snapshot-bound custom external pull-up confirmation" in error
+        and "SCL=PB6" in error
+        and "SDA=PB7" in error
+        for error in missing.errors
+    )
+
+    service = FccgService(workspace_root)
+    service.catalog = catalog
+    evidence = service.I2cPullupEvidenceViews_Get(model)
+    assert len(evidence) == 1
+    assert evidence[0].resource_id == "I2C1"
+    assert evidence[0].physical_resource == "I2C1"
+    assert not evidence[0].confirmed
+
+    generation_fingerprint = ProjectGenerationFingerprint_Get(model)
+    model.hardware = replace(
+        model.hardware,
+        i2c_external_pullup_confirmations={
+            "I2C1": {
+                "source_digest": model.hardware.source_digest,
+                "snapshot_id": model.hardware.snapshot_id,
+            }
+        },
+    )
+    assert ProjectGenerationFingerprint_Get(model) == generation_fingerprint
+    assert ResourceAssignments_Resolve(model, catalog).valid
+    assert service.I2cPullupEvidenceViews_Get(model)[0].confirmed
+
+    stale = replace(model.hardware, source_digest="b" * 64)
+    model.hardware = stale
+    stale_result = ResourceAssignments_Resolve(model, catalog)
+    assert any("snapshot-bound" in error for error in stale_result.errors)
+    assert not service.I2cPullupEvidenceViews_Get(model)[0].confirmed
+
+
+def test_i2c_pullup_gui_is_visible_only_when_confirmation_is_required(
+    qapp,
+) -> None:
+    page = BoardHardwarePage(Translator("zh_CN"))
+    evidence = I2cPullupEvidenceView(
+        resource_id="I2C1",
+        physical_resource="I2C1",
+        pins_text="SCL=PB6, SDA=PB7",
+        confirmed=False,
+    )
+    page.I2cPullupEvidence_Set((evidence,))
+    assert not page.i2c_pullup_group.isHidden()
+    checks = page.i2c_pullup_checks_widget.findChildren(StandardCheckBox)
+    assert len(checks) == 1
+    assert "I2C1" in checks[0].text()
+    assert "SCL=PB6" in checks[0].text()
+    page.I2cPullupEvidence_Set(())
+    assert page.i2c_pullup_group.isHidden()
+
+
+def test_project_v8_migrates_compatibility_facts_and_pullup_evidence(
+    builtin_catalog: PluginCatalog,
+) -> None:
+    data = ReferenceProject_Create(
+        "CompatibilityMigration", catalog=builtin_catalog
+    ).Dictionary_Get()
+    data["format_version"] = 8
+    for key in (
+        "cubemx_version",
+        "firmware_package",
+        "hal_cmsis_source_policy",
+        "i2c_external_pullup_confirmations",
+    ):
+        data["hardware"].pop(key)
+    migrated = ProjectModel_Parse(data)
+    assert migrated.format_version == PROJECT_FORMAT_VERSION
+    assert migrated.hardware.cubemx_version == "6.15.0"
+    assert migrated.hardware.firmware_package == "STM32Cube FW_F4 V1.28.3"
+    assert migrated.hardware.hal_cmsis_source_policy == ""
+    assert migrated.hardware.i2c_external_pullup_confirmations == {}
+
+
+def test_platform_compatibility_is_exact_and_reported_in_hardware_gui(
+    qapp,
+    workspace_root: Path,
+    builtin_catalog: PluginCatalog,
+) -> None:
+    model = ReferenceProject_Create("Compatibility", catalog=builtin_catalog)
+    platform = builtin_catalog.Component_Get(model.mcu)
+    assert PlatformCompatibilityErrors_Get(
+        platform,
+        cubemx_version="6.15.0",
+        firmware_package="STM32Cube FW_F4 V1.28.3",
+        source_policy="plugin_payload_authoritative",
+    ) == ()
+    mismatch = PlatformCompatibilityErrors_Get(
+        platform,
+        cubemx_version="6.14.0",
+        firmware_package="STM32Cube FW_F4 V1.28.2",
+        source_policy="imported_tree_authoritative",
+    )
+    assert len(mismatch) == 3
+    model.hardware = replace(model.hardware, cubemx_version="6.14.0")
+    validation = Project_Validate(model, builtin_catalog)
+    assert any(issue.code == "platform_compatibility" for issue in validation.issues)
+
+    service = FccgService(workspace_root)
+    current = ReferenceProject_Create("CompatibilityGui", catalog=service.catalog)
+    view = service.PlatformMatchView_Get(current)
+    assert view.cubemx_version == "6.15.0"
+    assert view.firmware_package == "STM32Cube FW_F4 V1.28.3"
+    assert view.source_policy == "plugin_payload_authoritative"
+    page = BoardHardwarePage(Translator("zh_CN"))
+    page.Platform_Set(view)
+    assert page.platform_values["cubemx"].text() == "6.15.0"
+    assert "V1.28.3" in page.platform_values["firmware_package"].text()
+    assert page.platform_values["source_policy"].text() == (
+        "plugin_payload_authoritative"
+    )
+
+
+@pytest.mark.parametrize(
+    ("shared_declaration", "counter_mode", "extra_ioc", "expected_issue"),
+    (
+        ("TIM3_CH1,Input Capture direct mode", "TIM_COUNTERMODE_UP", "", "not a supported"),
+        ("TIM3_CH1,Output Compare1 CH1", "TIM_COUNTERMODE_UP", "", "not a supported"),
+        ("TIM3_CH1,PWM Generation1 CH1", "TIM_COUNTERMODE_UP", "TIM3.OnePulseMode=TIM_OPMODE_SINGLE", "advanced/combined"),
+        ("TIM3_CH1N,PWM Generation1 CH1N", "TIM_COUNTERMODE_UP", "", "complementary"),
+        ("TIM3_CH1,PWM Generation1 CH1", "TIM_COUNTERMODE_CENTERALIGNED1", "", "edge-aligned"),
+    ),
+)
+def test_pwm_inventory_rejects_nonportable_timer_modes(
+    shared_declaration: str,
+    counter_mode: str,
+    extra_ioc: str,
+    expected_issue: str,
+) -> None:
+    channel = "TIM3_CH1N" if shared_declaration.startswith("TIM3_CH1N") else "TIM3_CH1"
+    ioc_lines = (
+        "Mcu.CPN=STM32F407VET6",
+        "Mcu.IP0=TIM3",
+        f"PA6.Signal={channel}",
+        f"SH.S_TIM3_CH1.0={shared_declaration}",
+        "TIM3.Prescaler=83",
+        "TIM3.Period=19999",
+        "RCC.APB1Freq_Value=42000000",
+    ) + ((extra_ioc,) if extra_ioc else ())
+    source = f"""
+TIM_HandleTypeDef htim3;
+void MX_TIM3_Init(void)
+{{
+    TIM_OC_InitTypeDef sConfigOC = {{0}};
+    htim3.Instance = TIM3;
+    htim3.Init.CounterMode = {counter_mode};
+    sConfigOC.OCMode = TIM_OCMODE_PWM1;
+    sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+    HAL_TIM_PWM_ConfigChannel(&htim3, &sConfigOC, TIM_CHANNEL_1);
+}}
+"""
+    inventory = CubeMxInventory_Parse(
+        "\n".join(ioc_lines), generated_sources=(source,)
+    )
+    assert inventory.pwms == ()
+    assert any(expected_issue in issue for issue in inventory.issues)
+
+
+def test_pwm_inventory_requires_both_cubemx_and_generated_code_evidence() -> None:
+    base = "\n".join(
+        (
+            "Mcu.CPN=STM32F407VET6",
+            "Mcu.IP0=TIM3",
+            "PA6.Signal=TIM3_CH1",
+            "TIM3.Prescaler=83",
+            "TIM3.Period=19999",
+        )
+    )
+    generated = """
+TIM_HandleTypeDef htim3;
+void MX_TIM3_Init(void)
+{
+    TIM_OC_InitTypeDef sConfigOC = {0};
+    htim3.Instance = TIM3;
+    htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
+    sConfigOC.OCMode = TIM_OCMODE_PWM1;
+    sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+    HAL_TIM_PWM_ConfigChannel(&htim3, &sConfigOC, TIM_CHANNEL_1);
+}
+"""
+    pin_only = CubeMxInventory_Parse(base, generated_sources=(generated,))
+    assert pin_only.pwms == ()
+    declaration_only = CubeMxInventory_Parse(
+        base + "\nSH.S_TIM3_CH1.0=TIM3_CH1,PWM Generation1 CH1"
+    )
+    assert declaration_only.pwms == ()
+    complete = CubeMxInventory_Parse(
+        base + "\nSH.S_TIM3_CH1.0=TIM3_CH1,PWM Generation1 CH1",
+        generated_sources=(generated,),
+    )
+    assert complete.pwms[0].settings["pwm_mode"] == "pwm1"
+    assert complete.pwms[0].settings["period_counts"] == 20000
+    assert complete.pwms[0].settings["safe_inactive_behavior"] == (
+        "forced_inactive_then_stop"
+    )
+
+
+def test_pwm_requirement_rejects_logical_polarity_field(
+    tmp_path: Path,
+) -> None:
+    installed = tmp_path / "pwm_polarity"
+    component_id = "fixture.device.pwm_polarity"
+    _Device_Write(
+        installed,
+        component_id,
+        "pwm",
+        {"pwm": {"frequency_hz": 50, "polarity": "active_high"}},
+        ["pwm.output_fixed_frequency"],
+    )
+    with pytest.raises(PluginManifestError, match="unknown fields"):
+        PluginManifest_Load(
+            installed / component_id / "1.0.0" / "plugin.json",
+            source="installed",
+        )
+
+
+def test_i2c_pullup_evidence_accepts_board_metadata_but_never_push_pull(
+    tmp_path: Path,
+    workspace_root: Path,
+) -> None:
+    catalog, model = _I2cPullupModel_Create(tmp_path, workspace_root)
+    resources = []
+    for resource in model.hardware.resources:
+        if resource.resource_id == "I2C1":
+            resource = replace(
+                resource,
+                metadata={
+                    **resource.metadata,
+                    "external_pullup_verified": True,
+                },
+            )
+        resources.append(resource)
+    model.hardware = replace(model.hardware, resources=tuple(resources))
+    assert ResourceAssignments_Resolve(model, catalog).valid
+
+    push_pull_resources = []
+    for resource in model.hardware.resources:
+        if resource.resource_id == "I2C1":
+            resource = replace(
+                resource,
+                metadata={
+                    **resource.metadata,
+                    "pin_electrical": {
+                        role: {**electrical, "output_type": "push_pull"}
+                        for role, electrical in resource.metadata[
+                            "pin_electrical"
+                        ].items()
+                    },
+                },
+            )
+        push_pull_resources.append(resource)
+    model.hardware = replace(
+        model.hardware,
+        resources=tuple(push_pull_resources),
+        i2c_external_pullup_confirmations={
+            "I2C1": {
+                "source_digest": model.hardware.source_digest,
+                "snapshot_id": model.hardware.snapshot_id,
+            }
+        },
+    )
+    invalid = ResourceAssignments_Resolve(model, catalog)
+    assert any("SCL/SDA must both be open-drain" in error for error in invalid.errors)
+
+
+def test_i2c_public_abi_has_no_hal_constants_or_generic_write_read(
+    workspace_root: Path,
+) -> None:
+    overlay = workspace_root / "tools" / "reference_overlays" / "platform"
+    builtin = (
+        workspace_root
+        / "plugins"
+        / "builtin"
+        / "silverstar_mcu_stm32f407vet6"
+        / "payload"
+        / "Platform"
+    )
+    public_header = (overlay / "platform_i2c.h").read_text(encoding="utf-8")
+    assert "PlatformI2cMemoryAddressSize" in public_header
+    assert "PLATFORM_I2C_MEMORY_ADDRESS_8_BIT" in public_header
+    assert "PLATFORM_I2C_MEMORY_ADDRESS_16_BIT" in public_header
+    assert "I2C_MEMADD_SIZE" not in public_header
+    assert "PlatformI2c_WriteRead" not in public_header
+    assert public_header == (
+        builtin / "Inc" / "platform_i2c.h"
+    ).read_text(encoding="utf-8")
+    for manifest in (workspace_root / "plugins" / "builtin").glob(
+        "silverstar_device_*/plugin.json"
+    ):
+        package_text = "\n".join(
+            path.read_text(encoding="utf-8", errors="strict")
+            for path in manifest.parent.rglob("*")
+            if path.is_file() and path.suffix.casefold() in {".c", ".h"}
+        )
+        assert "I2C_MEMADD_SIZE" not in package_text
+
+
+def test_builtin_catalog_contains_no_fake_can_device(
+    builtin_catalog: PluginCatalog,
+) -> None:
+    for manifest in builtin_catalog.Type_Get("device"):
+        assert "can bus" not in manifest.name.casefold()
+        assert not any(
+            requirement.kind in {"can_classic", "can_fd"}
+            for requirement in manifest.resource_requirements
+        )
+
+
+def test_custom_i2c_source_graph_uses_one_plugin_hal_tree_only(
+    tmp_path: Path,
+    workspace_root: Path,
+) -> None:
+    installed = tmp_path / "installed_graph"
+    _Device_Write(
+        installed,
+        "fixture.device.i2c_graph",
+        "i2c",
+        {"i2c": {"address_7bit": 0x48, "address_mode": "7bit"}},
+        ["i2c.master_blocking"],
+    )
+    catalog = _Catalog_Create(workspace_root, installed)
+    model = _CustomModel_Create(
+        catalog,
+        [DeviceInstance("sensor0", "fixture.device.i2c_graph")],
+    )
+    model.resource_assignments["sensor0:bus"] = "I2C1"
+    model.hardware = replace(
+        model.hardware,
+        build_sources=(
+            "HardwareGenerated/STM32CubeMX/Core/Src/main.c",
+            "HardwareGenerated/STM32CubeMX/Core/Src/i2c.c",
+        ),
+    )
+    graph = SourceGraph_Resolve(model, catalog)
+    assert len(graph.sources) == len(set(graph.sources))
+    assert graph.sources.count(
+        "Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_i2c.c"
+    ) == 1
+    assert graph.sources.count(
+        "Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_i2c_ex.c"
+    ) == 1
+    assert not any(
+        source.startswith("HardwareGenerated/STM32CubeMX/Drivers/")
+        for source in graph.sources
+    )
+    assert not any(
+        source.startswith("HardwareGenerated/STM32CubeMX/")
+        and (source.casefold().endswith(".s") or source.casefold().endswith(".ld"))
+        for source in (*graph.sources, *graph.asm_sources, graph.linker_script)
+    )
+
+
+def test_compatibility_facts_persist_and_participate_in_fingerprint(
+    builtin_catalog: PluginCatalog,
+) -> None:
+    model = ReferenceProject_Create("CompatibilityPersistence", catalog=builtin_catalog)
+    serialized = model.Dictionary_Get()
+    loaded = ProjectModel_Parse(json.loads(json.dumps(serialized)))
+    assert loaded.hardware.cubemx_version == model.hardware.cubemx_version
+    assert loaded.hardware.firmware_package == model.hardware.firmware_package
+    assert loaded.hardware.hal_cmsis_source_policy == (
+        model.hardware.hal_cmsis_source_policy
+    )
+    before = ProjectGenerationFingerprint_Get(model)
+    loaded.hardware = replace(loaded.hardware, firmware_package="STM32Cube FW_F4 V1.28.2")
+    assert ProjectGenerationFingerprint_Get(loaded) != before

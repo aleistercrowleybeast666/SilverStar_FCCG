@@ -267,7 +267,7 @@ def test_main_window_shell_navigation_theme_and_language(tmp_path: Path, qapp) -
         assert "build_release" not in window.build_page.action_buttons
         assert "flash" not in window.build_page.action_buttons
         assert window.save_as_action.shortcut().toString() == "Ctrl+Shift+S"
-        assert window.plugin_manager_dialog.panel.plugin_table.rowCount() == 33
+        assert window.plugin_manager_dialog.panel.plugin_table.rowCount() == 36
         for index in range(window.pages.count()):
             window.navigation_list.setCurrentRow(index)
             assert window.pages.currentIndex() == index
@@ -386,6 +386,14 @@ def test_devices_page_is_physical_and_capabilities_are_on_flight_page(
             "family",
             "package",
             "core",
+            "cubemx",
+            "firmware_package",
+            "source_policy",
+            "timebase",
+            "storage",
+            "i2c",
+            "pwm",
+            "can",
             "plugin",
             "reason",
             "verification",

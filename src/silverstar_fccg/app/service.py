@@ -24,10 +24,12 @@ from silverstar_fccg.core.view_models import (
     ComponentType,
     ComponentView,
     DeviceInstanceView,
+    I2cPullupEvidenceView,
     PlatformMatchView,
     ResourceRequirementView,
 )
 from silverstar_fccg.core.errors import FccgError
+from silverstar_fccg.core.i18n import Translator
 from silverstar_fccg.core.workspace import WorkspacePolicy
 from silverstar_fccg.generator.assembler import ApplyResult, GenerationPlan, ProjectAssembler
 from silverstar_fccg.generator.log_decoder_profile import (
@@ -45,6 +47,8 @@ from silverstar_fccg.hardware import (
     CubeMxImporter,
     DetectedMcuFacts,
     PlatformMatch_Resolve,
+    PlatformCompatibilityErrors_Get,
+    CubeMxImportError,
 )
 from silverstar_fccg.plugins.catalog import PluginCatalog
 from silverstar_fccg.plugins.installer import PluginInstaller
@@ -727,6 +731,60 @@ class FccgService:
             for option in ResourceRequirementOptions_Get(model, self.catalog)
         )
 
+    def I2cPullupEvidenceViews_Get(
+        self, model: ProjectModel
+    ) -> tuple[I2cPullupEvidenceView, ...]:
+        if model.hardware.mode != "custom":
+            return ()
+        resolution = ResourceAssignments_Resolve(
+            model, self.catalog, auto_assign=False
+        )
+        values: dict[str, I2cPullupEvidenceView] = {}
+        for assignment in resolution.assignments:
+            constraints = assignment.requirement.constraints.get("i2c")
+            if not isinstance(constraints, dict) or not constraints.get(
+                "required_pullup"
+            ):
+                continue
+            metadata = assignment.provision.metadata
+            pin_electrical = metadata.get("pin_electrical", {})
+            if not isinstance(pin_electrical, dict) or not pin_electrical:
+                continue
+            if not all(
+                isinstance(pin, dict)
+                and pin.get("output_type") == "open_drain"
+                for pin in pin_electrical.values()
+            ):
+                continue
+            if all(
+                isinstance(pin, dict) and pin.get("pull") == "up"
+                for pin in pin_electrical.values()
+            ):
+                continue
+            resource_id = assignment.provision.resource_id
+            binding = model.hardware.i2c_external_pullup_confirmations.get(
+                resource_id, {}
+            )
+            pins = metadata.get("pins", {})
+            pins_text = ", ".join(
+                f"{str(role).upper()}={pin}"
+                for role, pin in sorted(pins.items())
+            ) if isinstance(pins, dict) else ""
+            values[resource_id] = I2cPullupEvidenceView(
+                resource_id=resource_id,
+                physical_resource=str(
+                    metadata.get("physical_resource", resource_id)
+                ),
+                pins_text=pins_text,
+                confirmed=(
+                    binding.get("source_digest")
+                    == model.hardware.source_digest
+                    and binding.get("snapshot_id")
+                    == model.hardware.snapshot_id
+                ),
+            )
+        return tuple(values[key] for key in sorted(values))
+
     def CubeMxProject_Import(
         self,
         input_path: Path,
@@ -745,12 +803,36 @@ class FccgService:
             raise ValueError(
                 "CubeMX import requires exactly one STM32CubeMX provider"
             )
-        return self.hardware_importer.Project_Import(
+        result = self.hardware_importer.Project_Import(
             input_path,
             provider_id=providers[0].component_id,
             risk_acknowledged=risk_acknowledged,
             progress_callback=progress_callback,
         )
+        provider = providers[0].hardware_provider
+        assert provider is not None
+        match = PlatformMatch_Resolve(
+            DetectedMcuFacts(
+                vendor=provider.vendor,
+                part=result.inventory.mcu_part,
+                family=result.inventory.mcu_family,
+                package=result.inventory.package,
+                core=result.inventory.core,
+                provider=provider.handler,
+            ),
+            self.catalog,
+        )
+        platform_manifest = self.catalog.Component_Get(
+            match.selected.component_id
+        )
+        compatibility_errors = PlatformCompatibilityErrors_Get(
+            platform_manifest,
+            cubemx_version=result.inventory.cubemx_version,
+            firmware_package=result.inventory.firmware_package,
+        )
+        if compatibility_errors:
+            raise CubeMxImportError("; ".join(compatibility_errors))
+        return result
 
     def HardwareProviderForMcu_Get(self, mcu_id: str) -> str:
         mcu = self.catalog.Component_Get(mcu_id)
@@ -767,6 +849,58 @@ class FccgService:
         self, model: ProjectModel, language: str = "zh_CN"
     ) -> PlatformMatchView:
         inventory = model.hardware.inventory
+        translator = Translator(language)
+
+        def inventory_list_text(key: str) -> str:
+            values = inventory.get(key, []) if isinstance(inventory, dict) else []
+            names = tuple(
+                str(value.get("instance", ""))
+                for value in values
+                if isinstance(value, dict) and value.get("instance")
+            )
+            if not names:
+                return translator.Text_Get("hardware.inventory.none")
+            return translator.Text_Get(
+                "hardware.inventory.list",
+                count=len(names),
+                values=", ".join(names),
+            )
+
+        timebase = inventory.get("timebase", {}) if isinstance(inventory, dict) else {}
+        if isinstance(timebase, dict) and timebase.get("kind") == "tim":
+            timebase_status = translator.Text_Get(
+                "hardware.inventory.timebase",
+                instance=str(timebase.get("instance", "—")),
+                handle=str(timebase.get("handle", "—")),
+                counter=int(timebase.get("counter_frequency_hz", 0)),
+                period=int(timebase.get("period_counts", 0)),
+                irq=str(timebase.get("irq", "—")),
+            )
+        else:
+            timebase_status = translator.Text_Get("hardware.inventory.timebase_invalid")
+
+        fatfs = inventory.get("fatfs", {}) if isinstance(inventory, dict) else {}
+        peripherals = {
+            str(value).upper()
+            for value in (
+                inventory.get("peripherals", [])
+                if isinstance(inventory, dict)
+                else []
+            )
+        }
+        if (
+            isinstance(fatfs, dict)
+            and fatfs.get("enabled") is True
+            and "SDIO" in peripherals
+        ):
+            storage_status = translator.Text_Get(
+                "hardware.inventory.storage",
+                object=str(fatfs.get("object_symbol", "—")),
+                driver=str(fatfs.get("driver_symbol", "—")),
+            )
+        else:
+            storage_status = translator.Text_Get("hardware.inventory.storage_missing")
+
         provider_id = model.hardware.provider
         if not provider_id and model.board:
             board = self.catalog.Component_Get(model.board)
@@ -801,6 +935,9 @@ class FccgService:
                 detected_family=facts.family,
                 detected_package=facts.package,
                 detected_core=facts.core,
+                cubemx_version=model.hardware.cubemx_version,
+                firmware_package=model.hardware.firmware_package,
+                source_policy=model.hardware.hal_cmsis_source_policy,
                 error=str(error),
             )
         manifest = self.catalog.Component_Get(match.selected.component_id)
@@ -824,6 +961,17 @@ class FccgService:
             detected_family=facts.family,
             detected_package=facts.package,
             detected_core=facts.core,
+            cubemx_version=model.hardware.cubemx_version,
+            firmware_package=model.hardware.firmware_package,
+            source_policy=model.hardware.hal_cmsis_source_policy,
+            timebase_status=timebase_status,
+            storage_status=storage_status,
+            i2c_status=inventory_list_text("i2cs"),
+            pwm_status=inventory_list_text("pwms"),
+            can_status=translator.Text_Get(
+                "hardware.inventory.can_reserved",
+                inventory=inventory_list_text("cans"),
+            ),
             component_id=manifest.component_id,
             component_name=manifest.DisplayName_Get(language),
             reason=match.selected.reason,
@@ -965,13 +1113,64 @@ class FccgService:
     def DeviceSelectionAvailabilities_Get(
         self, model: ProjectModel
     ) -> dict[str, SelectionAvailability]:
-        # A device manifest describes a selectable logical device.  Hardware and
-        # cross-device requirements are validated after selection and must never
-        # hide, disable, or delete a valid catalog entry on the Device page.
-        return {
-            manifest.component_id: SelectionAvailability(True)
-            for manifest in self.catalog.Type_Get("device")
-        }
+        values: dict[str, SelectionAvailability] = {}
+        for manifest in self.catalog.Type_Get("device"):
+            if manifest.metadata.get("hardware_contract_required") is not True:
+                values[manifest.component_id] = SelectionAvailability(True)
+                continue
+            candidate = deepcopy(model)
+            selected = next(
+                (
+                    instance
+                    for instance in candidate.device_instances
+                    if instance.plugin == manifest.component_id
+                ),
+                None,
+            )
+            if selected is None:
+                instance_id = str(
+                    manifest.metadata.get("default_instance_id", "device0")
+                )
+                if candidate.DeviceInstance_Get(instance_id) is not None:
+                    instance_id = f"{instance_id}_availability"
+                selected = DeviceInstance(instance_id, manifest.component_id)
+                candidate.device_instances.append(selected)
+            candidate.resource_assignments = {
+                key: value
+                for key, value in candidate.resource_assignments.items()
+                if not key.startswith(selected.instance_id + ":")
+            }
+            result = ResourceAssignments_Resolve(
+                candidate, self.catalog, auto_assign=True
+            )
+            required_names = {
+                requirement.name
+                for requirement in manifest.resource_requirements
+                if requirement.required
+            }
+            assigned_names = {
+                assignment.requirement.name
+                for assignment in result.assignments
+                if assignment.component_id == selected.instance_id
+            }
+            relevant_errors = tuple(
+                error
+                for error in result.errors
+                if f"{selected.instance_id}:" in error
+            )
+            available = (
+                required_names.issubset(assigned_names)
+                and not relevant_errors
+            )
+            values[manifest.component_id] = SelectionAvailability(
+                available,
+                reason_code=(
+                    "selection.unavailable.hardware_contract"
+                    if not available
+                    else ""
+                ),
+            )
+        return values
 
     def CapabilityUsageViews_Get(
         self, model: ProjectModel, language: str = "zh_CN"

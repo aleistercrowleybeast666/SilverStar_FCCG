@@ -166,6 +166,14 @@ class PlatformMatchView:
     detected_family: str = ""
     detected_package: str = ""
     detected_core: str = ""
+    cubemx_version: str = ""
+    firmware_package: str = ""
+    source_policy: str = ""
+    timebase_status: str = ""
+    storage_status: str = ""
+    i2c_status: str = ""
+    pwm_status: str = ""
+    can_status: str = ""
     component_id: str = ""
     component_name: str = ""
     reason: str = ""
@@ -175,6 +183,14 @@ class PlatformMatchView:
     provenance: str = ""
     valid: bool = False
     error: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class I2cPullupEvidenceView:
+    resource_id: str
+    physical_resource: str
+    pins_text: str
+    confirmed: bool
 
 
 @dataclass(frozen=True, slots=True)

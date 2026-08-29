@@ -28,6 +28,7 @@ from silverstar_fccg.core.view_models import (
     ComponentView,
     DeviceInstanceView,
     LoggingStreamView,
+    I2cPullupEvidenceView,
     PlatformMatchView,
     ProtocolProfileView,
     ResourceRequirementView,
@@ -556,6 +557,7 @@ class BoardHardwarePage(ScrollableLocalizedPage):
     assignmentChanged = Signal(str, str)
     prepareRequested = Signal()
     manualValidationRequested = Signal()
+    i2cExternalPullupChanged = Signal(str, bool)
 
     def __init__(self, translator: Translator) -> None:
         super().__init__(
@@ -612,6 +614,14 @@ class BoardHardwarePage(ScrollableLocalizedPage):
             ("family", "field.detected_mcu_family"),
             ("package", "field.detected_mcu_package"),
             ("core", "field.detected_mcu_core"),
+            ("cubemx", "field.cubemx_version"),
+            ("firmware_package", "field.stm32cube_firmware_package"),
+            ("source_policy", "field.hal_cmsis_source_policy"),
+            ("timebase", "field.hal_timebase"),
+            ("storage", "field.sdio_fatfs_status"),
+            ("i2c", "field.i2c_inventory"),
+            ("pwm", "field.pwm_inventory"),
+            ("can", "field.can_inventory"),
             ("plugin", "field.matched_platform"),
             ("reason", "field.platform_match_reason"),
             ("verification", "field.platform_verification"),
@@ -658,6 +668,24 @@ class BoardHardwarePage(ScrollableLocalizedPage):
         self.custom_widget = QWidget()
         self.custom_widget.setLayout(custom_actions)
         self.root_layout.addWidget(self.custom_widget)
+
+        pullup_layout = QVBoxLayout()
+        self.i2c_pullup_notice = QLabel()
+        self.i2c_pullup_notice.setWordWrap(True)
+        self.Text_Register(
+            self.i2c_pullup_notice, "hardware.i2c_external_pullup_notice"
+        )
+        pullup_layout.addWidget(self.i2c_pullup_notice)
+        self.i2c_pullup_checks_widget = QWidget()
+        self.i2c_pullup_checks_layout = QVBoxLayout(
+            self.i2c_pullup_checks_widget
+        )
+        self.i2c_pullup_checks_layout.setContentsMargins(0, 0, 0, 0)
+        pullup_layout.addWidget(self.i2c_pullup_checks_widget)
+        self.i2c_pullup_group = self.Group_Create(
+            "group.i2c_external_pullups", pullup_layout
+        )
+        self.root_layout.addWidget(self.i2c_pullup_group)
 
         advanced_layout = QVBoxLayout()
         advanced_toolbar = QHBoxLayout()
@@ -715,6 +743,7 @@ class BoardHardwarePage(ScrollableLocalizedPage):
         self._resources_valid = False
         self._assignment_confirmed = False
         self._platform = PlatformMatchView()
+        self._i2c_pullup_evidence: tuple[I2cPullupEvidenceView, ...] = ()
         self.Language_Apply(translator)
 
     def Platform_Set(self, platform: PlatformMatchView) -> None:
@@ -729,6 +758,14 @@ class BoardHardwarePage(ScrollableLocalizedPage):
             "family": platform.detected_family or "—",
             "package": platform.detected_package or "—",
             "core": platform.detected_core or "—",
+            "cubemx": platform.cubemx_version or "—",
+            "firmware_package": platform.firmware_package or "—",
+            "source_policy": platform.source_policy or "—",
+            "timebase": platform.timebase_status or "—",
+            "storage": platform.storage_status or "—",
+            "i2c": platform.i2c_status or "—",
+            "pwm": platform.pwm_status or "—",
+            "can": platform.can_status or "—",
             "plugin": (
                 f"{platform.component_name} ({platform.component_id})"
                 if platform.component_id
@@ -854,6 +891,7 @@ class BoardHardwarePage(ScrollableLocalizedPage):
             requirement_item = QTableWidgetItem(
                 requirement.display_name or requirement.name
             )
+
             requirement_item.setToolTip(requirement.key)
             self.resource_table.setItem(row, 0, requirement_item)
             contract_item = QTableWidgetItem(
@@ -966,6 +1004,33 @@ class BoardHardwarePage(ScrollableLocalizedPage):
                 "success" if valid else "warning",
             )
 
+    def I2cPullupEvidence_Set(
+        self, evidence: Iterable[I2cPullupEvidenceView]
+    ) -> None:
+        self._i2c_pullup_evidence = tuple(evidence)
+        while self.i2c_pullup_checks_layout.count():
+            item = self.i2c_pullup_checks_layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+        for value in self._i2c_pullup_evidence:
+            check = StandardCheckBox(
+                self._translator.Text_Get(
+                    "hardware.i2c_external_pullup_confirmation",
+                    resource=value.physical_resource,
+                    pins=value.pins_text,
+                )
+            )
+            check.setProperty("resourceId", value.resource_id)
+            check.setChecked(value.confirmed)
+            check.toggled.connect(
+                lambda checked, resource_id=value.resource_id: (
+                    self.i2cExternalPullupChanged.emit(resource_id, checked)
+                )
+            )
+            self.i2c_pullup_checks_layout.addWidget(check)
+        self.i2c_pullup_group.setVisible(bool(self._i2c_pullup_evidence))
+
     def Language_Apply(self, translator: Translator) -> None:
         super().Language_Apply(translator)
         self.Platform_Set(self._platform)
@@ -987,6 +1052,7 @@ class BoardHardwarePage(ScrollableLocalizedPage):
             self._resources_valid,
             hardware_selected=self._hardware_mode != "unselected",
         )
+        self.I2cPullupEvidence_Set(self._i2c_pullup_evidence)
 
     def _Board_Emit(self) -> None:
         value = str(self.board_combo.currentData() or "")

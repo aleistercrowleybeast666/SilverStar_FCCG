@@ -181,6 +181,26 @@ class PluginCatalog:
                             f"{backend.backend_id} include directory is missing: "
                             f"{include_dir}"
                         )
+            for provider in platform.module_providers.values():
+                for source in (
+                    *provider.provider_sources,
+                    *provider.middleware_sources,
+                ):
+                    if source not in payload_files:
+                        errors.append(
+                            f"Platform {manifest.component_id} module provider "
+                            f"{provider.provider_id} source is missing: {source}"
+                        )
+                for include_dir in provider.include_dirs:
+                    directory = manifest.payload_root.joinpath(
+                        *include_dir.split("/")
+                    )
+                    if not directory.is_dir() or directory.is_symlink():
+                        errors.append(
+                            f"Platform {manifest.component_id} module provider "
+                            f"{provider.provider_id} include directory is missing: "
+                            f"{include_dir}"
+                        )
         return tuple(errors)
 
     def All_Get(self) -> tuple[PluginManifest, ...]:

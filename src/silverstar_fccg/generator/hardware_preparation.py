@@ -26,6 +26,9 @@ def HardwarePreparationFingerprint_Get(
             "manifest_sha256": model.hardware.platform_manifest_sha256,
         },
         "board": model.board,
+        "cubemx_version": model.hardware.cubemx_version,
+        "firmware_package": model.hardware.firmware_package,
+        "hal_cmsis_source_policy": model.hardware.hal_cmsis_source_policy,
         "resource_assignments": dict(sorted(model.resource_assignments.items())),
     }
     if model.hardware.mode == "board_plugin":
@@ -120,6 +123,12 @@ def HardwareAssignmentFingerprint_Get(
             "platform_component": model.hardware.platform_component,
             "platform_version": model.hardware.platform_version,
             "platform_manifest_sha256": model.hardware.platform_manifest_sha256,
+            "cubemx_version": model.hardware.cubemx_version,
+            "firmware_package": model.hardware.firmware_package,
+            "hal_cmsis_source_policy": model.hardware.hal_cmsis_source_policy,
+            "i2c_external_pullup_confirmations": (
+                model.hardware.i2c_external_pullup_confirmations
+            ),
         },
         "components": list(model.ComponentIds_Get()),
         "devices": [
@@ -153,6 +162,9 @@ def HardwarePreparationMetadata_Render(
         "board": model.board,
         "verified": bool(board and board.board and board.board.verified),
         "external_generator_invoked": False,
+        "cubemx_version": model.hardware.cubemx_version,
+        "firmware_package": model.hardware.firmware_package,
+        "hal_cmsis_source_policy": model.hardware.hal_cmsis_source_policy,
         "hardware_location": (
             board.board.hardware_root
             if board is not None and board.board is not None

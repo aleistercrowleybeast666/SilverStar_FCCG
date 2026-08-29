@@ -10,7 +10,7 @@
 ```text
 APP/                         FreeRTOS任务、静态bus/queue、任务编排
 Algorithm/                   纯数学算法
-Board/SilverStar_0_5/        当前PCB特有的Board Services
+Board/SilverStar_0_5/        当前PCB特有的物理映射与连接
 BuildSystem/                 公共显式构建manifest
 Common/                      与设备/算法无关的静态容器和调试基础
 Devices/<Class>/<Model>/     MCU无关Driver与同目录System Adapter
@@ -67,7 +67,7 @@ Tools/                       静态架构与firmware artifact检查
 - APP可调用System、Modules、Interfaces和第一方静态bus；
 - Board实现PCB特有能力，调用Platform ID，不直接包含HAL句柄；
 - Target可以包含设备构建资格头和MCU port配置，因为它正是组合点；
-- Device Adapter可以同时看到Interface与本Device native API；Board Service可以看到Interface与Board配置；
+- Device Adapter可以同时看到Interface与本Device native API；硬件服务组件可以看到Interface与Generated资源配置；
 - Generated是当前project组合点，只保存语义资源、physical mapping、LOG选择和metadata，不承载业务算法。
 
 禁止依赖：
@@ -210,7 +210,7 @@ Telemetry Service <-> SystemTelemetry Interface
 ```text
 APP producers -> bounded LoggerBus -> LoggerTask
  -> Protocol/SSLOG normal endian codec -> LogSink Interface
- -> SilverStar 0.5 Board LogSink/Storage Service -> FatFs
+ -> SDIO/FatFs Storage Device LogSink/Storage Service -> FatFs
 ```
 
 设备级原始日志路径为：
@@ -279,7 +279,7 @@ Deployment只产生“是否部署、匹配mask和reason”的判定。实际动
 FlightLogic/Deployment/MultiTrigger
  -> FlightRecovery orchestration
  -> SystemMissionAction_Execute
- -> Board mission_action_service / output_service
+ -> FlightLogic mission_action_service / output_service
  -> PlatformGpio_Write
  -> P_CONTROL2 physical MOS
 ```

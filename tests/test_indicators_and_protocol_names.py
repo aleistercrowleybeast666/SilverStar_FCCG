@@ -50,11 +50,14 @@ def test_indicator_devices_match_ss05_physical_truth(builtin_catalog) -> None:
     ).read_text(encoding="utf-8")
     assert "IMU_CAL_LED_Pin GPIO_PIN_1" in main_header
     assert "IMU_CAL_LED_GPIO_Port GPIOA" in main_header
+    indicator_service = builtin_catalog.Component_Get(
+        "silverstar.flight_logic.indicator.gpio_status_service"
+    )
     service_source = (
-        board.payload_root
-        / "Board"
-        / "SilverStar_0_5"
-        / "Services"
+        indicator_service.payload_root
+        / "FlightLogic"
+        / "Indicator"
+        / "GpioStatus"
         / "Src"
         / "indicator_service.c"
     ).read_text(encoding="utf-8")

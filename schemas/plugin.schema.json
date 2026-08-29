@@ -330,7 +330,7 @@
     "bindingMacro": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]*$"},
     "platform": {
       "type": "object",
-      "required": ["abi", "provider", "match_rules", "resource_binding", "resource_backends", "support"],
+      "required": ["abi", "provider", "match_rules", "resource_binding", "resource_backends", "compatibility", "support"],
       "properties": {
         "abi": {
           "type": "object",
@@ -379,7 +379,7 @@
                 "properties": {
                   "collection": {"$ref": "#/$defs/lowerIdentifier"},
                   "include_header": {"type": "string", "pattern": "^[A-Za-z0-9_./-]+\\.h$"},
-                  "entry_kind": {"enum": ["handle", "gpio", "pwm"]},
+                  "entry_kind": {"enum": ["handle", "gpio", "pwm", "timebase"]},
                   "id_type": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"},
                   "count_symbol": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"},
                   "table_symbol": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"},
@@ -397,7 +397,7 @@
           "propertyNames": {"$ref": "#/$defs/lowerIdentifier"},
           "additionalProperties": {
             "type": "object",
-            "required": ["inventory_kinds", "sources", "provider_sources", "include_dirs", "defines", "capabilities", "ownership"],
+            "required": ["inventory_kinds", "sources", "provider_sources", "include_dirs", "defines", "capabilities", "ownership", "maturity"],
             "properties": {
               "inventory_kinds": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/lowerIdentifier"}},
               "sources": {"$ref": "#/$defs/buildPaths"},
@@ -405,10 +405,48 @@
               "include_dirs": {"$ref": "#/$defs/buildPaths"},
               "defines": {"type": "array", "uniqueItems": true, "items": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?:=[A-Za-z0-9_+.,:/() -]+)?$"}},
               "capabilities": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/lowerIdentifier"}},
-              "ownership": {"enum": ["shared", "shared_bus_unique_address", "single_owner", "exclusive_channel_shared_timer"]}
+              "ownership": {"enum": ["shared", "shared_bus_unique_address", "single_owner", "exclusive_channel_shared_timer"]},
+              "maturity": {"enum": ["reserved", "experimental", "supported", "verified"]}
             },
             "additionalProperties": false
           }
+        },
+        "module_providers": {
+          "type": "object",
+          "propertyNames": {"$ref": "#/$defs/lowerIdentifier"},
+          "additionalProperties": {
+            "type": "object",
+            "required": [
+              "inventory_modules", "init_sources", "provider_sources",
+              "middleware_sources", "include_dirs", "defines",
+              "capabilities", "limitations", "always"
+            ],
+            "properties": {
+              "inventory_modules": {
+                "type": "array", "uniqueItems": true,
+                "items": {"type": "string", "pattern": "^[A-Za-z0-9_*?.-]+$"}
+              },
+              "init_sources": {"$ref": "#/$defs/buildPaths"},
+              "provider_sources": {"$ref": "#/$defs/buildPaths"},
+              "middleware_sources": {"$ref": "#/$defs/buildPaths"},
+              "include_dirs": {"$ref": "#/$defs/buildPaths"},
+              "defines": {"type": "array", "uniqueItems": true, "items": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?:=[A-Za-z0-9_+.,:/() -]+)?$"}},
+              "capabilities": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/lowerIdentifier"}},
+              "limitations": {"type": "array", "items": {"type": "string", "minLength": 1}},
+              "always": {"type": "boolean"}
+            },
+            "additionalProperties": false
+          }
+        },
+        "compatibility": {
+          "type": "object",
+          "required": ["cubemx_versions", "firmware_packages", "source_policy"],
+          "properties": {
+            "cubemx_versions": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+            "firmware_packages": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+            "source_policy": {"enum": ["plugin_payload_authoritative", "imported_tree_authoritative"]}
+          },
+          "additionalProperties": false
         },
         "support": {
           "type": "object",
@@ -557,7 +595,8 @@
             "spi": {"$ref": "#/$defs/spiConstraints"},
             "i2c": {"$ref": "#/$defs/i2cConstraints"},
             "can": {"$ref": "#/$defs/canConstraints"},
-            "pwm": {"$ref": "#/$defs/pwmConstraints"}
+            "pwm": {"$ref": "#/$defs/pwmConstraints"},
+            "storage": {"$ref": "#/$defs/storageConstraints"}
           },
           "additionalProperties": false
         },
@@ -641,9 +680,19 @@
         "minimum_frequency_hz": {"type": "integer", "minimum": 1},
         "maximum_frequency_hz": {"type": "integer", "minimum": 1},
         "minimum_resolution_bits": {"type": "integer", "minimum": 1},
-        "polarity": {"type": "string", "minLength": 1},
         "channel": {"type": "integer", "minimum": 1},
         "safe_state": {"enum": ["inactive", "low", "high"]}
+      },
+      "additionalProperties": false
+    },
+    "storageConstraints": {
+      "type": "object",
+      "properties": {
+        "fatfs": {"type": "boolean"},
+        "dma_rx": {"type": "boolean"},
+        "dma_tx": {"type": "boolean"},
+        "irq": {"type": "boolean"},
+        "sdio_only": {"type": "boolean"}
       },
       "additionalProperties": false
     },

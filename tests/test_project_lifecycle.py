@@ -427,11 +427,11 @@ def test_advanced_build_defaults_release_and_generated_debug_remains_available(
         workspace_root
         / "plugins"
         / "builtin"
-        / "silverstar_board_silverstar_0_5"
+        / "silverstar_device_sensor_input_voltage"
         / "payload"
-        / "Board"
-        / "SilverStar_0_5"
-        / "Services"
+        / "Devices"
+        / "Power"
+        / "InputVoltage"
         / "Src"
         / "power_service.c"
     ).read_text(encoding="utf-8")

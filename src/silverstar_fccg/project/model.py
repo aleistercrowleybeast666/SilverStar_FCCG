@@ -4,7 +4,7 @@ import json
 import math
 import re
 from copy import deepcopy
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -33,7 +33,7 @@ TOOLCHAIN_PREFIX_PATTERN = re.compile(r"^[A-Za-z0-9_.+-]+$")
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 RELATIVE_FILE_PATTERN = re.compile(r"^[A-Za-z0-9_./+@ -]+$")
 
-PROJECT_FORMAT_VERSION = 8
+PROJECT_FORMAT_VERSION = 10
 DEFAULT_PROTOCOL_PROFILES = {
     "telemetry": "air.m0",
     "maintenance": "maintenance.serial.0_0",
@@ -140,6 +140,12 @@ class HardwareConfiguration:
     platform_component: str = ""
     platform_version: str = ""
     platform_manifest_sha256: str = ""
+    cubemx_version: str = ""
+    firmware_package: str = ""
+    hal_cmsis_source_policy: str = ""
+    i2c_external_pullup_confirmations: dict[str, dict[str, str]] = field(
+        default_factory=dict
+    )
     capabilities: tuple[str, ...] = ()
     inventory: dict[str, Any] = field(default_factory=dict)
     resources: tuple[HardwareResource, ...] = ()
@@ -185,6 +191,7 @@ class ProjectModel:
             "project_device_instances",
             "platform_resources",
             "project_resources",
+            "project_storage_binding",
             "project_log_config",
             "project_metadata",
             "project_flight_config",
@@ -289,6 +296,15 @@ class ProjectModel:
                 "platform_component": self.hardware.platform_component,
                 "platform_version": self.hardware.platform_version,
                 "platform_manifest_sha256": self.hardware.platform_manifest_sha256,
+                "cubemx_version": self.hardware.cubemx_version,
+                "firmware_package": self.hardware.firmware_package,
+                "hal_cmsis_source_policy": self.hardware.hal_cmsis_source_policy,
+                "i2c_external_pullup_confirmations": {
+                    resource_id: dict(sorted(binding.items()))
+                    for resource_id, binding in sorted(
+                        self.hardware.i2c_external_pullup_confirmations.items()
+                    )
+                },
                 "capabilities": list(self.hardware.capabilities),
                 "inventory": self.hardware.inventory,
                 "resources": [
@@ -603,6 +619,62 @@ def _ProjectV7_Migrate(root: dict[str, Any]) -> dict[str, Any]:
             "manifest_sha256": "",
         }
     migrated["protocols"] = protocols
+    migrated["format_version"] = 8
+    return migrated
+
+
+def _ProjectV8_Migrate(root: dict[str, Any]) -> dict[str, Any]:
+    """Add auditable CubeMX/HAL compatibility facts and I2C evidence."""
+    migrated = deepcopy(root)
+    hardware = _Object_Require(migrated.get("hardware"), "hardware")
+    inventory = _Object_Require(hardware.get("inventory", {}), "hardware inventory")
+    hardware["cubemx_version"] = str(inventory.get("cubemx_version", ""))
+    hardware["firmware_package"] = str(inventory.get("firmware_package", ""))
+    # Reconcile fills this from the selected Platform contract.  Keeping it
+    # empty here avoids inventing a source policy for third-party Platforms.
+    hardware["hal_cmsis_source_policy"] = ""
+    hardware["i2c_external_pullup_confirmations"] = {}
+    migrated["format_version"] = 9
+    return migrated
+
+
+def _ProjectV9_Migrate(root: dict[str, Any]) -> dict[str, Any]:
+    """Move SS0.5 storage/log-sink ownership from Board to a Device."""
+    migrated = deepcopy(root)
+    components = _Object_Require(migrated.get("components"), "components")
+    devices = components.get("devices")
+    if not isinstance(devices, list):
+        raise ProjectModelError("components.devices must be an array")
+    storage_plugin = "silverstar.device.storage.sd_sdio_fatfs"
+    board_plugin = "silverstar.board.silverstar_0_5"
+    if components.get("board") == board_plugin and not any(
+        isinstance(device, dict) and device.get("plugin") == storage_plugin
+        for device in devices
+    ):
+        used_ids = {
+            str(device.get("instance_id"))
+            for device in devices
+            if isinstance(device, dict)
+        }
+        instance_id = "storage0"
+        suffix = 1
+        while instance_id in used_ids:
+            instance_id = f"storage0_{suffix}"
+            suffix += 1
+        devices.append({"instance_id": instance_id, "plugin": storage_plugin})
+        resources = _Object_Require(migrated.get("resources"), "resources")
+        storage_resource = resources.pop(
+            f"{board_plugin}:storage",
+            resources.pop("flight_controller_board:storage", "PLATFORM_SDIO_1"),
+        )
+        resources[f"{instance_id}:storage"] = storage_resource
+        resources.setdefault(f"{instance_id}:time", "PLATFORM_TIME_1")
+    generated_glue = migrated.get("generated_glue", [])
+    if (
+        isinstance(generated_glue, list)
+        and "project_storage_binding" not in generated_glue
+    ):
+        generated_glue.append("project_storage_binding")
     migrated["format_version"] = PROJECT_FORMAT_VERSION
     return migrated
 
@@ -877,6 +949,10 @@ def _Hardware_Parse(value: Any, *, board: str) -> HardwareConfiguration:
         "snapshot_id",
         "ioc_file",
         "mcu",
+        "cubemx_version",
+        "firmware_package",
+        "hal_cmsis_source_policy",
+        "i2c_external_pullup_confirmations",
         "capabilities",
         "inventory",
         "resources",
@@ -906,6 +982,54 @@ def _Hardware_Parse(value: Any, *, board: str) -> HardwareConfiguration:
     platform_component = str(data.get("platform_component", ""))
     platform_version = str(data.get("platform_version", ""))
     platform_manifest_sha256 = str(data.get("platform_manifest_sha256", ""))
+    cubemx_version = _String_Require(
+        data, "cubemx_version", allow_empty=True
+    )
+    firmware_package = _String_Require(
+        data, "firmware_package", allow_empty=True
+    )
+    hal_cmsis_source_policy = _String_Require(
+        data, "hal_cmsis_source_policy", allow_empty=True
+    )
+    if hal_cmsis_source_policy not in {
+        "",
+        "plugin_payload_authoritative",
+        "imported_tree_authoritative",
+    }:
+        raise ProjectModelError("hardware.hal_cmsis_source_policy is invalid")
+    raw_pullup_confirmations = _Object_Require(
+        data.get("i2c_external_pullup_confirmations"),
+        "hardware.i2c_external_pullup_confirmations",
+    )
+    pullup_confirmations: dict[str, dict[str, str]] = {}
+    for resource_id, raw_binding in raw_pullup_confirmations.items():
+        if (
+            not isinstance(resource_id, str)
+            or RESOURCE_ID_PATTERN.fullmatch(resource_id) is None
+        ):
+            raise ProjectModelError(
+                "hardware.i2c_external_pullup_confirmations has an invalid resource id"
+            )
+        binding = _Object_Require(
+            raw_binding,
+            f"hardware.i2c_external_pullup_confirmations.{resource_id}",
+        )
+        if set(binding) != {"source_digest", "snapshot_id"}:
+            raise ProjectModelError(
+                "I2C external pull-up confirmation must bind source_digest and snapshot_id"
+            )
+        source_binding = _String_Require(binding, "source_digest")
+        snapshot_binding = _String_Require(binding, "snapshot_id")
+        if not SHA256_PATTERN.fullmatch(source_binding) or not SHA256_PATTERN.fullmatch(
+            snapshot_binding
+        ):
+            raise ProjectModelError(
+                "I2C external pull-up confirmation contains an invalid digest"
+            )
+        pullup_confirmations[resource_id] = {
+            "source_digest": source_binding,
+            "snapshot_id": snapshot_binding,
+        }
     _ComponentId_Validate(
         platform_component, "hardware platform_component", allow_empty=True
     )
@@ -1007,6 +1131,10 @@ def _Hardware_Parse(value: Any, *, board: str) -> HardwareConfiguration:
             or platform_component
             or platform_version
             or platform_manifest_sha256
+            or cubemx_version
+            or firmware_package
+            or hal_cmsis_source_policy
+            or pullup_confirmations
         ):
             raise ProjectModelError("unselected hardware must not contain a selection")
         if source_kind != "unselected":
@@ -1028,6 +1156,10 @@ def _Hardware_Parse(value: Any, *, board: str) -> HardwareConfiguration:
         platform_component=platform_component,
         platform_version=platform_version,
         platform_manifest_sha256=platform_manifest_sha256,
+        cubemx_version=cubemx_version,
+        firmware_package=firmware_package,
+        hal_cmsis_source_policy=hal_cmsis_source_policy,
+        i2c_external_pullup_confirmations=pullup_confirmations,
         capabilities=capabilities,
         inventory=dict(inventory),
         resources=tuple(resources),
@@ -1194,6 +1326,10 @@ def ProjectModel_Parse(data: dict[str, Any]) -> ProjectModel:
         root = _ProjectV6_Migrate(root)
     if root.get("format_version") == 7:
         root = _ProjectV7_Migrate(root)
+    if root.get("format_version") == 8:
+        root = _ProjectV8_Migrate(root)
+    if root.get("format_version") == 9:
+        root = _ProjectV9_Migrate(root)
     required_root = {
         "format_version",
         "project",
@@ -1316,7 +1452,77 @@ def ProjectModel_Load(path: Path) -> ProjectModel:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
         raise ProjectModelError(f"Cannot read project file {path}: {error}") from error
-    return ProjectModel_Parse(data)
+    original_version = data.get("format_version")
+    model = ProjectModel_Parse(data)
+    if (
+        isinstance(original_version, int)
+        and original_version <= 9
+        and model.hardware.mode == "custom"
+    ):
+        snapshot_root = path.parent / "HardwareGenerated" / "STM32CubeMX"
+        ioc_path = snapshot_root.joinpath(*model.hardware.ioc_file.split("/"))
+        if ioc_path.is_file() and not ioc_path.is_symlink():
+            try:
+                from silverstar_fccg.hardware.inventory import CubeMxInventory_Parse
+
+                generated_files = {
+                    source.relative_to(snapshot_root).as_posix(): source.read_text(
+                        encoding="utf-8-sig"
+                    )
+                    for relative_root in (
+                        "Core/Src", "Core/Inc", "FATFS/App", "FATFS/Target"
+                    )
+                    for directory in (
+                        snapshot_root.joinpath(*relative_root.split("/")),
+                    )
+                    if directory.is_dir() and not directory.is_symlink()
+                    for source in sorted(directory.glob("*"))
+                    if source.is_file()
+                    and not source.is_symlink()
+                    and source.suffix.casefold() in {".c", ".h"}
+                }
+                inventory = CubeMxInventory_Parse(
+                    ioc_path.read_text(encoding="utf-8-sig"),
+                    generated_files=generated_files,
+                )
+            except (OSError, UnicodeError):
+                pass
+            else:
+                prefix = "HardwareGenerated/STM32CubeMX"
+                build_sources = tuple(
+                    f"{prefix}/{source.relative_to(snapshot_root).as_posix()}"
+                    for relative_root in (
+                        "Core/Src", "FATFS/App", "FATFS/Target"
+                    )
+                    for directory in (
+                        snapshot_root.joinpath(*relative_root.split("/")),
+                    )
+                    if directory.is_dir() and not directory.is_symlink()
+                    for source in sorted(directory.glob("*.c"))
+                    if source.is_file()
+                    and source.name.casefold() not in {"freertos.c", "sysmem.c"}
+                )
+                include_dirs = tuple(
+                    f"{prefix}/{relative_root}"
+                    for relative_root in (
+                        "Core/Inc", "FATFS/App", "FATFS/Target"
+                    )
+                    if snapshot_root.joinpath(
+                        *relative_root.split("/")
+                    ).is_dir()
+                )
+                model.hardware = replace(
+                    model.hardware,
+                    cubemx_version=inventory.cubemx_version,
+                    firmware_package=inventory.firmware_package,
+                    inventory=inventory.Dictionary_Get(),
+                    resources=inventory.HardwareResources_Get(),
+                    build_sources=build_sources,
+                    asm_sources=(),
+                    include_dirs=include_dirs,
+                    linker_script="",
+                )
+    return model
 
 
 def ProjectModel_Save(model: ProjectModel, path: Path, policy: WorkspacePolicy) -> Path:

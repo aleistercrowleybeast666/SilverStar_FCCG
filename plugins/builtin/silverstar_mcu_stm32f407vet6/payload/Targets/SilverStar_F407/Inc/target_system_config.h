@@ -12,7 +12,7 @@
 
 /*
  * Build-time composition for the SilverStar_F407 target.  Concrete Device
- * Adapters and SS0.5 Board services are selected by target.mk;
+ * Adapters and internal hardware services are selected by target.mk;
  * Generated contains only the reference connection and metadata glue.  There
  * is no runtime device registry.
  */

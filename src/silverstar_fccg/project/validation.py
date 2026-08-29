@@ -5,6 +5,7 @@ import math
 import re
 
 from silverstar_fccg.core.errors import FccgError
+from silverstar_fccg.hardware.platform import PlatformCompatibilityErrors_Get
 from silverstar_fccg.plugins.catalog import PluginCatalog
 from silverstar_fccg.plugins.manifest import SelectionKind
 from silverstar_fccg.project.logging import (
@@ -326,6 +327,41 @@ def _Hardware_Validate(
     catalog: PluginCatalog,
     issues: list[ValidationIssue],
 ) -> None:
+    def inventory_contracts_validate(inventory: dict) -> None:
+        timebase = inventory.get("timebase", {})
+        if (
+            not isinstance(timebase, dict)
+            or timebase.get("kind") != "tim"
+            or timebase.get("errors")
+            or not timebase.get("handle")
+            or not timebase.get("instance")
+            or timebase.get("counter_frequency_hz") != 1_000_000
+            or timebase.get("period_counts") != 1_000
+            or timebase.get("tick_frequency_hz") != 1_000
+        ):
+            detail = (
+                "; ".join(str(value) for value in timebase.get("errors", ()))
+                if isinstance(timebase, dict)
+                else "missing inventory"
+            )
+            issues.append(
+                ValidationIssue(
+                    "error",
+                    "hardware_timebase",
+                    "CubeMX HAL TIM Timebase contract is invalid / "
+                    f"CubeMX HAL TIM 时间基准合同无效: {detail or 'unproven'}",
+                )
+            )
+        inventory_issues = inventory.get("issues", ())
+        if isinstance(inventory_issues, (list, tuple)):
+            for issue in inventory_issues:
+                if str(issue).startswith("inventory.timebase_pwm_conflict"):
+                    issues.append(
+                        ValidationIssue(
+                            "error", "hardware_timebase_pwm_conflict", str(issue)
+                        )
+                    )
+
     mcu = catalog.Component_Get(model.mcu)
     platform_lock = (
         model.hardware.platform_component,
@@ -387,6 +423,35 @@ def _Hardware_Validate(
             )
         )
         return
+    if mcu.platform is None:
+        issues.append(
+            ValidationIssue(
+                "error",
+                "platform_contract",
+                f"MCU component {mcu.component_id} has no Platform contract",
+            )
+        )
+        return
+    for message in PlatformCompatibilityErrors_Get(
+        mcu,
+        cubemx_version=model.hardware.cubemx_version,
+        firmware_package=model.hardware.firmware_package,
+        source_policy=model.hardware.hal_cmsis_source_policy,
+    ):
+        issues.append(
+            ValidationIssue("error", "platform_compatibility", message)
+        )
+    expected_policy = mcu.platform.compatibility.source_policy
+    if model.hardware.hal_cmsis_source_policy != expected_policy:
+        issues.append(
+            ValidationIssue(
+                "error",
+                "hal_cmsis_source_policy",
+                f"Platform {mcu.component_id} requires HAL/CMSIS source policy "
+                f"{expected_policy}, got "
+                f"{model.hardware.hal_cmsis_source_policy or 'missing'}",
+            )
+        )
     if model.hardware.mode == "board_plugin":
         board = catalog.Component_Get(model.board)
         if board.board is None:
@@ -424,6 +489,22 @@ def _Hardware_Validate(
                 )
             )
         else:
+            if model.hardware.cubemx_version != inventory.cubemx_version:
+                issues.append(
+                    ValidationIssue(
+                        "error",
+                        "board_cubemx_version",
+                        "Board CubeMX version does not match persisted hardware facts",
+                    )
+                )
+            if model.hardware.firmware_package != inventory.firmware_package:
+                issues.append(
+                    ValidationIssue(
+                        "error",
+                        "board_firmware_package",
+                        "Board STM32Cube firmware package does not match persisted hardware facts",
+                    )
+                )
             expected_mcu = re.sub(
                 r"[^A-Z0-9]", "", str(mcu.metadata.get("mcu_model", "")).upper()
             )
@@ -439,9 +520,18 @@ def _Hardware_Validate(
             for issue_code in inventory.issues:
                 issues.append(
                     ValidationIssue(
-                        "warning", "board_ioc_inventory", issue_code
+                        (
+                            "error"
+                            if issue_code.startswith(
+                                ("inventory.timebase:", "inventory.fatfs:")
+                            )
+                            else "warning"
+                        ),
+                        "board_ioc_inventory",
+                        issue_code,
                     )
                 )
+            inventory_contracts_validate(inventory.Dictionary_Get())
         return
     if not (
         model.hardware.snapshot_id
@@ -501,6 +591,57 @@ def _Hardware_Validate(
                 "Custom hardware build paths must remain below HardwareGenerated/STM32CubeMX",
             )
         )
+    inventory = model.hardware.inventory
+    inventory_contracts_validate(inventory)
+    if model.hardware.cubemx_version != str(
+        inventory.get("cubemx_version", "")
+    ) or model.hardware.firmware_package != str(
+        inventory.get("firmware_package", "")
+    ):
+        issues.append(
+            ValidationIssue(
+                "error",
+                "hardware_compatibility_facts",
+                "Persisted CubeMX/HAL compatibility facts do not match the imported inventory",
+            )
+        )
+    if model.hardware.hal_cmsis_source_policy == "plugin_payload_authoritative":
+        allowed_source_prefixes = (
+            hardware_prefix + "Core/Src/",
+            hardware_prefix + "FATFS/App/",
+            hardware_prefix + "FATFS/Target/",
+        )
+        invalid_build_paths = tuple(
+            path
+            for path in model.hardware.build_sources
+            if not path.startswith(allowed_source_prefixes)
+            or not path.casefold().endswith(".c")
+        )
+        allowed_include_paths = {
+            hardware_prefix + "Core/Inc",
+            hardware_prefix + "FATFS/App",
+            hardware_prefix + "FATFS/Target",
+        }
+        invalid_include_paths = tuple(
+            path
+            for path in model.hardware.include_dirs
+            if path not in allowed_include_paths
+        )
+        if (
+            invalid_build_paths
+            or invalid_include_paths
+            or model.hardware.asm_sources
+            or model.hardware.linker_script
+        ):
+            issues.append(
+                ValidationIssue(
+                    "error",
+                    "hardware_source_policy",
+                    "plugin_payload_authoritative permits only imported Core and "
+                    "CubeMX FatFs App/Target glue; imported HAL/CMSIS, FatFs core, "
+                    "startup and linker artifacts must not enter the source graph",
+                )
+            )
     if not model.hardware.risk_acknowledged:
         issues.append(
             ValidationIssue(
@@ -739,6 +880,22 @@ def Project_Validate(model: ProjectModel, catalog: PluginCatalog) -> ProjectVali
                     f"{capability}",
                 )
             )
+    log_sink_providers = tuple(
+        instance.instance_id
+        for instance in model.device_instances
+        if "service.log_sink"
+        in catalog.Component_Get(instance.plugin).provides
+    )
+    if len(log_sink_providers) != 1:
+        issues.append(
+            ValidationIssue(
+                "error",
+                "log_sink_cardinality",
+                "Exactly one physical Log Sink Device is required / "
+                "必须且只能选择一个物理日志接收设备: "
+                + (", ".join(log_sink_providers) or "none"),
+            )
+        )
     if not model.logging_streams:
         issues.append(
             ValidationIssue(

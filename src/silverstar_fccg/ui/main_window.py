@@ -112,6 +112,7 @@ class _ProjectDisplayState:
     mode_availability: dict[tuple[str, str], Any]
     capability_usage: tuple[Any, ...]
     logging_streams: tuple[LoggingStreamView, ...]
+    i2c_pullup_evidence: tuple[Any, ...]
     hardware_provider: str
     boards: tuple[Any, ...]
     resources: tuple[Any, ...]
@@ -369,6 +370,9 @@ class MainWindow(QMainWindow):
         self.board_hardware_page.manualValidationRequested.connect(
             self._HardwareAssignments_Validate
         )
+        self.board_hardware_page.i2cExternalPullupChanged.connect(
+            self._I2cExternalPullup_Change
+        )
         self.board_hardware_page.prepareRequested.connect(
             self._HardwarePrepare_Request
         )
@@ -500,6 +504,9 @@ class MainWindow(QMainWindow):
                 model, self._translator.language
             ),
             logging_streams=self._LoggingViews_Get(definitions, model),
+            i2c_pullup_evidence=(
+                self._service.I2cPullupEvidenceViews_Get(model)
+            ),
             hardware_provider=self._service.HardwareProviderForMcu_Get(model.mcu),
             boards=self._service.BoardCompatibilities_Get(
                 model, language=self._translator.language
@@ -644,6 +651,9 @@ class MainWindow(QMainWindow):
             display.resources,
             display.resources_valid,
             hardware_selected=model.hardware.mode != "unselected",
+        )
+        self.board_hardware_page.I2cPullupEvidence_Set(
+            display.i2c_pullup_evidence
         )
 
     def _LoggingViews_Get(
@@ -1374,6 +1384,37 @@ class MainWindow(QMainWindow):
                 )
             )
 
+    def _I2cExternalPullup_Change(
+        self, resource_id: str, confirmed: bool
+    ) -> None:
+        if self._displaying_model or self._model.hardware.mode != "custom":
+            return
+
+        def change(candidate: ProjectModel) -> None:
+            bindings = {
+                key: dict(value)
+                for key, value in (
+                    candidate.hardware.i2c_external_pullup_confirmations.items()
+                )
+            }
+            if (
+                confirmed
+                and candidate.hardware.source_digest
+                and candidate.hardware.snapshot_id
+            ):
+                bindings[resource_id] = {
+                    "source_digest": candidate.hardware.source_digest,
+                    "snapshot_id": candidate.hardware.snapshot_id,
+                }
+            else:
+                bindings.pop(resource_id, None)
+            candidate.hardware = replace(
+                candidate.hardware,
+                i2c_external_pullup_confirmations=bindings,
+            )
+
+        self._ProjectConfiguration_Change(change)
+
     def _Strategy_Change(self, slot: str, component_id: object) -> None:
         self._ProjectConfiguration_Change(
             lambda candidate: candidate.strategies.__setitem__(
@@ -1641,9 +1682,10 @@ class MainWindow(QMainWindow):
         code = issue.code
         page_index = 3
         target: QWidget = self.build_page.tool_status_group
-        if code.startswith(("hardware", "board", "resource")) or code in {
+        if code.startswith(("hardware", "board", "resource", "platform")) or code in {
             "protocol_transport",
             "protocol_transport_ambiguous",
+            "hal_cmsis_source_policy",
         }:
             page_index = 2
             target = (

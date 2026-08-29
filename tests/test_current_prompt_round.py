@@ -55,10 +55,10 @@ def test_protocol_profiles_resolve_four_layers_and_selected_source_graph(
         (
             "flight_log_service",
             "log_format",
-            "flight_log.0_0",
-            "transport.sequential_file_sink",
-            "silverstar.board.silverstar_0_5",
-        ),
+                "flight_log.0_0",
+                "transport.sequential_file_sink",
+                "storage0",
+            ),
     }
     graph = SourceGraph_Resolve(model, builtin_catalog)
     assert "Protocol/Src/air_protocol.c" in graph.sources

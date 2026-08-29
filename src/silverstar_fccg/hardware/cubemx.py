@@ -93,7 +93,10 @@ class CubeMxImporter:
         progress(2, True)
 
         progress(3, False)
-        inventory = CubeMxInventory_Parse(ioc_text)
+        generated_files = self._GeneratedFiles_Get(root)
+        inventory = CubeMxInventory_Parse(
+            ioc_text, generated_files=generated_files
+        )
         progress(3, True)
 
         progress(4, False)
@@ -116,32 +119,35 @@ class CubeMxImporter:
         progress(5, True)
 
         progress(6, False)
-        snapshot_root = self._Snapshot_Store(root, source_files, digest)
+        snapshot_root = self._Snapshot_Store(
+            root,
+            source_files,
+            digest,
+            cubemx_version=inventory.cubemx_version,
+            firmware_package=inventory.firmware_package,
+        )
         prefix = "HardwareGenerated/STM32CubeMX"
-        core_source_root = root / "Core" / "Src"
+        source_roots = (
+            root / "Core" / "Src",
+            root / "FATFS" / "App",
+            root / "FATFS" / "Target",
+        )
         build_sources = tuple(
             f"{prefix}/{path.relative_to(root).as_posix()}"
-            for path in sorted(core_source_root.glob("*.c"))
+            for source_root in source_roots
+            if source_root.is_dir()
+            for path in sorted(source_root.glob("*.c"))
             if path.name.casefold() not in {"freertos.c", "sysmem.c"}
         )
-        provider_sources = tuple(
-            f"{prefix}/{path.relative_to(root).as_posix()}"
-            for path in source_files
-            if path.suffix.casefold() == ".c"
-            and "Drivers" in path.relative_to(root).parts
-            and any(
-                part.casefold().endswith("hal_driver")
-                for part in path.relative_to(root).parts
-            )
-            and "Src" in path.relative_to(root).parts
+        # The imported tree is retained as an auditable snapshot, but only
+        # controlled application/board-generated Core code enters the source
+        # graph.  HAL, CMSIS, startup and linker ownership remains with the
+        # matched Platform plugin.
+        include_dirs = tuple(
+            f"{prefix}/{relative}"
+            for relative in ("Core/Inc", "FATFS/App", "FATFS/Target")
+            if (root / Path(*relative.split("/"))).is_dir()
         )
-        build_sources = (*build_sources, *provider_sources)
-        provider_include_dirs = tuple(
-            f"{prefix}/{path.relative_to(root).as_posix()}"
-            for path in sorted(root.glob("Drivers/STM32*xx_HAL_Driver/Inc"))
-            if path.is_dir()
-        )
-        include_dirs = (f"{prefix}/Core/Inc", *provider_include_dirs)
         hardware = HardwareConfiguration(
             mode="custom",
             source_kind="manual_import",
@@ -149,6 +155,8 @@ class CubeMxImporter:
             snapshot_id=digest,
             ioc_file=ioc_path.relative_to(root).as_posix(),
             mcu=actual_mcu,
+            cubemx_version=inventory.cubemx_version,
+            firmware_package=inventory.firmware_package,
             capabilities=capabilities,
             inventory=inventory.Dictionary_Get(),
             resources=resources,
@@ -204,6 +212,18 @@ class CubeMxImporter:
             return path.read_text(encoding="utf-8-sig")
         except (OSError, UnicodeError) as error:
             raise CubeMxImportError(f"Cannot read CubeMX .ioc file: {error}") from error
+
+    @classmethod
+    def _GeneratedFiles_Get(cls, root: Path) -> dict[str, str]:
+        files: dict[str, str] = {}
+        for relative_root in ("Core/Src", "Core/Inc", "FATFS/App", "FATFS/Target"):
+            directory = root / Path(*relative_root.split("/"))
+            if not directory.is_dir():
+                continue
+            for path in sorted(directory.glob("*")):
+                if path.is_file() and path.suffix.casefold() in {".c", ".h"}:
+                    files[path.relative_to(root).as_posix()] = cls._Text_Read(path)
+        return files
 
     @staticmethod
     def _Mcu_Get(ioc_text: str) -> str:
@@ -303,7 +323,13 @@ class CubeMxImporter:
         return digest.hexdigest()
 
     def _Snapshot_Store(
-        self, root: Path, files: tuple[Path, ...], digest: str
+        self,
+        root: Path,
+        files: tuple[Path, ...],
+        digest: str,
+        *,
+        cubemx_version: str,
+        firmware_package: str,
     ) -> Path:
         destination = self.policy.Path_Resolve(
             self.cache_root / digest / "STM32CubeMX", allow_root=False
@@ -332,6 +358,8 @@ class CubeMxImporter:
                 "provider": "stm32_cubemx",
                 "source_label": root.name,
                 "source_digest": digest,
+                "cubemx_version": cubemx_version,
+                "firmware_package": firmware_package,
             }
             (stage / "import.json").write_text(
                 json.dumps(metadata, ensure_ascii=False, indent=2) + "\n",

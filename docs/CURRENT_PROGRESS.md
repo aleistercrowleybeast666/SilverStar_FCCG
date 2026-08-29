@@ -1,50 +1,55 @@
-# SilverStar_FCCG 当前进度
+# 当前进度
 
-更新时间：2026-08-29（Asia/Shanghai）
+日期：2026-08-30
 
-状态：内部固件插件重构已完成。项目格式为 8，33 个 builtin 插件严格扫描通过；默认 SS0.5 工程的生成、增量保留、Release/Debug、Host Tests、架构、Power of Ten、静态分析和产物检查全部通过。外部参考固件始终只读。
+状态：**Software Release Candidate / Pre-Hardware-Validation（内部软件候选版 / 硬件验证前）**。
+本轮没有创建Tag、没有推送、没有发布，也没有声称已完成烧录、电气、台架或飞行验证。
 
-## 本轮完成
+## 已完成
 
-- 原 `silverstar.protocol.reference_v0` 三协议 bundle 已退出生产目录，拆分为遥测、维护、日志三个独立且各自必选的 Protocol 插件。工程分别锁定 component、version、Profile 和 manifest SHA-256；格式 7 旧工程可确定性迁移并只写出格式 8。
-- AIR M0、Serial Maintenance 0.0、SSLOG 0.0 的 C 源字节保持不变。Importer 会校验四个协议源码 hash，并在只读 reference snapshot 上重放 FCCG-owned overlays。
-- `.ssdecoder` 从所选 Logging 插件合并 Record Catalog，并携带三协议、Core、Platform/Board/CubeMX、设备实例、算法、资源和日志语义；包仍只有五个数据文件，不含 Python、DLL、脚本或其他可执行代码。
-- 设备页已删除 MCU 选择。已知 Board 或导入 CubeMX 的 `.ioc` 提供精确 part/family/package/core，FCCG 再按 exact 优先、priority/specificity 规则自动匹配一个已安装 MCU/Platform 插件；零候选和并列候选都会明确失败。
-- Python renderer 不再写死 STM32F4 resource header/getter。F407 插件声明 Platform ABI、匹配规则、资源 collection/getter/struct contract、能力、限制和条件 backend；虚拟非 F4 fixture 证明同一 renderer 不依赖 F4 符号。
-- FCCG-owned F407 overlay 实现阻塞式 7-bit I²C master/memory-register API、Classic CAN 2.0/bxCAN 单 owner API、固定频率普通 PWM permille duty API。三者均静态分配、参数检查、有界操作，并按真实分配裁剪。
-- CubeMX inventory/resolver 已扩展 I²C、Classic CAN/FDCAN 区分和逐通道 PWM。它检查 Platform capability、I²C bus/address/composite device、CAN 单 owner、PWM channel 独占和同 TIM base-frequency 一致性。
-- Source Graph 只从激活 backend 选择 Platform adapter 与准确 provider HAL source；EIDE 会排除同目录未激活 adapter，继续与 Make 使用同一真相。
-- Device manifest 的 `device_category` 为严格命名空间。GUI 只把 `sensor.imu`/`sensor.gnss` 放入主要传感器，其余合法 `sensor.*` 自动进入其他传感器；link/storage/actuator/indicator 分组独立，拼写错误或未知 namespace 在扫描阶段拒绝。
-- 每个指示器插件仍为 singleton，但 indicator 类允许多个不同角色；最终是否能同时启用仍由真实 GPIO resolver 决定。
-- 每个 manifest 只保存稳定的 reference source kind/commit/snapshot digest；本机路径、导入时间和审计信息仅保留在 catalog provenance，不会造成生成工程无意义 stale。
-- EIDE build-owned 字段再次合并时保持 EIDE 兼容缩进和长编译参数单行格式；未激活后端通过 `excludeList` 保持 Make/EIDE 源码图完全一致。
+- 工程格式升级为10；格式0–9可确定迁移并只写出格式10。
+- 自定义CubeMX导入先读取真实MCU，再匹配唯一兼容Platform；不再隐式预锁F407。
+- 36个builtin插件、48个builtin/schema JSON文档通过严格加载。
+- 新增单实例`silverstar.device.storage.sd_sdio_fatfs`物理存储Device：
+  - Device拥有`Devices/Storage/SdSdioFatFs`中的Storage/Log Sink实现；
+  - Board只拥有已验证的SDIO/Time语义映射；
+  - CubeMX拥有SDIO与FatFs App/Target glue；
+  - MCU/Platform拥有受控FatFs core与HAL provider；
+  - Source Graph只编译一个owner。
+- 旧格式9生成工程保留原Board路径项目源码，但迁移会无冲突地新增Device路径；旧文件不覆盖、不删除、不参与构建。
+- CubeMX FatFs门禁检查唯一对象/路径/Driver符号、App/Target、SDIO、RX/TX DMA、IRQ、版本与来源策略。
+- HAL时间基准从生成源码动态识别handle、instance、IRQ、1 MHz counter与1 kHz tick；不在Python或renderer中固定TIM1，并拒绝SysTick、缺失/歧义、频率/IRQ错误以及与PWM复用。
+- `module_providers`把CubeMX初始化/HAL/middleware provider和consumer wrapper分开；实际inventory与被选consumer共同决定激活，不做compile-all。
+- I²C保持7-bit阻塞master与8/16-bit寄存器访问边界；PWM保持CubeMX拥有模式/极性/频率与安全端点；Classic CAN仍为`reserved`，普通consumer不能启用。
+- Hardware Connection显示MCU、CubeMX/Firmware Package、HAL/CMSIS来源、Platform锁、时间基准、FatFs/SDIO与Storage有效性；中英文均由翻译键提供。
 
-## 最终验收
+## 本轮实际验证
 
-默认工程：`tests/acceptance_internal_firmware_plugin_refactor_20260829/`。
+- Python：3.14.0；PySide6：6.10.1。
+- `python -m pytest -q`：208 passed in 356.93s。
+- `python -m compileall -q src tools main.py`：通过。
+- 默认SS0.5新工程：首次503文件；二次规划471 `PRESERVE` + 32 `UNCHANGED`，0增删改，Ready；Source Graph 136个C源文件。
+- 默认工程Release/Debug均通过；Host Tests为50个EXE、8754项检查、0失败、8个应通过编译门禁、16个预期编译拒绝。
+- Architecture：250项、0失败。
+- Power of Ten：5603项，92个第一方C文件，2074个函数，通过。
+- Arm GCC `-fanalyzer`静态分析：通过。
+- Artifact：通过；FLASH 250252/524288，主SRAM 77172/131072，CCMRAM 42872/65536，heap=0。
+- 默认`.ssdecoder`：102035 bytes，SHA-256
+  `67f2eb4f5c96ec28dcbe4ef2d0b22fbcb1c731a88163a596812c6dc92b7cb6cc`，仍只有5个声明式数据文件且不含可执行代码。
+- 自定义CubeMX F407最终迁移后Release与Host Tests通过；二次规划1760 `PRESERVE` + 32 `UNCHANGED`，Ready。
 
-- Python：`python -m compileall -q src main.py tools tests` 返回 0；两个不可访问的历史测试输出目录产生 `Can't list` 提示，但没有 Python 编译失败。
-- 插件：33 个严格 manifest、45 个 builtin/schema JSON 文档成功加载；完整回归 `164 passed in 338.61s`。
-- 生成：首次 499 files added；生成后、重载后、第二次应用后均 Ready；第二次计划为 468 `PRESERVE` + 31 `UNCHANGED`，没有改写用户组件源码。
-- 默认 Source Graph：137 个唯一 C 源；I²C/CAN/PWM adapter 和无关 HAL I²C/CAN source 均为空。
-- `.ssdecoder`：95,538 bytes，SHA-256 `5e5148244f71e936b2dbf3fd86562dd43596a4f5d4e917a4def33e8c98dc97b2`；三协议身份和 checksum 校验通过。
-- Release：text 247,632 / data 1,160 / bss 116,688；BIN 248,792；ELF 2,627,188 bytes。
-- Debug：text 261,224 / data 1,160 / bss 116,696；BIN 262,384；ELF 3,965,184 bytes。
-- Host Tests：52 executables，8,784 checks，0 failures；8 个 compile-pass、16 个 expected compile rejection；Golden sample 通过。
-- Architecture：250 checks，0 failures。
-- Power of Ten：5,596 checks，92 个第一方 C 文件，2,073 个函数，通过。
-- Arm GCC `-fanalyzer`：独立 StaticAnalysis tree 全量编译、链接、SIZE、HEX、BIN 通过。
-- Artifact Check：FLASH 248,792；main SRAM 74,976；CCMRAM 42,872；heap reservation/runtime symbols 均为 0。
-- 可选 F407 backend：Host mock 以 GCC C11 `-Werror -pedantic` 编译并运行边界测试通过；同一三份 backend 源以 Arm GNU 对 synthetic HAL contract 执行 `-fsyntax-only` 通过。
+完整命令、哈希、内存数据与限制见根目录`VALIDATION.md`。
 
-## 当前支持边界
+## 只读参考
 
-- 当前完整固件生成/构建验证范围仍是 STM32F407VET6 + SS0.5 + STM32CubeMX；通用 Platform contract 不代表 H7/G4 或其他 MCU 已受支持。
-- 默认 SS0.5 `.ioc` 没有 I²C/CAN/PWM 配置及相应可选 HAL 文件，因此这些 backend 正确地不进入默认工程。仍需用真实启用了各外设的自定义 CubeMX 工程补做硬件级 Arm build、板上和电气验证。
-- I²C 不宣称通用 repeated-start；Classic CAN 不支持 CAN FD、router 或多 consumer；PWM 不支持 complementary/dead-time、动态频率、servo、Guidance、Control 或 Control Allocation。
-- `.ssdecoder` 只提供声明式解码配置；FLP 的可信 container decoder 安装/导入与实际日志解析仍是后续集成工作。
-- EIDE 原生 UI 编译、上传/烧录和硬件测试未自动执行；已验证的是 EIDE/Make Source Graph 一致性与生成 Make 工程。
+参考固件始终只读：`C:/Users/chdxm/Desktop/stm32-1/Flight_Controller0.5`，clean `main`，
+HEAD `cc0b377ded690556d037a412a55f87fe334c42d0`，提交主题
+`完善同能力多实例与日志配置契约`。本轮只读取和复制到FCCG staged builtin payload，没有修改、构建、提交或推送参考固件。
 
-## 工作区说明
+## 剩余限制
 
-外部参考固件 `C:/Users/chdxm/Desktop/stm32-1/Flight_Controller0.5` 只读核对前后均为 clean `main`、HEAD `cc0b377ded690556d037a412a55f87fe334c42d0`。FCCG 的 Platform/Protocol 扩展来源位于 `tools/reference_overlays/`，重新导入不会覆盖或伪装其所有权。
+- 完整固件构建验证范围仍只有STM32F407VET6 + SS0.5；H7/G4/其他MCU没有生产插件与验证结果。
+- 软件`supported`不等于硬件`verified`。I²C外部上拉、PWM波形/安全电平、SD卡介质行为、烧录、台架与飞行必须后续实机验证。
+- 当前没有普通CAN consumer，没有连续控制执行器、Guidance、Control、Control Allocation、Multi-EKF或传感器投票/故障切换。
+- `.ssdecoder`仍是数据包；本轮没有实现可执行日志解析器、多版本解析插件或FLP导入。
+- 当前Board/Environment没有声明已验证flash能力，因此GUI/Make/VS Code/EIDE不生成上传动作。

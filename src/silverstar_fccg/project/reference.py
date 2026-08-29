@@ -36,11 +36,18 @@ REFERENCE_COMPONENT_IDS = {
     "neo_m9n": "silverstar.device.gnss.neo_m9n",
     "sx1281": "silverstar.device.telemetry.sx1281",
     "console": "silverstar.device.console.uart",
+    "storage": "silverstar.device.storage.sd_sdio_fatfs",
     "input_voltage": "silverstar.device.sensor.input_voltage",
     "launch_ignition": "silverstar.device.actuator.launch_ignition",
     "parachute_pyro": "silverstar.device.actuator.parachute_pyro",
     "system_indicator": "silverstar.device.indicator.system_status",
     "gnss_indicator": "silverstar.device.indicator.gnss_status",
+    "mission_action_service": (
+        "silverstar.flight_logic.mission_action.gpio_output_service"
+    ),
+    "indicator_service": (
+        "silverstar.flight_logic.indicator.gpio_status_service"
+    ),
     "algorithm_common": "silverstar.algorithm.common",
     "alignment_common": "silverstar.algorithm.alignment.common",
     "alignment": "silverstar.algorithm.alignment.gravity_known_yaw",
@@ -104,10 +111,14 @@ def ReferenceResourceAssignments_Get() -> dict[str, str]:
         "telemetry0:time": "PLATFORM_TIME_1",
         "maintenance0:console": "PLATFORM_UART_3",
         "launch_ignition0:output": "PLATFORM_GPIO_4",
+        "launch_ignition0:time": "PLATFORM_TIME_1",
         "parachute_pyro0:output": "PLATFORM_GPIO_5",
+        "parachute_pyro0:time": "PLATFORM_TIME_1",
         "system_indicator0:output": "PLATFORM_GPIO_6",
         "voltage_monitor0:input_voltage": "PLATFORM_ADC_1",
-        f"{ids['board']}:storage": "PLATFORM_SDIO_1",
+        "voltage_monitor0:time": "PLATFORM_TIME_1",
+        "storage0:storage": "PLATFORM_SDIO_1",
+        "storage0:time": "PLATFORM_TIME_1",
     }
 
 
@@ -178,6 +189,7 @@ def ReferenceProject_Create(
             DeviceInstance("gnss0", ids["neo_m9n"]),
             DeviceInstance("telemetry0", ids["sx1281"]),
             DeviceInstance("maintenance0", ids["console"]),
+            DeviceInstance("storage0", ids["storage"]),
             DeviceInstance("voltage_monitor0", ids["input_voltage"]),
             DeviceInstance("launch_ignition0", ids["launch_ignition"]),
             DeviceInstance("parachute_pyro0", ids["parachute_pyro"]),
@@ -190,6 +202,8 @@ def ReferenceProject_Create(
             ids["flight_cycle"],
             ids["deployment"],
             ids["landing_common"],
+            ids["mission_action_service"],
+            ids["indicator_service"],
         ],
         strategies={
             "alignment": ids["alignment"],
@@ -212,6 +226,13 @@ def ReferenceProject_Create(
             platform_component=platform_manifest.component_id,
             platform_version=platform_manifest.version,
             platform_manifest_sha256=platform_manifest.ManifestSha256_Get(),
+            cubemx_version=inventory.cubemx_version,
+            firmware_package=inventory.firmware_package,
+            hal_cmsis_source_policy=(
+                platform_manifest.platform.compatibility.source_policy
+                if platform_manifest.platform is not None
+                else ""
+            ),
             capabilities=tuple(
                 sorted(
                     {

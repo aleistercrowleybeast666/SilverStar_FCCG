@@ -28,7 +28,10 @@ if (Test-Path -LiteralPath $detailLogPath) {
     Remove-Item -LiteralPath $detailLogPath -Force
 }
 
+# FCCG generated configuration is force-included so Host Tests use the same selected-component feature gates as Make.
 $includeArgs = @(
+    '-include',
+    "$repoRoot\Generated\Inc\project_flight_config.h",
     "-I$repoRoot\Tests\Host",
     "-I$repoRoot\APP\Inc",
     "-I$repoRoot\Algorithm\Common\Inc",
@@ -708,10 +711,13 @@ $recoverySources = @(
     "$repoRoot\FlightLogic\Landing\BarometerImuWindow\Src\flight_landing.c"
 )
 Invoke-HostTest -Name 'flight_recovery_apogee' -ExtraCompilerArgs @(
-    '-DTEST_EXPECT_APOGEE=1', '-DSYSTEM_FLIGHT_DEPLOY_CONFIRM_MS=100U'
+    '-DTEST_EXPECT_APOGEE=1',
+    '-DSYSTEM_FLIGHT_DEPLOY_TRIGGER_MASK=SYSTEM_DEPLOY_TRIGGER_APOGEE_VZ',
+    '-DSYSTEM_FLIGHT_DEPLOY_CONFIRM_MS=100U'
 ) -Sources $recoverySources
 Invoke-HostTest -Name 'flight_recovery_apogee_immediate' -ExtraCompilerArgs @(
-    '-DTEST_EXPECT_APOGEE=1'
+    '-DTEST_EXPECT_APOGEE=1',
+    '-DSYSTEM_FLIGHT_DEPLOY_TRIGGER_MASK=SYSTEM_DEPLOY_TRIGGER_APOGEE_VZ'
 ) -Sources $recoverySources
 Invoke-HostTest -Name 'flight_recovery_tilt' -ExtraCompilerArgs @(
     '-DTEST_EXPECT_TILT=1',

@@ -28,7 +28,7 @@ Device只调用`PlatformUart_Read/Write`，不能看到DMA position、HT/TC、HA
 ## 3. SPI、I2C与ADC
 
 - `PlatformSpi_Write/Transfer`执行有界事务；NSS等片选由设备通过Board逻辑GPIO控制；
-- `PlatformI2c_Write/Read/WriteRead`保留未来设备所需的通用地址事务；当前F407目标没有选中I2C设备，但backend必须可编译；
+- `PlatformI2c_Write/Read`提供阻塞式7-bit master事务，`PlatformI2c_MemoryWrite/MemoryRead`使用Platform自有的8/16-bit寄存器地址枚举；不提供伪装成任意repeated-start的`WriteRead`；
 - `PlatformAdc_Read`返回raw count，电压比例与业务单位在Board Power Service转换。
 
 这些接口不包含设备寄存器、地址常量或协议命令。
@@ -79,9 +79,11 @@ MCU backend同样不得认识具体设备或具体Board；它只消费由项目�
 F407 Platform manifest声明资源header、getter、Platform ABI、CubeMX匹配规则和条件backend。
 只有实际硬件inventory包含相应资源且已选Device确实分配该资源时，Source Graph才加入backend：
 
-- I²C：7-bit未左移地址、阻塞master读写和memory-register读写；不声明通用repeated-start；
-- Classic CAN：bxCAN标准/扩展ID、0..8-byte data frame、有界收发和静态诊断；每个物理CAN当前只允许一个上层owner；
-- PWM：普通非互补输出、整数permille duty和安全inactive compare；频率、极性、ARR及channel由CubeMX静态确定。
+- I²C（supported，不等于硬件verified）：7-bit未左移地址、阻塞master读写及8/16-bit memory-register读写；公共ABI不含HAL常量，不声明DMA/IRQ或任意repeated-start。SCL/SDA必须Open Drain；NOPULL必须由Board的external_verified元数据或自定义snapshot绑定确认提供外部上拉证据；
+- Classic CAN（reserved）：仍可盘点CAN/FDCAN库存，但普通consumer会在资源解析阶段被拒绝；当前不声明Filter、Router、Bus-Off恢复或实机验证；
+- PWM（supported，不等于硬件verified）：仅接受CubeMX PWM Generation + `HAL_TIM_PWM_ConfigChannel`共同证明的普通CH1..4、edge-aligned up-counter、PWM1/PWM2。模式、极性、prescaler、ARR和基频均来自CubeMX，Device不能覆盖极性；0/100%使用forced inactive/active端点，中间duty恢复原PWM模式，Stop先置逻辑inactive再停channel。
 
-默认SS0.5没有I²C/CAN/PWM分配，因此不编译这些backend，也不加入无关HAL I²C/CAN源码。
+HAL/CMSIS采用单一来源政策`plugin_payload_authoritative`：HAL、CMSIS、startup、linker和Platform backend来自本插件；自定义CubeMX快照只贡献受控的`Core/Src`和`Core/Inc`，其Drivers/CMSIS/startup/linker不得进入Source Graph。当前兼容门禁精确要求CubeMX 6.15.0与`STM32Cube FW_F4 V1.28.3`。
+
+默认SS0.5没有I²C/CAN/PWM consumer，因此不编译这些backend，也不加入无关I²C/CAN/PWM代码。外部参考固件保持只读，以上能力只由FCCG overlay持有。
 当前production support仍仅为STM32F407VET6/SS0.5；renderer可消费其他Platform契约不代表其他MCU已经验证。

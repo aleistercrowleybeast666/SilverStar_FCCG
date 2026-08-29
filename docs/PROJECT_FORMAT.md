@@ -1,6 +1,6 @@
 # SilverStar.ssproject format
 
-`SilverStar.ssproject` is strict JSON with `format_version: 8`; the formal shape is `schemas/project.schema.json`. Formats 0–7 migrate through Strategy/Mode, Hardware Inventory, Device-instance, capability, Mode-parameter, protocol-profile, assignment-confirmation, decoder-profile, independent-Protocol, and Platform-lock changes. All supported older files are saved only as format 8.
+`SilverStar.ssproject` is strict JSON with `format_version: 10`; the formal shape is `schemas/project.schema.json`. Formats 0–9 migrate through Strategy/Mode, Hardware Inventory, Device-instance, capability, Mode-parameter, protocol-profile, assignment-confirmation, decoder-profile, independent-Protocol, Platform-lock, CubeMX/HAL compatibility, I²C evidence, storage-Device ownership, FatFs, and timebase facts. All supported older files are saved only as format 10.
 
 ## Sections
 
@@ -9,7 +9,7 @@
 - `modes`: generic `{slot: [option, ...]}` selections. Slot rules and labels come from manifests.
 - `mode_parameters`: generic `{slot: {option: {parameter: number}}}` values. Types, units, ranges, defaults, generated symbols, and scaling come from the owning Mode manifest.
 - `protocols`: exactly `telemetry`, `maintenance`, and `logging`; each stores the selected component ID, plugin version, Profile ID, and manifest SHA-256. Format-7 `protocol_bundles`/`protocol_profiles` and pre-release IDs migrate deterministically to the three official plugins.
-- `hardware`: `unselected`, `board_plugin`, or `custom`, plus source kind/provider, immutable import snapshot/provenance, detected MCU/capabilities/resources, persisted `inventory`, trusted build contributions, matched `platform_component`/`platform_version`/`platform_manifest_sha256`, first-import risk acknowledgement, and `assignment_fingerprint`. The Platform lock and fingerprint are refreshed by reconcile and retained only while the underlying hardware/resource validity inputs are unchanged.
+- `hardware`: `unselected`, `board_plugin`, or `custom`, plus source kind/provider, immutable import snapshot/provenance, detected MCU/capabilities/resources, persisted `inventory`, trusted build contributions, matched `platform_component`/`platform_version`/`platform_manifest_sha256`, exact `cubemx_version`/`firmware_package`, `hal_cmsis_source_policy`, per-resource `i2c_external_pullup_confirmations`, first-import risk acknowledgement, and `assignment_fingerprint`. Pull-up evidence maps a resource ID to the exact source digest and snapshot ID; reconcile removes stale bindings. The Platform lock and fingerprint are refreshed by reconcile and retained only while their validity inputs are unchanged.
 - `resources`: `device-instance-id:requirement-name` (or non-Device component ID) to provided physical/logical resource ID.
 - `capability_sources`: only non-default user decisions for a required capability with several providers, mapping capability to the selected physical Device instance; absent values bind Canonical Source to capability instance 0.
 - `logging.streams`: the selected Protocol metadata order plus enable state, policy, decimation, and period. Record definitions and Required/Recommended/Optional levels do not live in the project file.
@@ -20,7 +20,7 @@
 
 The persisted Device record identifies one physical module. Capability Endpoint Instances are derived from that module's declarative descriptor contributions and receive contiguous indices within each capability class during generation. Canonical Source Selection is separate again: current single-estimator algorithms consume one endpoint per capability and default to class instance 0; no Sensor Voting or Multi-EKF state is implied by adding another physical Device.
 
-Readiness never compares the complete JSON dictionary. `ProjectGenerationState_Normalize()` retains fields that can change generated code or structure (matched Platform and hardware source/inventory, Device instances including Indicators, Strategies, Modes/parameters, capability sources, three protocol locks, logging, resource assignments, environment, and source-graph configuration). It removes host tool paths/detection data, provenance/display fields, assignment confirmation, GUI preferences, and derived decoder hashes, then normalizes tuples/lists through strict JSON so a save/load round trip cannot create a false stale result. The same normalized state feeds `ProjectGenerationFingerprint_Get()`, embedded metadata, stale detection, decoder semantics, and ownership metadata.
+Readiness never compares the complete JSON dictionary. `ProjectGenerationState_Normalize()` retains fields that can change generated code or structure (matched Platform, CubeMX/Firmware Package/source policy, hardware source/inventory, Device instances including Indicators, Strategies, Modes/parameters, capability sources, three protocol locks, logging, resource assignments, environment, and source-graph configuration). It removes host tool paths/detection data, provenance/display fields, assignment confirmation, external-pull-up evidence, GUI preferences, and derived decoder hashes, then normalizes tuples/lists through strict JSON so a save/load round trip cannot create a false stale result. Pull-up evidence gates readiness but cannot change generated bytes; version/source facts do participate in the generation fingerprint. The same normalized state feeds `ProjectGenerationFingerprint_Get()`, embedded metadata, stale detection, decoder semantics, and ownership metadata.
 
 Unknown/missing fields, wrong types, duplicate instance IDs/selections/records, instance-policy violations, invalid or unnecessary capability-source overrides, invalid component IDs, unsafe target/path tokens, unsupported policies, invalid numeric ranges, malformed custom snapshot IDs, hardware paths outside `HardwareGenerated/STM32CubeMX/`, a changed Protocol record order, disabled available Required records, or enabled unavailable records are rejected.
 
@@ -96,7 +96,7 @@ No Python schema change is required when a real future plugin declares a new Str
 
 ## Custom hardware state
 
-`hardware.mode = "custom"` requires the trusted provider ID, imported MCU, source digest/snapshot ID, risk acknowledgement, resources, hardware inventory, and build paths below the dedicated hardware prefix. The inventory is a data snapshot of the imported `.ioc`: MCU/family/package/core, pins, peripherals, DMA, NVIC, clocks and parser issues. The generated project receives the vendor snapshot as `HardwareGenerated/STM32CubeMX/`; the original external CubeMX directory is not referenced by the build.
+`hardware.mode = "custom"` requires the trusted provider ID, imported MCU, source digest/snapshot ID, risk acknowledgement, resources, hardware inventory, compatibility facts, source policy, and build paths below the dedicated hardware prefix. The inventory is a data snapshot of the imported `.ioc` plus controlled generated source: MCU/name/family/package/core, CubeMX/Firmware Package, pins, peripherals, DMA, NVIC, clocks, generated TIM HAL timebase, FatFs App/Target/symbol facts, and parser issues. With `plugin_payload_authoritative`, only imported controlled `Core/Src` C, `Core/Inc`, and manifest-selected CubeMX glue are build contributions; imported HAL/CMSIS Drivers, startup and linker remain in the auditable snapshot but are not source-graph inputs. The generated project receives the vendor snapshot as `HardwareGenerated/STM32CubeMX/`; the original external CubeMX directory is not referenced by the build.
 
 After export/install as a Board plugin, a second project returns to `hardware.mode = "board_plugin"`; the Board payload supplies the same dedicated tree without another live import.
 
@@ -144,7 +144,7 @@ and `logging`; a plugin is allowed to own only its declared strict category. Ins
 a Python record table—supply full profile sources, binding, transport requirements, decoder data,
 docs, and tests. Duplicate `(category, profile)` providers are rejected rather than selected by scan
 order. Transport provider selection is resolved
-from selected physical Device and Board/storage contributions and is emitted into the generated
+from selected physical Devices, the storage Device, and Board mapping contributions and is emitted into the generated
 decoder/configuration review.
 
 `build.tool_paths` contains project-local host preferences and never enters the normalized

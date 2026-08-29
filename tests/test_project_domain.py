@@ -125,7 +125,7 @@ def test_dependency_and_resource_conflicts_are_reported(builtin_catalog) -> None
 
 def test_source_graph_is_complete_and_has_one_truth(builtin_catalog) -> None:
     graph = SourceGraph_Resolve(ReferenceProject_Create(), builtin_catalog)
-    assert len(graph.sources) == 137
+    assert len(graph.sources) == 136
     assert len(graph.sources) == len(set(graph.sources))
     assert "APP/Src/diagnostic_log.c" in graph.sources
     assert "APP/Src/device_task.c" in graph.sources
@@ -139,10 +139,14 @@ def test_source_graph_is_complete_and_has_one_truth(builtin_catalog) -> None:
         "Generated/Inc/project_flight_config.h",
     )
     assert graph.exclude_sources == (
+        "Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_mmc.c",
         "Platform/STM32F4/Src/platform_i2c_stm32f4.c",
         "Platform/STM32F4/Src/platform_can_stm32f4.c",
         "Platform/STM32F4/Src/platform_pwm_stm32f4.c",
         "Core/Src/sysmem.c",
+        "Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_i2c.c",
+        "Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_i2c_ex.c",
+        "Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_can.c",
     )
     assert graph.linker_script == "STM32F407XX_FLASH.ld"
     fragment = graph.MakeFragment_Render()

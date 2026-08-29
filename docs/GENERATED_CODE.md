@@ -10,6 +10,7 @@ Generated/
 ├── Inc/project_log_config.h
 ├── Inc/project_log_decoder_profile.h
 ├── Inc/project_resources.h
+├── Inc/project_storage_binding.h
 ├── Src/platform_resources.c
 ├── Src/project_capability_routes.c
 ├── Src/project_device_instances.c
@@ -22,6 +23,7 @@ Generated/
 ```
 
 - `project_resources.h` binds semantic Device/Board requirements to resolved typed Platform IDs. For SS0.5 this includes logical input-voltage, launch-ignition, and parachute-pyro Device requirements mapped to ADC, P_CONTROL1, and P_CONTROL2; it never presents those physical IDs as user Devices.
+- `project_storage_binding.h` binds the selected storage Device to the unique CubeMX FatFs object, path, and disk-driver symbols after SDIO/DMA/IRQ/App/Target/version checks. A non-storage Board cannot satisfy the logging sink merely by containing a codec.
 - `platform_resources.c` binds those logical IDs to Board or imported hardware handles/GPIO metadata using the matched MCU/Platform manifest's header/table/getter/struct contract. Python validates tokens but does not contain F4 symbols.
 - `project_capability_routes.*` is a static, heap-free table of capability/provider-instance/provider-plugin/consumer/purpose hashes. A sole provider is marked automatic; unresolved ambiguity prevents generation.
 - `project_flight_config.h` emits selected software-Indicator enable symbols plus the deployment trigger mask and validated thresholds. Time values such as Delay are scaled from manifest/UI seconds to a bounded `uint32` millisecond constant.
@@ -33,6 +35,10 @@ Generated/
 Generated C is static, heap-free connection/configuration data. It does not implement sensor drivers, MCU backends, INS/KF math, flight decisions, protocol codecs, or serialization. Function/type names and header guards follow the embedded reference convention.
 
 Component payloads outside `Generated/` are project-owned source. Normal Save preserves them even when their original plugin changes or a component becomes inactive.
+
+The SDIO/FatFs storage and file-log implementations are emitted under `Devices/Storage/SdSdioFatFs/` and owned by `silverstar.device.storage.sd_sdio_fatfs`. Legacy format-9 projects may retain the former Board-path copies as inactive project-owned files; applying format 10 adds the Device-owned paths without overwriting or deleting those legacy files, and the resolved Source Graph compiles only the new owner. CubeMX App/Target glue, the controlled MCU FatFs core, and the storage consumer remain distinct providers.
+
+CubeMX timer HAL timebase facts are parsed from the generated `stm32*_hal_timebase_tim.c` and rendered through the selected Platform contract. The generated resource table uses the discovered handle/instance and does not assume TIM1. SysTick timebase, missing or ambiguous initialization, non-1 MHz counter/non-1 kHz tick, disabled IRQ, source mismatch, and PWM reuse of the timebase timer fail before generation.
 
 Managed output is rendered and staged as one plan. `Generated/`, Make/Target data, EIDE/VS Code metadata, `.ssdecoder`, configuration review, readiness markers, and ownership records are updated together; `SilverStar.ssproject` is published last. Readiness treats a missing or changed managed file as Dirty and Save regenerates it without overwriting project-owned component source. EIDE is the shared-ownership exception: readiness and planning compare the normalized FCCG-owned build subtree, not the whole YAML byte stream, so EIDE UI/order/uploader rewrites remain clean while real source/include/linker/toolchain changes are named explicitly.
 

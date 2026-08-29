@@ -84,7 +84,8 @@ def test_generated_glue_is_small_static_and_heap_free(tmp_path: Path, builtin_ca
         for path in (project_root / "Generated").rglob("*")
         if path.is_file()
     )
-    assert len(generated_files) == 15
+    assert len(generated_files) == 16
+    assert "Generated/Inc/project_storage_binding.h" in generated_files
     assert "Generated/project_semantics.json" in generated_files
     assert "Generated/Inc/project_log_decoder_profile.h" in generated_files
     assert "Generated/Src/project_log_decoder_profile.c" in generated_files

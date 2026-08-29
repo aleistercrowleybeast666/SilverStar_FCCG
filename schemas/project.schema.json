@@ -10,7 +10,7 @@
     "component_provenance", "reference_provenance"
   ],
   "properties": {
-    "format_version": {"const": 8},
+    "format_version": {"const": 10},
     "project": {
       "type": "object",
       "required": ["name", "firmware_version", "build_target"],
@@ -81,7 +81,9 @@
         "mode", "source_kind", "provider", "snapshot_id", "ioc_file",
         "mcu", "capabilities", "inventory", "resources", "build_sources", "asm_sources",
         "include_dirs", "defines", "linker_script", "source_digest",
-        "source_label", "risk_acknowledged", "assignment_fingerprint"
+        "source_label", "risk_acknowledged", "assignment_fingerprint",
+        "cubemx_version", "firmware_package", "hal_cmsis_source_policy",
+        "i2c_external_pullup_confirmations"
       ],
       "properties": {
         "mode": {"enum": ["unselected", "board_plugin", "custom"]},
@@ -166,6 +168,22 @@
             {"const": ""},
             {"type": "string", "pattern": "^[A-Za-z0-9_./+@ -]+\\.ssdecoder$"}
           ]
+        },
+        "cubemx_version": {"type": "string"},
+        "firmware_package": {"type": "string"},
+        "hal_cmsis_source_policy": {"enum": ["", "plugin_payload_authoritative", "imported_tree_authoritative"]},
+        "i2c_external_pullup_confirmations": {
+          "type": "object",
+          "propertyNames": {"pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"},
+          "additionalProperties": {
+            "type": "object",
+            "required": ["source_digest", "snapshot_id"],
+            "properties": {
+              "source_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+              "snapshot_id": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+            },
+            "additionalProperties": false
+          }
         },
         "package_schema": {"$ref": "#/$defs/version"},
         "container_plugin_id": {

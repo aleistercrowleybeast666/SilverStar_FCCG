@@ -53,11 +53,51 @@ class PeripheralInventory:
 
 
 @dataclass(frozen=True, slots=True)
+class TimebaseInventory:
+    kind: str = ""
+    source: str = ""
+    handle: str = ""
+    instance: str = ""
+    irq: str = ""
+    counter_frequency_hz: int = 0
+    period_counts: int = 0
+    tick_frequency_hz: int = 0
+    interrupt_started: bool = False
+    errors: tuple[str, ...] = ()
+
+    @property
+    def valid(self) -> bool:
+        return self.kind == "tim" and not self.errors
+
+
+@dataclass(frozen=True, slots=True)
+class FatFsInventory:
+    enabled: bool = False
+    app_source: str = ""
+    app_header: str = ""
+    object_symbol: str = ""
+    path_symbol: str = ""
+    driver_symbol: str = ""
+    sd_handle: str = ""
+    sd_instance: str = ""
+    card_detect_pin: str = ""
+    target_sources: tuple[str, ...] = ()
+    errors: tuple[str, ...] = ()
+
+    @property
+    def valid(self) -> bool:
+        return self.enabled and not self.errors
+
+
+@dataclass(frozen=True, slots=True)
 class HardwareInventory:
     mcu_part: str
+    mcu_name: str
     mcu_family: str
     package: str
     core: str
+    cubemx_version: str
+    firmware_package: str
     pins: tuple[PinInventory, ...]
     uarts: tuple[PeripheralInventory, ...]
     spis: tuple[PeripheralInventory, ...]
@@ -70,6 +110,9 @@ class HardwareInventory:
     nvic: tuple[NvicInventory, ...]
     clocks: dict[str, Any]
     peripherals: tuple[str, ...]
+    generated_sources: tuple[str, ...] = ()
+    timebase: TimebaseInventory = field(default_factory=TimebaseInventory)
+    fatfs: FatFsInventory = field(default_factory=FatFsInventory)
     issues: tuple[str, ...] = ()
 
     def Dictionary_Get(self) -> dict[str, Any]:
@@ -108,8 +151,22 @@ class HardwareInventory:
                     "can_classic": "CAN",
                     "can_fd": "FDCAN",
                 }.get(peripheral.kind, peripheral.kind.upper())
+                c_id_type = {
+                    "uart": "PlatformUartId",
+                    "spi": "PlatformSpiId",
+                    "i2c": "PlatformI2cId",
+                    "adc": "PlatformAdcId",
+                    "timer": "PlatformTimerId",
+                    "pwm": "PlatformPwmId",
+                    "can_classic": "PlatformCanId",
+                    "can_fd": "PlatformFdcanId",
+                }.get(peripheral.kind)
                 metadata = {
-                    "c_id": f"PLATFORM_{c_id_kind}_{index + 1}",
+                    "c_id": (
+                        f"(({c_id_type}){index}U)"
+                        if c_id_type is not None
+                        else f"PLATFORM_{c_id_kind}_{index + 1}"
+                    ),
                     "header": header,
                     "handle": f"{effective_handle_prefix}{suffix}",
                     "logical_index": index,
@@ -158,7 +215,20 @@ class HardwareInventory:
                 kind = "gpio_input"
             label = pin.label or pin.pin
             resource_id = re.sub(r"[^A-Za-z0-9_.-]", "_", label)
-            macro = re.sub(r"[^A-Za-z0-9_]", "_", label)
+            if pin.label:
+                macro = re.sub(r"[^A-Za-z0-9_]", "_", pin.label)
+                port_expression = f"{macro}_GPIO_Port"
+                pin_expression = f"{macro}_Pin"
+            else:
+                physical_match = re.fullmatch(
+                    r"P([A-K])(\d+)(?:-[A-Z0-9_]+)?", pin.pin
+                )
+                if physical_match is None:
+                    raise ValueError(
+                        f"Unsupported CubeMX GPIO pin identity: {pin.pin}"
+                    )
+                port_expression = f"GPIO{physical_match.group(1)}"
+                pin_expression = f"GPIO_PIN_{physical_match.group(2)}"
             irq = None
             if pin.exti_line is not None:
                 if pin.exti_line <= 4:
@@ -175,10 +245,10 @@ class HardwareInventory:
                     resource_id,
                     kind,
                     {
-                        "c_id": f"PLATFORM_GPIO_{index}",
+                        "c_id": f"((PlatformGpioId){index}U)",
                         "header": "platform_gpio.h",
-                        "port": f"{macro}_GPIO_Port",
-                        "pin": f"{macro}_Pin",
+                        "port": port_expression,
+                        "pin": pin_expression,
                         "logical_index": index,
                         "physical_pin": pin.pin,
                         "physical_resource": f"{pin.pin} ({pin.signal})",
@@ -202,29 +272,68 @@ class HardwareInventory:
                     },
                 )
             )
-        if any(
-            item.startswith(("SDIO", "SDMMC")) for item in self.peripherals
-        ):
+        if any(item.startswith("SDIO") for item in self.peripherals):
+            sdio_dmas = tuple(
+                item
+                for item in self.dmas
+                if item.request.startswith("SDIO_")
+            )
+            sdio_irq = next(
+                (item for item in self.nvic if item.irq == "SDIO_IRQn"),
+                None,
+            )
+            sdio_pins = {
+                _PinSignalParts_Get(pin.signal, "SDIO"): pin.pin
+                for pin in self.pins
+                if pin.signal.startswith("SDIO_")
+            }
             resources.append(
                 HardwareResource(
                     "SDIO",
                     "sdio",
                     {
                         "c_id": "PLATFORM_SDIO_1",
+                        "header": "sdio.h",
+                        "handle": self.fatfs.sd_handle,
+                        "peripheral": self.fatfs.sd_instance or "SDIO",
                         "physical_resource": "SDIO",
+                        "pins": sdio_pins,
+                        "dma": [asdict(item) for item in sdio_dmas],
+                        "irq": asdict(sdio_irq) if sdio_irq is not None else {},
+                        "irq_enabled": int(
+                            sdio_irq is not None and sdio_irq.enabled
+                        ),
+                        "fatfs": asdict(self.fatfs),
                     },
                 )
             )
-        resources.append(
-            HardwareResource(
-                "SYSTEM_TIME",
-                "time",
-                {
-                    "c_id": "PLATFORM_TIME_1",
-                    "physical_resource": "system timebase",
-                },
+        if self.timebase.kind:
+            resources.append(
+                HardwareResource(
+                    "SYSTEM_TIME",
+                    "time",
+                    {
+                        "c_id": "((PlatformTimeId)0U)",
+                        "header": "platform_time.h",
+                        "logical_index": 0,
+                        "handle": self.timebase.handle,
+                        "handle_type": "TIM_HandleTypeDef",
+                        "timer_instance": self.timebase.instance,
+                        "physical_resource": (
+                            f"HAL Timebase {self.timebase.instance}"
+                            if self.timebase.instance
+                            else "HAL Timebase"
+                        ),
+                        "timebase": asdict(self.timebase),
+                        "counter_frequency_hz": (
+                            self.timebase.counter_frequency_hz
+                        ),
+                        "period_counts": self.timebase.period_counts,
+                        "tick_frequency_hz": self.timebase.tick_frequency_hz,
+                        "irq": self.timebase.irq,
+                    },
+                )
             )
-        )
         return tuple(resources)
 
 
@@ -234,8 +343,13 @@ def CubeMxValues_Parse(ioc_text: str) -> dict[str, str]:
         if "=" not in raw_line or raw_line.lstrip().startswith("#"):
             continue
         key, value = raw_line.split("=", 1)
-        values[key.strip().replace("\\#", "#")] = (
-            value.strip().replace("\\:", ":").replace("\\#", "#")
+        values[
+            key.strip().replace("\\ ", " ").replace("\\#", "#")
+        ] = (
+            value.strip()
+            .replace("\\ ", " ")
+            .replace("\\:", ":")
+            .replace("\\#", "#")
         )
     return values
 
@@ -275,10 +389,10 @@ def _OutputType_Normalize(value: str, signal: str) -> str:
     upper = value.upper()
     if "OD" in upper or "OPEN_DRAIN" in upper:
         return "open_drain"
-    if signal.upper().startswith("I2C"):
-        return "open_drain"
     if signal == "GPIO_Output" or "PP" in upper or "PUSH_PULL" in upper:
         return "push_pull"
+    if signal.upper().startswith("I2C"):
+        return "open_drain"
     return ""
 
 
@@ -339,6 +453,11 @@ def _MacroInteger_Get(value: Any, default: int = 0) -> int:
     try:
         return int(text, 0)
     except ValueError:
+        expression = re.fullmatch(r"(0[xX][0-9A-Fa-f]+|\d+)\s*([+-])\s*(\d+)", text)
+        if expression is not None:
+            left = int(expression.group(1), 0)
+            right = int(expression.group(3), 10)
+            return left + right if expression.group(2) == "+" else left - right
         match = re.search(r"(\d+)(?:TQ|BIT)?$", text, re.IGNORECASE)
         return int(match.group(1)) if match else default
 
@@ -581,18 +700,86 @@ def _CaseInsensitiveKeys_Normalize(values: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+def _GeneratedTimerFacts_Get(
+    generated_sources: tuple[str, ...],
+) -> dict[tuple[str, int], dict[str, str]]:
+    facts: dict[tuple[str, int], dict[str, str]] = {}
+    text = "\n".join(generated_sources)
+    handles = {
+        handle.casefold(): timer.upper()
+        for handle, timer in re.findall(
+            r"\b(h?tim\d+)\.Instance\s*=\s*(TIM\d+)\s*;", text
+        )
+    }
+    counter_modes = {
+        handle.casefold(): mode.casefold()
+        for handle, mode in re.findall(
+            r"\b(h?tim\d+)\.Init\.CounterMode\s*=\s*"
+            r"(TIM_COUNTERMODE_[A-Z0-9_]+)\s*;",
+            text,
+        )
+    }
+    call_pattern = re.compile(
+        r"HAL_TIM_PWM_ConfigChannel\s*\(\s*&(?P<handle>h?tim\d+)\s*,"
+        r"\s*&[A-Za-z_][A-Za-z0-9_]*\s*,\s*TIM_CHANNEL_(?P<channel>[1-4])\s*\)",
+    )
+    previous_end_by_handle: dict[str, int] = {}
+    for match in call_pattern.finditer(text):
+        handle = match.group("handle").casefold()
+        timer = handles.get(handle)
+        if timer is None:
+            continue
+        block_start = previous_end_by_handle.get(handle, max(0, match.start() - 3000))
+        block = text[block_start : match.start()]
+        previous_end_by_handle[handle] = match.end()
+        modes = re.findall(
+            r"\.OCMode\s*=\s*(TIM_OCMODE_[A-Z0-9_]+)\s*;", block
+        )
+        polarities = re.findall(
+            r"\.OCPolarity\s*=\s*(TIM_OCPOLARITY_[A-Z0-9_]+)\s*;",
+            block,
+        )
+        facts[(timer, int(match.group("channel")))] = {
+            "pwm_mode": modes[-1].casefold() if modes else "",
+            "polarity": polarities[-1].casefold() if polarities else "",
+            "counter_mode": counter_modes.get(handle, ""),
+            "configuration_call": "HAL_TIM_PWM_ConfigChannel",
+        }
+    return facts
+
+
+def _PwmDeclaration_Get(
+    values: dict[str, str],
+) -> dict[tuple[str, int], str]:
+    declarations: dict[tuple[str, int], str] = {}
+    for key, raw_value in values.items():
+        if not key.startswith("SH."):
+            continue
+        fields = [field.strip() for field in raw_value.split(",")]
+        if len(fields) < 2 or "PWM Generation" not in fields[1]:
+            continue
+        match = re.fullmatch(r"(TIM\d+)_CH([1-4])(N)?", fields[0])
+        if match is None:
+            continue
+        timer, channel, complementary = match.groups()
+        declarations[(timer, int(channel))] = (
+            "complementary" if complementary else fields[1]
+        )
+    return declarations
+
+
 def _Pwm_Get(
     pin: PinInventory,
+    timer: str,
+    channel: int,
     values: dict[str, str],
+    generated_facts: dict[tuple[str, int], dict[str, str]],
+    declaration: str,
     pins: tuple[PinInventory, ...],
     dmas: tuple[DmaInventory, ...],
     nvic: tuple[NvicInventory, ...],
 ) -> PeripheralInventory:
-    match = re.fullmatch(r"(TIM\d+)_CH(\d+)", pin.signal)
-    if match is None:
-        raise ValueError(f"Unsupported PWM signal: {pin.signal}")
-    timer, channel_text = match.groups()
-    channel = int(channel_text)
+    facts = generated_facts.get((timer, channel), {})
     base = _Peripheral_Get(timer, "pwm", values, pins, dmas, nvic)
     prefix = timer + "."
     prescaler = _MacroInteger_Get(values.get(prefix + "Prescaler", "0"))
@@ -602,16 +789,28 @@ def _Pwm_Get(
     if timer_clock_hz > 0 and prescaler >= 0 and period >= 0:
         divisor = (prescaler + 1) * (period + 1)
         frequency_hz = timer_clock_hz // divisor if divisor > 0 else 0
-    polarity_raw = values.get(
-        prefix + f"OCPolarity_{channel}",
-        values.get(prefix + f"OCPolarity_CH{channel}", "TIM_OCPOLARITY_HIGH"),
-    )
+    polarity_raw = str(facts.get("polarity", ""))
+    mode_raw = str(facts.get("pwm_mode", ""))
+    counter_mode_raw = str(facts.get("counter_mode", ""))
     active_high = "LOW" not in polarity_raw.upper()
     settings = {
         **base.settings,
         "timer_instance": timer,
         "channel": channel,
         "channel_token": f"TIM_CHANNEL_{channel}",
+        "cubemx_pwm_declaration": declaration,
+        "configuration_call": str(facts.get("configuration_call", "")),
+        "pwm_mode": (
+            "pwm1"
+            if mode_raw.upper() == "TIM_OCMODE_PWM1"
+            else "pwm2" if mode_raw.upper() == "TIM_OCMODE_PWM2" else ""
+        ),
+        "counter_mode": (
+            "up"
+            if counter_mode_raw.upper() == "TIM_COUNTERMODE_UP"
+            else counter_mode_raw.casefold().removeprefix("tim_countermode_")
+        ),
+        "complementary": False,
         "prescaler": prescaler,
         "period_counts": period + 1,
         "timer_clock_hz": timer_clock_hz,
@@ -620,6 +819,7 @@ def _Pwm_Get(
         "polarity": "active_high" if active_high else "active_low",
         "active_high": int(active_high),
         "safe_state": "inactive",
+        "safe_inactive_behavior": "forced_inactive_then_stop",
         "safe_inactive_compare": 0,
         "physical_resource": f"{timer}:CH{channel}",
     }
@@ -633,8 +833,307 @@ def _Pwm_Get(
     )
 
 
-def CubeMxInventory_Parse(ioc_text: str) -> HardwareInventory:
+def _GeneratedFiles_Normalize(
+    generated_sources: tuple[str, ...],
+    generated_files: dict[str, str] | None,
+) -> dict[str, str]:
+    if generated_files is not None:
+        return {
+            str(path).replace("\\", "/"): text
+            for path, text in generated_files.items()
+        }
+    result: dict[str, str] = {}
+    for index, text in enumerate(generated_sources):
+        name = f"generated_{index}.c"
+        if "HAL_InitTick" in text:
+            name = "Core/Src/stm32xx_hal_timebase_tim.c"
+        elif "MX_FATFS_Init" in text:
+            name = "FATFS/App/fatfs.c"
+        result[name] = text
+    return result
+
+
+def _TimebaseInventory_Get(
+    values: dict[str, str],
+    generated_files: dict[str, str],
+    nvic: tuple[NvicInventory, ...],
+) -> TimebaseInventory:
+    expected_instance = values.get("NVIC.TimeBaseIP", "").strip().upper()
+    if not expected_instance:
+        virtual_modes = {
+            value.strip().upper()
+            for key, value in values.items()
+            if key.startswith("VP_SYS_VS_") and key.endswith(".Mode")
+        }
+        timer_modes = sorted(
+            value for value in virtual_modes if re.fullmatch(r"TIM\d+", value)
+        )
+        if len(timer_modes) == 1:
+            expected_instance = timer_modes[0]
+    expected_irq = values.get("NVIC.TimeBase", "").strip()
+    timebase_files = {
+        path: text
+        for path, text in generated_files.items()
+        if path.casefold().endswith("_hal_timebase_tim.c")
+        or "HAL_InitTick" in text
+    }
+    errors: list[str] = []
+    if not re.fullmatch(r"TIM\d+", expected_instance):
+        return TimebaseInventory(
+            kind="systick" if not expected_instance else expected_instance.casefold(),
+            irq=expected_irq,
+            errors=(
+                "CubeMX HAL Timebase must use one TIM peripheral / "
+                "CubeMX HAL 时间基准必须使用唯一 TIM 外设",
+            ),
+        )
+    if len(timebase_files) != 1:
+        errors.append(
+            "Exactly one generated HAL TIM timebase source is required / "
+            "必须存在且仅存在一个 HAL TIM 时间基准源文件"
+        )
+    source = next(iter(timebase_files), "")
+    text = timebase_files.get(source, "")
+    handles = tuple(
+        dict.fromkeys(
+            re.findall(
+                r"\bTIM_HandleTypeDef\s+([A-Za-z_][A-Za-z0-9_]*)\s*;",
+                text,
+            )
+        )
+    )
+    if len(handles) != 1:
+        errors.append(
+            "HAL TIM timebase must declare exactly one handle / "
+            "HAL TIM 时间基准必须声明唯一句柄"
+        )
+    handle = handles[0] if len(handles) == 1 else ""
+    instance_matches = tuple(
+        dict.fromkeys(
+            match.upper()
+            for match in re.findall(
+                rf"\b{re.escape(handle)}\.Instance\s*=\s*(TIM\d+)\s*;",
+                text,
+            )
+        )
+    ) if handle else ()
+    instance = instance_matches[0] if len(instance_matches) == 1 else ""
+    if len(instance_matches) != 1 or instance != expected_instance:
+        errors.append(
+            "Generated HAL timebase handle/instance does not match .ioc / "
+            "生成的 HAL 时间基准句柄或实例与 .ioc 不一致"
+        )
+    generated_irqs = tuple(
+        dict.fromkeys(
+            re.findall(r"HAL_NVIC_EnableIRQ\s*\(\s*([A-Za-z_][A-Za-z0-9_]*_IRQn)\s*\)", text)
+        )
+    )
+    generated_irq = generated_irqs[0] if len(generated_irqs) == 1 else ""
+    if (
+        not expected_irq
+        or len(generated_irqs) != 1
+        or generated_irq != expected_irq
+    ):
+        errors.append(
+            "HAL Timebase IRQ is missing or inconsistent / "
+            "HAL 时间基准 IRQ 缺失或不一致"
+        )
+    nvic_entry = next((item for item in nvic if item.irq == expected_irq), None)
+    if nvic_entry is None or not nvic_entry.enabled:
+        errors.append(
+            "HAL Timebase IRQ is not enabled in CubeMX NVIC / "
+            "CubeMX NVIC 未启用 HAL 时间基准 IRQ"
+        )
+    counter_matches = tuple(
+        dict.fromkeys(
+            int(value)
+            for value in re.findall(
+                r"uwTimclock\s*/\s*(\d+)U?\s*\)\s*-\s*1U?",
+                text,
+            )
+        )
+    )
+    counter_frequency_hz = counter_matches[0] if len(counter_matches) == 1 else 0
+    period_matches = tuple(
+        dict.fromkeys(
+            (int(counter), int(tick))
+            for counter, tick in re.findall(
+                rf"\b{re.escape(handle)}\.Init\.Period\s*=\s*\(\s*(\d+)U?\s*/\s*(\d+)U?\s*\)\s*-\s*1U?",
+                text,
+            )
+        )
+    ) if handle else ()
+    period_counter, tick_frequency_hz = (
+        period_matches[0] if len(period_matches) == 1 else (0, 0)
+    )
+    period_counts = (
+        period_counter // tick_frequency_hz
+        if tick_frequency_hz > 0 and period_counter % tick_frequency_hz == 0
+        else 0
+    )
+    if (
+        counter_frequency_hz != 1_000_000
+        or period_counter != counter_frequency_hz
+        or tick_frequency_hz != 1_000
+        or period_counts != 1_000
+    ):
+        errors.append(
+            "HAL Timebase must prove a 1 MHz counter and 1 ms period / "
+            "HAL 时间基准必须可证明为 1 MHz 计数与 1 ms 周期"
+        )
+    interrupt_started = bool(
+        handle
+        and re.search(
+            rf"HAL_TIM_Base_Start_IT\s*\(\s*&{re.escape(handle)}\s*\)",
+            text,
+        )
+    )
+    if not interrupt_started:
+        errors.append(
+            "HAL Timebase is not started in interrupt mode / "
+            "HAL 时间基准未以中断模式启动"
+        )
+    return TimebaseInventory(
+        kind="tim",
+        source=source,
+        handle=handle,
+        instance=instance,
+        irq=generated_irq or expected_irq,
+        counter_frequency_hz=counter_frequency_hz,
+        period_counts=period_counts,
+        tick_frequency_hz=tick_frequency_hz,
+        interrupt_started=interrupt_started,
+        errors=tuple(dict.fromkeys(errors)),
+    )
+
+
+def _FatFsInventory_Get(
+    values: dict[str, str],
+    peripherals: tuple[str, ...],
+    generated_files: dict[str, str],
+) -> FatFsInventory:
+    enabled = "FATFS" in peripherals
+    if not enabled:
+        return FatFsInventory()
+    errors: list[str] = []
+    app_sources = {
+        path: text
+        for path, text in generated_files.items()
+        if path.casefold().endswith("/fatfs/app/fatfs.c")
+        or path.casefold() == "fatfs/app/fatfs.c"
+    }
+    app_headers = {
+        path: text
+        for path, text in generated_files.items()
+        if path.casefold().endswith("/fatfs/app/fatfs.h")
+        or path.casefold() == "fatfs/app/fatfs.h"
+    }
+    if len(app_sources) != 1 or len(app_headers) != 1:
+        errors.append(
+            "CubeMX FatFs requires one FATFS/App/fatfs.c and fatfs.h / "
+            "CubeMX FatFs 必须包含唯一 FATFS/App/fatfs.c 与 fatfs.h"
+        )
+    app_source = next(iter(app_sources), "")
+    app_header = next(iter(app_headers), "")
+    combined = "\n".join((*app_sources.values(), *app_headers.values()))
+    object_symbols = tuple(
+        dict.fromkeys(
+            re.findall(r"(?:extern\s+)?FATFS\s+([A-Za-z_][A-Za-z0-9_]*)\s*;", combined)
+        )
+    )
+    path_symbols = tuple(
+        dict.fromkeys(
+            re.findall(r"(?:extern\s+)?char\s+([A-Za-z_][A-Za-z0-9_]*)\s*\[\s*\d+\s*\]\s*;", combined)
+        )
+    )
+    link_matches = tuple(
+        dict.fromkeys(
+            re.findall(
+                r"FATFS_LinkDriver(?:Ex)?\s*\(\s*&([A-Za-z_][A-Za-z0-9_]*)\s*,\s*([A-Za-z_][A-Za-z0-9_]*)",
+                combined,
+            )
+        )
+    )
+    if len(object_symbols) != 1 or len(path_symbols) != 1 or len(link_matches) != 1:
+        errors.append(
+            "CubeMX FatFs object/path/driver symbols are missing or ambiguous / "
+            "CubeMX FatFs 对象、路径或驱动符号缺失或存在歧义"
+        )
+    object_symbol = object_symbols[0] if len(object_symbols) == 1 else ""
+    path_symbol = path_symbols[0] if len(path_symbols) == 1 else ""
+    driver_symbol = link_matches[0][0] if len(link_matches) == 1 else ""
+    if len(link_matches) == 1 and path_symbol != link_matches[0][1]:
+        errors.append(
+            "CubeMX FatFs linked path symbol does not match its declaration / "
+            "CubeMX FatFs 链接路径符号与声明不一致"
+        )
+    sdio_text = "\n".join(
+        text
+        for path, text in generated_files.items()
+        if path.casefold().endswith("/core/src/sdio.c")
+        or path.casefold() == "core/src/sdio.c"
+    )
+    handles = tuple(
+        dict.fromkeys(
+            re.findall(r"\bSD_HandleTypeDef\s+([A-Za-z_][A-Za-z0-9_]*)\s*;", sdio_text)
+        )
+    )
+    sd_handle = handles[0] if len(handles) == 1 else ""
+    instances = tuple(
+        dict.fromkeys(
+            re.findall(
+                rf"\b{re.escape(sd_handle)}\.Instance\s*=\s*([A-Za-z_][A-Za-z0-9_]*)\s*;",
+                sdio_text,
+            )
+        )
+    ) if sd_handle else ()
+    sd_instance = instances[0] if len(instances) == 1 else ""
+    if len(handles) != 1 or len(instances) != 1 or sd_instance != "SDIO":
+        errors.append(
+            "CubeMX SDIO handle/instance is missing or ambiguous / "
+            "CubeMX SDIO 句柄或实例缺失或存在歧义"
+        )
+    target_sources = tuple(
+        sorted(
+            path
+            for path in generated_files
+            if "/fatfs/target/" in ("/" + path.casefold())
+            and path.casefold().endswith(".c")
+        )
+    )
+    if not target_sources:
+        errors.append(
+            "CubeMX FatFs Target glue is missing / CubeMX FatFs Target 胶水缺失"
+        )
+    if "SDIO" not in peripherals:
+        errors.append(
+            "FatFs is enabled without STM32 SDIO / 已启用 FatFs 但未启用 STM32 SDIO"
+        )
+    return FatFsInventory(
+        enabled=True,
+        app_source=app_source,
+        app_header=app_header,
+        object_symbol=object_symbol,
+        path_symbol=path_symbol,
+        driver_symbol=driver_symbol,
+        sd_handle=sd_handle,
+        sd_instance=sd_instance,
+        card_detect_pin=values.get("FATFS0.BSP.instance", ""),
+        target_sources=target_sources,
+        errors=tuple(dict.fromkeys(errors)),
+    )
+
+
+def CubeMxInventory_Parse(
+    ioc_text: str,
+    *,
+    generated_sources: tuple[str, ...] = (),
+    generated_files: dict[str, str] | None = None,
+) -> HardwareInventory:
     values = CubeMxValues_Parse(ioc_text)
+    normalized_generated_files = _GeneratedFiles_Normalize(
+        generated_sources, generated_files
+    )
     peripherals = tuple(
         sorted(
             {
@@ -699,10 +1198,113 @@ def CubeMxInventory_Parse(ioc_text: str) -> HardwareInventory:
         )
 
     timers = group(("TIM", "LPTIM"), "timer")
-    pwms = tuple(
-        _Pwm_Get(pin, values, pin_values, dmas, nvic)
-        for pin in sorted(pin_values, key=lambda item: _NaturalKey_Get(item.signal))
-        if re.fullmatch(r"TIM\d+_CH\d+", pin.signal)
+    pwm_declarations = _PwmDeclaration_Get(values)
+    all_generated_sources = tuple(normalized_generated_files.values())
+    generated_timer_facts = _GeneratedTimerFacts_Get(all_generated_sources)
+    pwm_values: list[PeripheralInventory] = []
+    pwm_issues: list[str] = []
+    pins_by_signal: dict[str, PinInventory] = {}
+    for pin in pin_values:
+        normalized_signal = pin.signal.removeprefix("S_")
+        signal_match = re.fullmatch(
+            r"(TIM\d+_CH[1-4])(?:_ETR)?", normalized_signal
+        )
+        if signal_match is not None:
+            pins_by_signal[signal_match.group(1)] = pin
+    for (timer, channel), declaration in sorted(pwm_declarations.items()):
+        resource_name = f"{timer}_CH{channel}"
+        pin = pins_by_signal.get(resource_name)
+        facts = generated_timer_facts.get((timer, channel), {})
+        problems: list[str] = []
+        if declaration == "complementary":
+            problems.append("complementary CHxN output is unsupported")
+        if pin is None:
+            problems.append("no physical output pin is assigned")
+        if facts.get("configuration_call") != "HAL_TIM_PWM_ConfigChannel":
+            problems.append("generated code has no HAL_TIM_PWM_ConfigChannel call")
+        if facts.get("pwm_mode") not in {
+            "tim_ocmode_pwm1",
+            "tim_ocmode_pwm2",
+        }:
+            problems.append("PWM1/PWM2 mode is missing or unsupported")
+        if facts.get("polarity") not in {
+            "tim_ocpolarity_high",
+            "tim_ocpolarity_low",
+        }:
+            problems.append("output polarity is missing or unsupported")
+        if facts.get("counter_mode") != "tim_countermode_up":
+            problems.append("only edge-aligned up-counter mode is supported")
+        timer_prefix = timer + "."
+        if any(
+            token in f"{key}={value}".upper()
+            for key, value in values.items()
+            if key.startswith(timer_prefix)
+            for token in (
+                "CENTERALIGNED",
+                "COMBINED",
+                "ASYMMETRIC",
+                "ONEPULSE",
+                "ENCODER",
+                "DEADTIME",
+            )
+        ):
+            problems.append("advanced/combined timer mode is unsupported")
+        if problems:
+            pwm_issues.append(
+                f"inventory.pwm.{resource_name}: " + "; ".join(problems)
+            )
+            continue
+        assert pin is not None
+        pwm_values.append(
+            _Pwm_Get(
+                pin,
+                timer,
+                channel,
+                values,
+                generated_timer_facts,
+                declaration,
+                pin_values,
+                dmas,
+                nvic,
+            )
+        )
+    for resource_name, pin in sorted(pins_by_signal.items()):
+        match = re.fullmatch(r"(TIM\d+)_CH([1-4])", resource_name)
+        if match is None or (match.group(1), int(match.group(2))) in pwm_declarations:
+            continue
+        shared_modes = tuple(
+            fields[1].strip()
+            for key, raw_value in values.items()
+            if key.startswith("SH.")
+            for fields in ([field.strip() for field in raw_value.split(",")],)
+            if len(fields) >= 2 and fields[0] == resource_name
+        )
+        mode_text = ", ".join(shared_modes) if shared_modes else "pin signal only"
+        pwm_issues.append(
+            f"inventory.pwm.{resource_name}: {mode_text} is not a supported "
+            f"CubeMX PWM Generation channel ({pin.pin})"
+        )
+    timebase = _TimebaseInventory_Get(values, normalized_generated_files, nvic)
+    if timebase.instance:
+        conflicting = tuple(
+            pwm
+            for pwm in pwm_values
+            if pwm.settings.get("timer_instance") == timebase.instance
+        )
+        if conflicting:
+            pwm_values = [
+                pwm
+                for pwm in pwm_values
+                if pwm.settings.get("timer_instance") != timebase.instance
+            ]
+            pwm_issues.append(
+                "inventory.timebase_pwm_conflict: "
+                f"{timebase.instance} is reserved by the CubeMX HAL Timebase / "
+                f"{timebase.instance} 已由 CubeMX HAL 时间基准独占"
+            )
+    pwms = tuple(pwm_values)
+    fatfs = _FatFsInventory_Get(
+        values, peripherals, normalized_generated_files
     )
     clock_prefixes = ("RCC.", "Clock.")
     clocks = {
@@ -723,16 +1325,22 @@ def CubeMxInventory_Parse(ioc_text: str) -> HardwareInventory:
         issues.append("inventory.nvic_missing")
     if not pin_values:
         issues.append("inventory.pinout_missing")
+    issues.extend(pwm_issues)
+    issues.extend(f"inventory.timebase: {message}" for message in timebase.errors)
+    issues.extend(f"inventory.fatfs: {message}" for message in fatfs.errors)
     return HardwareInventory(
         mcu_part=values.get(
             "Mcu.CPN", values.get("Mcu.Name", values.get("ProjectManager.DeviceId", ""))
         ),
+        mcu_name=values.get("Mcu.Name", ""),
         mcu_family=values.get("Mcu.Family", ""),
         package=values.get("Mcu.Package", ""),
         core=values.get(
             "Mcu.Core",
             values.get("Mcu.CPU", values.get("Mcu.UserName", "")),
         ),
+        cubemx_version=values.get("MxCube.Version", ""),
+        firmware_package=values.get("ProjectManager.FirmwarePackage", ""),
         pins=pin_values,
         uarts=group(("USART", "UART", "LPUART"), "uart"),
         spis=group(("SPI",), "spi"),
@@ -748,5 +1356,8 @@ def CubeMxInventory_Parse(ioc_text: str) -> HardwareInventory:
         nvic=nvic,
         clocks=clocks,
         peripherals=peripherals,
+        generated_sources=tuple(sorted(normalized_generated_files)),
+        timebase=timebase,
+        fatfs=fatfs,
         issues=tuple(issues),
     )

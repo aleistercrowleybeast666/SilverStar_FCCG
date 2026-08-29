@@ -9,6 +9,7 @@ from silverstar_fccg.plugins.manifest import PluginManifest, SelectionKind
 from silverstar_fccg.hardware.platform import (
     DetectedMcuFacts,
     DetectedMcuFacts_FromInventory,
+    PlatformCompatibilityErrors_Get,
     PlatformMatch_Resolve,
 )
 from silverstar_fccg.project.capabilities import (
@@ -441,6 +442,14 @@ def _Hardware_Reconcile(
                     platform_component=matched_manifest.component_id,
                     platform_version=matched_manifest.version,
                     platform_manifest_sha256=matched_manifest.ManifestSha256_Get(),
+                    cubemx_version=inventory.cubemx_version,
+                    firmware_package=inventory.firmware_package,
+                    hal_cmsis_source_policy=(
+                        matched_manifest.platform.compatibility.source_policy
+                        if matched_manifest.platform is not None
+                        else ""
+                    ),
+                    i2c_external_pullup_confirmations={},
                     capabilities=tuple(
                         sorted(
                             {
@@ -485,6 +494,31 @@ def _Hardware_Reconcile(
                 platform_component=matched_manifest.component_id,
                 platform_version=matched_manifest.version,
                 platform_manifest_sha256=matched_manifest.ManifestSha256_Get(),
+                cubemx_version=str(
+                    inventory.get(
+                        "cubemx_version", model.hardware.cubemx_version
+                    )
+                ),
+                firmware_package=str(
+                    inventory.get(
+                        "firmware_package", model.hardware.firmware_package
+                    )
+                ),
+                hal_cmsis_source_policy=(
+                    matched_manifest.platform.compatibility.source_policy
+                    if matched_manifest.platform is not None
+                    else ""
+                ),
+                i2c_external_pullup_confirmations={
+                    resource_id: binding
+                    for resource_id, binding in (
+                        model.hardware.i2c_external_pullup_confirmations.items()
+                    )
+                    if binding.get("source_digest")
+                    == model.hardware.source_digest
+                    and binding.get("snapshot_id")
+                    == model.hardware.snapshot_id
+                },
             )
     if not reset:
         return ()

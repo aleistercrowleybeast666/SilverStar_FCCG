@@ -147,6 +147,9 @@
     "device_group_order": 60,
     "device_selection_style": "instance",
     "device_category": "link.telemetry",
+    "build_feature_symbols": [
+      "SYSTEM_USER_TELEMETRY_ENABLE"
+    ],
     "device_instance_bindings": {
       "SYSTEM_DEVICE_CLASS_TELEMETRY": {
         "function_prefix": "SystemTelemetry"

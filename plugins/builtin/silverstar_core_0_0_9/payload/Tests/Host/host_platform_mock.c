@@ -403,18 +403,32 @@ PlatformResult PlatformI2c_Read(PlatformI2cId id, uint16_t address,
     return PLATFORM_OK;
 }
 
-PlatformResult PlatformI2c_WriteRead(PlatformI2cId id, uint16_t address,
-                                     const uint8_t *tx_data,
-                                     uint16_t tx_length,
-                                     uint8_t *rx_data,
-                                     uint16_t rx_length,
-                                     uint32_t timeout_ms)
+PlatformResult PlatformI2c_MemoryWrite(
+    PlatformI2cId id, uint16_t address, uint16_t memory_address,
+    PlatformI2cMemoryAddressSize memory_address_size,
+    const uint8_t *data, uint16_t length, uint32_t timeout_ms)
 {
-    PlatformResult result = PlatformI2c_Write(
-        id, address, tx_data, tx_length, timeout_ms);
+    (void)memory_address;
+    if ((memory_address_size != PLATFORM_I2C_MEMORY_ADDRESS_8_BIT) &&
+        (memory_address_size != PLATFORM_I2C_MEMORY_ADDRESS_16_BIT))
+    {
+        return PLATFORM_INVALID_ARGUMENT;
+    }
+    return PlatformI2c_Write(id, address, data, length, timeout_ms);
+}
 
-    return (result == PLATFORM_OK) ? PlatformI2c_Read(
-        id, address, rx_data, rx_length, timeout_ms) : result;
+PlatformResult PlatformI2c_MemoryRead(
+    PlatformI2cId id, uint16_t address, uint16_t memory_address,
+    PlatformI2cMemoryAddressSize memory_address_size,
+    uint8_t *data, uint16_t length, uint32_t timeout_ms)
+{
+    (void)memory_address;
+    if ((memory_address_size != PLATFORM_I2C_MEMORY_ADDRESS_8_BIT) &&
+        (memory_address_size != PLATFORM_I2C_MEMORY_ADDRESS_16_BIT))
+    {
+        return PLATFORM_INVALID_ARGUMENT;
+    }
+    return PlatformI2c_Read(id, address, data, length, timeout_ms);
 }
 
 PlatformResult PlatformGpio_Write(PlatformGpioId id, uint8_t logical_high)

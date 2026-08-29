@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased — 2026-08-30
+
+- Completed the internal **Software Release Candidate / Pre-Hardware-Validation** closeout. This is
+  not a public release, tag, flash result, electrical validation, or flight qualification.
+- Upgraded strict project format to 10. Custom CubeMX import now discovers the actual MCU first and
+  then requires one exact compatible Platform; missing or tied matches fail without an F407 fallback.
+- Added the single-instance SDIO + FatFs physical storage Device. It owns storage/log-sink source at
+  `Devices/Storage/SdSdioFatFs`; Board retains only verified mappings, CubeMX owns SDIO/FatFs glue,
+  and MCU/Platform owns the controlled FatFs core/HAL providers. Format-9 generated projects add the
+  new paths without overwriting retained legacy Board files.
+- Added strict CubeMX FatFs symbol/App/Target/DMA/IRQ/version gates and dynamic generated-TIM HAL
+  timebase discovery. Rendering no longer assumes TIM1; invalid SysTick, frequency, IRQ, ambiguity,
+  source mismatch, and PWM/timebase conflicts fail before generation.
+- Added declarative module/provider mappings, conditional I²C/PWM activation, strict single HAL/CMSIS
+  source ownership, and reserved Classic-CAN rejection without default compile-all behavior.
+- Expanded the builtin catalog to 36 packages and project/schema inventory to 48 JSON documents;
+  updated Hardware Connection summaries and bilingual storage/timebase diagnostics.
+
 ## Unreleased — 2026-08-28
 
 - Upgraded project format 7 with a derived log-decoder-profile reference, canonical record catalog

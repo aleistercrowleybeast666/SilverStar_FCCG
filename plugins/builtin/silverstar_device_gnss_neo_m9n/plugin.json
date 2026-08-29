@@ -119,6 +119,9 @@
     "device_group_order": 20,
     "device_selection_style": "instance",
     "device_category": "sensor.gnss",
+    "build_feature_symbols": [
+      "SYSTEM_USER_GNSS_ENABLE"
+    ],
     "device_instance_bindings": {
       "SYSTEM_DEVICE_CLASS_GNSS": {
         "function_prefix": "SystemGnss"

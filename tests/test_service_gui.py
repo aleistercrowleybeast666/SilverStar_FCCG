@@ -26,7 +26,7 @@ def test_gui_service_loads_catalog_opens_project_and_previews(
     service.GenerationPlan_Apply(model, initial_plan)
     project_file = project_root / "SilverStar.ssproject"
     try:
-        assert window.plugin_manager_dialog.panel.plugin_table.rowCount() == 33
+        assert window.plugin_manager_dialog.panel.plugin_table.rowCount() == 36
         assert window.plugin_manager_dialog.panel.plugin_table.columnCount() == 9
         assert len(window.devices_page.device_combos) == 3
         wizard_values = wizard.WizardData_Get()

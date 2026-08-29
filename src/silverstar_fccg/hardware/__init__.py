@@ -13,6 +13,7 @@ from silverstar_fccg.hardware.platform import (
     PlatformMatchError,
     PlatformMatchResult,
     PlatformMatch_Resolve,
+    PlatformCompatibilityErrors_Get,
 )
 
 __all__ = [
@@ -26,4 +27,5 @@ __all__ = [
     "PlatformMatchError",
     "PlatformMatchResult",
     "PlatformMatch_Resolve",
+    "PlatformCompatibilityErrors_Get",
 ]

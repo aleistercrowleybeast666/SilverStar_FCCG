@@ -1,6 +1,6 @@
 # SilverStar 0.0.9 用户配置
 
-`System/User`只保存跨设备、跨MCU的任务配置。具体Device选择、构建资格映射、Board Service、项目资源和MCU backend属于`Targets/`、`Devices/*/Adapter`、`Board/`、`Generated/`与`Platform/`，不能写回本目录。
+`System/User`只保存跨设备、跨MCU的任务配置。具体Device选择、构建资格映射、Device-owned/内部硬件服务、Board物理映射、项目资源和MCU backend属于`Targets/`、`Devices/`、`FlightLogic/`、`Board/`、`Generated/`与`Platform/`，不能写回本目录。
 
 ## 配置文件
 
@@ -30,7 +30,7 @@
 2. 在该Device组件的`Adapter/`实现现有`Interfaces/Inc/system_*_if.h`直接函数；
 3. 在Device build capability头声明真实资格/噪声建议；
 4. 在`Targets/<target>/target.mk`和`target_system_config.h`选择、映射；
-5. 更新`Generated/`项目资源/project descriptor、Board Service与module manifest；
+5. 更新`Generated/`项目资源/project descriptor、所属Device/内部服务与module manifest；
 6. 完成Adapter mapping、architecture、ARM和硬件验收。
 
 System/User只在任务确实要改变算法或速率时修改，不因型号变化复制设备常量。

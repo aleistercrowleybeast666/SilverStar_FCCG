@@ -14,7 +14,8 @@ typedef enum
 typedef struct { uint32_t marker; } I2C_HandleTypeDef;
 typedef struct { uint32_t marker; } CAN_HandleTypeDef;
 typedef struct { uint32_t Period; } TIM_Base_InitTypeDef;
-typedef struct { TIM_Base_InitTypeDef Init; } TIM_HandleTypeDef;
+typedef struct { uint32_t CCMR1; uint32_t CCMR2; } TIM_TypeDef;
+typedef struct { TIM_TypeDef *Instance; TIM_Base_InitTypeDef Init; } TIM_HandleTypeDef;
 
 typedef struct
 {
@@ -35,8 +36,20 @@ typedef CAN_TxHeaderTypeDef CAN_RxHeaderTypeDef;
 #define CAN_RX_FIFO0           0U
 #define HAL_CAN_ERROR_BOF      (1UL << 0U)
 #define HAL_CAN_ERROR_RX_FOV0  (1UL << 1U)
-#define TIM_CHANNEL_1          1U
-#define TIM_CHANNEL_2          2U
+#define TIM_CHANNEL_1          0x00000000U
+#define TIM_CHANNEL_2          0x00000004U
+#define TIM_CHANNEL_3          0x00000008U
+#define TIM_CHANNEL_4          0x0000000CU
+#define TIM_CCMR1_OC1M         0x00000070U
+#define TIM_CCMR1_OC2M         0x00007000U
+#define TIM_CCMR2_OC3M         0x00000070U
+#define TIM_CCMR2_OC4M         0x00007000U
+#define TIM_OCMODE_PWM1        0x00000060U
+#define TIM_OCMODE_PWM2        0x00000070U
+#define TIM_OCMODE_FORCED_ACTIVE   0x00000050U
+#define TIM_OCMODE_FORCED_INACTIVE 0x00000040U
+#define MODIFY_REG(REG, CLEARMASK, SETMASK) \
+    ((REG) = (((REG) & ~(CLEARMASK)) | (SETMASK)))
 
 HAL_StatusTypeDef HAL_I2C_Master_Transmit(
     I2C_HandleTypeDef *handle, uint16_t address, uint8_t *data,

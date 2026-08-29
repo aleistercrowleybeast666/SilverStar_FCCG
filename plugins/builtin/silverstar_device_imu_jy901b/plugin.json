@@ -137,6 +137,11 @@
     "device_group_order": 20,
     "device_selection_style": "instance",
     "device_category": "sensor.imu",
+    "build_feature_symbols": [
+      "SYSTEM_USER_IMU_ENABLE",
+      "SYSTEM_USER_BAROMETER_ENABLE",
+      "SYSTEM_USER_HARDWARE_QUATERNION_ENABLE"
+    ],
     "device_instance_bindings": {
       "SYSTEM_DEVICE_CLASS_IMU": {
         "function_prefix": "SystemImu"

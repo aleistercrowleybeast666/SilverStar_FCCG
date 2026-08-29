@@ -115,6 +115,12 @@ class ProjectAssembler:
         for component_id in model.ComponentIds_Get():
             manifest = self.catalog.Component_Get(component_id)
             was_installed = component_id in previous_components
+            previous_component = previous_components.get(component_id, {})
+            previous_files = (
+                previous_component.get("files", {})
+                if isinstance(previous_component, dict)
+                else {}
+            )
             for source in manifest.PayloadFiles_Get():
                 relative = source.relative_to(manifest.payload_root).as_posix()
                 target = destination.joinpath(*relative.split("/"))
@@ -132,12 +138,25 @@ class ProjectAssembler:
                         PlanOperation("ADD", relative, component_id, "component")
                     )
                 elif was_installed:
+                    newly_owned = relative not in previous_files
                     operations.append(
                         PlanOperation(
-                            "PRESERVE" if target.is_file() else "CONFLICT",
+                            (
+                                "ADD"
+                                if newly_owned and not target.exists()
+                                else "CONFLICT"
+                                if newly_owned
+                                else "PRESERVE"
+                                if target.is_file()
+                                else "CONFLICT"
+                            ),
                             relative,
                             (
-                                "project-owned source"
+                                "new payload file added by the component update"
+                                if newly_owned and not target.exists()
+                                else "new component payload file collides with an existing path"
+                                if newly_owned
+                                else "project-owned source"
                                 if target.is_file()
                                 else "project-owned component file is missing; Apply will not restore it"
                             ),
@@ -652,21 +671,27 @@ class ProjectAssembler:
             self._Progress_Report(
                 progress_callback, 3, "copy_components", False
             )
-            new_components = [
-                component_id
-                for component_id in model.ComponentIds_Get()
-                if component_id not in previous_components
-            ]
+            component_files_to_add: list[Path] = []
             for component_id in model.ComponentIds_Get():
                 manifest = self.catalog.Component_Get(component_id)
-                if component_id in previous_components:
-                    preserved += len(manifest.PayloadFiles_Get())
-                    continue
+                previous_component = previous_components.get(component_id, {})
+                previous_files = (
+                    previous_component.get("files", {})
+                    if isinstance(previous_component, dict)
+                    else {}
+                )
                 for source in manifest.PayloadFiles_Get():
                     relative = source.relative_to(manifest.payload_root)
+                    if (
+                        component_id in previous_components
+                        and relative.as_posix() in previous_files
+                    ):
+                        preserved += 1
+                        continue
                     staged = staged_files / "components" / relative
                     staged.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy2(source, staged)
+                    component_files_to_add.append(relative)
             self._Progress_Report(
                 progress_callback, 3, "copy_components", True
             )
@@ -705,18 +730,15 @@ class ProjectAssembler:
             self._Progress_Report(
                 progress_callback, 7, "integrity_check", False
             )
-            for component_id in new_components:
-                manifest = self.catalog.Component_Get(component_id)
-                for source in manifest.PayloadFiles_Get():
-                    relative = source.relative_to(manifest.payload_root)
-                    staged = staged_files / "components" / relative
-                    target = self.policy.Path_Resolve(
-                        destination / relative, allow_root=False
-                    )
-                    target.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copy2(staged, target)
-                    copied_components.append(target)
-                    added += 1
+            for relative in component_files_to_add:
+                staged = staged_files / "components" / relative
+                target = self.policy.Path_Resolve(
+                    destination / relative, allow_root=False
+                )
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(staged, target)
+                copied_components.append(target)
+                added += 1
 
             if current_snapshot and not previous_snapshot:
                 for relative, content in hardware_files.items():

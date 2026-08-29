@@ -121,7 +121,7 @@ Host能力矩阵已验证：JY901B的重力已知航向角、六轴硬件四元�
 
 重构前43个关键原文件保存于`backup/pre_strategy_componentization_20260821/`，该目录不进入Make、EIDE、Host或Power-of-Ten范围。当前正式source graph只包含Alignment Common+GravityKnownYaw、INS Coning2Sculling2、Estimator KF6、Landing BarometerImuWindow、Deployment MultiTrigger、Calibration与Algorithm Common。GravityMagTriad、HardwareQuat6AxisKnownYaw和HardwareQuat9Axis只参加独立Host测试；`ESTIMATOR_STRATEGY=None list-sources`已验证不含`navigation_kf.c`。
 
-Deployment的NONE/APOGEE/TILT/DELAY及全部两两/三项组合均通过Host测试，保持任一条件满足、one-shot、reason/event与动作次数语义。硬件动作路径保持为`MultiTrigger decision -> FlightRecovery -> SystemMissionAction -> Board mission/output services -> PlatformGpio_Write -> Generated mapping -> P_CONTROL2 MOS`；FlightLogic不包含HAL、Platform GPIO或物理引脚知识。
+Deployment的NONE/APOGEE/TILT/DELAY及全部两两/三项组合均通过Host测试，保持任一条件满足、one-shot、reason/event与动作次数语义。硬件动作路径保持为`MultiTrigger decision -> FlightRecovery -> SystemMissionAction -> FlightLogic mission-action services -> PlatformGpio_Write -> Generated mapping -> P_CONTROL2 MOS`；FlightLogic不包含HAL、Platform GPIO或物理引脚知识。
 
 ### 自动检查与Host结果
 
@@ -158,7 +158,7 @@ CCMRAM中的关键对象为`s_estimator` 17696 B、当前`s_alignment_strategy` 
 ### 已实现与静态检查
 
 - 当前分支为`codex/refactor-silverstar-0.0.9-platform`；以`9ca21c7`为重构前基线，并先以`b1c13e2`建立0.0.9平台化checkpoint，未创建兼容工程副本、未reset/clean或覆盖既有成果；
-- 当前依赖为`System -> Interfaces -> Device Adapter / Board Service -> Device -> Platform -> STM32F4 backend`。JY901B/M9N/SX1281/UART集成归各Device组件，Power/Output/Storage等归`Board/SilverStar_0_5`，资源/日志选择/metadata归薄`Generated/`；旧Provider/VTable/Registry、`Bindings/`、sensor×STM32 port、CMSIS-RTOS2、defaultTask、旧Cube FreeRTOS与Semtech Radio callback/vtable路径已删除；
+- 当前依赖为`System -> Interfaces -> Device Adapter / Device-owned service / internal hardware service -> Device -> Platform -> STM32F4 backend`。JY901B/M9N/SX1281/UART集成归各Device组件，Power/Storage归各自Device，Mission Output与Indicator归内部FlightLogic服务组件，Board只保留已验证物理映射，资源/日志选择/metadata归薄`Generated/`；旧Provider/VTable/Registry、`Bindings/`、sensor×STM32 port、CMSIS-RTOS2、defaultTask、旧Cube FreeRTOS与Semtech Radio callback/vtable路径已删除；
 - `mingw32-make architecture-check`通过：`checks=109 failures=0`；显式manifest、Device Adapter/Board/Platform/FlightLogic/Generated边界、FreeRTOS V11.3.0精简源集、无第一方动态分配/libc printf、无Python authoritative build、SSLOG双向endian codec、`.ioc`关键资源和旧架构残留均通过；
 - 本次历史验收时SSLOG基线为28类Record，其ID、metadata和逐字段little-endian serializer/deserializer已是`Protocol/SSLOG/Inc/sslog_records.h`与`Protocol/SSLOG/Src/sslog_records.c`普通源码，schema/parser metadata当时仅作离线参考；当前29类Record Catalog与Decoder Profile状态以本文2026-08-28条目为准。工程仍禁止按C struct布局直接读写wire；
 - `mingw32-make list-sources`通过，列出的当前图包含F407、JY901B、M9N、SX1281、UART Adapter、SilverStar 0.5 Board、FlightLogic和受控Generated glue，不包含旧Provider、Binding、sensor STM32 port、CMSIS、heap或SSLOG生成器；
@@ -167,7 +167,7 @@ CCMRAM中的关键对象为`s_estimator` 17696 B、当前`s_alignment_strategy` 
 ### Host执行
 
 - `Tests/Host/run_tests.ps1`使用C11、`-Wall -Wextra -Werror -pedantic`完成48个独立可执行测试：`checks=9050 failures=0`，另有4个预期编译成功和13个预期编译失败能力契约；
-- 覆盖Interfaces/Platform mock/Device Driver+Adapter、Board Service、Alignment/Calibration/INS/KF6/Lifecycle/FlightRecovery、AIR、Console、Telemetry、Logger及SSLOG；新增JY901B和NEO-M9N native-to-System转换测试；
+- 覆盖Interfaces/Platform mock/Device Driver+Adapter、Device-owned/internal services、Alignment/Calibration/INS/KF6/Lifecycle/FlightRecovery、AIR、Console、Telemetry、Logger及SSLOG；新增JY901B和NEO-M9N native-to-System转换测试；
 - SSLOG覆盖全部28个payload的`encode -> decode -> encode`字节一致性、完整Record endian/sync/version/size/CRC及buffer-small/unknown-type错误路径；Common有界格式器覆盖整数、定点小数、general float、截断与NULL边界。
 
 ### ARM GCC clean build与产物

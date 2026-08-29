@@ -79,6 +79,17 @@ environment, or any other repository. Project-local settings and logs belong bel
   Log Format 0.0; internal `SSLOG0` magic may remain only for binary compatibility.
 - Board/imported `.ioc` facts must satisfy typed bus and GPIO electrical/safe-start constraints.
   Manual assignment confirmation is a fingerprint and must clear when a validity input changes.
+- Physical storage is a single-instance Device owner. Board manifests provide only verified SDIO/time
+  mappings; CubeMX supplies SDIO plus FatFs App/Target glue; MCU/Platform supplies controlled FatFs
+  core/HAL providers. Never restore generic storage/log-sink ownership to a Board or compile both
+  legacy Board-path and Device-path implementations.
+- CubeMX timer HAL timebase is discovered from generated source and must satisfy the Platform's
+  frequency/IRQ contract. Never hard-code TIM1, accept SysTick silently, or share the timebase timer
+  with a selected PWM channel.
+- Declarative module/provider mappings separate CubeMX init/HAL/middleware providers from consumer
+  wrappers. Activate them from actual inventory plus selected consumers; never infer “compile all”
+  from source presence. Reserved providers such as current Classic CAN remain unavailable to normal
+  consumers.
 - Strategy and Mode slots are generic manifest-declared dictionaries. Do not add hard-coded future
   Guidance/Control/Actuator choices without real plugins and source.
 - Imported vendor configuration remains below `HardwareGenerated/STM32CubeMX/`. It is neither
