@@ -1495,8 +1495,11 @@ class FlightConfigurationPage(ScrollableLocalizedPage):
             category: tuple(values) for category, values in profiles.items()
         }
         self._selected_protocol_profiles = dict(selected)
-        while self.protocol_form.rowCount():
-            self.protocol_form.removeRow(0)
+        while self.protocol_form.count():
+            item = self.protocol_form.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
         self.protocol_combos.clear()
         ordered_categories = ("telemetry", "maintenance", "logging")
         for category in ordered_categories:
@@ -1558,7 +1561,7 @@ class FlightConfigurationPage(ScrollableLocalizedPage):
         if value is None:
             self.protocolProfileChanged.emit(category, None)
             return
-        if not isinstance(value, tuple) or len(value) != 2:
+        if not isinstance(value, (list, tuple)) or len(value) != 2:
             return
         self.protocolProfileChanged.emit(
             category, (str(value[0]), str(value[1]))

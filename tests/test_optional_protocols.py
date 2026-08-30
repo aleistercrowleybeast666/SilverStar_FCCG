@@ -562,3 +562,58 @@ def test_protocol_combos_and_logging_disabled_state_are_stable(
     finally:
         window.close()
         qapp.processEvents()
+
+
+def test_logging_protocol_reopens_after_storage_is_restored_and_survives_refresh(
+    tmp_path: Path,
+    qapp,
+) -> None:
+    window = MainWindow(SettingsStore(tmp_path / "logging-reopen-ui.ini"))
+    try:
+        window.show()
+        qapp.processEvents()
+
+        storage_check = window.devices_page.device_checks[STORAGE_DEVICE]
+        assert storage_check.isChecked()
+        storage_check.click()
+        qapp.processEvents()
+        assert window._model.protocols["logging"] is None
+
+        storage_check = window.devices_page.device_checks[STORAGE_DEVICE]
+        assert not storage_check.isChecked()
+        storage_check.click()
+        qapp.processEvents()
+        assert window._model.DeviceInstance_Get("storage0") is not None
+
+        logging_combo = window.flight_configuration_page.protocol_combos["logging"]
+        assert logging_combo.currentIndex() == 0
+        logging_index = next(
+            index
+            for index in range(1, logging_combo.count())
+            if logging_combo.model().item(index).isEnabled()
+        )
+        selected_logging = logging_combo.itemData(logging_index)
+        assert isinstance(selected_logging, (list, tuple))
+        assert len(selected_logging) == 2
+        logging_combo.setCurrentIndex(logging_index)
+        qapp.processEvents()
+
+        page = window.flight_configuration_page
+        selected = window._model.protocols["logging"]
+        assert selected is not None
+        assert (selected.component, selected.profile) == tuple(selected_logging)
+        assert page.logging_table.isEnabled()
+        assert page.logging_table.rowCount() > 0
+        assert page.logging_table.rowCount() == len(page.Streams_Get())
+
+        telemetry_combo = page.protocol_combos["telemetry"]
+        telemetry_combo.setCurrentIndex(0)
+        qapp.processEvents()
+
+        assert window._model.protocols["logging"] is not None
+        assert page.protocol_combos["logging"].currentIndex() > 0
+        assert page.logging_table.isEnabled()
+        assert page.logging_table.rowCount() > 0
+    finally:
+        window.close()
+        qapp.processEvents()
