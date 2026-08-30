@@ -26,7 +26,7 @@ Generated/
 - `project_storage_binding.h` binds the selected storage Device to the unique CubeMX FatFs object, path, and disk-driver symbols after SDIO/DMA/IRQ/App/Target/version checks. A non-storage Board cannot satisfy the logging sink merely by containing a codec.
 - `platform_resources.c` binds those logical IDs to Board or imported hardware handles/GPIO metadata using the matched MCU/Platform manifest's header/table/getter/struct contract. Python validates tokens but does not contain F4 symbols.
 - `project_capability_routes.*` is a static, heap-free table of capability/provider-instance/provider-plugin/consumer/purpose hashes. A sole provider is marked automatic; unresolved ambiguity prevents generation.
-- `project_flight_config.h` emits selected software-Indicator enable symbols plus the deployment trigger mask and validated thresholds. Time values such as Delay are scaled from manifest/UI seconds to a bounded `uint32` millisecond constant.
+- `project_flight_config.h` emits selected software-Indicator enable symbols, stable telemetry/maintenance/logging 0/1 macros, the 8-byte logging compatibility tag, plus the deployment trigger mask and validated thresholds. Time values such as Delay are scaled from manifest/UI seconds to a bounded `uint32` millisecond constant.
 - `project_log_config.*` contains only logging enable/policy/decimation/period selection.
 - `project_metadata.c` contains static component descriptors and the authoritative generation fingerprint digest.
 - `project_sources.mk` is the explicit Make source/include/define/forced-include graph.
@@ -36,11 +36,11 @@ Generated C is static, heap-free connection/configuration data. It does not impl
 
 Component payloads outside `Generated/` are project-owned source. Normal Save preserves them even when their original plugin changes or a component becomes inactive.
 
-The SDIO/FatFs storage and file-log implementations are emitted under `Devices/Storage/SdSdioFatFs/` and owned by `silverstar.device.storage.sd_sdio_fatfs`. Legacy format-9 projects may retain the former Board-path copies as inactive project-owned files; applying format 10 adds the Device-owned paths without overwriting or deleting those legacy files, and the resolved Source Graph compiles only the new owner. CubeMX App/Target glue, the controlled MCU FatFs core, and the storage consumer remain distinct providers.
+The SDIO/FatFs storage and file-log implementations are emitted under `Devices/Storage/SdSdioFatFs/` and owned by `silverstar.device.storage.sd_sdio_fatfs`. Legacy format-9 projects may retain the former Board-path copies as inactive project-owned files; applying the current format adds the Device-owned paths without overwriting or deleting those legacy files, and the resolved Source Graph compiles only the new owner. CubeMX App/Target glue, the controlled MCU FatFs core, and the storage consumer remain distinct providers.
 
 CubeMX timer HAL timebase facts are parsed from the generated `stm32*_hal_timebase_tim.c` and rendered through the selected Platform contract. The generated resource table uses the discovered handle/instance and does not assume TIM1. SysTick timebase, missing or ambiguous initialization, non-1 MHz counter/non-1 kHz tick, disabled IRQ, source mismatch, and PWM reuse of the timebase timer fail before generation.
 
-Managed output is rendered and staged as one plan. `Generated/`, Make/Target data, EIDE/VS Code metadata, `.ssdecoder`, configuration review, readiness markers, and ownership records are updated together; `SilverStar.ssproject` is published last. Readiness treats a missing or changed managed file as Dirty and Save regenerates it without overwriting project-owned component source. EIDE is the shared-ownership exception: readiness and planning compare the normalized FCCG-owned build subtree, not the whole YAML byte stream, so EIDE UI/order/uploader rewrites remain clean while real source/include/linker/toolchain changes are named explicitly.
+Managed output is rendered and staged as one plan. `Generated/`, Make/Target data, EIDE/VS Code metadata, the conditional `.ssdecoder`, configuration review, readiness markers, and ownership records are updated together; `SilverStar.ssproject` is published last. Readiness treats a missing or changed managed file as Dirty and Save regenerates it without overwriting project-owned component source. When logging is disabled, the plan transactionally removes only previously managed decoder/golden outputs and preserves manual logs. EIDE is the shared-ownership exception: readiness and planning compare the normalized FCCG-owned build subtree, not the whole YAML byte stream, so EIDE UI/order/uploader rewrites remain clean while real source/include/linker/toolchain changes are named explicitly.
 
 The generation fingerprint comes from normalized portable generation state, not the complete descriptor dictionary. Local compiler/Make/Host-GCC paths and provenance do not invalidate generated code. Metadata rendering deep-copies the input model before inserting provenance, and successful materialization reloads the exact descriptor written to disk as the live model.
 
@@ -52,19 +52,20 @@ For the verified reference composition, imported Device/Telemetry tasks call the
 log implementation. The Core manifest contributes `silverstar.core.device_task` and
 `silverstar.core.telemetry_task`; SSLOG metadata requires those identities for STATS and
 TELEMETRY_DIAG. Both streams remain ordinary generated PERIODIC selections at 1000000 us and
-200000 us, without changing the Flight Log Format 0.0 container or AIR M0 wire value.
+200000 us in the default composition. The telemetry producer identity is active only with the
+telemetry Protocol, so TELEMETRY_DIAG becomes unavailable under T=0 while STATS remains produced.
 
 Cadence is Protocol-owned display metadata. Its optional kinds are periodic, source-driven, per-measurement, event-driven, one-shot, and algorithm-output. The project descriptor continues to persist only policy, decimation, and canonical `period_us`; a non-periodic `period_us = 0` means that no fixed period applies and never means continuous zero-period output. Cadence labels and unit choices are GUI concerns and do not alter generated firmware state.
 
 ## Decoder profile
 
-Generation also creates `<ProjectName>.ssdecoder`. The deterministic ZIP contains only
+Logging-enabled generation also creates `<ProjectName>.ssdecoder` under package schema 1.1. The deterministic ZIP contains only
 `manifest.json`, `record_catalog.json`, `project_semantics.json`, `checksums.sha256`, and
 `README.md`; entry timestamps/modes are fixed and no Python, PowerShell, shell, DLL, EXE, hook, or
 other executable entry is present. `record_catalog.json` carries the selected Flight Log container
 and record schema, while `project_semantics.json` records physical Device instances/descriptors,
 resolved capability routes and resource assignments, selected Algorithms/Strategies/Modes, three
-component/version/Profile/manifest protocol locks and their physical bindings, detected MCU plus
+nullable protocol slots (with a required logging lock) and active physical bindings, detected MCU plus
 Platform/Board/CubeMX identity, record availability, and active logging streams.
 
 Canonical JSON uses UTF-8 without BOM, sorted object keys, compact separators, stable arrays, and
@@ -89,6 +90,8 @@ The GUI action named **Export Log Decoder Profile** rebuilds this same canonical
 saved reference, generated package, and readiness state, then atomically writes the selected file.
 It does not generate a parser, executable plugin, `.ssdecoder` variant, or version-dispatch layer,
 and it does not make the project Dirty.
+It is disabled when logging is None. In that state no package, descriptor source, golden expectation,
+or golden Host task exists, while standalone `Generated/project_semantics.json` is still generated.
 
 ## HardwareGenerated
 

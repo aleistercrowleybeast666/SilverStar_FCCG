@@ -154,6 +154,10 @@
       "SYSTEM_DEVICE_CLASS_TELEMETRY": {
         "function_prefix": "SystemTelemetry"
       }
+    },
+    "source_origins": {
+      "default": "reference_base",
+      "Devices/Telemetry/SX1281/Adapter/Src/sx1281_telemetry_adapter.c": "fccg_optional_protocol_gating"
     }
   },
   "instance_policy": {

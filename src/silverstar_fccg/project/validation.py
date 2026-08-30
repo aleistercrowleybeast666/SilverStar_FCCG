@@ -255,6 +255,8 @@ def _ProtocolProfiles_Validate(
     issues: list[ValidationIssue],
 ) -> None:
     for category, selected in sorted(model.protocols.items()):
+        if selected is None:
+            continue
         try:
             manifest = catalog.Component_Get(selected.component)
         except FccgError as error:
@@ -880,69 +882,70 @@ def Project_Validate(model: ProjectModel, catalog: PluginCatalog) -> ProjectVali
                     f"{capability}",
                 )
             )
-    log_sink_providers = tuple(
-        instance.instance_id
-        for instance in model.device_instances
-        if "service.log_sink"
-        in catalog.Component_Get(instance.plugin).provides
-    )
-    if len(log_sink_providers) != 1:
-        issues.append(
-            ValidationIssue(
-                "error",
-                "log_sink_cardinality",
-                "Exactly one physical Log Sink Device is required / "
-                "必须且只能选择一个物理日志接收设备: "
-                + (", ".join(log_sink_providers) or "none"),
-            )
+    if model.protocols.get("logging") is not None:
+        log_sink_providers = tuple(
+            instance.instance_id
+            for instance in model.device_instances
+            if "service.log_sink"
+            in catalog.Component_Get(instance.plugin).provides
         )
-    if not model.logging_streams:
-        issues.append(
-            ValidationIssue(
-                "error", "logging", "No SSLOG stream policy is configured"
-            )
-        )
-    try:
-        definitions = ProtocolLogDefinitions_Get(model, catalog)
-    except ValueError as error:
-        definitions = ()
-        issues.append(ValidationIssue("error", "logging_metadata", str(error)))
-    expected_records = tuple(definition.record for definition in definitions)
-    actual_records = tuple(stream.record for stream in model.logging_streams)
-    if definitions and actual_records != expected_records:
-        issues.append(
-            ValidationIssue(
-                "error",
-                "logging_records",
-                "The SSLOG record table must match the selected protocol bundle order",
-            )
-        )
-    streams = {stream.record: stream for stream in model.logging_streams}
-    for definition in definitions:
-        stream = streams.get(definition.record)
-        if stream is None:
-            continue
-        availability = LogAvailability_Get(definition, model, catalog)
-        if not availability.available and stream.enabled:
+        if len(log_sink_providers) != 1:
             issues.append(
                 ValidationIssue(
                     "error",
-                    "logging_unavailable",
-                    f"Unavailable SSLOG record is enabled: {definition.record}",
+                    "log_sink_cardinality",
+                    "Exactly one physical Log Sink Device is required / "
+                    "必须且只能选择一个物理日志接收设备: "
+                    + (", ".join(log_sink_providers) or "none"),
                 )
             )
-        if (
-            availability.available
-            and definition.level == LogPolicyLevel.REQUIRED
-            and not stream.enabled
-        ):
+        if not model.logging_streams:
+            issues.append(
+                ValidationIssue(
+                    "error", "logging", "No SSLOG stream policy is configured"
+                )
+            )
+        try:
+            definitions = ProtocolLogDefinitions_Get(model, catalog)
+        except ValueError as error:
+            definitions = ()
+            issues.append(ValidationIssue("error", "logging_metadata", str(error)))
+        expected_records = tuple(definition.record for definition in definitions)
+        actual_records = tuple(stream.record for stream in model.logging_streams)
+        if definitions and actual_records != expected_records:
             issues.append(
                 ValidationIssue(
                     "error",
-                    "logging_required",
-                    f"Required SSLOG record cannot be disabled: {definition.record}",
+                    "logging_records",
+                    "The SSLOG record table must match the selected protocol bundle order",
                 )
             )
+        streams = {stream.record: stream for stream in model.logging_streams}
+        for definition in definitions:
+            stream = streams.get(definition.record)
+            if stream is None:
+                continue
+            availability = LogAvailability_Get(definition, model, catalog)
+            if not availability.available and stream.enabled:
+                issues.append(
+                    ValidationIssue(
+                        "error",
+                        "logging_unavailable",
+                        f"Unavailable SSLOG record is enabled: {definition.record}",
+                    )
+                )
+            if (
+                availability.available
+                and definition.level == LogPolicyLevel.REQUIRED
+                and not stream.enabled
+            ):
+                issues.append(
+                    ValidationIssue(
+                        "error",
+                        "logging_required",
+                        f"Required SSLOG record cannot be disabled: {definition.record}",
+                    )
+                )
     if model.build.target_profile != "SilverStar_F407":
         issues.append(
             ValidationIssue(

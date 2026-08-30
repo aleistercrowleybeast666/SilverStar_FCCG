@@ -440,7 +440,7 @@ class DevicesPage(ScrollableLocalizedPage):
                     and instance.required
                     and not str(
                         component.options.get("device_category", "")
-                    ).startswith("actuator.")
+                    ).startswith(("actuator.", "storage.", "link."))
                 )
                 check = (
                     LockedCheckBox(component.name)
@@ -1166,7 +1166,7 @@ class FlightConfigurationPage(ScrollableLocalizedPage):
     capabilitySourceChanged = Signal(str, str)
     loggingChanged = Signal()
     modeParameterChanged = Signal(str, str, str, object)
-    protocolProfileChanged = Signal(str, str, str)
+    protocolProfileChanged = Signal(str, object)
     logDecoderExportRequested = Signal()
 
     def __init__(self, translator: Translator) -> None:
@@ -1213,6 +1213,13 @@ class FlightConfigurationPage(ScrollableLocalizedPage):
         logging_notice.setWordWrap(True)
         self.Text_Register(logging_notice, "logging.thin_glue_notice")
         logging_header_layout.addWidget(logging_notice, 1)
+        self.logging_disabled_label = QLabel()
+        self.logging_disabled_label.setWordWrap(True)
+        self.Text_Register(
+            self.logging_disabled_label, "logging.protocol_disabled"
+        )
+        self.logging_disabled_label.hide()
+        logging_layout.addWidget(self.logging_disabled_label)
         self.logging_select_all_button = QPushButton()
         self.logging_select_all_button.setObjectName(
             "loggingSelectAllAvailableButton"
@@ -1288,7 +1295,10 @@ class FlightConfigurationPage(ScrollableLocalizedPage):
             str, dict[str, dict[str, float | int]]
         ] = {}
         self._protocol_profiles: dict[str, tuple[ProtocolProfileView, ...]] = {}
-        self._selected_protocol_profiles: dict[str, tuple[str, str]] = {}
+        self._selected_protocol_profiles: dict[
+            str, tuple[str, str] | None
+        ] = {}
+        self._logging_protocol_enabled = True
         self._streams: list[LoggingStreamView] = []
         self._capabilities: tuple[CapabilityUsageView, ...] = ()
         self._strategy_availability: dict[str, SelectionAvailability] = {}
@@ -1479,7 +1489,7 @@ class FlightConfigurationPage(ScrollableLocalizedPage):
     def Protocols_Set(
         self,
         profiles: dict[str, tuple[ProtocolProfileView, ...]],
-        selected: dict[str, tuple[str, str]],
+        selected: dict[str, tuple[str, str] | None],
     ) -> None:
         self._protocol_profiles = {
             category: tuple(values) for category, values in profiles.items()
@@ -1491,10 +1501,9 @@ class FlightConfigurationPage(ScrollableLocalizedPage):
         ordered_categories = ("telemetry", "maintenance", "logging")
         for category in ordered_categories:
             values = self._protocol_profiles.get(category, ())
-            if not values:
-                continue
             combo = StandardComboBox()
             combo.setObjectName(f"protocolProfile_{category}")
+            combo.addItem(self._translator.Text_Get("selection.none"), None)
             component_count = len({value.component_id for value in values})
             for value in values:
                 display_name = value.display_name
@@ -1504,7 +1513,26 @@ class FlightConfigurationPage(ScrollableLocalizedPage):
                     display_name,
                     (value.component_id, value.profile_id),
                 )
-            index = combo.findData(selected.get(category, ("", "")))
+                index = combo.count() - 1
+                item = combo.model().item(index)
+                if item is not None:
+                    item.setEnabled(value.available)
+                    if not value.available:
+                        item.setForeground(
+                            combo.palette().color(
+                                QPalette.ColorGroup.Disabled,
+                                QPalette.ColorRole.Text,
+                            )
+                        )
+                        item.setBackground(
+                            combo.palette().color(
+                                QPalette.ColorGroup.Disabled,
+                                QPalette.ColorRole.Base,
+                            )
+                        )
+                    if value.availability_reason:
+                        item.setToolTip(value.availability_reason)
+            index = combo.findData(selected.get(category))
             combo.setCurrentIndex(max(0, index))
             combo.currentIndexChanged.connect(
                 lambda _index, selected_category=category,
@@ -1527,9 +1555,22 @@ class FlightConfigurationPage(ScrollableLocalizedPage):
         self, category: str, combo: StandardComboBox
     ) -> None:
         value = combo.currentData()
+        if value is None:
+            self.protocolProfileChanged.emit(category, None)
+            return
         if not isinstance(value, tuple) or len(value) != 2:
             return
-        self.protocolProfileChanged.emit(category, str(value[0]), str(value[1]))
+        self.protocolProfileChanged.emit(
+            category, (str(value[0]), str(value[1]))
+        )
+
+    def LoggingProtocolEnabled_Set(self, enabled: bool) -> None:
+        self._logging_protocol_enabled = enabled
+        self.logging_disabled_label.setVisible(not enabled)
+        self.logging_table.setEnabled(enabled)
+        self.logging_select_all_button.setEnabled(enabled)
+        self.logging_required_only_button.setEnabled(enabled)
+        self.log_decoder_export_button.setEnabled(enabled)
 
     def Capabilities_Set(
         self, capabilities: Iterable[CapabilityUsageView]

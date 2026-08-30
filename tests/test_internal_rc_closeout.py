@@ -467,6 +467,28 @@ def test_storage_device_rejects_incomplete_hardware_contracts(
     assert availability.reason_code == "selection.unavailable.hardware_contract"
 
 
+def test_storage_selection_is_available_until_custom_hardware_is_prepared(
+    workspace_root: Path,
+) -> None:
+    service = FccgService(workspace_root)
+    model = service.ProjectDraft_Create("PendingStorageHardware")
+
+    availability = service.DeviceSelectionAvailabilities_Get(model)[STORAGE_PLUGIN]
+    assert model.hardware.mode == "custom"
+    assert not model.hardware.snapshot_id
+    assert availability.available
+    assert not availability.reason_code
+
+    model.device_instances = [
+        instance
+        for instance in model.device_instances
+        if instance.plugin != STORAGE_PLUGIN
+    ]
+    availability = service.DeviceSelectionAvailabilities_Get(model)[STORAGE_PLUGIN]
+    assert availability.available
+    assert not availability.reason_code
+
+
 def test_fatfs_symbol_ambiguity_and_missing_target_are_detected(
     builtin_catalog,
 ) -> None:

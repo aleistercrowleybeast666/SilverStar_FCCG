@@ -5,18 +5,22 @@
 
 #include "FreeRTOS.h"
 #include "task.h"
-#include "diagnostic_log.h"
 #include "estimator_bus.h"
-#include "device_native_log.h"
 #include "imu_sample_bus.h"
+#if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
+#include "diagnostic_log.h"
+#include "device_native_log.h"
 #include "logger_bus.h"
+#endif
 #include "silverstar_assert.h"
 #include "system_barometer_if.h"
 #include "system_gnss_if.h"
 #include "system_health.h"
 #include "system_imu_if.h"
 #include "system_lifecycle.h"
+#if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
 #include "system_log_policy.h"
+#endif
 #include "system_startup.h"
 #include "system_time.h"
 
@@ -54,6 +58,7 @@ static void DeviceTask_PublishBarometer(void)
     (void)EstimatorBus_PressurePublish(&snapshot);
 }
 
+#if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
 static void DeviceTask_LogGnssState(void)
 {
     static uint32_t last_sequence;
@@ -221,6 +226,7 @@ static void DeviceTask_LogPeriodic(void)
     DeviceTask_LogHealthPeriodic(now_us, &health_config);
     DiagnosticLog_StatsProcess(&stats_log_state, now_us);
 }
+#endif
 
 void AppTask_Device(void *argument)
 {
@@ -231,13 +237,19 @@ void AppTask_Device(void *argument)
     for (;;)
     {
         SystemStartup_ProcessDevices();
+#if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
         DeviceNativeLog_Process();
+#endif
         ImuSampleBus_Process();
         DeviceTask_PublishBarometer();
+#if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
         DeviceTask_LogGnssState();
         DeviceTask_LogGnssDiagnostics();
+#endif
         SystemHealth_Process();
+#if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
         DeviceTask_LogPeriodic();
+#endif
         vTaskDelay(pdMS_TO_TICKS(1U));
     }
 }

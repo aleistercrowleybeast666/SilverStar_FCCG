@@ -112,6 +112,29 @@ class ProjectAssembler:
         selected_components = set(model.ComponentIds_Get())
         operations: list[PlanOperation] = []
 
+        for relative in self._StaleManagedPaths_Get(previous, managed_paths):
+            target = self.policy.Path_Resolve(
+                destination.joinpath(*relative.split("/")), allow_root=False
+            )
+            if target.is_file():
+                operations.append(
+                    PlanOperation(
+                        "REMOVE",
+                        relative,
+                        "stale FCCG-managed output",
+                        "generated",
+                    )
+                )
+            elif target.exists():
+                operations.append(
+                    PlanOperation(
+                        "CONFLICT",
+                        relative,
+                        "stale managed path is not a file",
+                        "generated",
+                    )
+                )
+
         for component_id in model.ComponentIds_Get():
             manifest = self.catalog.Component_Get(component_id)
             was_installed = component_id in previous_components
@@ -442,6 +465,25 @@ class ProjectAssembler:
             raise ProjectAssemblerError("Unsupported project ownership metadata")
         return value
 
+    def _StaleManagedPaths_Get(
+        self, previous: dict, desired_paths: set[str]
+    ) -> tuple[str, ...]:
+        recorded = previous.get("managed_files", ())
+        if not isinstance(recorded, list):
+            return ()
+        stale: list[str] = []
+        for relative in recorded:
+            if not isinstance(relative, str) or relative in desired_paths:
+                continue
+            try:
+                portable = self.policy.RelativePath_Validate(relative)
+            except ValueError as error:
+                raise ProjectAssemblerError(
+                    f"Invalid managed path in ownership metadata: {relative!r}"
+                ) from error
+            stale.append(portable.as_posix())
+        return tuple(sorted(set(stale)))
+
     def _HardwareFiles_Get(self, model: ProjectModel) -> dict[str, bytes]:
         if model.hardware.mode != "custom":
             return {}
@@ -664,6 +706,7 @@ class ProjectAssembler:
         modified = 0
         copied_components: list[Path] = []
         applied_managed: list[tuple[Path, bool]] = []
+        removed_managed: list[tuple[Path, Path]] = []
         hardware_backup: Path | None = None
         hardware_target = destination / "HardwareGenerated" / "STM32CubeMX"
         hardware_was_replaced = False
@@ -698,6 +741,10 @@ class ProjectAssembler:
 
             desired, _ownership = self._DesiredFiles_Get(
                 model, destination, hardware_files, progress_callback
+            )
+
+            stale_managed = self._StaleManagedPaths_Get(
+                previous, set(desired)
             )
 
             managed_targets: list[tuple[Path, Path, bool]] = []
@@ -768,10 +815,25 @@ class ProjectAssembler:
                 self.policy.Path_Replace(staged_hardware, hardware_target)
                 hardware_was_replaced = True
 
+            for relative in stale_managed:
+                relative_path = Path(*relative.split("/"))
+                target = self.policy.Path_Resolve(
+                    destination / relative_path, allow_root=False
+                )
+                if not target.is_file():
+                    continue
+                backup = backup_files / "removed" / relative_path
+                backup.parent.mkdir(parents=True, exist_ok=True)
+                self.policy.Path_Replace(target, backup)
+                removed_managed.append((target, backup))
+                modified += 1
+
             for target, staged, existed in managed_targets:
                 target.parent.mkdir(parents=True, exist_ok=True)
                 self.policy.Path_Replace(staged, target)
                 applied_managed.append((target, existed))
+            for target, _backup in removed_managed:
+                self._EmptyParents_Remove(target.parent, destination)
             return ApplyResult(
                 destination,
                 added,
@@ -788,6 +850,10 @@ class ProjectAssembler:
                         self.policy.Path_Replace(backup, target)
                 else:
                     target.unlink(missing_ok=True)
+            for target, backup in reversed(removed_managed):
+                if backup.exists():
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    self.policy.Path_Replace(backup, target)
             if hardware_was_replaced:
                 if hardware_target.exists():
                     self.policy.Tree_Remove(hardware_target)
@@ -805,6 +871,14 @@ class ProjectAssembler:
         staging_root = self.policy.Path_Resolve(".staging", allow_root=False)
         if staging_root.is_dir() and not any(staging_root.iterdir()):
             staging_root.rmdir()
+
+    @staticmethod
+    def _EmptyParents_Remove(start: Path, root: Path) -> None:
+        current = start
+        while current != root and current.is_dir() and not any(current.iterdir()):
+            parent = current.parent
+            current.rmdir()
+            current = parent
 
     @staticmethod
     def _Progress_Report(

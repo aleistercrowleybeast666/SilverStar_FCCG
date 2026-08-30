@@ -152,6 +152,11 @@ def SourceGraph_Resolve(model: ProjectModel, catalog: PluginCatalog) -> SourceGr
                 available_provider_sources.append(source)
             else:
                 sources.append(source)
+        for category, category_sources in build.protocol_sources.items():
+            if model.protocols.get(category) is not None:
+                sources.extend(category_sources)
+            else:
+                exclude_sources.extend(category_sources)
         for slot, variants in build.strategy_sources.items():
             if slot not in model.strategies:
                 raise SourceGraphError(
@@ -266,14 +271,17 @@ def SourceGraph_Resolve(model: ProjectModel, catalog: PluginCatalog) -> SourceGr
     selected_profile_ids = {
         (category, selection.component, selection.profile)
         for category, selection in model.protocols.items()
+        if selection is not None
     }
     resolved_profile_ids = {
         (
             category,
-            model.protocols[category].component,
+            selection.component,
             profile.profile_id,
         )
         for category, profile in selected_protocol_profiles
+        for selection in (model.protocols.get(category),)
+        if selection is not None
     }
     if selected_profile_ids != resolved_profile_ids:
         raise SourceGraphError(
@@ -388,14 +396,19 @@ def SourceGraph_Resolve(model: ProjectModel, catalog: PluginCatalog) -> SourceGr
         )
         if source not in sources
     )
-    generated_sources = (
+    generated_sources = [
         "Generated/Src/platform_resources.c",
         "Generated/Src/project_capability_routes.c",
         "Generated/Src/project_device_instances.c",
-        "Generated/Src/project_log_decoder_profile.c",
-        "Generated/Src/project_log_config.c",
         "Generated/Src/project_metadata.c",
-    )
+    ]
+    if model.protocols.get("logging") is not None:
+        generated_sources.extend(
+            (
+                "Generated/Src/project_log_decoder_profile.c",
+                "Generated/Src/project_log_config.c",
+            )
+        )
     sources.extend(generated_sources)
     include_dirs.append("Generated/Inc")
     forced_includes.append("Generated/Inc/project_flight_config.h")

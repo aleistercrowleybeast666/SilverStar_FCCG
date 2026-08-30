@@ -6,15 +6,18 @@
 #include "debug_log.h"
 #include "silverstar_assert.h"
 #include "system_barometer_if.h"
+#if (SILVERSTAR_PROTOCOL_MAINTENANCE_ENABLED != 0U)
 #include "system_console.h"
 #include "system_console_if.h"
+#endif
 #include "system_gnss_if.h"
 #include "system_health.h"
 #include "system_hardware_quaternion_if.h"
 #include "system_imu_if.h"
 #include "system_lifecycle.h"
+#if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
 #include "system_log_policy.h"
-#include "system_log_sink_if.h"
+#endif
 #include "system_magnetometer_if.h"
 #include "system_navigation_profile.h"
 #include "system_output_if.h"
@@ -188,6 +191,7 @@ static void SystemStartup_OutputStart(void)
     }
 }
 
+#if (SILVERSTAR_PROTOCOL_MAINTENANCE_ENABLED != 0U)
 static void SystemStartup_ConsoleStart(void)
 {
     SystemStartupDeviceReport *device =
@@ -219,6 +223,7 @@ static void SystemStartup_ConsoleStart(void)
         DebugLog_Init();
     }
 }
+#endif
 
 static void SystemStartup_JyLogicalStart(void)
 {
@@ -494,6 +499,7 @@ static void SystemStartup_OtherAdaptersStart(void)
 
     SILVERSTAR_ASSERT_OBJECT(&s_startup_report, SystemStartupReport,
         SILVERSTAR_ASSERT_MODULE_SYSTEM);
+#if (SILVERSTAR_PROTOCOL_TELEMETRY_ENABLED != 0U)
     device = &s_startup_report.devices[SYSTEM_STARTUP_DEVICE_TELEMETRY];
     if (SystemStartup_CapabilityEnabled(SYSTEM_CAPABILITY_TELEMETRY) != 0U)
     {
@@ -520,6 +526,7 @@ static void SystemStartup_OtherAdaptersStart(void)
         device->persist_result = SYSTEM_DEVICE_CONFIG_NO_ACTION;
         device->verify_result = SYSTEM_DEVICE_CONFIG_NO_ACTION;
     }
+#endif
 
     device = &s_startup_report.devices[SYSTEM_STARTUP_DEVICE_POWER];
     if (SystemStartup_CapabilityEnabled(SYSTEM_CAPABILITY_POWER) != 0U)
@@ -557,10 +564,14 @@ static void SystemStartup_CommunicationProcess(void)
     { SystemImu_Process(); }
     if (SystemStartup_CapabilityEnabled(SYSTEM_CAPABILITY_GNSS) != 0U)
     { SystemGnss_Process(); }
+#if (SILVERSTAR_PROTOCOL_TELEMETRY_ENABLED != 0U)
     if (SystemStartup_CapabilityEnabled(SYSTEM_CAPABILITY_TELEMETRY) != 0U)
     { SystemTelemetry_Process(); }
+#endif
+#if (SILVERSTAR_PROTOCOL_MAINTENANCE_ENABLED != 0U)
     if (SystemStartup_CapabilityEnabled(SYSTEM_CAPABILITY_CONSOLE) != 0U)
     { SystemConsoleDevice_Process(); }
+#endif
     if (SystemStartup_CapabilityEnabled(SYSTEM_CAPABILITY_POWER) != 0U)
     { SystemPower_Process(); }
     if (SystemStartup_CapabilityEnabled(SYSTEM_CAPABILITY_OUTPUT) != 0U)
@@ -610,24 +621,32 @@ static void SystemStartup_SensorCommunicationEvaluate(void)
 static void SystemStartup_ServiceCommunicationEvaluate(void)
 {
     SystemStartupDeviceReport *device;
+#if (SILVERSTAR_PROTOCOL_TELEMETRY_ENABLED != 0U)
     SystemTelemetryHealth telemetry_health;
+#endif
+#if (SILVERSTAR_PROTOCOL_MAINTENANCE_ENABLED != 0U)
     SystemConsoleHealth console_health;
+#endif
     SystemStorageHealth storage_health;
 
     SILVERSTAR_ASSERT_OBJECT(&s_startup_report, SystemStartupReport,
         SILVERSTAR_ASSERT_MODULE_SYSTEM);
+#if (SILVERSTAR_PROTOCOL_TELEMETRY_ENABLED != 0U)
     device = &s_startup_report.devices[SYSTEM_STARTUP_DEVICE_TELEMETRY];
     if ((SystemStartup_CapabilityEnabled(SYSTEM_CAPABILITY_TELEMETRY) != 0U) &&
         (SystemTelemetry_HealthGet(&telemetry_health) == SYSTEM_DEVICE_OK) &&
         (telemetry_health.initialized != 0U) &&
         (telemetry_health.started != 0U) && (telemetry_health.healthy != 0U))
     { device->communication_result = SYSTEM_DEVICE_OK; }
+#endif
+#if (SILVERSTAR_PROTOCOL_MAINTENANCE_ENABLED != 0U)
     device = &s_startup_report.devices[SYSTEM_STARTUP_DEVICE_CONSOLE];
     if ((SystemStartup_CapabilityEnabled(SYSTEM_CAPABILITY_CONSOLE) != 0U) &&
         (SystemConsoleDevice_HealthGet(&console_health) == SYSTEM_DEVICE_OK) &&
         (console_health.initialized != 0U) &&
         (console_health.started != 0U) && (console_health.healthy != 0U))
     { device->communication_result = SYSTEM_DEVICE_OK; }
+#endif
     device = &s_startup_report.devices[SYSTEM_STARTUP_DEVICE_STORAGE];
     if ((SystemStartup_CapabilityEnabled(SYSTEM_CAPABILITY_STORAGE) != 0U) &&
         (SystemStorage_HealthGet(&storage_health) == SYSTEM_DEVICE_OK) &&
@@ -770,7 +789,9 @@ SystemStartupResult SystemStartup_Run(void)
     if (SystemTime_Init() != SYSTEM_DEVICE_OK) { return SYSTEM_STARTUP_TIME_ERROR; }
     SystemLifecycle_Init();
     SystemHealth_Init();
+#if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
     SystemLogPolicy_Init();
+#endif
     if (SystemLifecycle_EnterSelfTest() != SYSTEM_DEVICE_OK)
     { return SYSTEM_STARTUP_STATE_ERROR; }
 
@@ -781,7 +802,9 @@ SystemStartupResult SystemStartup_Run(void)
         SystemStartup_ReportFinalize();
         return SYSTEM_STARTUP_OUTPUT_SAFETY_ERROR;
     }
+#if (SILVERSTAR_PROTOCOL_MAINTENANCE_ENABLED != 0U)
     SystemStartup_ConsoleStart();
+#endif
     SystemStartup_JyLogicalStart();
     SystemStartup_JyLogicalConfig();
     SystemStartup_ImuConfig();

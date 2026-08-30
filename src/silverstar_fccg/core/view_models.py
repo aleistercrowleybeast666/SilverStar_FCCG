@@ -157,6 +157,8 @@ class ProtocolProfileView:
     display_name: str
     component_name: str = ""
     version: str = ""
+    available: bool = True
+    availability_reason: str = ""
 
 
 @dataclass(frozen=True, slots=True)

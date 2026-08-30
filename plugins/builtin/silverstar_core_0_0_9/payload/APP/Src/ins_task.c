@@ -12,7 +12,9 @@
 #include "estimator_bus.h"
 #include "imu_sample_bus.h"
 #include "ins_mechanization.h"
+#if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
 #include "logger_bus.h"
+#endif
 #include "platform_critical.h"
 #include "platform_memory.h"
 #include "silverstar_assert.h"
@@ -104,12 +106,14 @@ static void InsTask_OutputPublish(void)
     InsTask_DiagnosticsPublish();
 }
 
+#if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
 static int16_t InsTask_ClampI16(int32_t value)
 {
     if (value > 32767) { return 32767; }
     if (value < -32768) { return -32768; }
     return (int16_t)value;
 }
+#endif
 
 static uint8_t InsTask_SampleCorrect(const InsImuSample *source,
                                      InsAlgorithmSample *destination)
@@ -510,7 +514,9 @@ static void InsTask_InertialOutputsPublish(
     const InsState *state)
 {
     SystemInertialIncrement increment;
+#if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
     FlightLogInertialIncrementRecord increment_record;
+#endif
 
     if ((imu_sample == NULL) || (state == NULL))
     {
@@ -545,6 +551,7 @@ static void InsTask_InertialOutputsPublish(
     s_output.mission_running = s_mission_running;
     InsTask_OutputPublish();
 
+#if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
     (void)memset(&increment_record, 0, sizeof(increment_record));
     increment_record.interval_end_timestamp_us = state->timestamp_us;
     increment_record.interval_start_timestamp_us = state->timestamp_us -
@@ -561,9 +568,11 @@ static void InsTask_InertialOutputsPublish(
     (void)LoggerBus_InertialIncrementPush(state->timestamp_us,
                                           imu_sample->valid_mask,
                                           &increment_record);
+#endif
     (void)EstimatorBus_PredictionPush(&increment);
 }
 
+#if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
 static void InsTask_BaseRecordsBuild(
     const InsImuSample *imu_sample,
     const InsAlgorithmSample *algorithm_sample,
@@ -698,13 +707,16 @@ static void InsTask_PureRecordWrite(const InsImuSample *imu_sample,
     (void)LoggerBus_PureInsPush(state->timestamp_us, imu_sample->valid_mask,
                                 &record);
 }
+#endif
 
 static void InsTask_Propagate(const InsImuSample *imu_sample)
 {
     InsAlgorithmSample algorithm_sample;
     InsState state;
+#if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
     FlightLogSampleRecord legacy_record;
     FlightLogRawSensorRecord raw_record;
+#endif
 
     if (imu_sample == NULL) { return; }
     SILVERSTAR_ASSERT_OBJECT(imu_sample, InsImuSample,
@@ -716,6 +728,7 @@ static void InsTask_Propagate(const InsImuSample *imu_sample)
         return;
     }
     InsTask_InertialOutputsPublish(imu_sample, &state);
+#if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
     InsTask_BaseRecordsBuild(imu_sample, &algorithm_sample, &state,
                              &legacy_record, &raw_record);
     InsTask_OptionalRecordsApply(&legacy_record, &raw_record);
@@ -724,6 +737,7 @@ static void InsTask_Propagate(const InsImuSample *imu_sample)
     (void)LoggerBus_RawSensorPush(state.timestamp_us, imu_sample->valid_mask,
                                   &raw_record);
     InsTask_PureRecordWrite(imu_sample, &state);
+#endif
 }
 
 void AppTask_Ins(void *argument)
@@ -798,10 +812,14 @@ static SystemDeviceResult InsTask_StartFreezeFinalize(
         return SYSTEM_DEVICE_NOT_READY;
     }
     SystemHealth_SetAttitudeState(1U, SYSTEM_HEALTH_ATTITUDE_READY);
+#if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
     (void)LoggerBus_EventPush(now_us,
                               FLIGHT_LOG_EVENT_ALIGNMENT_COMPLETE,
                               (uint32_t)profile->alignment_algorithm,
                               1U);
+#else
+    (void)now_us;
+#endif
     return SYSTEM_DEVICE_OK;
 }
 

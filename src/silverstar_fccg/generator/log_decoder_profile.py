@@ -11,10 +11,10 @@ from silverstar_fccg.project.model import LogDecoderProfileReference
 from silverstar_fccg.project.record_catalog import RecordCatalog_Validate
 
 
-LOG_DECODER_PACKAGE_SCHEMA_ID = "silverstar.ssdecoder.package-schema/1.0"
+LOG_DECODER_PACKAGE_SCHEMA_ID = "silverstar.ssdecoder.package-schema/1.1"
 LOG_DECODER_PACKAGE_SCHEMA_MAJOR = 1
-LOG_DECODER_PACKAGE_SCHEMA_MINOR = 0
-LOG_DECODER_PACKAGE_SCHEMA_VERSION = "1.0"
+LOG_DECODER_PACKAGE_SCHEMA_MINOR = 1
+LOG_DECODER_PACKAGE_SCHEMA_VERSION = "1.1"
 LOG_DECODER_CONTAINER_PLUGIN_ID = "silverstar.sslog.container/0.0"
 LOG_DECODER_REQUIRED_FLP_VERSION = "0.0.1"
 LOG_DECODER_FIXED_TIMESTAMP = (1980, 1, 1, 0, 0, 0)
@@ -51,7 +51,7 @@ class LogDecoderPackageContext:
     creation_time_utc: str
     project_generation_fingerprint: str
     supported_primitive_types: tuple[str, ...]
-    selected_protocols: dict[str, dict[str, str]]
+    selected_protocols: dict[str, dict[str, str] | None]
     firmware_components: dict[str, str]
     hardware_identity: dict[str, Any]
 
@@ -397,6 +397,12 @@ def LogDecoderPackage_Verify(content: bytes) -> dict[str, Any]:
     ):
         raise ValueError("Log decoder manifest protocol locks are incomplete")
     for category, selection in protocols.items():
+        if selection is None:
+            if category == "logging":
+                raise ValueError(
+                    "Log decoder manifest requires a Logging Protocol lock"
+                )
+            continue
         if (
             not isinstance(selection, dict)
             or set(selection)
@@ -431,7 +437,7 @@ def LogDecoderPackage_Verify(content: bytes) -> dict[str, Any]:
     }
     if (
         not isinstance(semantics, dict)
-        or semantics.get("schema_id") != "silverstar.project-semantics/1.0"
+        or semantics.get("schema_id") != "silverstar.project-semantics/1.1"
         or not required_semantics.issubset(semantics)
         or semantics.get("protocols") != protocols
         or not isinstance(semantics.get("components"), list)

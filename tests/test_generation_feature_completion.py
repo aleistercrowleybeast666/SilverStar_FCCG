@@ -258,9 +258,9 @@ def test_protocol_controls_artifact_gate_and_assignment_fingerprint(
             category: (combo.count(), combo.currentText())
             for category, combo in window.flight_configuration_page.protocol_combos.items()
         } == {
-            "telemetry": (1, "AIR遥测协议 M0"),
-            "maintenance": (1, "串口维护协议 0.0"),
-            "logging": (1, "飞行日志格式 0.0"),
+            "telemetry": (2, "AIR遥测协议 M0"),
+            "maintenance": (2, "串口维护协议 0.0"),
+            "logging": (2, "飞行日志格式 0.0"),
         }
 
         project_root = tmp_path / "GeneratedProject"

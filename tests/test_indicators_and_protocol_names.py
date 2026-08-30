@@ -202,7 +202,7 @@ def test_indicator_group_and_protocol_names_are_localized(
             "logging",
         }
         assert all(
-            combo.count() == 1
+            combo.count() == 2
             for combo in window.flight_configuration_page.protocol_combos.values()
         )
         assert {

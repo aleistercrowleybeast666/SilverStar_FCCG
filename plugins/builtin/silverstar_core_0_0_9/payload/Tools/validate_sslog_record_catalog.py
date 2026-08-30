@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 
-PACKAGE_SCHEMA_ID = "silverstar.ssdecoder.package-schema/1.0"
+PACKAGE_SCHEMA_ID = "silverstar.ssdecoder.package-schema/1.1"
 CONTAINER_PLUGIN_ID = "silverstar.sslog.container/0.0"
 TYPE_SIZES = {
     "u8": 1,

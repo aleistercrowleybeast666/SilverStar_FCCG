@@ -82,6 +82,7 @@ from silverstar_fccg.project.configuration import (
     StrategyAvailabilities_Get,
 )
 from silverstar_fccg.project.resources import ResourceAssignments_Resolve
+from silverstar_fccg.project.protocols import ProtocolProfileAvailabilities_Get
 from silverstar_fccg.project.validation import Project_EditValidate, ValidationIssue
 from silverstar_fccg.ui.dialogs import NewProjectWizard
 from silverstar_fccg.ui.message_box import MessageBoxButtons_Localize
@@ -106,7 +107,7 @@ class _ProjectDisplayState:
     device_availability: dict[str, Any]
     selectable_components: tuple[ComponentView, ...]
     protocol_profiles: dict[str, tuple[ProtocolProfileView, ...]]
-    selected_protocol_profiles: dict[str, tuple[str, str]]
+    selected_protocol_profiles: dict[str, tuple[str, str] | None]
     platform_match: PlatformMatchView
     strategy_availability: dict[str, Any]
     mode_availability: dict[tuple[str, str], Any]
@@ -424,6 +425,9 @@ class MainWindow(QMainWindow):
             component for component in self._component_views if component.selection_kind
         )
         protocol_profiles: dict[str, list[ProtocolProfileView]] = {}
+        protocol_availability = ProtocolProfileAvailabilities_Get(
+            model, self._service.catalog
+        )
         for manifest in self._service.catalog.Type_Get("protocol"):
             contribution = manifest.protocol
             if contribution is None:
@@ -440,6 +444,24 @@ class MainWindow(QMainWindow):
                             self._translator.language
                         ),
                         version=manifest.version,
+                        available=protocol_availability[
+                            (category, manifest.component_id, profile.profile_id)
+                        ].available,
+                        availability_reason=(
+                            self._translator.Text_Get(
+                                protocol_availability[
+                                    (
+                                        category,
+                                        manifest.component_id,
+                                        profile.profile_id,
+                                    )
+                                ].reason_code
+                            )
+                            if protocol_availability[
+                                (category, manifest.component_id, profile.profile_id)
+                            ].reason_code
+                            else ""
+                        ),
                     )
                     for profile in profiles
                 )
@@ -484,7 +506,11 @@ class MainWindow(QMainWindow):
                 for category, values in protocol_profiles.items()
             },
             selected_protocol_profiles={
-                category: (selection.component, selection.profile)
+                category: (
+                    (selection.component, selection.profile)
+                    if selection is not None
+                    else None
+                )
                 for category, selection in model.protocols.items()
             },
             platform_match=self._service.PlatformMatchView_Get(
@@ -584,6 +610,9 @@ class MainWindow(QMainWindow):
             self.flight_configuration_page.Protocols_Set(
                 display.protocol_profiles,
                 display.selected_protocol_profiles,
+            )
+            self.flight_configuration_page.LoggingProtocolEnabled_Set(
+                display.model.protocols.get("logging") is not None
             )
             self.flight_configuration_page.Capabilities_Set(
                 display.capability_usage
@@ -1470,8 +1499,19 @@ class MainWindow(QMainWindow):
         )
 
     def _ProtocolProfile_Change(
-        self, category: str, component_id: str, profile_id: str
+        self, category: str, selection: object
     ) -> None:
+        if selection is None:
+            self._ProjectConfiguration_Change(
+                lambda candidate: candidate.protocols.__setitem__(
+                    category, None
+                ),
+                logging_availability_changed=category == "logging",
+            )
+            return
+        if not isinstance(selection, tuple) or len(selection) != 2:
+            return
+        component_id, profile_id = (str(value) for value in selection)
         if not component_id or not profile_id:
             return
         manifest = self._service.Plugin_Get(component_id)

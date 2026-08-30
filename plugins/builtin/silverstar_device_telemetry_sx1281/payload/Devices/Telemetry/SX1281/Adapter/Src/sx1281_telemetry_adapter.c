@@ -5,16 +5,12 @@
 #include <stddef.h>
 #include <string.h>
 
-#include "air_protocol.h"
 #include "platform_critical.h"
 #include "platform_time.h"
 #include "silverstar_assert.h"
 #include "sx1281_config.h"
 #include "sx1281_bus.h"
 #include "sx1281_device.h"
-
-_Static_assert(AIR_MAX_FRAME_LEN <= LORA_MAX_PAYLOAD_LEN,
-               "AIR_MAX_FRAME_LEN exceeds the SX1281 transport MTU");
 
 static volatile uint8_t s_initialized;
 static volatile uint8_t s_started;

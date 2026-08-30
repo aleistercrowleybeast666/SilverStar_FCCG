@@ -365,6 +365,7 @@ class EnvironmentContribution:
 @dataclass(frozen=True, slots=True)
 class BuildContribution:
     sources: tuple[str, ...] = ()
+    protocol_sources: dict[str, tuple[str, ...]] = field(default_factory=dict)
     strategy_sources: dict[str, dict[str, tuple[str, ...]]] = field(
         default_factory=dict
     )
@@ -2442,6 +2443,7 @@ def _Build_Parse(value: Any) -> BuildContribution:
     data = value if value is not None else {}
     if not isinstance(data, dict) or set(data) - {
         "sources",
+        "protocol_sources",
         "strategy_sources",
         "asm_sources",
         "include_dirs",
@@ -2457,6 +2459,23 @@ def _Build_Parse(value: Any) -> BuildContribution:
     }:
         raise PluginManifestError("build contains unknown fields")
     sources = _StringTuple_Get(data.get("sources", []), "build.sources")
+    protocol_sources_value = data.get("protocol_sources", {})
+    if (
+        not isinstance(protocol_sources_value, dict)
+        or any(
+            category not in ALLOWED_PROTOCOL_CATEGORIES
+            for category in protocol_sources_value
+        )
+    ):
+        raise PluginManifestError(
+            "build.protocol_sources must map valid Protocol categories"
+        )
+    protocol_sources = {
+        category: _StringTuple_Get(
+            values, f"build.protocol_sources.{category}"
+        )
+        for category, values in protocol_sources_value.items()
+    }
     strategy_sources_value = data.get("strategy_sources", {})
     if not isinstance(strategy_sources_value, dict):
         raise PluginManifestError("build.strategy_sources must be an object")
@@ -2507,6 +2526,11 @@ def _Build_Parse(value: Any) -> BuildContribution:
         sources
         + tuple(
             source
+            for values in protocol_sources.values()
+            for source in values
+        )
+        + tuple(
+            source
             for variants in strategy_sources.values()
             for state_sources in variants.values()
             for source in state_sources
@@ -2528,6 +2552,7 @@ def _Build_Parse(value: Any) -> BuildContribution:
         _BuildTokens_Validate((linker_script,), "linker_script", BUILD_PATH_PATTERN)
     return BuildContribution(
         sources=sources,
+        protocol_sources=protocol_sources,
         strategy_sources=strategy_sources,
         asm_sources=asm_sources,
         include_dirs=include_dirs,
@@ -2629,6 +2654,17 @@ def PluginManifest_Parse(
         "metadata.record_catalog_fragments",
         BUILD_PATH_PATTERN,
     )
+    auto_managed_category = metadata.get("auto_managed_protocol_category")
+    if auto_managed_category is not None:
+        if (
+            component_type != "device"
+            or auto_managed_category not in ALLOWED_PROTOCOL_CATEGORIES
+            or metadata.get("internal") is not True
+        ):
+            raise PluginManifestError(
+                "metadata.auto_managed_protocol_category requires an internal "
+                "Device and a valid protocol category"
+            )
 
     requires = data.get("requires", {})
     if not isinstance(requires, dict) or set(requires) - {
@@ -2709,6 +2745,7 @@ def PluginManifest_Parse(
     payload_roots = _StringTuple_Get(payload.get("roots", []), "payload.roots")
     source_free_build = (
         not build.sources
+        and not build.protocol_sources
         and not build.strategy_sources
         and not build.asm_sources
         and not build.virtual_sources
@@ -2768,9 +2805,15 @@ def PluginManifest_Parse(
         for state_sources in variants.values()
         for source in state_sources
     )
+    protocol_conditional_sources = tuple(
+        source
+        for category_sources in build.protocol_sources.values()
+        for source in category_sources
+    )
     for build_path in (
         *build.sources,
         *conditional_sources,
+        *protocol_conditional_sources,
         *build.asm_sources,
         *build.virtual_sources,
     ):

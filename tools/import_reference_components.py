@@ -306,6 +306,7 @@ def _Component(
     transports: list[dict[str, Any]] | None = None,
     docs: list[str] | None = None,
     overlay_files: dict[str, str] | None = None,
+    fccg_owned_files: dict[str, str] | None = None,
     reference_files: dict[str, str] | None = None,
     vendor_files: dict[str, str] | None = None,
     version: str = "0.0.9",
@@ -363,6 +364,7 @@ def _Component(
         "manifest": manifest,
         "docs": docs or [],
         "overlay_files": dict(overlay_files or {}),
+        "fccg_owned_files": dict(fccg_owned_files or {}),
         "reference_files": dict(reference_files or {}),
         "vendor_files": dict(vendor_files or {}),
     }
@@ -938,6 +940,51 @@ def _Components_Get(
         if path.startswith(("APP/", "Common/", "Modules/", "System/"))
         and path != "System/Src/system_console.c"
     ]
+    protocol_sources = {
+        "telemetry": [
+            "APP/Src/telemetry_task.c",
+            "Modules/Src/telemetry_service.c",
+        ],
+        "maintenance": ["APP/Src/serial_task.c"],
+        "logging": [
+            "APP/Src/device_native_log.c",
+            "APP/Src/diagnostic_log.c",
+            "APP/Src/logger_bus.c",
+            "APP/Src/logger_task.c",
+            "System/Src/system_log_policy.c",
+        ],
+    }
+    conditional_protocol_sources = {
+        source
+        for sources in protocol_sources.values()
+        for source in sources
+    }
+    core_sources = [
+        source
+        for source in core_sources
+        if source not in conditional_protocol_sources
+    ]
+    core_fccg_owned_files = {
+        relative: (
+            "plugins/builtin/silverstar_core_0_0_9/payload/" + relative
+        )
+        for relative in (
+            "APP/Src/app_tasks.c",
+            "APP/Src/device_task.c",
+            "APP/Src/estimator_task.c",
+            "APP/Src/flight_task.c",
+            "APP/Src/imu_sample_bus.c",
+            "APP/Src/ins_task.c",
+            "APP/Src/logger_task.c",
+            "APP/Src/telemetry_task.c",
+            "Common/Src/debug_log.c",
+            "System/Src/system_capabilities.c",
+            "System/Src/system_startup.c",
+            "Tests/Host/test_logger.c",
+            "Tools/check_power_of_ten.ps1",
+            "Tools/validate_sslog_record_catalog.py",
+        )
+    }
     board_sources = [path for path in first_party if path.startswith("Core/")]
     board_sources += _ManifestValues_Get(reference, "Board/SilverStar_0_5/module.mk", "C_SOURCES")
     board_sources = [
@@ -1010,14 +1057,22 @@ def _Components_Get(
             provenance=provenance,
             sources=core_sources,
             includes=["APP/Inc", "Common/Inc", "Modules/Inc", "Interfaces/Inc", "System/Inc", "System/Alignment/Inc", "System/Calibration/Inc", "System/Indicator/Inc", "System/Inertial/Inc", "System/User"],
+            build_extra={"protocol_sources": protocol_sources},
             capabilities_required=[],
             provides=["core.silverstar", "interface.canonical", "system.lifecycle"],
             metadata={
                 "display_names": {"zh_CN": "SilverStar 核心 0.0.9", "en_US": "SilverStar Core 0.0.9"},
-                "log_producers": [
-                    "silverstar.core.device_task",
-                    "silverstar.core.telemetry_task",
-                ],
+                "protocol_log_producers": {
+                    "logging": ["silverstar.core.device_task"],
+                    "telemetry": ["silverstar.core.telemetry_task"],
+                },
+                "source_origins": {
+                    "default": "reference_base",
+                    **{
+                        relative: "fccg_optional_protocol_gating"
+                        for relative in core_fccg_owned_files
+                    },
+                },
                 "device_descriptors": [{"order": 12, "physical_device_id": "PROJECT_PHYSICAL_DEVICE_ID_NONE", "class": "SYSTEM_DEVICE_CLASS_TIME", "instance": 0, "driver_id": 1, "flags": primary_flags, "capability": "0U", "rate": "1000000UL", "driver_hash": "0x162F2C94UL", "name_hash": "0xADE08D82UL"}],
             },
             docs=[
@@ -1029,6 +1084,7 @@ def _Components_Get(
                 "docs/details/VALIDATION_REQUIREMENTS.md",
                 "VALIDATION.md",
             ],
+            fccg_owned_files=core_fccg_owned_files,
         )
     )
     components.append(
@@ -1182,10 +1238,14 @@ def _Components_Get(
             ],
             description="Single-instance SD/TF physical storage and sequential SSLOG sink using CubeMX SDIO and FatFs glue.",
             provenance=provenance,
-            sources=[
-                "Devices/Storage/SdSdioFatFs/Src/storage_service.c",
-                "Devices/Storage/SdSdioFatFs/Src/log_sink_service.c",
-            ],
+            sources=["Devices/Storage/SdSdioFatFs/Src/storage_service.c"],
+            build_extra={
+                "protocol_sources": {
+                    "logging": [
+                        "Devices/Storage/SdSdioFatFs/Src/log_sink_service.c"
+                    ]
+                }
+            },
             includes=[],
             dependencies=[core_id, mcu_id],
             resources_required=[
@@ -1354,6 +1414,8 @@ def _Components_Get(
         }
         if component_class == "console":
             device_metadata["internal"] = True
+            device_metadata["auto_managed_protocol_category"] = "maintenance"
+            device_metadata["default_instance_id"] = "maintenance0"
         build_feature_symbols = {
             "imu": [
                 "SYSTEM_USER_IMU_ENABLE",
@@ -1443,6 +1505,22 @@ def _Components_Get(
             transports = [{"capability": "transport.packet", "kind": "packet", "mtu": 255, "ordered": True, "bidirectional": True, "reliable": False, "mode": "datagram"}]
         elif component_id == "silverstar.device.console.uart":
             transports = [{"capability": "transport.byte_stream", "kind": "byte_stream", "mtu": 1, "ordered": True, "bidirectional": True, "reliable": True, "mode": "stream"}]
+        device_sources = _ManifestValues_Get(reference, module, "C_SOURCES")
+        device_fccg_owned_files: dict[str, str] = {}
+        if component_id == "silverstar.device.telemetry.sx1281":
+            adapter_source = (
+                "Devices/Telemetry/SX1281/Adapter/Src/"
+                "sx1281_telemetry_adapter.c"
+            )
+            device_metadata["source_origins"] = {
+                "default": "reference_base",
+                adapter_source: "fccg_optional_protocol_gating",
+            }
+            device_fccg_owned_files[adapter_source] = (
+                "plugins/builtin/"
+                "silverstar_device_telemetry_sx1281/payload/"
+                + adapter_source
+            )
         components.append(
             _Component(
                 component_id,
@@ -1452,7 +1530,7 @@ def _Components_Get(
                 roots,
                 description=details["description"],
                 provenance=provenance,
-                sources=_ManifestValues_Get(reference, module, "C_SOURCES"),
+                sources=device_sources,
                 includes=includes,
                 dependencies=[core_id],
                 resources_required=requirements,
@@ -1468,6 +1546,7 @@ def _Components_Get(
                 physical_device=details["physical_device"],
                 transports=transports,
                 metadata=device_metadata,
+                fccg_owned_files=device_fccg_owned_files,
                 docs=(
                     docs
                     + [
@@ -2040,7 +2119,26 @@ def _Components_Get(
             "silverstar.flight_logic.cycle.reference", "SilverStar Flight Cycle", "flight_logic", "cycle", ["FlightLogic/FlightCycle"],
             description="Validated SilverStar lifecycle and recovery decision component.", provenance=provenance,
             sources=_ManifestValues_Get(reference, "FlightLogic/module.mk", "C_SOURCES"), dependencies=[core_id], capabilities_required=["flight_logic.deployment", "flight_logic.landing"], provides=["flight_logic.cycle"],
-            metadata={"display_names": {"zh_CN": "SilverStar 飞行周期", "en_US": "SilverStar Flight Cycle"}}, docs=["docs/details/SYSTEM_LIFECYCLE.md"],
+            metadata={
+                "display_names": {
+                    "zh_CN": "SilverStar 飞行周期",
+                    "en_US": "SilverStar Flight Cycle",
+                },
+                "source_origins": {
+                    "default": "reference_base",
+                    "FlightLogic/FlightCycle/Src/silverstar_flight_cycle.c": (
+                        "fccg_optional_protocol_gating"
+                    ),
+                },
+            },
+            fccg_owned_files={
+                "FlightLogic/FlightCycle/Src/silverstar_flight_cycle.c": (
+                    "plugins/builtin/"
+                    "silverstar_flight_logic_cycle_reference/payload/"
+                    "FlightLogic/FlightCycle/Src/silverstar_flight_cycle.c"
+                )
+            },
+            docs=["docs/details/SYSTEM_LIFECYCLE.md"],
         )
     )
     components.append(
@@ -2165,6 +2263,7 @@ def _Components_Get(
                     "zh_CN": "AIR遥测协议 M0",
                     "en_US": "AIR Telemetry Protocol M0",
                 },
+                "log_compatibility_tag": "AIR-NCRC",
                 "source_origins": protocol_source_origin,
             },
             docs=["docs/details/AIR_PROTOCOL.md"],
@@ -3224,10 +3323,18 @@ def _GeneratedFacadeTemplates_Copy(
     decoder_header_source = (
         reference / "Generated" / "Inc" / "project_log_decoder_profile.h"
     )
-    decoder_implementation_source = (
-        reference / "Generated" / "Src" / "project_log_decoder_profile.c"
+    fccg_template_source_root = (
+        WORKSPACE_ROOT
+        / "plugins"
+        / "builtin"
+        / "silverstar_core_0_0_9"
+        / "templates"
+        / "generated"
     )
-    semantics_source = reference / "Generated" / "project_semantics.json"
+    decoder_implementation_source = (
+        fccg_template_source_root / "project_log_decoder_profile.c"
+    )
+    semantics_source = fccg_template_source_root / "project_semantics.json"
     log_config_source = reference / "Generated" / "Src" / "project_log_config.c"
     header_text = header_source.read_text(encoding="utf-8")
     implementation_text = implementation_source.read_text(encoding="utf-8")
@@ -3857,9 +3964,9 @@ I²C和PWM后端仅在真实Device consumer已分配相应资源时加入。Clas
 
 ## FCCG独立协议插件归属
 
-FCCG将本协议作为必选的单一`{category}`类别插件，当前Profile为{profile}。
-{ownership}。拆分只改变构建归属、项目锁和声明式metadata，不改变任何现有wire/Record字节。
-项目锁定component、version、Profile和manifest SHA-256；`.ssdecoder`只携带数据与语义，不携带或执行解析代码。
+FCCG将本协议作为可独立启用或设为`不使用`的单一`{category}`类别插件，当前Profile为{profile}。
+{ownership}。拆分与可选状态只改变构建归属、项目锁和声明式metadata，不改变任何现有wire/Record字节。
+启用时项目锁定component、version、Profile和manifest SHA-256；禁用时对应格式11槽位为`null`。`.ssdecoder`只携带数据与语义，不携带或执行解析代码。
 """
         if adapted != content:
             policy.Text_AtomicWrite(path, adapted)
@@ -3869,8 +3976,9 @@ def _BuiltinReadme_Render(manifest: dict[str, Any], provenance: dict[str, Any]) 
     source_origins = manifest.get("metadata", {}).get("source_origins")
     origin_text = (
         "Reference-derived files retain the recorded snapshot provenance; "
-        "FCCG-owned overlays are replayed from `tools/reference_overlays/` and "
-        "are identified separately in `metadata.source_origins`."
+        "FCCG-owned files are replayed from their declared workspace "
+        "source-of-truth and identified separately in "
+        "`metadata.source_origins`."
         if source_origins
         else "The payload retains its recorded read-only reference provenance."
     )
@@ -3935,6 +4043,7 @@ def Components_Import(reference: Path, *, force: bool = False) -> dict[str, Any]
             payload_root = package_root / "payload"
             package_root.mkdir(parents=True)
             overlay_files = component.get("overlay_files", {})
+            fccg_owned_files = component.get("fccg_owned_files", {})
             reference_files = component.get("reference_files", {})
             vendor_files = component.get("vendor_files", {})
             for relative_text in manifest["payload"]["roots"]:
@@ -3971,6 +4080,15 @@ def Components_Import(reference: Path, *, force: bool = False) -> dict[str, Any]
                     continue
                 policy.File_Copy(
                     reference / Path(*reference_text.split("/")),
+                    payload_root / Path(*target_text.split("/")),
+                )
+            for target_text, workspace_text in sorted(fccg_owned_files.items()):
+                if target_text in overlay_files or target_text in reference_files:
+                    raise RuntimeError(
+                        f"Payload file has two source owners: {target_text}"
+                    )
+                policy.File_Copy(
+                    WORKSPACE_ROOT / Path(*workspace_text.split("/")),
                     payload_root / Path(*target_text.split("/")),
                 )
             for target_text, vendor_text in sorted(vendor_files.items()):

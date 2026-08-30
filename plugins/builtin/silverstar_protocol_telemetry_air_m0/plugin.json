@@ -47,6 +47,7 @@
       "zh_CN": "AIR遥测协议 M0",
       "en_US": "AIR Telemetry Protocol M0"
     },
+    "log_compatibility_tag": "AIR-NCRC",
     "source_origins": {
       "reference_base": {
         "commit": "cc0b377ded690556d037a412a55f87fe334c42d0",

@@ -70,6 +70,10 @@ def test_reference_import_definition_preserves_current_fccg_overlays(
         Path("unused"),
         {"commit": "fixture-commit", "snapshot_digest": "fixture-snapshot"},
     )
+    components_by_id = {
+        component["manifest"]["id"]: component
+        for component in components
+    }
     manifests = {
         component["manifest"]["id"]: component["manifest"]
         for component in components
@@ -81,6 +85,12 @@ def test_reference_import_definition_preserves_current_fccg_overlays(
         "silverstar.protocol.maintenance.serial_0_0",
         "silverstar.protocol.logging.sslog_0_0",
     }.issubset(manifests)
+    air = manifests["silverstar.protocol.telemetry.air_m0"]
+    assert air["metadata"]["log_compatibility_tag"] == "AIR-NCRC"
+    assert (
+        "log_compatibility_tag"
+        not in air["protocol"]["profiles"]["telemetry"][0]
+    )
     board = manifests["silverstar.board.silverstar_0_5"]
     assert board["name"] == "SS0.5"
     assert board["metadata"]["build_symbol"] == "SILVERSTAR_0_5"
@@ -120,6 +130,14 @@ def test_reference_import_definition_preserves_current_fccg_overlays(
         "silverstar.device.actuator.launch_ignition",
         "silverstar.device.actuator.parachute_pyro",
     }.issubset(manifests)
+    core_owned = components_by_id["silverstar.core.0_0_9"]["fccg_owned_files"]
+    for relative in (
+        "APP/Src/app_tasks.c",
+        "Tests/Host/test_logger.c",
+        "Tools/check_power_of_ten.ps1",
+        "Tools/validate_sslog_record_catalog.py",
+    ):
+        assert relative in core_owned
 
 
 def test_manifest_reference_provenance_excludes_dynamic_audit_fields() -> None:
@@ -149,6 +167,37 @@ def test_manifest_reference_provenance_excludes_dynamic_audit_fields() -> None:
         "commit": "abc123",
         "snapshot_digest": "def456",
     }
+
+
+def test_fccg_owned_decoder_templates_survive_reference_reimport(
+    workspace_root: Path,
+) -> None:
+    template_root = (
+        workspace_root
+        / "plugins/builtin/silverstar_core_0_0_9/templates/generated"
+    )
+    semantics = json.loads(
+        (template_root / "project_semantics.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    descriptor_source = (
+        template_root / "project_log_decoder_profile.c"
+    ).read_text(encoding="utf-8")
+    importer_source = Path(reference_import.__file__).read_text(
+        encoding="utf-8"
+    )
+
+    assert semantics["schema_id"] == "silverstar.project-semantics/1.1"
+    assert "profile->package_schema_minor = 1U;" in descriptor_source
+    assert (
+        'fccg_template_source_root / "project_log_decoder_profile.c"'
+        in importer_source
+    )
+    assert (
+        'semantics_source = fccg_template_source_root / "project_semantics.json"'
+        in importer_source
+    )
 
 
 def test_reference_payload_sync_and_environment_templates_are_read_only(
@@ -205,16 +254,6 @@ def test_reference_payload_sync_and_environment_templates_are_read_only(
             "APP/Src/diagnostic_log.c",
         ),
         (
-            "APP/Src/device_task.c",
-            "plugins/builtin/silverstar_core_0_0_9/payload/"
-            "APP/Src/device_task.c",
-        ),
-        (
-            "APP/Src/telemetry_task.c",
-            "plugins/builtin/silverstar_core_0_0_9/payload/"
-            "APP/Src/telemetry_task.c",
-        ),
-        (
             "Generated/Src/project_log_config.c",
             "plugins/builtin/silverstar_core_0_0_9/templates/"
             "generated/project_log_config.c",
@@ -259,6 +298,20 @@ def test_reference_payload_sync_and_environment_templates_are_read_only(
         assert (reference / reference_relative).read_bytes() == (
             workspace_root / builtin_relative
         ).read_bytes()
+
+    core_manifest = json.loads(
+        (
+            workspace_root
+            / "plugins/builtin/silverstar_core_0_0_9/plugin.json"
+        ).read_text(encoding="utf-8")
+    )
+    source_origins = core_manifest["metadata"]["source_origins"]
+    assert source_origins["APP/Src/device_task.c"] == (
+        "fccg_optional_protocol_gating"
+    )
+    assert source_origins["APP/Src/telemetry_task.c"] == (
+        "fccg_optional_protocol_gating"
+    )
 
     target_reference = (
         reference / "Targets/SilverStar_F407/Inc/target_system_config.h"

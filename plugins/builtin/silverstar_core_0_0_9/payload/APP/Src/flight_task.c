@@ -8,7 +8,9 @@
 #include "estimator_task.h"
 #include "imu_sample_bus.h"
 #include "ins_task.h"
+#if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
 #include "logger_bus.h"
+#endif
 #include "silverstar_assert.h"
 #include "system_barometer_if.h"
 #include "system_alignment.h"
@@ -25,6 +27,7 @@
 #define FLIGHT_TASK_FAULT_READY_TRANSITION 0x52445954UL
 #define FLIGHT_TASK_FAULT_RECOVERY_INIT 0x52435649UL
 
+#if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
 static uint8_t s_fault_event_written;
 static uint32_t s_start_diagnostic_sequence[3];
 static uint32_t s_calibration_start_sequence;
@@ -363,6 +366,7 @@ static void FlightTask_FaultEventProcess(void)
         s_fault_event_written = 1U;
     }
 }
+#endif
 
 static void FlightTask_RecoveryEstimatorInputApply(
     SystemFlightRecoveryInput *input)
@@ -470,6 +474,7 @@ static void FlightTask_FlightRecoveryInputGet(
     FlightTask_RecoveryInertialInputApply(input);
 }
 
+#if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
 static void FlightTask_FlightRecoveryEventsProcess(void)
 {
     SystemFlightRecoveryStatus status;
@@ -528,6 +533,7 @@ static void FlightTask_FlightRecoveryEventsProcess(void)
         }
     }
 }
+#endif
 
 static SystemDeviceResult FlightTask_PrepareStart(void)
 {
@@ -712,6 +718,7 @@ static SystemDeviceResult FlightTask_ResetFlightQueues(void)
     return SYSTEM_DEVICE_OK;
 }
 
+#if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
 static void FlightTask_InitialStateRecordBuild(
     const InsAlignmentSnapshot *alignment,
     const EstimatorInitialStateSnapshot *estimator,
@@ -807,6 +814,7 @@ static void FlightTask_WriteStartRecords(void)
         return;
     }
 }
+#endif
 
 static void FlightTask_AbortStart(void)
 {
@@ -819,13 +827,14 @@ static void FlightTask_RuntimeInitialize(void)
 {
     SystemDeviceResult result = SystemFlightRecovery_Init();
 
-    SILVERSTAR_ASSERT_OBJECT(s_start_diagnostic_sequence, uint32_t,
-        SILVERSTAR_ASSERT_MODULE_APP);
     if ((result != SYSTEM_DEVICE_OK) &&
         (result != SYSTEM_DEVICE_ALREADY_MATCHED))
     {
         SystemLifecycle_EnterFault(FLIGHT_TASK_FAULT_RECOVERY_INIT);
     }
+#if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
+    SILVERSTAR_ASSERT_OBJECT(s_start_diagnostic_sequence, uint32_t,
+        SILVERSTAR_ASSERT_MODULE_APP);
     s_fault_event_written = 0U;
     s_calibration_start_sequence = 0U;
     s_calibration_state_sequence = 0U;
@@ -839,6 +848,7 @@ static void FlightTask_RuntimeInitialize(void)
     s_landing_log_sequence = 0U;
     (void)memset(s_start_diagnostic_sequence, 0,
                  sizeof(s_start_diagnostic_sequence));
+#endif
 }
 
 SystemDeviceResult SystemLifecycleBackend_PrepareStart(void)
@@ -868,15 +878,21 @@ void SystemLifecycleBackend_AbortStart(void)
 
 void AppTask_Flight(void *argument)
 {
+#if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
     SystemLifecycleState previous_state;
+#endif
     SystemDeviceResult alignment_process_result;
     SystemFlightRecoveryInput flight_recovery_input;
 
     (void)argument;
+#if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
     SILVERSTAR_ASSERT_OBJECT(s_start_diagnostic_sequence, uint32_t,
         SILVERSTAR_ASSERT_MODULE_APP);
+#endif
     FlightTask_RuntimeInitialize();
+#if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
     previous_state = SystemLifecycle_GetState();
+#endif
 
     for (;;)
     {
@@ -902,6 +918,7 @@ void AppTask_Flight(void *argument)
         {
             /* Action/result diagnostics are latched in the manager snapshot. */
         }
+#if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
         FlightTask_PreflightEventsProcess();
         FlightTask_StartDiagnosticProcess();
         FlightTask_FlightRecoveryEventsProcess();
@@ -912,6 +929,7 @@ void AppTask_Flight(void *argument)
         }
         previous_state = SystemLifecycle_GetState();
         FlightTask_FaultEventProcess();
+#endif
         SystemIndicator_Process();
         vTaskDelay(pdMS_TO_TICKS(2U));
     }

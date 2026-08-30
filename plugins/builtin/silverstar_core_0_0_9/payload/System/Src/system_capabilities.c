@@ -6,7 +6,9 @@
 #include "platform_critical.h"
 #include "silverstar_assert.h"
 #include "system_barometer_if.h"
+#if (SILVERSTAR_PROTOCOL_MAINTENANCE_ENABLED != 0U)
 #include "system_console_if.h"
+#endif
 #include "system_gnss_if.h"
 #include "system_hardware_quaternion_if.h"
 #include "system_imu_if.h"
@@ -15,7 +17,9 @@
 #include "system_power_if.h"
 #include "system_profile.h"
 #include "system_storage_if.h"
+#if (SILVERSTAR_PROTOCOL_TELEMETRY_ENABLED != 0U)
 #include "system_telemetry_transport_if.h"
+#endif
 #include "target_build_capabilities.h"
 
 static SystemCapabilities s_capabilities;
@@ -106,28 +110,40 @@ static uint32_t SystemCapabilities_ServiceHealthMaskGet(
     uint8_t output_channel_count)
 {
     SystemDeviceHealth device_health;
+#if (SILVERSTAR_PROTOCOL_TELEMETRY_ENABLED != 0U)
     SystemTelemetryHealth telemetry_health;
+#endif
+#if (SILVERSTAR_PROTOCOL_MAINTENANCE_ENABLED != 0U)
     SystemConsoleHealth console_health;
+#endif
     SystemStorageHealth storage_health;
     uint32_t healthy_mask = 0U;
 
     (void)memset(&device_health, 0, sizeof(device_health));
+#if (SILVERSTAR_PROTOCOL_TELEMETRY_ENABLED != 0U)
     (void)memset(&telemetry_health, 0, sizeof(telemetry_health));
+#endif
+#if (SILVERSTAR_PROTOCOL_MAINTENANCE_ENABLED != 0U)
     (void)memset(&console_health, 0, sizeof(console_health));
+#endif
     (void)memset(&storage_health, 0, sizeof(storage_health));
     SILVERSTAR_ASSERT_OBJECT(&device_health, SystemDeviceHealth,
         SILVERSTAR_ASSERT_MODULE_SYSTEM);
+#if (SILVERSTAR_PROTOCOL_TELEMETRY_ENABLED != 0U)
     if ((SystemTelemetry_HealthGet(&telemetry_health) == SYSTEM_DEVICE_OK) &&
         (telemetry_health.initialized != 0U) &&
         (telemetry_health.healthy != 0U))
     {
         healthy_mask |= SYSTEM_CAPABILITY_TELEMETRY;
     }
+#endif
+#if (SILVERSTAR_PROTOCOL_MAINTENANCE_ENABLED != 0U)
     if ((SystemConsoleDevice_HealthGet(&console_health) == SYSTEM_DEVICE_OK) &&
         (console_health.initialized != 0U) && (console_health.healthy != 0U))
     {
         healthy_mask |= SYSTEM_CAPABILITY_CONSOLE;
     }
+#endif
     if ((SystemPower_HealthGet(&device_health) == SYSTEM_DEVICE_OK) &&
         (device_health.initialized != 0U) && (device_health.healthy != 0U))
     {

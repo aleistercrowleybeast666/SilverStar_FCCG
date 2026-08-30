@@ -104,10 +104,11 @@ def test_logging_metadata_declares_cadence_and_legacy_policy_fallback(
         builtin_catalog,
     ).available
     core = builtin_catalog.Component_Get("silverstar.core.0_0_9")
-    assert core.metadata["log_producers"] == [
-        "silverstar.core.device_task",
-        "silverstar.core.telemetry_task",
-    ]
+    assert "log_producers" not in core.metadata
+    assert core.metadata["protocol_log_producers"] == {
+        "logging": ["silverstar.core.device_task"],
+        "telemetry": ["silverstar.core.telemetry_task"],
+    }
     streams = {stream.record: stream for stream in model.logging_streams}
     assert streams["FLIGHT_LOG_RECORD_STATS"].enabled
     assert streams["FLIGHT_LOG_RECORD_STATS"].period_us == 1_000_000

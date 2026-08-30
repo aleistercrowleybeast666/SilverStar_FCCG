@@ -571,6 +571,12 @@ class FccgService:
         project_root: Path,
         destination: Path,
     ) -> LogDecoderProfileExportResult:
+        if model.protocols.get("logging") is None:
+            raise FccgError(
+                "error.log_decoder_profile_logging_disabled",
+                {},
+                "Logging Protocol is disabled",
+            )
         root = self._OutputPolicy_Get(project_root).root
         readiness = ProjectReadiness_Inspect(model, root, self.catalog)
         if not readiness.ready:
@@ -1114,8 +1120,15 @@ class FccgService:
         self, model: ProjectModel
     ) -> dict[str, SelectionAvailability]:
         values: dict[str, SelectionAvailability] = {}
+        hardware_contract_prepared = bool(model.board) or (
+            model.hardware.mode == "custom"
+            and bool(model.hardware.snapshot_id)
+        )
         for manifest in self.catalog.Type_Get("device"):
-            if manifest.metadata.get("hardware_contract_required") is not True:
+            if (
+                manifest.metadata.get("hardware_contract_required") is not True
+                or not hardware_contract_prepared
+            ):
                 values[manifest.component_id] = SelectionAvailability(True)
                 continue
             candidate = deepcopy(model)

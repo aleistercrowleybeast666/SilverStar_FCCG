@@ -50,6 +50,10 @@
     "display_names": {
       "zh_CN": "SilverStar 飞行周期",
       "en_US": "SilverStar Flight Cycle"
+    },
+    "source_origins": {
+      "default": "reference_base",
+      "FlightLogic/FlightCycle/Src/silverstar_flight_cycle.c": "fccg_optional_protocol_gating"
     }
   }
 }

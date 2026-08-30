@@ -89,19 +89,26 @@ def ProjectReadiness_Inspect(
     ) != ProjectGenerationState_Normalize(model):
         stale.append("SilverStar.ssproject")
 
+    logging_enabled = model.protocols.get("logging") is not None
     required_files = (
         "Makefile",
         ".fccg/ownership.json",
         ".fccg/hardware-preparation.json",
         ".eide/eide.yml",
         ".vscode/tasks.json",
-        "Generated/Inc/project_log_decoder_profile.h",
-        "Generated/Src/project_log_decoder_profile.c",
-        "Logs/README.md",
         f"{model.identity.name}.code-workspace",
-        (
-            model.log_decoder_profile.relative_path
-            or f"{model.identity.name}.ssdecoder"
+        *(
+            (
+                "Generated/Inc/project_log_decoder_profile.h",
+                "Generated/Src/project_log_decoder_profile.c",
+                "Logs/README.md",
+                (
+                    model.log_decoder_profile.relative_path
+                    or f"{model.identity.name}.ssdecoder"
+                ),
+            )
+            if logging_enabled
+            else ()
         ),
     )
     required_directories = (
@@ -121,13 +128,13 @@ def ProjectReadiness_Inspect(
     )
 
     decoder_reference = model.log_decoder_profile
-    if (
+    if logging_enabled and (
         not decoder_reference.relative_path
         or not decoder_reference.generation_profile_sha256
         or not decoder_reference.package_sha256
     ):
         stale.append("SilverStar.ssproject:log_decoder_profile")
-    else:
+    elif logging_enabled:
         decoder_package = root.joinpath(
             *decoder_reference.relative_path.split("/")
         )
@@ -136,6 +143,16 @@ def ProjectReadiness_Inspect(
             != decoder_reference.package_sha256
         ):
             stale.append(decoder_reference.relative_path)
+    elif any(
+        (
+            decoder_reference.relative_path,
+            decoder_reference.package_schema,
+            decoder_reference.container_plugin_id,
+            decoder_reference.generation_profile_sha256,
+            decoder_reference.package_sha256,
+        )
+    ):
+        stale.append("SilverStar.ssproject:log_decoder_profile")
 
     for component_id in model.ComponentIds_Get():
         try:

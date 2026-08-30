@@ -3,7 +3,9 @@
 #include <stddef.h>
 #include <string.h>
 
+#if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
 #include "logger_bus.h"
+#endif
 #include "platform_critical.h"
 #include "silverstar_assert.h"
 #include "system_calibration.h"
@@ -60,6 +62,7 @@ void ImuSampleBus_Reset(void)
     ImuSampleBus_IrqUnlock(primask);
 }
 
+#if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
 static uint8_t ImuSampleBus_CorrectedLoggingAllowed(void)
 {
     SystemLifecycleState state = SystemLifecycle_GetState();
@@ -104,6 +107,7 @@ static void ImuSampleBus_CorrectedLog(const InsImuSample *sample)
     (void)LoggerBus_ImuCorrectedPush(sample->sample_timestamp_us,
                                      sample->valid_mask, &record);
 }
+#endif
 
 void ImuSampleBus_Process(void)
 {
@@ -160,7 +164,9 @@ void ImuSampleBus_Process(void)
         s_stats.push_count++;
         s_stats.count++;
         ImuSampleBus_IrqUnlock(primask);
+#if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
         ImuSampleBus_CorrectedLog(&sample);
+#endif
     }
 }
 

@@ -10,6 +10,7 @@ from typing import Any
 
 from silverstar_fccg.app.version import __version__
 from silverstar_fccg.generator.log_decoder_profile import (
+    CanonicalJson_Encode,
     LogDecoderPackage_Build,
     LogDecoderPackageContext,
     LogDecoderPackageResult,
@@ -26,7 +27,7 @@ from silverstar_fccg.project.capabilities import (
     CapabilityResolution,
     CapabilityResolution_Resolve,
 )
-from silverstar_fccg.project.model import ProjectModel
+from silverstar_fccg.project.model import LogDecoderProfileReference, ProjectModel
 from silverstar_fccg.project.generation_state import (
     ProjectDigest_Get,
     ProjectGenerationFingerprint_Get,
@@ -73,16 +74,205 @@ def ComponentProvenance_Get(catalog: PluginCatalog, component_id: str) -> dict[s
     }
 
 
+def _ProtocolSelectionsDictionary_Get(model: ProjectModel) -> dict[str, Any]:
+    return {
+        category: (
+            {
+                "component": selection.component,
+                "version": selection.version,
+                "profile": selection.profile,
+                "manifest_sha256": selection.manifest_sha256,
+            }
+            if selection is not None
+            else None
+        )
+        for category, selection in sorted(model.protocols.items())
+    }
+
+
+def _ProjectSemanticsWithoutLogging_Render(
+    model: ProjectModel, catalog: PluginCatalog
+) -> bytes:
+    """Render project identity even when no Log Format owns a Record Catalog."""
+    capability_resolution = CapabilityResolution_Resolve(model, catalog)
+    resource_resolution = ResourceAssignments_Resolve(model, catalog)
+    if not resource_resolution.valid:
+        raise ValueError(
+            "Cannot generate project semantics with unresolved hardware resources"
+        )
+    descriptor_entries = _DeviceDescriptorEntries_Get(model, catalog)
+    physical_device_ids = dict(
+        _PhysicalDeviceDefinitions_Get(catalog, descriptor_entries)
+    )
+    physical_devices = _LogPhysicalDevices_Get(
+        model, catalog, descriptor_entries, physical_device_ids
+    )
+    capability_endpoints = _LogCapabilityEndpoints_Get(
+        catalog, descriptor_entries, physical_device_ids
+    )
+    protocol_resolution = ProtocolResolution_Resolve(model, catalog)
+    if not protocol_resolution.valid:
+        raise ValueError("Cannot generate unresolved protocol transport bindings")
+    semantics = {
+        "schema_id": "silverstar.project-semantics/1.1",
+        "project": model.identity.name,
+        "target": model.build.target_profile,
+        "firmware_version": model.identity.firmware_version,
+        "project_digest": f"{ProjectDigest_Get(model):08x}",
+        "protocols": _ProtocolSelectionsDictionary_Get(model),
+        "components": list(model.ComponentIds_Get()),
+        "component_locks": [
+            {
+                "component": component_id,
+                "version": catalog.Component_Get(component_id).version,
+                "manifest_sha256": catalog.Component_Get(
+                    component_id
+                ).ManifestSha256_Get(),
+            }
+            for component_id in model.ComponentIds_Get()
+        ],
+        "algorithms": [
+            component_id
+            for component_id in model.ComponentIds_Get()
+            if catalog.Component_Get(component_id).component_type == "algorithm"
+        ],
+        "hardware": {
+            "mode": model.hardware.mode,
+            "source_kind": model.hardware.source_kind,
+            "provider": model.hardware.provider,
+            "board": model.board,
+            "matched_mcu_platform": model.mcu,
+            "platform_lock": {
+                "component": model.hardware.platform_component,
+                "version": model.hardware.platform_version,
+                "manifest_sha256": model.hardware.platform_manifest_sha256,
+            },
+            "detected_mcu": model.hardware.mcu,
+            "mcu_family": model.hardware.inventory.get("mcu_family", ""),
+            "package": model.hardware.inventory.get("package", ""),
+            "core": model.hardware.inventory.get("core", ""),
+            "cubemx_version": model.hardware.cubemx_version,
+            "firmware_package": model.hardware.firmware_package,
+            "hal_cmsis_source_policy": model.hardware.hal_cmsis_source_policy,
+            "snapshot_id": model.hardware.snapshot_id,
+            "source_digest": model.hardware.source_digest,
+            "assignment_fingerprint": model.hardware.assignment_fingerprint,
+        },
+        "resource_assignments": [
+            {
+                "requirement": assignment.requirement_key,
+                "owner": assignment.component_id,
+                "kind": assignment.requirement.kind,
+                "logical_resource": assignment.provision.resource_id,
+                "physical_resource": assignment.provision.metadata.get(
+                    "physical_resource", assignment.provision.resource_id
+                ),
+                "peripheral": assignment.provision.metadata.get(
+                    "peripheral", ""
+                ),
+                "pins": assignment.provision.metadata.get("pins", {}),
+            }
+            for assignment in sorted(
+                resource_resolution.assignments,
+                key=lambda item: item.requirement_key,
+            )
+        ],
+        "devices": physical_devices,
+        "physical_devices": physical_devices,
+        "physical_device_ids": {
+            symbol: value
+            for symbol, value in sorted(
+                physical_device_ids.items(), key=lambda item: item[1]
+            )
+        },
+        "device_descriptors": [
+            {
+                "descriptor_id": entry["_descriptor_id"],
+                "descriptor_symbol": entry["_descriptor_symbol"],
+                "physical_device_id": physical_device_ids[
+                    entry["physical_device_id"]
+                ],
+                "physical_device_symbol": entry["physical_device_id"],
+                "device_class": entry["class"],
+                "instance_id": entry["_instance_id"],
+                "source_instance_id": entry["_source_instance_id"],
+                "source_component": entry["_component_id"],
+            }
+            for entry in descriptor_entries
+        ],
+        "capability_endpoints": capability_endpoints,
+        "capability_routes": [
+            {
+                "capability": route.requirement.capability,
+                "purpose": route.requirement.purpose,
+                "consumer": route.requirement.consumer_component,
+                "provider_instance": route.provider.instance_id,
+                "provider_plugin": route.provider.plugin,
+                "automatic": route.automatic,
+            }
+            for route in capability_resolution.routes
+        ],
+        "canonical_channels": _LogCanonicalChannels_Get(
+            capability_resolution, capability_endpoints
+        ),
+        "enabled_capabilities": {
+            instance_id: list(capabilities)
+            for instance_id, capabilities in sorted(
+                capability_resolution.enabled_by_instance.items()
+            )
+        },
+        "protocol_bindings": [
+            {
+                "service": binding.service,
+                "slot": binding.slot,
+                "profile_id": binding.profile_id,
+                "binding": binding.binding,
+                "transport_capability": binding.transport_capability,
+                "physical_device_instance": binding.provider_instance,
+                "physical_device_plugin": binding.provider_component,
+            }
+            for binding in protocol_resolution.bindings
+        ],
+        "strategies": dict(sorted(model.strategies.items())),
+        "modes": {
+            slot: list(values) for slot, values in sorted(model.modes.items())
+        },
+        "mode_parameters": model.mode_parameters,
+        "available_records": [],
+        "logging_streams": [
+            {
+                "record": stream.record,
+                "enabled": False,
+                "configured_enabled": stream.enabled,
+                "policy": stream.policy,
+                "decimation_factor": stream.decimation,
+                "period_us": stream.period_us,
+            }
+            for stream in model.logging_streams
+        ],
+        "record_views": [],
+        "raw_channel_id_templates": {},
+        "event_catalog": {},
+        "enum_catalog": {},
+        "metadata_declarations": {},
+    }
+    return CanonicalJson_Encode(semantics)
+
+
 def GeneratedFiles_Render(
     model: ProjectModel, catalog: PluginCatalog, graph: SourceGraph
 ) -> dict[str, bytes]:
-    decoder_profile = LogDecoderProfile_Render(model, catalog)
-    decoder_reference = decoder_profile.Reference_Get()
+    logging_enabled = model.protocols.get("logging") is not None
+    decoder_profile = (
+        LogDecoderProfile_Render(model, catalog) if logging_enabled else None
+    )
     files = {
         "Generated/project_sources.mk": graph.MakeFragment_Render(),
-        "Generated/module.mk": _GeneratedModule_Render(),
+        "Generated/module.mk": _GeneratedModule_Render(model),
         "Generated/project_semantics.json": (
             decoder_profile.project_semantics_content
+            if decoder_profile is not None
+            else _ProjectSemanticsWithoutLogging_Render(model, catalog)
         ),
         "Generated/Inc/project_capability_routes.h": _CapabilityRoutesHeader_Render(),
         "Generated/Inc/project_flight_config.h": _FlightConfigHeader_Render(
@@ -90,10 +280,6 @@ def GeneratedFiles_Render(
         ),
         "Generated/Inc/project_device_instances.h": _DeviceInstancesHeader_Render(
             model, catalog
-        ),
-        "Generated/Inc/project_log_config.h": _LogHeader_Render(),
-        "Generated/Inc/project_log_decoder_profile.h": (
-            LogDecoderProfileHeader_Render(decoder_reference)
         ),
         "Generated/Inc/project_resources.h": _ResourceHeader_Render(model, catalog),
         "Generated/Inc/project_storage_binding.h": _StorageBindingHeader_Render(
@@ -106,12 +292,23 @@ def GeneratedFiles_Render(
         "Generated/Src/project_device_instances.c": _DeviceInstancesSource_Render(
             model, catalog
         ),
-        "Generated/Src/project_log_config.c": _LogSource_Render(model),
-        "Generated/Src/project_log_decoder_profile.c": (
-            LogDecoderProfileSource_Render(decoder_profile)
-        ),
         "Generated/Src/project_metadata.c": _MetadataSource_Render(model, catalog),
     }
+    if decoder_profile is not None:
+        files.update(
+            {
+                "Generated/Inc/project_log_config.h": _LogHeader_Render(),
+                "Generated/Inc/project_log_decoder_profile.h": (
+                    LogDecoderProfileHeader_Render(
+                        decoder_profile.Reference_Get()
+                    )
+                ),
+                "Generated/Src/project_log_config.c": _LogSource_Render(model),
+                "Generated/Src/project_log_decoder_profile.c": (
+                    LogDecoderProfileSource_Render(decoder_profile)
+                ),
+            }
+        )
     return {
         name: content if isinstance(content, bytes) else content.encode("utf-8")
         for name, content in files.items()
@@ -129,8 +326,16 @@ def MetadataFiles_Render(
         component_id: ComponentProvenance_Get(catalog, component_id)
         for component_id in render_model.ComponentIds_Get()
     }
-    decoder_profile = LogDecoderProfile_Render(render_model, catalog)
-    render_model.log_decoder_profile = decoder_profile.Reference_Get()
+    decoder_profile = (
+        LogDecoderProfile_Render(render_model, catalog)
+        if render_model.protocols.get("logging") is not None
+        else None
+    )
+    render_model.log_decoder_profile = (
+        decoder_profile.Reference_Get()
+        if decoder_profile is not None
+        else LogDecoderProfileReference()
+    )
     project_json = json.dumps(
         render_model.Dictionary_Get(), ensure_ascii=False, indent=2, sort_keys=False
     ) + "\n"
@@ -153,32 +358,48 @@ def MetadataFiles_Render(
             render_model, environment
         ),
         "README.md": _GeneratedReadme_Render(render_model),
-        "Logs/README.md": _GeneratedLogsReadme_Render(render_model),
-        "Logs/Golden/expected.json": _GoldenExpected_Render(
-            render_model, decoder_profile
-        ),
-        decoder_profile.relative_path: decoder_profile.content,
     }
+    if decoder_profile is not None:
+        files.update(
+            {
+                "Logs/README.md": _GeneratedLogsReadme_Render(render_model),
+                "Logs/Golden/expected.json": _GoldenExpected_Render(
+                    render_model, decoder_profile
+                ),
+                decoder_profile.relative_path: decoder_profile.content,
+            }
+        )
     return {
         name: content if isinstance(content, bytes) else content.encode("utf-8")
         for name, content in files.items()
     }
 
 
-def _GeneratedModule_Render() -> str:
-    return f"""# AUTO-GENERATED BY SILVERSTAR_FCCG. DO NOT EDIT.
-BUILD_MANIFESTS += Generated/module.mk
-
-C_SOURCES += \\
-  Generated/Src/platform_resources.c \\
-  Generated/Src/project_capability_routes.c \\
-  Generated/Src/project_device_instances.c \\
-  Generated/Src/project_log_config.c \\
-  Generated/Src/project_log_decoder_profile.c \\
-  Generated/Src/project_metadata.c
-
-C_INCLUDES += Generated/Inc
-"""
+def _GeneratedModule_Render(model: ProjectModel) -> str:
+    sources = [
+        "Generated/Src/platform_resources.c",
+        "Generated/Src/project_capability_routes.c",
+        "Generated/Src/project_device_instances.c",
+    ]
+    if model.protocols.get("logging") is not None:
+        sources.extend(
+            (
+                "Generated/Src/project_log_config.c",
+                "Generated/Src/project_log_decoder_profile.c",
+            )
+        )
+    sources.append("Generated/Src/project_metadata.c")
+    source_lines = "\n".join(
+        "  " + source + (" \\" if index < len(sources) - 1 else "")
+        for index, source in enumerate(sources)
+    )
+    return (
+        "# AUTO-GENERATED BY SILVERSTAR_FCCG. DO NOT EDIT.\n"
+        "BUILD_MANIFESTS += Generated/module.mk\n\n"
+        "C_SOURCES += \\\n"
+        f"{source_lines}\n\n"
+        "C_INCLUDES += Generated/Inc\n"
+    )
 
 
 def _CapabilityRoutesHeader_Render() -> str:
@@ -302,7 +523,47 @@ def _GeneratedNumber_Render(
 def _FlightConfigHeader_Render(
     model: ProjectModel, catalog: PluginCatalog
 ) -> str:
-    definitions: list[tuple[str, str]] = []
+    definitions: list[tuple[str, str]] = [
+        (
+            "SILVERSTAR_PROTOCOL_TELEMETRY_ENABLED",
+            "1U" if model.protocols.get("telemetry") is not None else "0U",
+        ),
+        (
+            "SILVERSTAR_PROTOCOL_MAINTENANCE_ENABLED",
+            "1U" if model.protocols.get("maintenance") is not None else "0U",
+        ),
+        (
+            "SILVERSTAR_PROTOCOL_LOGGING_ENABLED",
+            "1U" if model.protocols.get("logging") is not None else "0U",
+        ),
+    ]
+    telemetry_tag = b"\0" * 8
+    telemetry_selection = model.protocols.get("telemetry")
+    if telemetry_selection is not None:
+        telemetry_manifest = catalog.Component_Get(
+            telemetry_selection.component
+        )
+        declared_tag = telemetry_manifest.metadata.get(
+            "log_compatibility_tag", ""
+        )
+        if not isinstance(declared_tag, str):
+            raise ValueError("Telemetry log compatibility tag must be text")
+        try:
+            telemetry_tag = declared_tag.encode("ascii")
+        except UnicodeEncodeError as error:
+            raise ValueError(
+                "Telemetry log compatibility tag must be ASCII"
+            ) from error
+        if len(telemetry_tag) != 8:
+            raise ValueError(
+                "Telemetry log compatibility tag must contain eight bytes"
+            )
+    definitions.append(
+        (
+            "SILVERSTAR_LOG_TELEMETRY_COMPATIBILITY_TAG",
+            "{" + ", ".join(f"0x{value:02X}U" for value in telemetry_tag) + "}",
+        )
+    )
     selected_components = set(model.ComponentIds_Get())
     feature_symbols: dict[str, bool] = {}
     for manifest in catalog.All_Get():
@@ -383,6 +644,21 @@ def _FlightConfigHeader_Render(
 {AUTOGEN_C_COMMENT}
 
 {rows}
+
+#if ((SILVERSTAR_PROTOCOL_TELEMETRY_ENABLED != 0U) && \
+     (SYSTEM_USER_TELEMETRY_ENABLE == 0U))
+#error "Telemetry Protocol requires a selected telemetry transport Device"
+#endif
+
+#if ((SILVERSTAR_PROTOCOL_MAINTENANCE_ENABLED != 0U) && \
+     (SYSTEM_USER_CONSOLE_ENABLE == 0U))
+#error "Maintenance Protocol requires the auto-managed console transport"
+#endif
+
+#if ((SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U) && \
+     (SYSTEM_USER_LOG_SINK_ENABLE == 0U))
+#error "Logging Protocol requires a selected physical Log Sink Device"
+#endif
 
 #endif /* __PROJECT_FLIGHT_CONFIG_H */
 """
@@ -858,20 +1134,12 @@ def LogDecoderProfile_Render(
     if not protocol_resolution.valid:
         raise ValueError("Cannot generate unresolved protocol transport bindings")
     project_semantics = {
-        "schema_id": "silverstar.project-semantics/1.0",
+        "schema_id": "silverstar.project-semantics/1.1",
         "project": model.identity.name,
         "target": model.build.target_profile,
         "firmware_version": model.identity.firmware_version,
         "project_digest": f"{ProjectDigest_Get(model):08x}",
-        "protocols": {
-            category: {
-                "component": selection.component,
-                "version": selection.version,
-                "profile": selection.profile,
-                "manifest_sha256": selection.manifest_sha256,
-            }
-            for category, selection in sorted(model.protocols.items())
-        },
+        "protocols": _ProtocolSelectionsDictionary_Get(model),
         "components": list(model.ComponentIds_Get()),
         "component_locks": [
             {
@@ -1077,15 +1345,7 @@ def LogDecoderProfile_Render(
             ),
             project_generation_fingerprint=f"{ProjectDigest_Get(model):08x}",
             supported_primitive_types=_SupportedPrimitiveTypes_Get(schema),
-            selected_protocols={
-                category: {
-                    "component": selection.component,
-                    "version": selection.version,
-                    "profile": selection.profile,
-                    "manifest_sha256": selection.manifest_sha256,
-                }
-                for category, selection in sorted(model.protocols.items())
-            },
+            selected_protocols=_ProtocolSelectionsDictionary_Get(model),
             firmware_components={
                 "core": model.core,
                 "mcu_platform": model.mcu,
@@ -2617,7 +2877,11 @@ def _Configuration_Render(model: ProjectModel, catalog: PluginCatalog, graph: So
         binding.category: binding
         for binding in ProtocolResolution_Resolve(model, catalog).bindings
     }
-    for category, profile_id in sorted(model.ProtocolProfiles_Get().items()):
+    for category, selection in sorted(model.protocols.items()):
+        if selection is None:
+            lines.append(f"- `{category}`: `None`")
+            continue
+        profile_id = selection.profile
         display_name = profile_id
         for protocol_id in model.ProtocolComponentIds_Get():
             contribution = catalog.Component_Get(protocol_id).protocol
@@ -2654,8 +2918,18 @@ def _Configuration_Render(model: ProjectModel, catalog: PluginCatalog, graph: So
     for key, value in sorted(model.resource_assignments.items()):
         lines.append(f"- `{key}` → `{value}`")
     lines.extend(("", "## SSLOG streams", ""))
+    if model.protocols.get("logging") is None:
+        lines.append("- Logging Protocol disabled; retained stream settings are inactive.")
     for stream in model.logging_streams:
-        state = "enabled" if stream.enabled else "disabled"
+        state = (
+            "inactive (configured enabled)"
+            if model.protocols.get("logging") is None and stream.enabled
+            else "inactive"
+            if model.protocols.get("logging") is None
+            else "enabled"
+            if stream.enabled
+            else "disabled"
+        )
         lines.append(
             f"- `{stream.record}`: {state}, `{stream.policy}`, "
             f"decimation={stream.decimation}, period_us={stream.period_us}"
@@ -2690,19 +2964,20 @@ def _Configuration_Render(model: ProjectModel, catalog: PluginCatalog, graph: So
     lines.extend(("", "## Reference provenance", ""))
     for key, value in sorted(model.reference_provenance.items()):
         lines.append(f"- `{key}`: `{value}`")
-    lines.extend(
-        (
-            "",
-            "## Log decoder profile",
-            "",
-            f"- Package: `{model.log_decoder_profile.relative_path}`",
-            f"- Package schema: `{model.log_decoder_profile.package_schema}`",
-            f"- Container plugin: `{model.log_decoder_profile.container_plugin_id}`",
-            "- Generation profile SHA-256: "
-            f"`{model.log_decoder_profile.generation_profile_sha256}`",
-            f"- Package SHA-256: `{model.log_decoder_profile.package_sha256}`",
+    if model.protocols.get("logging") is not None:
+        lines.extend(
+            (
+                "",
+                "## Log decoder profile",
+                "",
+                f"- Package: `{model.log_decoder_profile.relative_path}`",
+                f"- Package schema: `{model.log_decoder_profile.package_schema}`",
+                f"- Container plugin: `{model.log_decoder_profile.container_plugin_id}`",
+                "- Generation profile SHA-256: "
+                f"`{model.log_decoder_profile.generation_profile_sha256}`",
+                f"- Package SHA-256: `{model.log_decoder_profile.package_sha256}`",
+            )
         )
-    )
     lines.extend(
         (
             "",
@@ -2729,6 +3004,13 @@ def _Configuration_Render(model: ProjectModel, catalog: PluginCatalog, graph: So
 
 
 def _GeneratedReadme_Render(model: ProjectModel) -> str:
+    decoder_lines = (
+        f"- Log decoder profile: `{model.log_decoder_profile.relative_path}`\n"
+        f"- Generation profile SHA-256: `{model.log_decoder_profile.generation_profile_sha256}`\n"
+        f"- Log decoder package SHA-256: `{model.log_decoder_profile.package_sha256}`\n"
+        if model.protocols.get("logging") is not None
+        else "- Logging Protocol: `None` (no decoder package is generated)\n"
+    )
     return f"""# {model.identity.name}
 
 This standalone embedded project was assembled by SilverStar_FCCG from declarative source plugins.
@@ -2741,9 +3023,7 @@ It does not require FCCG or Python to build.
 - Power of Ten project gate: `{model.build.make_command} power10-check`
 - GCC `-fanalyzer` static analysis: `{model.build.make_command} CONFIG=Release static-analysis`
 - Artifact check: `{model.build.make_command} TARGET_PROFILE={model.build.target_profile} CONFIG=Release artifact-check`
-- Log decoder profile: `{model.log_decoder_profile.relative_path}`
-- Generation profile SHA-256: `{model.log_decoder_profile.generation_profile_sha256}`
-- Log decoder package SHA-256: `{model.log_decoder_profile.package_sha256}`
+{decoder_lines.rstrip()}
 
 Component sources are ordinary project-owned files. FCCG may overwrite `Generated/`,
 `SilverStar.ssproject`, `SilverStar_Configuration.md`, and generated editor/build metadata.

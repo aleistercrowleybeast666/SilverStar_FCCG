@@ -2,6 +2,23 @@
 
 ## Unreleased — 2026-08-30
 
+- Upgraded strict project format to 11. Telemetry, maintenance, and logging remain three required
+  keys but each accepts an explicit `null`; format-10 locks migrate unchanged and the official SS0.5
+  reference configuration still starts with all three official Profiles enabled.
+- Made Device selection independent from Protocol activation. Removing the sole compatible link or
+  Log Sink clears its dependent Profile atomically; restoring the Device does not auto-select it.
+  All three GUI combos show localized None first and explain disabled Profiles.
+- Added declarative maintenance-endpoint lifecycle and protocol-specific Source Graph partitions.
+  Disabled Telemetry/Serial/Logger tasks have no stack, TCB, service, codec, or transport allocation,
+  while task-report indices and health semantics stay stable.
+- Added deterministic package/project-semantics schema 1.1. Logging None emits no `.ssdecoder`,
+  decoder descriptor, golden expectation, or golden task and removes only stale managed artifacts;
+  telemetry/maintenance may be null in a logging-enabled package.
+- Decoupled the SSLOG header compatibility tag from AIR: the default remains byte-identical
+  `AIR-NCRC`, while Telemetry None uses eight zero bytes without changing the SSLOG0 layout.
+- Added reproducible eight-combination SS0.5/F407 generation/build acceptance. All T/M/L combinations
+  passed both Release and Debug builds; default Host, architecture, Power of Ten, static-analysis,
+  and artifact gates also passed.
 - Completed the internal **Software Release Candidate / Pre-Hardware-Validation** closeout. This is
   not a public release, tag, flash result, electrical validation, or flight qualification.
 - Upgraded strict project format to 10. Custom CubeMX import now discovers the actual MCU first and

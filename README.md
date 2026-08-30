@@ -16,9 +16,9 @@ The main window has exactly four pages: **Devices**, **Flight Configuration**, *
 
 ## Device-first workflow
 
-1. Enter only the project name and output directory. The sole current firmware/Core/OS/Protocol/Environment defaults are selected automatically.
+1. Enter only the project name and output directory. The sole current firmware/Core/OS/Environment defaults are selected automatically. The official SS0.5 reference draft also starts with all three official protocols enabled, while each protocol remains explicitly disableable later.
 2. Select Device instances. MCU is not a Device-page choice: the selected Board snapshot or imported CubeMX `.ioc` supplies exact part/family/package/core facts, and FCCG deterministically matches the installed MCU/Platform plugin. **Primary Sensors** contains only `sensor.imu` and `sensor.gnss`; all other valid `sensor.*` plugins enter **Other Sensors** automatically. Links, storage, actuators, and indicators remain separate groups. SS0.5 maps the active-low system indicator to `IMU_CAL_LED` on PA1. Its verified hardware has no second assignable indicator GPIO, so strict generation reports the optional GNSS indicator as unresolved instead of reusing a mission output.
-3. Open **Flight Configuration** to select manifest-defined Strategies and Modes, edit per-Mode parameters, review the read-only AIR Telemetry Protocol M0 / Serial Maintenance Protocol 0.0 / Flight Log Format 0.0 profiles, inspect derived capability consumers/sources, and adjust Protocol-owned Required/Recommended/Optional logging. M0 is the current low-resource/low-bandwidth AIR profile name, not a wire-version increment. Incompatible choices are disabled from Device capabilities alone, even before hardware is selected. A source override appears and is saved only for a genuinely ambiguous required capability.
+3. Open **Flight Configuration** to select manifest-defined Strategies and Modes, edit per-Mode parameters, choose AIR Telemetry Protocol M0 / Serial Maintenance Protocol 0.0 / Flight Log Format 0.0 or **None** independently, inspect derived capability consumers/sources, and adjust Protocol-owned Required/Recommended/Optional logging. M0 is the current low-resource/low-bandwidth AIR profile name, not a wire-version increment. Incompatible choices are disabled from Device capabilities alone, even before hardware is selected. A source override appears and is saved only for a genuinely ambiguous required capability.
 4. Open **Hardware Connection**. A new STM32 draft starts on **Custom STM32 Hardware** for the manual CubeMX import flow; alternatively select a compatible Board. FCCG parses the Board/imported `.ioc`, displays the detected MCU, CubeMX/Firmware Package facts, HAL/CMSIS source policy, and matched Platform lock/reason/provenance, validates typed UART/SPI/I²C/CAN-inventory/PWM and GPIO electrical contracts, preserves still-valid assignments, and auto-assigns new semantic connections. A selected custom I²C bus with Open Drain/NOPULL exposes a bus-and-pin-specific **verified external pull-up** checkbox; its evidence is bound to the current snapshot and disappears for unrelated hardware. Use **Complete Manual Assignment and Check** to seal the current mapping fingerprint; any relevant Device/Mode/IOC/Platform/assignment change invalidates that confirmation. Only Board plugins expose the optional **Prepare Hardware Files** action.
 5. Choose **Generate Code** (or **File → Save Project**). This validates, resolves, prepares hardware, incrementally updates the standalone source project, renders Make/EIDE/VS Code, verifies readiness, and publishes `SilverStar.ssproject` last. Unchanged managed and component files retain their timestamps; `build/` and dependency files are not cleaned.
 6. From **Code Generation & Build**, choose **Open VS Code Workspace** or **Open Project Folder**, then build in VS Code/EIDE. Release is the default Make/EIDE/VS Code target and Debug remains available. **Open Firmware Output** stays disabled until an actual ELF/HEX/BIN/MAP artifact exists. FCCG's **Validation Build** is intentionally under advanced verification and also defaults to Release; generation itself never runs a full build or quality suite.
@@ -41,13 +41,15 @@ The output directory may be any user-selected writable project directory. FCCG t
 
 Supported declarative types are Core, MCU/Platform, Board, Device, Algorithm, FlightLogic, OS, Protocol, HardwareConfigurationProvider, and DevelopmentEnvironment. Installing `.ssplugin` data never executes package code or scripts. The legacy three-category `protocol_bundle` is accepted only as a project-format migration source and never enters a new Source Graph.
 
-The old combined protocol package is split into three independently locked, mandatory selections: `silverstar.protocol.telemetry.air_m0`, `silverstar.protocol.maintenance.serial_0_0`, and `silverstar.protocol.logging.sslog_0_0`. Each plugin owns exactly one strict category, its complete Profile/build/transport/metadata contract, version, and manifest SHA-256. The split changes ownership only; AIR M0, Serial Maintenance 0.0, and SSLOG 0.0 bytes and behavior are unchanged.
+The old combined protocol package is split into three independently locked optional slots. An enabled slot locks `silverstar.protocol.telemetry.air_m0`, `silverstar.protocol.maintenance.serial_0_0`, or `silverstar.protocol.logging.sslog_0_0` by component/version/Profile/manifest SHA-256; a disabled slot is the project-model value `null`, not a fake plugin. Each plugin owns exactly one strict category and its complete Profile/build/transport/metadata contract. AIR M0, Serial Maintenance 0.0, and SSLOG 0.0 wire/file layouts are unchanged.
+
+Physical Devices and protocol activation are independent. A selected SX1281 or SD/TF Device may remain present while its protocol is **None**. Removing the only compatible transport atomically clears the dependent protocol; restoring a Device never silently re-enables it. Maintenance uses a declaratively auto-managed internal UART Console endpoint, which is added only while the maintenance protocol is enabled and is removed together with its UART assignment and SerialTask sources when disabled.
 
 Reference import uses a reproducible two-source pipeline: the external firmware snapshot is read-only, then official FCCG extensions from `tools/reference_overlays/` are replayed into builtin packages. The F407 Platform extension declares the resource-rendering ABI instead of hard-coding F4 headers/getters in Python. I²C provides blocking 7-bit master and 8/16-bit register access without HAL constants or generic repeated-start; PWM accepts only CubeMX-proven ordinary PWM1/PWM2 channels and uses exact forced endpoints. Both are software `supported`, not electrically `verified`. Classic CAN remains inventory-visible but its backend is `reserved` and cannot serve a normal consumer. Default SS0.5 therefore contains none of these optional backends or unrelated I²C/CAN/PWM code.
 
 Component payloads are copied only when first selected and then belong to the generated embedded project. Normal Save does not overwrite them. FCCG replaces only its small `Generated/` glue surface and managed project/editor metadata. A new CubeMX snapshot is a special dangerous replacement and requires confirmation; ordinary component deactivation retains files and removes them only from the active source graph.
 
-Each generated project also receives `<ProjectName>.ssdecoder`, a deterministic ZIP containing
+Each logging-enabled generated project also receives `<ProjectName>.ssdecoder`, a deterministic ZIP containing
 only `manifest.json`, `record_catalog.json`, `project_semantics.json`, `checksums.sha256`, and
 `README.md`. Canonical UTF-8 JSON and SHA-256 identities bind the Flight Log container/record
 catalog to the three protocol locks and bindings, detected MCU/Platform/Board/CubeMX identity,
@@ -78,10 +80,17 @@ starts no worker and does not alter the project or Dirty state. FCCG still does 
 parser, executable decoder plugin, or multi-version decoder engine in this release.
 
 The current package contract uses firmware-owned IDs
-`silverstar.ssdecoder.package-schema/1.0` and `silverstar.sslog.container/0.0`. The generated
+`silverstar.ssdecoder.package-schema/1.1` and `silverstar.sslog.container/0.0`. Package schema 1.1
+allows telemetry and maintenance locks to be `null` while requiring a real logging lock. The generated
 descriptor source is part of the same authoritative Make/EIDE/VS Code Source Graph as the other
 generated glue. Host Tests also compile a C utility against the real SSLOG codec to create and
 round-trip-check `Logs/Golden/<ProjectName>_golden.sslog`.
+
+When logging is **None**, the logging table and export action are disabled, LoggerTask/Log Sink/
+SSLOG sources leave the active graph, and no `.ssdecoder`, decoder descriptor, golden expectation,
+or golden task is generated. A later generation removes only stale FCCG-managed decoder artifacts;
+manual flight-log files remain untouched. `Generated/project_semantics.json` is still emitted for
+auditing and records all three protocol slots, including `null` values.
 
 Long operations emit structured PLAN/BEGIN/DONE progress. BEGIN announces the active subject;
 only DONE advances the completed count. Successful work ends at 100%, while failure or cancellation
@@ -121,7 +130,7 @@ The normal build page shows only the target and selected development environment
 
 ```powershell
 python -m pytest
-python -m compileall -q src tools
+python -m compileall -q src main.py tools
 ```
 
 All automated outputs remain below `tests/`. FCCG does not alter PATH, registry, global IDE settings, another repository, or the read-only firmware/GUI references.
@@ -138,9 +147,9 @@ Generated outputs use `build/FCCG/<target>/<Debug|Release>`,
 `LISTING=0` is the default. File → Export Source Package creates a deterministic review archive,
 while `python tools/clean_all.py` removes repository-local generated/test artifacts only.
 
-Protocol selection is modeled as System Service → complete Protocol Profile → Transport Binding
-→ Physical Device/Storage. The GUI currently exposes one genuine implementation in each of the
-three combo boxes; this is an extensible contract, not a claim that arbitrary protocol swapping
-already works.
+Protocol selection is modeled as optional System Service → complete Protocol Profile → Transport
+Binding → Physical Device/Storage. All three combo boxes always show **None** first and currently
+expose one genuine implementation. Missing or ambiguous compatible transports disable the real
+Profile with an explanation; no Profile is selected merely because it is installed.
 
 See [User Guide](docs/USER_GUIDE.md), [Architecture](docs/ARCHITECTURE.md), [Plugin Format](docs/PLUGIN_FORMAT.md), [Project Format](docs/PROJECT_FORMAT.md), [Generated Code](docs/GENERATED_CODE.md), [Build Integration](docs/BUILD.md), and [Validation](VALIDATION.md).

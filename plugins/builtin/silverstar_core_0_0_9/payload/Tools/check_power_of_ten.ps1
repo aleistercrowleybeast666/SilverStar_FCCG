@@ -256,8 +256,12 @@ $patternRules = @(
     @{ Name = 'dynamic allocation'; Pattern = '\b(?:malloc|calloc|realloc|free|pvPortMalloc|vPortFree)\s*\(' },
     @{ Name = 'finite while/do loop'; Pattern = '\bwhile\s*\(|\bdo\s*\{' },
     @{ Name = 'function-pointer declaration'; Pattern = '\(\s*\*\s*[A-Za-z_][A-Za-z0-9_]*\s*\)\s*\(' },
-    @{ Name = 'first-party C conditional compilation'; Pattern = '^\s*#\s*(?:if|ifdef|ifndef|elif|else|endif)\b' },
     @{ Name = 'forbidden formatter'; Pattern = '\b(?:printf|fprintf|sprintf|snprintf|vprintf|vsprintf|vsnprintf)\s*\(' }
+)
+$conditionalPattern = '^\s*#\s*(?:if|ifdef|ifndef|elif|else|endif)\b'
+$protocolConditionalPattern = (
+    '^\s*#\s*if\s+\(SILVERSTAR_PROTOCOL_' +
+    '(?:TELEMETRY|MAINTENANCE|LOGGING)_ENABLED\s*!=\s*0U\)\s*$'
 )
 
 foreach ($file in $files) {
@@ -277,6 +281,16 @@ foreach ($file in $files) {
                 ($diagnostics -join "`n  "))
     }
 
+    $conditionalDiagnostics = Get-PatternDiagnostics -File $file `
+        -Lines $lines -Pattern $conditionalPattern -Approved {
+            param($candidateFile, $line, $lineNumber)
+            return (($line -match $protocolConditionalPattern) -or
+                    ($line -match '^\s*#\s*(?:else|endif)\b'))
+        }
+    Add-PowerTenCheck -Condition ($conditionalDiagnostics.Count -eq 0) `
+        -Message ("first-party C conditional compilation violation:`n  " +
+            ($conditionalDiagnostics -join "`n  "))
+
     $doublePointerDiagnostics = Get-PatternDiagnostics -File $file `
         -Lines $lines -Pattern '\*\s*\*' -Approved {
             param($candidateFile, $line, $lineNumber)
@@ -292,7 +306,10 @@ foreach ($file in $files) {
         -Message ("double-pointer violation:`n  " +
             ($doublePointerDiagnostics -join "`n  "))
 
-    $functions = @(Get-CFunctions -SanitizedText $sanitized)
+    $functionLines = @($lines | ForEach-Object {
+        if ($_ -match '^\s*#') { '' } else { $_ }
+    })
+    $functions = @(Get-CFunctions -SanitizedText ($functionLines -join "`n"))
     foreach ($function in $functions) {
         $allFunctions += [pscustomobject]@{
             File = $relative

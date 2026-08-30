@@ -10,7 +10,9 @@
 #include "system_calibration.h"
 #include "system_estimator_profile.h"
 #include "system_health.h"
+#if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
 #include "system_log_policy.h"
+#endif
 #include "system_navigation_profile.h"
 #include "system_output_if.h"
 #include "system_profile.h"
@@ -51,7 +53,9 @@ static void SystemLifecycle_StartRollback(void)
     SystemTime_MissionReset();
     SystemEstimatorProfile_UnfreezeForRollback();
     SystemNavigationProfile_UnfreezeForRollback();
+#if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
     SystemLogPolicy_UnfreezeForRollback();
+#endif
     SystemProfile_UnfreezeForRollback();
     s_lifecycle_state = SYSTEM_STATE_PREFLIGHT;
 }
@@ -292,7 +296,9 @@ SystemLifecycleStartResult SystemLifecycle_StartReadinessGet(
 static void SystemLifecycle_MissionProfilesFreeze(void)
 {
     SystemProfile_Freeze();
+#if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
     SystemLogPolicy_Freeze();
+#endif
     SystemNavigationProfile_Freeze();
     SystemEstimatorProfile_Freeze();
     SystemTime_MissionStart(SystemTime_GetMonotonicUs());

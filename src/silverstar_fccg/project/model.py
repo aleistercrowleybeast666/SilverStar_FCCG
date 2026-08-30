@@ -33,7 +33,8 @@ TOOLCHAIN_PREFIX_PATTERN = re.compile(r"^[A-Za-z0-9_.+-]+$")
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 RELATIVE_FILE_PATTERN = re.compile(r"^[A-Za-z0-9_./+@ -]+$")
 
-PROJECT_FORMAT_VERSION = 10
+PROJECT_FORMAT_VERSION = 11
+PROTOCOL_CATEGORIES = ("telemetry", "maintenance", "logging")
 DEFAULT_PROTOCOL_PROFILES = {
     "telemetry": "air.m0",
     "maintenance": "maintenance.serial.0_0",
@@ -108,8 +109,8 @@ class LogStreamConfig:
 @dataclass(frozen=True, slots=True)
 class LogDecoderProfileReference:
     relative_path: str = ""
-    package_schema: str = "1.0"
-    container_plugin_id: str = "silverstar.sslog.container/0.0"
+    package_schema: str = ""
+    container_plugin_id: str = ""
     generation_profile_sha256: str = ""
     package_sha256: str = ""
 
@@ -174,7 +175,11 @@ class ProjectModel:
     mode_parameters: dict[str, dict[str, dict[str, float | int]]] = field(
         default_factory=lambda: deepcopy(DEFAULT_MODE_PARAMETERS)
     )
-    protocols: dict[str, ProtocolSelection] = field(default_factory=dict)
+    protocols: dict[str, ProtocolSelection | None] = field(
+        default_factory=lambda: {
+            category: None for category in PROTOCOL_CATEGORIES
+        }
+    )
     development_environment: str = ""
     hardware: HardwareConfiguration = field(default_factory=HardwareConfiguration)
     resource_assignments: dict[str, str] = field(default_factory=dict)
@@ -215,6 +220,7 @@ class ProjectModel:
         ordered.extend(
             selection.component
             for _category, selection in sorted(self.protocols.items())
+            if selection is not None
         )
         ordered.append(self.development_environment)
         if self.hardware.mode == "custom":
@@ -228,12 +234,14 @@ class ProjectModel:
         return tuple(
             selection.component
             for _category, selection in sorted(self.protocols.items())
+            if selection is not None
         )
 
     def ProtocolProfiles_Get(self) -> dict[str, str]:
         return {
             category: selection.profile
             for category, selection in self.protocols.items()
+            if selection is not None
         }
 
     def DeviceInstance_Get(self, instance_id: str) -> DeviceInstance | None:
@@ -278,12 +286,16 @@ class ProjectModel:
                 for slot, options in sorted(self.mode_parameters.items())
             },
             "protocols": {
-                category: {
-                    "component": selection.component,
-                    "version": selection.version,
-                    "profile": selection.profile,
-                    "manifest_sha256": selection.manifest_sha256,
-                }
+                category: (
+                    {
+                        "component": selection.component,
+                        "version": selection.version,
+                        "profile": selection.profile,
+                        "manifest_sha256": selection.manifest_sha256,
+                    }
+                    if selection is not None
+                    else None
+                )
                 for category, selection in sorted(self.protocols.items())
             },
             "hardware": {
@@ -675,6 +687,20 @@ def _ProjectV9_Migrate(root: dict[str, Any]) -> dict[str, Any]:
         and "project_storage_binding" not in generated_glue
     ):
         generated_glue.append("project_storage_binding")
+    migrated["format_version"] = 10
+    return migrated
+
+
+def _ProjectV10_Migrate(root: dict[str, Any]) -> dict[str, Any]:
+    """Allow each independently selected Protocol slot to be explicitly off."""
+    migrated = deepcopy(root)
+    protocols = _Object_Require(migrated.get("protocols"), "protocols")
+    if set(protocols) != set(PROTOCOL_CATEGORIES):
+        raise ProjectModelError(
+            "protocols must contain exactly telemetry, maintenance and logging"
+        )
+    # Format 10 required all three selections, so preserving the objects is a
+    # lossless migration.  Format 11 merely permits a slot to be null later.
     migrated["format_version"] = PROJECT_FORMAT_VERSION
     return migrated
 
@@ -707,11 +733,17 @@ def _LogDecoderProfile_Parse(value: Any) -> LogDecoderProfileReference:
             raise ProjectModelError(
                 f"Invalid log decoder profile path: {relative_path!r}"
             )
-    package_schema = _String_Require(profile, "package_schema")
-    container_plugin_id = _String_Require(profile, "container_plugin_id")
-    if not FIRMWARE_VERSION_PATTERN.fullmatch(package_schema):
+    package_schema = _String_Require(
+        profile, "package_schema", allow_empty=True
+    )
+    container_plugin_id = _String_Require(
+        profile, "container_plugin_id", allow_empty=True
+    )
+    if package_schema and not FIRMWARE_VERSION_PATTERN.fullmatch(package_schema):
         raise ProjectModelError("log_decoder_profile package schema is invalid")
-    if not CONTAINER_PLUGIN_ID_PATTERN.fullmatch(container_plugin_id):
+    if container_plugin_id and not CONTAINER_PLUGIN_ID_PATTERN.fullmatch(
+        container_plugin_id
+    ):
         raise ProjectModelError(
             "log_decoder_profile container plugin id is invalid"
         )
@@ -729,6 +761,22 @@ def _LogDecoderProfile_Parse(value: Any) -> LogDecoderProfileReference:
     if bool(generation_profile_sha256) != bool(package_sha256):
         raise ProjectModelError(
             "log_decoder_profile hashes must either both be present or both be empty"
+        )
+    if relative_path:
+        if not package_schema or not container_plugin_id:
+            raise ProjectModelError(
+                "Active log_decoder_profile identity is incomplete"
+            )
+    elif any(
+        (
+            package_schema,
+            container_plugin_id,
+            generation_profile_sha256,
+            package_sha256,
+        )
+    ):
+        raise ProjectModelError(
+            "Inactive log_decoder_profile must be completely empty"
         )
     return LogDecoderProfileReference(
         relative_path=relative_path,
@@ -896,14 +944,17 @@ def _ModeParameters_Parse(
     return result
 
 
-def _Protocols_Parse(value: Any) -> dict[str, ProtocolSelection]:
+def _Protocols_Parse(value: Any) -> dict[str, ProtocolSelection | None]:
     data = _Object_Require(value, "protocols")
-    if set(data) != set(DEFAULT_PROTOCOL_COMPONENTS):
+    if set(data) != set(PROTOCOL_CATEGORIES):
         raise ProjectModelError(
             "protocols must contain exactly telemetry, maintenance and logging"
         )
-    result: dict[str, ProtocolSelection] = {}
+    result: dict[str, ProtocolSelection | None] = {}
     for category, selection_value in data.items():
+        if selection_value is None:
+            result[category] = None
+            continue
         selection = _Object_Require(
             selection_value, f"protocols.{category}"
         )
@@ -1330,6 +1381,8 @@ def ProjectModel_Parse(data: dict[str, Any]) -> ProjectModel:
         root = _ProjectV8_Migrate(root)
     if root.get("format_version") == 9:
         root = _ProjectV9_Migrate(root)
+    if root.get("format_version") == 10:
+        root = _ProjectV10_Migrate(root)
     required_root = {
         "format_version",
         "project",

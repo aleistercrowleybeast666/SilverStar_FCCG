@@ -293,6 +293,8 @@ def ProtocolLogDefinitions_Load(path: Path) -> tuple[LogRecordDefinition, ...]:
 def ProtocolLogDefinitions_Get(
     model: ProjectModel, catalog: PluginCatalog
 ) -> tuple[LogRecordDefinition, ...]:
+    if model.protocols.get("logging") is None:
+        return ()
     return ProtocolLogDefinitions_Load(
         ProjectProtocolLogMetadataPath_Get(model, catalog)
     )
@@ -385,6 +387,19 @@ def ProjectLogProducers_Get(
             producers.update(
                 item for item in declared if isinstance(item, str) and item
             )
+        protocol_declared = manifest.metadata.get(
+            "protocol_log_producers", {}
+        )
+        if isinstance(protocol_declared, dict):
+            for category, identities in protocol_declared.items():
+                if model.protocols.get(str(category)) is None:
+                    continue
+                if isinstance(identities, list):
+                    producers.update(
+                        item
+                        for item in identities
+                        if isinstance(item, str) and item
+                    )
     return producers
 
 
@@ -455,6 +470,11 @@ def LogAvailability_Get(
 def LoggingProfile_Reconcile(
     model: ProjectModel, catalog: PluginCatalog
 ) -> tuple[LogRecordDefinition, ...]:
+    if model.protocols.get("logging") is None:
+        # Keep the user's stream choices as inactive configuration.  Restoring
+        # a compatible Logging Protocol reconciles known records against this
+        # retained state without treating it as an active logging contract.
+        return ()
     definitions = ProtocolLogDefinitions_Get(model, catalog)
     current = {stream.record: stream for stream in model.logging_streams}
     reconciled: list[LogStreamConfig] = []
@@ -483,6 +503,8 @@ def LoggingProfile_SelectAllAvailable(
     model: ProjectModel, catalog: PluginCatalog
 ) -> tuple[LogRecordDefinition, ...]:
     """Enable every Record supported by the reconciled project composition."""
+    if model.protocols.get("logging") is None:
+        return ()
     definitions = LoggingProfile_Reconcile(model, catalog)
     current = {stream.record: stream for stream in model.logging_streams}
     model.logging_streams = [

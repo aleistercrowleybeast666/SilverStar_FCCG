@@ -10,7 +10,7 @@
     "component_provenance", "reference_provenance"
   ],
   "properties": {
-    "format_version": {"const": 10},
+    "format_version": {"const": 11},
     "project": {
       "type": "object",
       "required": ["name", "firmware_version", "build_target"],
@@ -69,9 +69,9 @@
       "type": "object",
       "required": ["telemetry", "maintenance", "logging"],
       "properties": {
-        "telemetry": {"$ref": "#/$defs/protocolSelection"},
-        "maintenance": {"$ref": "#/$defs/protocolSelection"},
-        "logging": {"$ref": "#/$defs/protocolSelection"}
+        "telemetry": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/protocolSelection"}]},
+        "maintenance": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/protocolSelection"}]},
+        "logging": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/protocolSelection"}]}
       },
       "additionalProperties": false
     },
@@ -185,10 +185,12 @@
             "additionalProperties": false
           }
         },
-        "package_schema": {"$ref": "#/$defs/version"},
+        "package_schema": {"oneOf": [{"const": ""}, {"$ref": "#/$defs/version"}]},
         "container_plugin_id": {
-          "type": "string",
-          "pattern": "^[a-z0-9]+(?:[._/-][a-z0-9]+)*$"
+          "oneOf": [
+            {"const": ""},
+            {"type": "string", "pattern": "^[a-z0-9]+(?:[._/-][a-z0-9]+)*$"}
+          ]
         },
         "generation_profile_sha256": {
           "oneOf": [{"const": ""}, {"$ref": "#/$defs/sha256"}]

@@ -1,6 +1,6 @@
 # SilverStar.ssproject format
 
-`SilverStar.ssproject` is strict JSON with `format_version: 10`; the formal shape is `schemas/project.schema.json`. Formats 0–9 migrate through Strategy/Mode, Hardware Inventory, Device-instance, capability, Mode-parameter, protocol-profile, assignment-confirmation, decoder-profile, independent-Protocol, Platform-lock, CubeMX/HAL compatibility, I²C evidence, storage-Device ownership, FatFs, and timebase facts. All supported older files are saved only as format 10.
+`SilverStar.ssproject` is strict JSON with `format_version: 11`; the formal shape is `schemas/project.schema.json`. Formats 0–10 migrate through Strategy/Mode, Hardware Inventory, Device-instance, capability, Mode-parameter, protocol-profile, assignment-confirmation, decoder-profile, independent-Protocol, Platform-lock, CubeMX/HAL compatibility, I²C evidence, storage-Device ownership, FatFs, timebase facts, and nullable Protocol slots. Format 10 selections migrate unchanged as enabled locks; all supported older files are saved only as format 11.
 
 ## Sections
 
@@ -8,12 +8,12 @@
 - `components`: exactly one Core, automatically matched MCU/Platform, OS, and DevelopmentEnvironment; an optional Board while custom hardware is active; ordered `devices: [{instance_id, plugin}]`, base components, and generic `strategies: {slot: component-id | null}`. Protocol components no longer live in this block.
 - `modes`: generic `{slot: [option, ...]}` selections. Slot rules and labels come from manifests.
 - `mode_parameters`: generic `{slot: {option: {parameter: number}}}` values. Types, units, ranges, defaults, generated symbols, and scaling come from the owning Mode manifest.
-- `protocols`: exactly `telemetry`, `maintenance`, and `logging`; each stores the selected component ID, plugin version, Profile ID, and manifest SHA-256. Format-7 `protocol_bundles`/`protocol_profiles` and pre-release IDs migrate deterministically to the three official plugins.
+- `protocols`: exactly `telemetry`, `maintenance`, and `logging`; each value is either `null` or a lock containing component ID, plugin version, Profile ID, and manifest SHA-256. The three keys are mandatory and unknown categories are rejected. Format-7 `protocol_bundles`/`protocol_profiles` and pre-release IDs migrate deterministically to the three official plugins.
 - `hardware`: `unselected`, `board_plugin`, or `custom`, plus source kind/provider, immutable import snapshot/provenance, detected MCU/capabilities/resources, persisted `inventory`, trusted build contributions, matched `platform_component`/`platform_version`/`platform_manifest_sha256`, exact `cubemx_version`/`firmware_package`, `hal_cmsis_source_policy`, per-resource `i2c_external_pullup_confirmations`, first-import risk acknowledgement, and `assignment_fingerprint`. Pull-up evidence maps a resource ID to the exact source digest and snapshot ID; reconcile removes stale bindings. The Platform lock and fingerprint are refreshed by reconcile and retained only while their validity inputs are unchanged.
 - `resources`: `device-instance-id:requirement-name` (or non-Device component ID) to provided physical/logical resource ID.
 - `capability_sources`: only non-default user decisions for a required capability with several providers, mapping capability to the selected physical Device instance; absent values bind Canonical Source to capability instance 0.
-- `logging.streams`: the selected Protocol metadata order plus enable state, policy, decimation, and period. Record definitions and Required/Recommended/Optional levels do not live in the project file.
-- `log_decoder_profile`: generated relative `.ssdecoder` path, package-schema version, container-plugin ID, generation-profile SHA-256, and complete package SHA-256. These are derived verification data, not editable generation inputs.
+- `logging.streams`: the selected Protocol metadata order plus enable state, policy, decimation, and period. Record definitions and Required/Recommended/Optional levels do not live in the project file. The values remain user preferences but are inactive when `protocols.logging` is `null`.
+- `log_decoder_profile`: generated relative `.ssdecoder` path, package-schema version, container-plugin ID, generation-profile SHA-256, and complete package SHA-256. These are derived verification data, not editable generation inputs; all five strings use the existing empty-reference state while logging is disabled.
 - `build`: target, Make/toolchain preferences, native EIDE mode, and project-local tool-path overrides. Release is the generated default and Debug remains an invocation choice; neither is persisted as mutable project configuration. `flash_command` is currently an empty reserved field; it creates no GUI, Make, VS Code, or EIDE upload action without a future validated capability contract.
 - `generated_glue`: the reviewed FCCG-owned glue set.
 - `component_provenance` and `reference_provenance`: audit information only.
@@ -94,6 +94,21 @@ Logging does not persist a second capability database. Protocol metadata names R
 
 No Python schema change is required when a real future plugin declares a new Strategy slot such as `guidance` or a Mode slot with new options.
 
+Each Protocol value may instead be disabled explicitly without omitting its category:
+
+```json
+"protocols": {
+  "telemetry": null,
+  "maintenance": null,
+  "logging": null
+}
+```
+
+`null` is part of canonical serialization and the generation fingerprint. It contributes no
+component ID, component/protocol lock, provenance entry, Profile, transport binding, or Source
+Graph contribution. Reconciliation clears a non-null telemetry/logging selection when its sole
+compatible transport disappears and does not restore it when the Device returns.
+
 ## Custom hardware state
 
 `hardware.mode = "custom"` requires the trusted provider ID, imported MCU, source digest/snapshot ID, risk acknowledgement, resources, hardware inventory, compatibility facts, source policy, and build paths below the dedicated hardware prefix. The inventory is a data snapshot of the imported `.ioc` plus controlled generated source: MCU/name/family/package/core, CubeMX/Firmware Package, pins, peripherals, DMA, NVIC, clocks, generated TIM HAL timebase, FatFs App/Target/symbol facts, and parser issues. With `plugin_payload_authoritative`, only imported controlled `Core/Src` C, `Core/Inc`, and manifest-selected CubeMX glue are build contributions; imported HAL/CMSIS Drivers, startup and linker remain in the auditable snapshot but are not source-graph inputs. The generated project receives the vendor snapshot as `HardwareGenerated/STM32CubeMX/`; the original external CubeMX directory is not referenced by the build.
@@ -110,9 +125,10 @@ meaning; other policies preserve their compatible stored default without exposin
 The GUI names this DECIMATION value the **extraction factor** and presents it as “record once per
 N related data updates”; the persisted field remains `decimation` for compatibility.
 
-The generated `log_decoder_profile` reference is populated only while rendering a saved project.
-The current firmware-owned package/container IDs are `silverstar.ssdecoder.package-schema/1.0`
-and `silverstar.sslog.container/0.0`. `generation_profile_sha256` is SHA-256 over UTF-8 package
+The generated `log_decoder_profile` reference is populated only while rendering a saved,
+logging-enabled project. The current firmware-owned package/container IDs are
+`silverstar.ssdecoder.package-schema/1.1` and `silverstar.sslog.container/0.0`. Schema 1.1 permits
+nullable telemetry and maintenance locks but requires a real logging lock. `generation_profile_sha256` is SHA-256 over UTF-8 package
 schema ID, one LF, UTF-8 container ID, one LF, the raw 32-byte record-catalog digest, and the raw
 32-byte project-semantics digest in that exact order. `package_sha256` identifies the complete
 deterministic ZIP. Export rebuilds those bytes and refuses a missing, stale, or mismatched project.
@@ -128,8 +144,10 @@ fields: STATS requires `silverstar.core.device_task` and TELEMETRY_DIAG requires
 with `period_us` 1000000 and 200000, so wire/container/project compatibility is unchanged.
 
 Legacy pre-release descriptors may still contain the `maintenance0` UART Device instance. Loading
-retains and normalizes that internal Transport and its resource owner so protocol/source-graph and
-Hardware Connection data are not lost; the instance is simply not rendered as a Devices-page group.
+retains and normalizes that internal Transport and its resource owner while maintenance remains
+enabled. Reconciliation removes an endpoint declared with
+`auto_managed_protocol_category = maintenance` when the slot is `null`, and re-creates a stable
+`maintenance0` endpoint when the user explicitly re-enables a compatible Profile.
 
 ## Planning behavior
 
@@ -139,13 +157,15 @@ The JSON is machine state. `SilverStar_Configuration.md` is its generated human-
 
 ## Protocol, local-tool, and quality state
 
-`protocols` stores one independently locked plugin/Profile for each of `telemetry`, `maintenance`,
-and `logging`; a plugin is allowed to own only its declared strict category. Installed manifests—not
+`protocols` stores one nullable, independently locked plugin/Profile slot for each of `telemetry`,
+`maintenance`, and `logging`; a plugin is allowed to own only its declared strict category. Installed manifests—not
 a Python record table—supply full profile sources, binding, transport requirements, decoder data,
 docs, and tests. Duplicate `(category, profile)` providers are rejected rather than selected by scan
-order. Transport provider selection is resolved
-from selected physical Devices, the storage Device, and Board mapping contributions and is emitted into the generated
-decoder/configuration review.
+order. A non-null selection resolves exactly one transport from manifest capability/kind/mode/MTU/
+ordering/reliability/directionality contracts. Zero providers forces the slot to `null`; multiple
+providers remain an explicit ambiguity. Selecting a Device does not enable a Protocol, and restoring
+a transport does not auto-select the first installed Profile. Active bindings are emitted into the
+generated decoder/configuration review.
 
 `build.tool_paths` contains project-local host preferences and never enters the normalized
 generation fingerprint. Likewise `.fccg/quality-results.json` stores task/result/timestamp/

@@ -19,10 +19,15 @@ from silverstar_fccg.project.capabilities import (
 )
 from silverstar_fccg.project.logging import LoggingProfile_Reconcile
 from silverstar_fccg.project.model import (
+    PROTOCOL_CATEGORIES,
     DeviceInstance,
     HardwareConfiguration,
     ProjectModel,
     ProtocolSelection,
+)
+from silverstar_fccg.project.protocols import (
+    ProtocolAutoManagedDevices_Reconcile,
+    ProtocolProfileAvailabilities_Get,
 )
 from silverstar_fccg.project.resources import (
     BoardHardwareInventory_Get,
@@ -328,45 +333,57 @@ def _ModeParameters_Reconcile(
 
 def _ProtocolProfiles_Reconcile(
     model: ProjectModel, catalog: PluginCatalog
-) -> None:
-    available: dict[str, list] = {
-        "telemetry": [],
-        "maintenance": [],
-        "logging": [],
+) -> tuple[ConfigurationNotice, ...]:
+    notices: list[ConfigurationNotice] = []
+    reconciled = {
+        category: model.protocols.get(category)
+        for category in PROTOCOL_CATEGORIES
     }
-    for manifest in catalog.Type_Get("protocol"):
-        protocol = manifest.protocol
-        if protocol is not None and protocol.category in available:
-            available[protocol.category].append(manifest)
-    reconciled = dict(model.protocols)
-    for category, manifests in available.items():
-        selected = reconciled.get(category)
-        if selected is None and manifests:
-            manifest = manifests[0]
-            profiles = manifest.protocol.profiles[category]
-            reconciled[category] = ProtocolSelection(
-                component=manifest.component_id,
-                version=manifest.version,
-                profile=profiles[0].profile_id,
-                manifest_sha256=manifest.ManifestSha256_Get(),
-            )
-            continue
+    for category in PROTOCOL_CATEGORIES:
+        selected = reconciled[category]
         if selected is None:
             continue
         try:
             manifest = catalog.Component_Get(selected.component)
         except FccgError:
+            reconciled[category] = None
+            notices.append(
+                ConfigurationNotice(
+                    "configuration.protocol_cleared",
+                    slot=category,
+                    component_id=selected.component,
+                )
+            )
             continue
         protocol = manifest.protocol
         if protocol is None or protocol.category != category:
+            reconciled[category] = None
+            notices.append(
+                ConfigurationNotice(
+                    "configuration.protocol_cleared",
+                    slot=category,
+                    component_id=selected.component,
+                )
+            )
             continue
         profile_ids = {
             profile.profile_id
             for profile in protocol.profiles.get(category, ())
         }
         if selected.profile not in profile_ids:
+            reconciled[category] = None
+            notices.append(
+                ConfigurationNotice(
+                    "configuration.protocol_cleared",
+                    slot=category,
+                    component_id=selected.component,
+                )
+            )
             continue
-        if not selected.manifest_sha256:
+        if (
+            not selected.manifest_sha256
+            or selected.version != manifest.version
+        ):
             reconciled[category] = ProtocolSelection(
                 component=selected.component,
                 version=manifest.version,
@@ -374,6 +391,27 @@ def _ProtocolProfiles_Reconcile(
                 manifest_sha256=manifest.ManifestSha256_Get(),
             )
     model.protocols = reconciled
+    ProtocolAutoManagedDevices_Reconcile(model, catalog)
+    availability = ProtocolProfileAvailabilities_Get(model, catalog)
+    for category in PROTOCOL_CATEGORIES:
+        selected = model.protocols[category]
+        if selected is None:
+            continue
+        selected_availability = availability.get(
+            (category, selected.component, selected.profile)
+        )
+        if selected_availability is not None and selected_availability.available:
+            continue
+        model.protocols[category] = None
+        notices.append(
+            ConfigurationNotice(
+                "configuration.protocol_transport_removed",
+                slot=category,
+                component_id=selected.component,
+            )
+        )
+    ProtocolAutoManagedDevices_Reconcile(model, catalog)
+    return tuple(notices)
 
 
 def _HardwareAssignmentConfirmation_Reconcile(
@@ -674,9 +712,9 @@ def ProjectConfiguration_Reconcile(
     notices.extend(_UnavailableOptionalDevices_Reconcile(candidate, catalog))
     notices.extend(_Strategies_Reconcile(candidate, catalog))
     notices.extend(_Modes_Reconcile(candidate, catalog))
-    notices.extend(_RequiredLogicalDevices_Reconcile(candidate, catalog))
     _ModeParameters_Reconcile(candidate, catalog)
-    _ProtocolProfiles_Reconcile(candidate, catalog)
+    notices.extend(_ProtocolProfiles_Reconcile(candidate, catalog))
+    notices.extend(_RequiredLogicalDevices_Reconcile(candidate, catalog))
     capability_resolution = CapabilitySourceOverrides_Reconcile(candidate, catalog)
     (
         resource_resolution,

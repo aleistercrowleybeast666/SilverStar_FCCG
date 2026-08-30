@@ -105,7 +105,7 @@ Algorithm / FlightLogic manifests
               Resolved source graph / glue
 ```
 
-Slots are manifest strings, not permanent fields in Python. Current Strategy slots are Alignment, INS, Estimator, and Landing. Current Mode slots are Calibration and Deployment. Mode manifests may own typed numeric parameters and generated symbols. Three independently selected Protocol plugins each own exactly one telemetry, maintenance, or logging category. `Estimator=None` contributes `SYSTEM_FUSION_NONE`, excludes KF6, keeps BARO_NATIVE recordable, and disables estimator-derived BARO_MEASUREMENT.
+Slots are manifest strings, not permanent fields in Python. Current Strategy slots are Alignment, INS, Estimator, and Landing. Current Mode slots are Calibration and Deployment. Mode manifests may own typed numeric parameters and generated symbols. Three independent nullable Protocol slots each accept one plugin that owns exactly one telemetry, maintenance, or logging category. `Estimator=None` contributes `SYSTEM_FUSION_NONE`, excludes KF6, keeps BARO_NATIVE recordable, and disables estimator-derived BARO_MEASUREMENT.
 
 Capabilities have two explicit semantic kinds. Raw/Data capabilities (for example `magnetometer.field`) say that a physical Device can produce data. Qualified capabilities use the stable `_qualified` suffix (for example `magnetometer.absolute_vector_qualified`) and say that the current driver/hardware/system contract approves that data for a specific use. Device manifests provide both kinds; Strategy/Mode manifests require the qualified contract they actually need. The resolver contains no JY901B model-name special case.
 
@@ -115,7 +115,13 @@ The reference firmware currently centralizes three Landing modes in its recovery
 
 ## One project and build truth
 
-`SilverStar.ssproject` plus installed manifests are the configuration truth. `SourceGraph_Resolve()` combines explicit source, assembly, include, define, forced-include, linker, CPU, library, virtual-source, and exclusion contributions. A component may declare `strategy_sources` alternatives for one Strategy slot; the resolver selects exactly the `selected` or `none` branch and places the inactive branch in the environment exclusion graph. The core uses this for mutually exclusive KF6 and pure-INS estimator tasks, so Estimator=None contains neither KF6 source nor configuration-dependent branches in first-party C.
+`SilverStar.ssproject` plus installed manifests are the configuration truth. `SourceGraph_Resolve()` combines explicit source, assembly, include, define, forced-include, linker, CPU, library, virtual-source, and exclusion contributions. A component may declare `strategy_sources` alternatives for one Strategy slot or `protocol_sources` keyed by telemetry/maintenance/logging; only the active selection enters the graph. The core uses these boundaries for mutually exclusive KF6/pure-INS behavior and for TelemetryTask/AIR, SerialTask/Console, and LoggerTask/SSLOG/Log Sink. Generated 0/1 macros provide the remaining finite call-site isolation without allocating disabled stacks, TCBs, services, or protocol state.
+
+FreeRTOS task-report indices remain stable across all eight protocol combinations. A disabled task
+has no stack or TCB object, allocation zero, and no valid bit; health/startup logic treats that as a
+user-disabled feature rather than a fault. The log header's 8-byte telemetry compatibility field
+remains `AIR-NCRC` for AIR M0 and uses eight zero bytes for Telemetry None, without changing any
+SSLOG0 offsets, IDs, CRC, or record layout.
 
 ```text
 Project Model + manifests
@@ -143,12 +149,12 @@ GUI configuration edits are transactions: copy the live model, mutate the candid
 - Component payloads become project-owned source and are preserved on ordinary Save.
 - Managed files are replaced only when rendered bytes change; normal Apply preserves build outputs and Make dependency files.
 - Save Project As copies the complete project-owned tree while excluding build/cache/intermediate output.
-- Deactivated component files remain on disk but leave the source graph.
+- Deactivated project-owned component files remain on disk but leave the source graph. FCCG-managed decoder/golden files have explicit ownership and are transactionally removed when logging is disabled; rollback restores them if apply fails.
 - `Generated/`, `SilverStar.ssproject`, `SilverStar_Configuration.md`, Make/target data, workspace files, `.vscode/`, and `.eide/` are FCCG-managed.
 - A change to a normalized FCCG-owned `.eide/eide.yml` build field, MCU/target change, collision, deactivation, or changed CubeMX snapshot marks the plan dangerous and requires confirmation. EIDE-owned UI/order/target/uploader metadata does not.
 - `HardwareGenerated/` is preserved normally. Reimport may replace its complete tree only after an explicit dangerous plan.
 - `.fccg/ownership.json` records active components and hashes for comparison; hashes document provenance and never restore source automatically.
-- `<ProjectName>.ssdecoder` is FCCG-managed declarative output. Canonical record-catalog and project-semantics JSON, a manifest, checksums, and a README form a deterministic data-only package; generated C embeds truncated catalog/semantics/generation identities. It contains no executable plugin.
+- `<ProjectName>.ssdecoder` is FCCG-managed declarative output only while logging is enabled. Canonical record-catalog and project-semantics JSON, a manifest, checksums, and a README form a deterministic data-only package; generated C embeds truncated catalog/semantics/generation identities. It contains no executable plugin. Logging None leaves the model's decoder reference empty and still emits standalone `Generated/project_semantics.json` for audit.
 
 ## Filesystem and process safety
 
@@ -172,13 +178,17 @@ pipeline; Hardware Connection alone resolves those requirements against Board or
 facts. The project owns one MCU, one target profile, and one hardware configuration, while
 Device and capability endpoints may have instances.
 
-Protocols use four explicit layers: a fixed System Service selects one complete Protocol Profile
+Protocols use four explicit layers: a nullable System Service slot selects one complete Protocol Profile
 from its independently locked single-category plugin;
 the profile declares a Transport Binding and constraints; resolution chooses exactly one
 compatible physical Device or storage provider. Profile source/include/define contributions enter
 the one resolved graph only when selected. Decoder metadata records the same profile, binding,
 provider instance, physical-device identity, source descriptor, and record instance data. The
-current three profiles are real but are not advertised as freely interchangeable.
+current three profiles are real but are not advertised as freely interchangeable. A null slot
+contributes no plugin lock, Profile, binding, source, include, or define. Removing a sole transport
+clears the dependent slot in reconciliation; adding a transport never selects a Profile. The
+maintenance endpoint is generic manifest metadata, not a component-ID branch, so Maintenance None
+removes only its auto-managed internal Console/UART Device and SerialTask resources.
 
 Formal component documentation stays in installed declarative plugin packages and is shown by
 plugin management; it is not duplicated into each generated source project. Reference import
@@ -202,12 +212,15 @@ mistaken for a runtime production path while keeping old protocol plugins loadab
 The synchronized reference commit `cc0b377ded690556d037a412a55f87fe334c42d0` declares
 `silverstar.core.device_task` as the STATS producer and `silverstar.core.telemetry_task` as the
 TELEMETRY_DIAG producer. Their shared `diagnostic_log.c` implementation is scheduled by the real
-Device and Telemetry tasks; the protocol metadata therefore exposes STATS at 1 s and
-TELEMETRY_DIAG at 200 ms only when the corresponding selected composition remains valid.
+Device and Telemetry tasks. Producer identities are conditional on the active logging/telemetry
+Protocol slots, so STATS remains available at 1 s in a logging-enabled composition while
+TELEMETRY_DIAG at 200 ms becomes unavailable when TelemetryTask is compiled out.
 
-The serial maintenance Transport remains an internal physical `DeviceInstance` so protocol
-resolution, source graph, and UART resources stay authoritative. The Devices page filters this
-internal console class; Hardware Connection still owns its USART, pins, baud, and electrical facts.
+While maintenance is enabled, its serial Transport is an internal physical `DeviceInstance` so
+protocol resolution, source graph, and UART resources stay authoritative. The Devices page filters
+this internal console class; Hardware Connection still owns its USART, pins, baud, and electrical
+facts. Maintenance None removes the auto-managed instance and assignment instead of leaving an
+inactive UART owner in the project.
 
 Long operations report `FCCG_PROGRESS|TASK|PLAN|total`, `BEGIN|current|total|subject`, and
 `DONE|current|total|subject`. BEGIN is observational and DONE alone advances completed work.

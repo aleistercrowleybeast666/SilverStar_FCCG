@@ -59,9 +59,13 @@
   ],
   "build": {
     "sources": [
-      "Devices/Storage/SdSdioFatFs/Src/storage_service.c",
-      "Devices/Storage/SdSdioFatFs/Src/log_sink_service.c"
+      "Devices/Storage/SdSdioFatFs/Src/storage_service.c"
     ],
+    "protocol_sources": {
+      "logging": [
+        "Devices/Storage/SdSdioFatFs/Src/log_sink_service.c"
+      ]
+    },
     "asm_sources": [],
     "include_dirs": [],
     "defines": []

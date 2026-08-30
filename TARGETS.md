@@ -1,5 +1,24 @@
 # Development targets
 
+## 2026-08-30 optional Protocol and firmware gating
+
+- [x] strict project format 11 with exactly three nullable Protocol slots, deterministic format-10
+  migration, stable canonical `null` state, and no fake None plugin
+- [x] Device/Protocol independence: transport removal atomically clears the dependent slot, while
+  Device restoration never auto-enables a Profile
+- [x] three always-visible localized Protocol combos with disabled unavailable Profiles and transport
+  explanations; logging controls/export are inactive under Logging None
+- [x] declarative maintenance endpoint lifecycle through `auto_managed_protocol_category`, including
+  Console/UART assignment and SerialTask removal/recreation
+- [x] one Source Graph for all eight T/M/L combinations, with stable compile-time feature macros,
+  static task-index semantics, no disabled stack/TCB allocation, and no heap
+- [x] Logging None omits LoggerTask/SSLOG/Log Sink, `.ssdecoder`, descriptor and golden artifacts;
+  project semantics remains auditable and stale managed decoder files are removed transactionally
+- [x] package/project-semantics schema 1.1 with nullable telemetry/maintenance locks and a mandatory
+  logging lock inside every emitted `.ssdecoder`
+- [x] all eight official SS0.5/F407 combinations built in Release and Debug; the default composition
+  retained `AIR-NCRC`, while T=0/L=1 uses the documented eight-zero compatibility tag
+
 ## 2026-08-30 internal software release-candidate closeout
 
 - [x] project format 10 with actual imported-MCU-first matching, strict Platform compatibility, declarative CubeMX module/provider activation, FatFs/timebase inventory, and deterministic format 0–9 migration
@@ -14,7 +33,7 @@
 ## 2026-08-28 internal firmware/plugin refactor
 
 - [x] reproducible read-only reference snapshot plus FCCG-owned overlay provenance; external firmware remains unchanged
-- [x] three mandatory single-category Protocol plugins with locked component/version/Profile/manifest hash and deterministic format-7 migration
+- [x] at the 2026-08-28 checkpoint, three then-mandatory single-category Protocol plugins with locked component/version/Profile/manifest hash and deterministic format-7 migration; format 11 now permits each slot to be `null`
 - [x] at the 2026-08-28 checkpoint, project format 8 added explicit `protocols` slots and the detected MCU/Platform lock; format 0–7 files remained readable and saved as format 8 at that checkpoint
 - [x] Board/imported CubeMX facts automatically match an installed MCU/Platform plugin; the Devices page no longer exposes an MCU selector
 - [x] manifest-driven Platform resource renderer with no STM32F4 header/getter or MCU-model whitelist in Python
@@ -51,7 +70,7 @@
 - [x] Custom STM32 Hardware as the new-draft default, with no visible unselected entry or Board-only preparation action
 - [x] fixed the three checkable-GroupBox interaction failures with visibility-only collapsible sections and visible cross-theme checkboxes
 - [x] Protocol-owned SSLOG metadata, Required/Recommended/Optional policy, capability-aware availability, and deterministic data-only `.ssdecoder`
-- [x] Project format 10 with `DeviceInstance`, manifest-driven Mode parameters, three explicit protocol locks, Platform lock, decoder-profile hashes, assignment confirmation fingerprint, FatFs/timebase facts, and v0-v9 migration
+- [x] Project format 11 with `DeviceInstance`, manifest-driven Mode parameters, three explicit nullable protocol locks, Platform lock, decoder-profile hashes, assignment confirmation fingerprint, FatFs/timebase facts, and v0-v10 migration
 - [x] Physical Device `provides` + consuming component `requires {capability,purpose}` + automatic/ambiguous provider resolution
 - [x] backward-compatible Device instance policy with independent `plugin_max` and `class_max`; repeating one model requires a context-safe driver, while different singleton models may share a class
 - [x] `.ioc` physical truth for builtin/custom Boards plus semantic `connections.json`
@@ -86,7 +105,7 @@
 - [x] deferred snapshot-based Mode/Logging transactions with rollback, traceback logging, incremental log widgets, and 50-change signal stress coverage
 - [x] generated deployment trigger mask/threshold/delay header with seconds-to-milliseconds conversion and review/decoder propagation
 - [x] typed UART/SPI/I2C/PWM and GPIO electrical/resource validation, physical-resource exclusivity, and invalidated manual-assignment fingerprints
-- [x] read-only AIR M0, serial maintenance 0.0, and flight-log format 0.0 profile display with pre-release ID migration and unchanged wire formats
+- [x] selectable AIR M0, serial maintenance 0.0, flight-log format 0.0, and explicit None profile states with pre-release ID migration and unchanged wire formats
 - [x] System Status Indicator on active-low SS0.5 PA1 plus optional GNSS Indicator using `position_usable` and an independent GPIO contract
 - [x] unified generation fingerprint shared by digest/readiness/ownership, excluding host tool paths and provenance
 - [x] validated reference EIDE/workspace templates and `code.cmd`/`code.exe`/`code --new-window` launch with one localized manual-open failure dialog

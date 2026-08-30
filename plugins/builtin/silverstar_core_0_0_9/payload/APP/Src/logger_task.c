@@ -5,7 +5,6 @@
 
 #include "FreeRTOS.h"
 #include "task.h"
-#include "air_protocol.h"
 #include "logger_bus.h"
 #include "platform_memory.h"
 #include "silverstar_assert.h"
@@ -38,11 +37,12 @@ static PLATFORM_DMA_ACCESSIBLE uint8_t
 
 static void LoggerTask_HeaderInfoBuild(FlightLogFileHeaderInfo *info)
 {
-    static const uint8_t air_tag[] = AIR_PROTOCOL_COMPATIBILITY_TAG;
+    static const uint8_t telemetry_tag[8] =
+        SILVERSTAR_LOG_TELEMETRY_COMPATIBILITY_TAG;
     static const uint8_t build_tag[] = SILVERSTAR_LOG_BUILD_TAG;
 
-    _Static_assert(sizeof(air_tag) == 9U,
-                   "AIR compatibility tag must contain eight bytes");
+    _Static_assert(sizeof(telemetry_tag) == 8U,
+                   "Telemetry compatibility tag must contain eight bytes");
     _Static_assert(sizeof(build_tag) == 9U,
                    "SSLOG build tag must contain eight bytes");
 
@@ -60,7 +60,7 @@ static void LoggerTask_HeaderInfoBuild(FlightLogFileHeaderInfo *info)
     info->quaternion_order = 1U;
     info->quaternion_semantics = 1U;
     info->local_gravity_mps2 = SYSTEM_LOCAL_GRAVITY_MPS2;
-    (void)memcpy(info->air_compatibility_tag, air_tag,
+    (void)memcpy(info->air_compatibility_tag, telemetry_tag,
                  sizeof(info->air_compatibility_tag));
     (void)memcpy(info->build_tag, build_tag, sizeof(info->build_tag));
     info->mechanization_subsample_count =

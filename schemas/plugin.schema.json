@@ -117,6 +117,11 @@
       "type": "object",
       "properties": {
         "sources": {"$ref": "#/$defs/buildPaths"},
+        "protocol_sources": {
+          "type": "object",
+          "propertyNames": {"enum": ["telemetry", "maintenance", "logging"]},
+          "additionalProperties": {"$ref": "#/$defs/buildPaths"}
+        },
         "strategy_sources": {
           "type": "object",
           "propertyNames": {"$ref": "#/$defs/lowerIdentifier"},

@@ -2,14 +2,18 @@
 
 #include "FreeRTOS.h"
 #include "task.h"
+#if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
 #include "diagnostic_log.h"
+#endif
 #include "silverstar_assert.h"
 #include "system_time.h"
 #include "telemetry_service.h"
 
 void AppTask_Telemetry(void *argument)
 {
+#if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
     static DiagnosticLogPeriodicState telemetry_log_state;
+#endif
     SystemDeviceResult init_result;
 
     (void)argument;
@@ -29,8 +33,10 @@ void AppTask_Telemetry(void *argument)
         {
             TelemetryService_Process();
         }
+#if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
         DiagnosticLog_TelemetryProcess(
             &telemetry_log_state, SystemTime_GetMonotonicUs());
+#endif
         vTaskDelay(pdMS_TO_TICKS(1U));
     }
 }

@@ -24,8 +24,6 @@
   "build": {
     "sources": [
       "APP/Src/device_task.c",
-      "APP/Src/device_native_log.c",
-      "APP/Src/diagnostic_log.c",
       "APP/Src/app_tasks.c",
       "APP/Src/estimator_barometer_pending.c",
       "APP/Src/estimator_bus.c",
@@ -33,23 +31,17 @@
       "APP/Src/flight_task.c",
       "APP/Src/imu_sample_bus.c",
       "APP/Src/ins_task.c",
-      "APP/Src/logger_bus.c",
-      "APP/Src/logger_task.c",
-      "APP/Src/serial_task.c",
-      "APP/Src/telemetry_task.c",
       "Common/Src/common_format.c",
       "Common/Src/common_ringbuf.c",
       "Common/Src/common_spsc_queue.c",
       "Common/Src/silverstar_assert.c",
       "Common/Src/debug_log.c",
-      "Modules/Src/telemetry_service.c",
       "System/Src/system_barometer.c",
       "System/Src/system_capabilities.c",
       "System/Src/system_estimator_diagnostics.c",
       "System/Src/system_estimator_profile.c",
       "System/Src/system_gnss_quality.c",
       "System/Src/system_health.c",
-      "System/Src/system_log_policy.c",
       "System/Src/system_navigation_profile.c",
       "System/Src/system_profile.c",
       "System/Src/system_sensor_status.c",
@@ -63,6 +55,22 @@
       "System/Inertial/Src/system_inertial.c",
       "System/User/system_user_inertial_config.c"
     ],
+    "protocol_sources": {
+      "telemetry": [
+        "APP/Src/telemetry_task.c",
+        "Modules/Src/telemetry_service.c"
+      ],
+      "maintenance": [
+        "APP/Src/serial_task.c"
+      ],
+      "logging": [
+        "APP/Src/device_native_log.c",
+        "APP/Src/diagnostic_log.c",
+        "APP/Src/logger_bus.c",
+        "APP/Src/logger_task.c",
+        "System/Src/system_log_policy.c"
+      ]
+    },
     "asm_sources": [],
     "include_dirs": [
       "APP/Inc",
@@ -101,10 +109,31 @@
       "zh_CN": "SilverStar 核心 0.0.9",
       "en_US": "SilverStar Core 0.0.9"
     },
-    "log_producers": [
-      "silverstar.core.device_task",
-      "silverstar.core.telemetry_task"
-    ],
+    "protocol_log_producers": {
+      "logging": [
+        "silverstar.core.device_task"
+      ],
+      "telemetry": [
+        "silverstar.core.telemetry_task"
+      ]
+    },
+    "source_origins": {
+      "default": "reference_base",
+      "APP/Src/app_tasks.c": "fccg_optional_protocol_gating",
+      "APP/Src/device_task.c": "fccg_optional_protocol_gating",
+      "APP/Src/estimator_task.c": "fccg_optional_protocol_gating",
+      "APP/Src/flight_task.c": "fccg_optional_protocol_gating",
+      "APP/Src/imu_sample_bus.c": "fccg_optional_protocol_gating",
+      "APP/Src/ins_task.c": "fccg_optional_protocol_gating",
+      "APP/Src/logger_task.c": "fccg_optional_protocol_gating",
+      "APP/Src/telemetry_task.c": "fccg_optional_protocol_gating",
+      "Common/Src/debug_log.c": "fccg_optional_protocol_gating",
+      "System/Src/system_capabilities.c": "fccg_optional_protocol_gating",
+      "System/Src/system_startup.c": "fccg_optional_protocol_gating",
+      "Tests/Host/test_logger.c": "fccg_optional_protocol_gating",
+      "Tools/check_power_of_ten.ps1": "fccg_optional_protocol_gating",
+      "Tools/validate_sslog_record_catalog.py": "fccg_optional_protocol_gating"
+    },
     "device_descriptors": [
       {
         "order": 12,

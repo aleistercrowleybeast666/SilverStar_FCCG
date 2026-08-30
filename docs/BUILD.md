@@ -4,7 +4,12 @@
 
 The selected components and project model resolve to explicit C/ASM sources, includes, defines, forced includes, exclusions, linker script, CPU/FPU flags, specs, libraries, and toolchain prefix. No renderer scans the project with wildcards.
 
-The current reference graph has 136 C sources and one startup assembly source. It includes only the selected Alignment/INS/Estimator/Landing strategies, the Device-owned SDIO/FatFs storage consumer, all three independently selected Protocol Profiles, the FreeRTOS static kernel subset/CM4F port, and FCCG-generated C files. `Core/Src/sysmem.c` is excluded; both target memory and generated flight-configuration headers are forced includes, keeping deployment parameters identical across Make/EIDE.
+The default reference graph has 136 C sources and one startup assembly source. The eight nullable-Protocol combinations resolve to 136, 126, 132, 122, 133, 123, 129, and 119 C sources for T1M1L1 through T0M0L0 respectively. Each graph contains only the selected Alignment/INS/Estimator/Landing strategies, active protocol tasks/services/codecs, the FreeRTOS static kernel subset/CM4F port, and applicable generated C files. A physical SX1281 or SD/TF Device may remain selected while its Protocol sources are absent. `Core/Src/sysmem.c` is excluded; both target memory and generated flight-configuration headers are forced includes, keeping deployment parameters identical across Make/EIDE.
+
+Generated Protocol macros gate finite first-party call sites and static allocation. A disabled
+TelemetryTask, SerialTask, or LoggerTask has no function, stack, or `StaticTask_t` symbol in the
+linked ELF, while the task-report enum/index remains stable with allocation zero and no valid bit.
+AIR M0 uses the unchanged `AIR-NCRC` logging tag; T=0/L=1 uses eight zero bytes.
 
 Platform resource contributions are also resolved here. The MCU/Platform manifest declares a base graph, strict backend maturity, exact CubeMX/Firmware Package compatibility, one HAL/CMSIS source policy, and declarative module/provider sources. CubeMX init and FatFs App/Target providers are separate from the storage consumer wrapper. Under the current F407 `plugin_payload_authoritative` policy, HAL/CMSIS/startup/linker, controlled FatFs core, and optional backend support come from the MCU plugin exactly once; a custom CubeMX snapshot contributes only controlled `Core/Src` C and `Core/Inc`, never its `Drivers/`, CMSIS, startup or linker. A supported I²C/PWM backend enters the graph only when a selected Device has an actual matching assignment. Classic CAN remains `reserved` and blocks a consumer. Default SS0.5 has no such consumers, so no optional I²C/CAN/PWM Platform backend is emitted to Make, EIDE, or VS Code.
 
@@ -68,7 +73,7 @@ Output is delivered to the GUI one line at a time. Reapplying an unchanged FCCG 
 rewrite equal managed files, remove `.d` files, or clean `build/`, so normal Make/EIDE incremental
 compilation remains effective.
 
-`power10-check` executes the project script and fails nonzero on violations; it is an automatic project compliance gate, not formal proof, NASA certification, or third-party safety certification. `static-analysis` performs a separate-output Arm GCC build with the real path-sensitive `-fanalyzer` and warnings-as-errors over first-party sources. Neither check is run automatically during generation.
+`power10-check` executes the project script and fails nonzero on violations; it is an automatic project compliance gate, not formal proof, NASA certification, or third-party safety certification. Its first-party conditional-compilation rule permits only the exact generated telemetry/maintenance/logging feature guards and continues to reject every unrelated conditional directive; preprocessor-only lines do not inflate executable function length. `static-analysis` performs a separate-output Arm GCC build with the real path-sensitive `-fanalyzer` and warnings-as-errors over first-party sources. Neither check is run automatically during generation.
 
 The default Environment plugin is VS Code + EIDE + Arm GNU Toolchain. The manifest architecture can later add trusted Keil/IAR/CMake/pure-Make renderers, but no unvalidated project format is fabricated now.
 

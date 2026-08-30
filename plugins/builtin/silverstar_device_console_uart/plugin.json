@@ -89,6 +89,8 @@
     "device_selection_style": "instance",
     "device_category": "link.maintenance",
     "internal": true,
+    "auto_managed_protocol_category": "maintenance",
+    "default_instance_id": "maintenance0",
     "build_feature_symbols": [
       "SYSTEM_USER_CONSOLE_ENABLE"
     ]

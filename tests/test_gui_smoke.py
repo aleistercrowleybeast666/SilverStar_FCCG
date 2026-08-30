@@ -447,7 +447,7 @@ def test_devices_page_is_physical_and_capabilities_are_on_flight_page(
             "maintenance"
         ].currentText() == "串口维护协议 0.0"
         assert all(
-            combo.count() == 1
+            combo.count() == 2
             for combo in window.flight_configuration_page.protocol_combos.values()
         )
         source = Path("src/silverstar_fccg/ui/pages/components.py").read_text(encoding="utf-8")
@@ -582,6 +582,40 @@ def test_devices_page_is_physical_and_capabilities_are_on_flight_page(
         assert window._model.hardware.mode == "board_plugin"
         assert not hardware_page.auto_button.isEnabled()
         assert not hardware_page.manual_validation_button.isEnabled()
+    finally:
+        window.close()
+
+
+def test_pending_custom_hardware_keeps_sd_tf_storage_selectable(
+    tmp_path: Path, qapp
+) -> None:
+    window = _Window_Create(tmp_path, qapp)
+    storage_id = "silverstar.device.storage.sd_sdio_fatfs"
+    try:
+        selected = window.devices_page.device_checks[storage_id]
+        assert selected.isChecked()
+        assert selected.isEnabled()
+
+        window._model.device_instances = [
+            instance
+            for instance in window._model.device_instances
+            if instance.plugin != storage_id
+        ]
+        window._model = window._service.ProjectConfiguration_Reconcile(
+            window._model
+        ).model
+        window._Project_Refresh()
+        qapp.processEvents()
+
+        selectable = window.devices_page.device_checks[storage_id]
+        assert isinstance(selectable, StandardCheckBox)
+        assert not isinstance(selectable, LockedCheckBox)
+        assert selectable.isEnabled()
+        assert not selectable.isChecked()
+
+        selectable.click()
+        qapp.processEvents()
+        assert window._model.DeviceInstance_Get("storage0") is not None
     finally:
         window.close()
 

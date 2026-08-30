@@ -15,7 +15,7 @@ The current catalog contains 36 strict declarative packages synchronized and ada
 | FlightLogic base | Flight Cycle/Recovery, Multi-trigger Deployment, Landing Detection Common |
 | Landing Strategy | Stillness, ImpactThenStillness, BarometerImuWindow |
 | OS | FreeRTOS Kernel 11.3.0 static subset and CM4F port |
-| Protocol | Three mandatory single-category packages: AIR Telemetry Protocol M0, Serial Maintenance Protocol 0.0, and Flight Log Format 0.0, each with an independent component/version/Profile/manifest lock |
+| Protocol | Three optional single-category slots: AIR Telemetry Protocol M0, Serial Maintenance Protocol 0.0, and Flight Log Format 0.0 when enabled, each with an independent component/version/Profile/manifest lock; `null` means explicitly disabled |
 | HardwareConfigurationProvider | Trusted STM32CubeMX importer declaration |
 | DevelopmentEnvironment | VS Code + EIDE + Arm GNU Toolchain renderer declaration |
 
@@ -36,14 +36,18 @@ adapter and sequential file Log Sink at `Devices/Storage/SdSdioFatFs`. SS0.5 own
 and Time mappings; CubeMX contributes SDIO and FatFs App/Target glue; MCU/Platform contributes the
 controlled FatFs core and HAL providers. The resolver requires the unique FatFs object/path/driver,
 SDIO RX/TX DMA and IRQ, and a valid generated timer HAL timebase before the Device is available.
+Keeping this Device selected while Flight Log Format is None is legal; no Log Sink source is active
+until the logging Profile is explicitly selected.
 
 Device metadata also declares raw outputs that are **Recordable**. This is independent from the capability routes actually **Consumed** by Algorithms. JY901B external attitude is recordable even under GravityKnownYaw; magnetic field is Provided but explicitly not Recordable under the current return-frame configuration. Input voltage is Recordable only while its logical sensor is selected.
 
 Protocol Record schema is distinct from runtime production. The current Core manifest declares the
 real producer identities `silverstar.core.device_task` and `silverstar.core.telemetry_task`, backed
 by the imported Device/Telemetry tasks plus `diagnostic_log.c`. SSLOG metadata binds STATS to the
-former and TELEMETRY_DIAG to the latter. In the reference composition both are available, enabled
-by default, and periodic at 1 s and 200 ms respectively.
+former and TELEMETRY_DIAG to the latter. In the default reference composition both are available,
+enabled by default, and periodic at 1 s and 200 ms respectively. Producer declarations are
+protocol-conditional: Telemetry None compiles out TelemetryTask and makes TELEMETRY_DIAG unavailable
+without changing the Record schema.
 
 Landing selectors contribute one compile-time mode definition. They all depend on the single shared `Landing Detection Common` payload. The current reference recovery state machine remains centralized and is not split into three duplicate C implementations; the selector packages do not claim otherwise.
 
@@ -63,9 +67,10 @@ No ESKF15/24, Guidance, Control, Control Allocation, continuous-control actuator
 
 Installed valid user-facing Device manifests automatically appear in manifest-declared groups such
 as primary devices, other sensors, indicators, actuators, and telemetry links. The internal
-`console` class is deliberately absent from Devices: `maintenance0` is automatically bound by the
-selected maintenance profile and remains present in the source graph and Hardware Connection as
-Maintenance Console · UART. The GUI does not special-case a concrete console component ID. A
+`console` class is deliberately absent from Devices: `maintenance0` is declaratively created and
+bound by the selected maintenance profile and appears in the source graph and Hardware Connection
+as Maintenance Console · UART. Maintenance None removes the auto-managed instance, UART assignment,
+Console sources, and SerialTask. The GUI/coordinator does not special-case a concrete console component ID. A
 selected GNSS indicator therefore remains selectable on
 SS0.5 even though that Board has no second GPIO; the resource resolver reports the missing or
 electrically invalid output on Hardware Connection and strict generation fails without silently

@@ -13,7 +13,9 @@
 #include "geodesy_local.h"
 #include "ins_mechanization.h"
 #include "ins_task.h"
+#if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
 #include "logger_bus.h"
+#endif
 #include "platform_critical.h"
 #include "platform_memory.h"
 #include "silverstar_assert.h"
@@ -145,7 +147,9 @@ typedef enum
 typedef struct
 {
     SystemGnssSample sample;
+#if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
     FlightLogGnssMeasurementRecord measurement;
+#endif
     NavigationKfGnssEpoch epoch;
     NavigationKfGnssSeparatedUpdateResult position_group_result;
     NavigationKfGnssSeparatedUpdateResult velocity_group_result;
@@ -167,7 +171,9 @@ typedef enum
 typedef struct
 {
     EstimatorPressureSnapshot pressure;
+#if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
     FlightLogBaroMeasurementRecord measurement;
+#endif
     float altitude_m;
     float relative_altitude_m;
     float variance_m2;
@@ -249,6 +255,7 @@ static void Estimator_BarometerUpdateStateSet(
     SystemEstimatorBaroDiagnostics_UpdateRecord(
         &s_estimator.baro_diagnostics, state, reason,
         timestamp_us, count_event);
+#if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
     if ((state != previous_state) || (reason != previous_reason))
     {
         (void)LoggerBus_EventPush(timestamp_us,
@@ -256,6 +263,10 @@ static void Estimator_BarometerUpdateStateSet(
                                   (uint32_t)state,
                                   (uint32_t)reason);
     }
+#else
+    (void)previous_state;
+    (void)previous_reason;
+#endif
     Estimator_BarometerDiagnosticsPublish();
 }
 
@@ -761,9 +772,11 @@ static void Estimator_GnssOriginCollect(uint64_t now_us)
         (s_estimator.gnss_window.ready_event_sent == 0U))
     {
         s_estimator.gnss_window.ready_event_sent = 1U;
+#if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
         (void)LoggerBus_EventPush(SystemTime_GetMonotonicUs(),
                                   FLIGHT_LOG_EVENT_ORIGIN_WINDOW_READY,
                                   1U, s_estimator.gnss_window.count);
+#endif
     }
 }
 
@@ -806,10 +819,12 @@ static void Estimator_BarometerOriginCollect(void)
             (s_estimator.baro_window.ready_event_sent == 0U))
         {
             s_estimator.baro_window.ready_event_sent = 1U;
+#if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
             (void)LoggerBus_EventPush(
                 SystemTime_GetMonotonicUs(),
                 FLIGHT_LOG_EVENT_ORIGIN_WINDOW_READY,
                 2U, s_estimator.baro_window.count);
+#endif
         }
         s_estimator.baro_diagnostics.origin_sample_count =
             s_estimator.baro_window.count;
@@ -1402,6 +1417,7 @@ static EstimatorGnssPrepareResult Estimator_GnssMeasurementPrepare(
     SILVERSTAR_ASSERT_OBJECT(work, EstimatorGnssUpdateWork,
                              SILVERSTAR_ASSERT_MODULE_APP);
     sample = &work->sample;
+#if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
     (void)memset(&work->measurement, 0, sizeof(work->measurement));
     work->measurement.sample_timestamp_us = sample->sample_timestamp_us;
     work->measurement.receive_timestamp_us = sample->receive_timestamp_us;
@@ -1412,6 +1428,7 @@ static EstimatorGnssPrepareResult Estimator_GnssMeasurementPrepare(
     work->measurement.velocity_valid_mask = sample->velocity_valid_mask;
     work->measurement.position_usable = sample->position_usable;
     work->measurement.fusion_allowed = s_estimator.gnss_fusion_enabled;
+#endif
     work->age_us = state_timestamp_us - sample->sample_timestamp_us;
     s_snapshot.last_gnss_timestamp_us = sample->sample_timestamp_us;
     s_snapshot.last_gnss_sequence = sample->sequence;
@@ -1442,8 +1459,10 @@ static EstimatorGnssPrepareResult Estimator_GnssMeasurementPrepare(
         SYSTEM_ESTIMATOR_GNSS_UPDATE_STALE;
     s_estimator.gnss_diagnostics.last_skip_reason =
         SYSTEM_ESTIMATOR_GNSS_SKIP_STALE;
+#if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
     (void)LoggerBus_GnssMeasurementPush(
         sample->sample_timestamp_us, 0U, &work->measurement);
+#endif
     return ESTIMATOR_GNSS_PREPARE_STOP;
 }
 
@@ -1469,8 +1488,10 @@ static EstimatorGnssPrepareResult Estimator_GnssPositionBuild(
             SYSTEM_ESTIMATOR_GNSS_UPDATE_INVALID;
         s_estimator.gnss_diagnostics.last_skip_reason =
             SYSTEM_ESTIMATOR_GNSS_SKIP_GEODESY_ERROR;
+#if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
         (void)LoggerBus_GnssMeasurementPush(
             work->sample.sample_timestamp_us, 0U, &work->measurement);
+#endif
         return ESTIMATOR_GNSS_PREPARE_STOP;
     }
     horizontal_std = SystemEstimatorProfile_GnssStdResolve(
@@ -1495,9 +1516,11 @@ static EstimatorGnssPrepareResult Estimator_GnssPositionBuild(
                                                 s_estimator.kf.state[index];
         s_snapshot.position_variance_r[index] =
             work->position_variance[index];
+#if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
         work->measurement.position_enu_m[index] = work->position_enu_m[index];
         work->measurement.position_variance_m2[index] =
             work->position_variance[index];
+#endif
         work->epoch.position_enu_m[index] = work->position_enu_m[index];
         work->epoch.position_std_m[index] =
             sqrtf(work->position_variance[index]);
@@ -1525,8 +1548,10 @@ static void Estimator_GnssVelocityBuild(EstimatorGnssUpdateWork *work)
             sqrtf(Estimator_Max(
                 work->sample.velocity_variance_m2ps2[index], 0.0f)));
         work->velocity_variance[index] = std_mps * std_mps;
+#if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
         work->measurement.velocity_variance_m2ps2[index] =
             work->velocity_variance[index];
+#endif
         s_snapshot.gnss_velocity_enu_mps[index] =
             work->sample.velocity_enu_mps[index];
         s_snapshot.velocity_variance_r[index] =
@@ -1713,9 +1738,11 @@ static void Estimator_GnssUpdateFinalize(
         s_estimator.gnss_diagnostics.last_skip_reason =
             SYSTEM_ESTIMATOR_GNSS_SKIP_NONE;
     }
+#if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
     (void)LoggerBus_GnssMeasurementPush(
         work->sample.sample_timestamp_us,
         s_snapshot.measurement_attempt_mask, &work->measurement);
+#endif
 }
 
 static void Estimator_GnssUpdate(uint64_t state_timestamp_us)
@@ -1800,17 +1827,21 @@ static EstimatorBarometerPrepareResult Estimator_BarometerSampleValidate(
     s_estimator.baro_diagnostics.sample_timestamp_us =
         work->pressure.timestamp_us;
     s_estimator.baro_diagnostics.sample_valid = 0U;
+#if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
     (void)memset(&work->measurement, 0, sizeof(work->measurement));
     work->measurement.sample_timestamp_us = work->pressure.timestamp_us;
     work->measurement.receive_timestamp_us = work->pressure.receive_timestamp_us;
     work->measurement.sequence = work->pressure.sequence;
+#endif
     if ((work->pressure.valid == 0U) ||
         (Estimator_BarometerAltitudeResolve(
              &work->pressure, &work->altitude_m) == 0U))
     {
         s_snapshot.health_flags |= ESTIMATOR_HEALTH_BARO_MEASUREMENT_INVALID;
+#if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
         (void)LoggerBus_BaroMeasurementPush(
             work->pressure.timestamp_us, 0U, &work->measurement);
+#endif
         Estimator_BarometerUpdateStateSet(
             SYSTEM_ESTIMATOR_BARO_UPDATE_INVALID,
             SYSTEM_ESTIMATOR_BARO_SKIP_INVALID, state_timestamp_us, 1U);
@@ -1834,8 +1865,10 @@ static EstimatorBarometerPrepareResult Estimator_BarometerSampleValidate(
     if (age_us <= SYSTEM_ESTIMATOR_MEASUREMENT_MAX_AGE_US)
     { return ESTIMATOR_BAROMETER_PREPARE_CONTINUE; }
     s_snapshot.health_flags |= ESTIMATOR_HEALTH_BARO_MEASUREMENT_INVALID;
+#if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
     (void)LoggerBus_BaroMeasurementPush(
         work->pressure.timestamp_us, 0U, &work->measurement);
+#endif
     Estimator_BarometerUpdateStateSet(
         SYSTEM_ESTIMATOR_BARO_UPDATE_STALE,
         SYSTEM_ESTIMATOR_BARO_SKIP_STALE, state_timestamp_us, 1U);
@@ -1852,8 +1885,10 @@ static EstimatorBarometerPrepareResult Estimator_BarometerOriginCheck(
                              SILVERSTAR_ASSERT_MODULE_APP);
     if (s_estimator.baro_origin_valid != 0U)
     { return ESTIMATOR_BAROMETER_PREPARE_CONTINUE; }
+#if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
     (void)LoggerBus_BaroMeasurementPush(
         work->pressure.timestamp_us, 0U, &work->measurement);
+#endif
     Estimator_BarometerUpdateStateSet(
         SYSTEM_ESTIMATOR_BARO_UPDATE_ORIGIN_NOT_READY,
         SYSTEM_ESTIMATOR_BARO_SKIP_ORIGIN_NOT_READY,
@@ -1891,10 +1926,12 @@ static void Estimator_BarometerMeasurementUpdate(
     s_estimator.baro_diagnostics.last_innovation = s_snapshot.baro_innovation;
     s_estimator.baro_diagnostics.last_innovation_variance =
         work->variance_m2 + s_estimator.kf.covariance[2][2];
+#if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
     work->measurement.relative_altitude_m = work->relative_altitude_m;
     work->measurement.variance_m2 = work->variance_m2;
     work->measurement.valid_mask =
         (work->pressure.valid != 0U) ? 1UL : 0UL;
+#endif
     s_snapshot.baro_update_result = NavigationKf_UpdateBaroAltitude(
         &s_estimator.kf, work->relative_altitude_m, work->variance_m2);
     s_estimator.kf_diagnostics.last_update_type = SYSTEM_KF_UPDATE_BAROMETER;
@@ -1946,9 +1983,11 @@ static void Estimator_BarometerUpdateFinish(
                              SILVERSTAR_ASSERT_MODULE_APP);
     s_estimator.baro_diagnostics.last_nis = s_estimator.kf.last_baro_nis;
     Estimator_BarometerDiagnosticsPublish();
+#if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
     (void)LoggerBus_BaroMeasurementPush(
         work->pressure.timestamp_us, s_snapshot.measurement_attempt_mask,
         &work->measurement);
+#endif
     (void)EstimatorBarometerPending_Consume(
         &s_estimator.pending_barometer, &s_estimator.last_baro_sequence);
 }
@@ -2019,6 +2058,7 @@ static void Estimator_SnapshotPublish(uint64_t timestamp_us)
     Estimator_DiagnosticsPublish(timestamp_us);
 }
 
+#if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
 static uint32_t Estimator_MeasurementResultFlagBuild(
     uint32_t attempt_bit,
     NavigationKfUpdateResult result,
@@ -2194,6 +2234,7 @@ static void Estimator_LogPush(uint64_t timestamp_us)
         timestamp_us, s_snapshot.measurement_attempt_mask, &diagnostic);
     (void)LoggerBus_Kf6FullPPush(timestamp_us, &full_p);
 }
+#endif
 
 static void Estimator_PureInsPublish(uint64_t timestamp_us)
 {
@@ -2290,7 +2331,9 @@ static void Estimator_PredictionProcess(
     Estimator_GnssUpdate(prediction->timestamp_us);
     Estimator_BarometerUpdate(prediction->timestamp_us);
     Estimator_SnapshotPublish(prediction->timestamp_us);
+#if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
     Estimator_LogPush(prediction->timestamp_us);
+#endif
 }
 
 static void Estimator_PredictionsProcessCycle(void)
