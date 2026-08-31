@@ -1,5 +1,24 @@
 # Development targets
 
+## 2026-08-31 SilverStar 0.0.10 final freeze
+
+- [x] one authoritative 0.0.10 application/platform/generated-firmware release identity while
+  preserving independent Profile, schema, upstream, Board, MCU, CubeMX, and firmware-package versions
+- [x] cwd-independent pure portable-relative-path validation with filesystem-root write protection
+  unchanged
+- [x] MCU/Platform-owned build Target Profile and strict persisted lock; synthetic alternate-target
+  coverage remains test-only and makes no H7 support claim
+- [x] calibration UI/project semantics limited to empty, OneFace, SixFace, or both; empty maps to
+  NONE/READY identity correction and Required `CALIBRATION_RESULT`
+- [x] project format 11, AIR M0, maintenance/SSLOG 0.0, Record layout, and `.ssdecoder` 1.1 frozen
+- [x] fresh Python, 8-protocol-combination Release/Debug, 4-calibration-combination, Host,
+  architecture, Power of Ten, static-analysis, and artifact acceptance recorded in `VALIDATION.md`
+- [ ] SilverStar_FLP follow-up: import one log at a time, require an exact `.ssdecoder`, reject
+  unpublished old logs, and allow offline algorithm comparison independently of the onboard list
+- [ ] physical I²C pull-up and PWM waveform/safe-level electrical validation
+- [ ] dual-hardware-platform internal testing and real H7/G4 production plugins
+- [ ] normal Classic CAN consumer and its filter/router/bus-off contract
+
 ## 2026-08-30 optional Protocol and firmware gating
 
 - [x] strict project format 11 with exactly three nullable Protocol slots, deterministic format-10

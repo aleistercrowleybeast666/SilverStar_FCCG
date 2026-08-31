@@ -182,7 +182,7 @@ CubeMX只管理STM32时钟、GPIO、DMA、UART、SPI、SDIO、ADC、NVIC和HAL�
 
 ## 12. Strategy、Mode与Target内存追加规范
 
-当前构建期Strategy为GravityKnownYaw、Coning2Sculling2、KF6、BarometerImuWindow和MultiTrigger。未选择Strategy不进入source graph；`ESTIMATOR_STRATEGY=None`不编译KF6。Calibration的Existing/OneFace/SixFace与MultiTrigger的Apogee/Tilt/Delay属于Mode，后者允许0..N组合且mask=0不自动部署。不得恢复runtime strategy registry或函数指针dispatch。
+当前构建期Strategy为GravityKnownYaw、Coning2Sculling2、KF6、BarometerImuWindow和MultiTrigger。未选择Strategy不进入source graph；`ESTIMATOR_STRATEGY=None`不编译KF6。Calibration的空选（NONE/单位校正）/OneFace/SixFace与MultiTrigger的Apogee/Tilt/Delay属于Mode，后者允许0..N组合且mask=0不自动部署。不得恢复runtime strategy registry或函数指针dispatch。
 
 F407通过vendor-neutral memory placement宏把Estimator、当前Alignment strategy storage、七个任务栈和Idle栈放入CPU-only CCMRAM；DMA相关对象留在主SRAM。Target linker/startup负责`.ccmram_bss`定义和清零，CubeMX重新生成后必须复核。Power of Ten、CCMRAM、EIDE与Strategy组件化均不改变0.0.10、AIR遥测协议M0、串口维护协议0.0或飞行日志格式0.0；技术wire标识仍分别为profile numeric 0和magic `SSLOG0`。
 

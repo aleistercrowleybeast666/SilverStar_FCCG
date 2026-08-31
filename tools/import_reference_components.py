@@ -207,7 +207,9 @@ def ReferenceProvenance_Get(reference: Path) -> dict[str, Any]:
             ).hexdigest()
             for relative in PROTOCOL_SOURCE_PATHS
         },
-        "recorded_at_utc": datetime.now(UTC).isoformat(timespec="seconds"),
+        "recorded_at_utc": datetime.fromisoformat(commit_time_utc)
+        .astimezone(UTC)
+        .isoformat(timespec="seconds"),
     }
 
 
@@ -4059,6 +4061,22 @@ def _PlatformRelease_Adapt(
             raise RuntimeError(
                 f"Reference release identity definition changed: {symbol}"
             )
+    estimator_enabled_block = (
+        "#ifndef SYSTEM_BUILD_ESTIMATOR_ENABLED\n"
+        "#define SYSTEM_BUILD_ESTIMATOR_ENABLED 1U\n"
+        "#endif\n"
+    )
+    if estimator_enabled_block not in content:
+        raise RuntimeError(
+            "Reference estimator build-default definition changed"
+        )
+    first_block_end = (
+        content.index(estimator_enabled_block) + len(estimator_enabled_block)
+    )
+    content = (
+        content[:first_block_end]
+        + content[first_block_end:].replace(estimator_enabled_block, "")
+    )
     policy.Text_AtomicWrite(header, content)
 
     core_docs = staged_builtin / SILVERSTAR_CORE_PACKAGE_SLUG / "docs"
@@ -4071,6 +4089,32 @@ def _PlatformRelease_Adapt(
         adapted = doc.replace("0.0.9", SILVERSTAR_PLATFORM_VERSION)
         adapted = adapted.replace("0_0_9", SILVERSTAR_PLATFORM_ID_SUFFIX)
         adapted = adapted.replace("SILV0009", SILVERSTAR_LOG_BUILD_TAG)
+        adapted = adapted.replace(
+            "Calibration Existing/default、OneFace和SixFace全部路径",
+            "Calibration NONE/单位校正、OneFace和SixFace及其组合全部路径",
+        )
+        adapted = adapted.replace(
+            "Existing/default、OneFace、SixFace均保留",
+            "空选=NONE/单位校正；OneFace、SixFace可独立或组合选择",
+        )
+        adapted = adapted.replace(
+            "Existing、OneFace、SixFace均保留",
+            "空选=NONE/单位校正；OneFace、SixFace可独立或组合选择",
+        )
+        adapted = adapted.replace(
+            "Existing/OneFace/SixFace",
+            "空选（NONE/单位校正）/OneFace/SixFace",
+        )
+        adapted = adapted.replace(
+            "Existing、OneFace、SixFace",
+            "空选（NONE/单位校正）、OneFace、SixFace",
+        )
+        adapted = adapted.replace(
+            "Calibration的`NONE`是“使用已有校准”业务模式，"
+            "不等同于通用empty set。",
+            "Calibration空选由FCCG确定性映射为`NONE`与单位校正，"
+            "是该Mode slot的合法empty set。",
+        )
         adapted = adapted.replace(
             "0x00000009", f"0x{SILVERSTAR_SYSTEM_PROFILE_ID:08X}"
         )

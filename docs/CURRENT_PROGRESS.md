@@ -1,55 +1,47 @@
 # 当前进度
 
-日期：2026-08-30
+日期：2026-08-31
 
-状态：**Software Release Candidate / Pre-Hardware-Validation（内部软件候选版 / 硬件验证前）**。
-本轮没有创建Tag、没有推送、没有发布，也没有声称已完成烧录、电气、台架或飞行验证。
+状态：**SilverStar 0.0.10 Software Release Candidate / Pre-Hardware-Validation**。
+本轮没有创建 Release 或 Tag，也没有修改外部参考固件或 SilverStar_FLP。按用户最后指令，
+代码将以 `修改测试与文档，完成基础功能` 提交并推送；不可变 commit hash 在提交完成后由
+`git rev-parse HEAD` 获取并在最终交接中报告。
 
-## 已完成
+## 已冻结
 
-- 工程格式升级为10；格式0–9可确定迁移并只写出格式10。
-- 自定义CubeMX导入先读取真实MCU，再匹配唯一兼容Platform；不再隐式预锁F407。
-- 36个builtin插件、48个builtin/schema JSON文档通过严格加载。
-- 新增单实例`silverstar.device.storage.sd_sdio_fatfs`物理存储Device：
-  - Device拥有`Devices/Storage/SdSdioFatFs`中的Storage/Log Sink实现；
-  - Board只拥有已验证的SDIO/Time语义映射；
-  - CubeMX拥有SDIO与FatFs App/Target glue；
-  - MCU/Platform拥有受控FatFs core与HAL provider；
-  - Source Graph只编译一个owner。
-- 旧格式9生成工程保留原Board路径项目源码，但迁移会无冲突地新增Device路径；旧文件不覆盖、不删除、不参与构建。
-- CubeMX FatFs门禁检查唯一对象/路径/Driver符号、App/Target、SDIO、RX/TX DMA、IRQ、版本与来源策略。
-- HAL时间基准从生成源码动态识别handle、instance、IRQ、1 MHz counter与1 kHz tick；不在Python或renderer中固定TIM1，并拒绝SysTick、缺失/歧义、频率/IRQ错误以及与PWM复用。
-- `module_providers`把CubeMX初始化/HAL/middleware provider和consumer wrapper分开；实际inventory与被选consumer共同决定激活，不做compile-all。
-- I²C保持7-bit阻塞master与8/16-bit寄存器访问边界；PWM保持CubeMX拥有模式/极性/频率与安全端点；Classic CAN仍为`reserved`，普通consumer不能启用。
-- Hardware Connection显示MCU、CubeMX/Firmware Package、HAL/CMSIS来源、Platform锁、时间基准、FatFs/SDIO与Storage有效性；中英文均由翻译键提供。
+- FCCG应用、新工程平台身份、生成固件、Embedded Core和官方SilverStar builtin发布列车
+  统一为0.0.10；AIR M0、维护/日志0.0、`.ssdecoder`/project-semantics 1.1、FreeRTOS 11.3.0、
+  SS0.5和STM32F407VET6保持独立版本。
+- 纯相对路径校验不再依赖进程cwd；真实文件写入仍禁止以文件系统根为授权区。
+- Build Target Profile由匹配的MCU/Platform插件声明并作为工程完整性锁保存；当前已验证值为
+  `SilverStar_F407`。合成H743仅用于架构测试，不构成产品支持。
+- 校准只显示单面/六面且默认空选；空选确定性进入NONE/READY单位校正。启用日志时
+  `CALIBRATION_RESULT`仍为必须快照，Record ID/layout和SSLOG 0.0不变。
+- 三协议8种组合、校准4种选择、默认F407生成/增量、`.ssdecoder` 1.1与统一Source Graph已复核。
 
-## 本轮实际验证
+## 本轮实际验收摘要
 
-- Python：3.14.0；PySide6：6.10.1。
-- `python -m pytest -q`：208 passed in 356.93s。
-- `python -m compileall -q src tools main.py`：通过。
-- 默认SS0.5新工程：首次503文件；二次规划471 `PRESERVE` + 32 `UNCHANGED`，0增删改，Ready；Source Graph 136个C源文件。
-- 默认工程Release/Debug均通过；Host Tests为50个EXE、8754项检查、0失败、8个应通过编译门禁、16个预期编译拒绝。
-- Architecture：250项、0失败。
-- Power of Ten：5603项，92个第一方C文件，2074个函数，通过。
-- Arm GCC `-fanalyzer`静态分析：通过。
-- Artifact：通过；FLASH 250252/524288，主SRAM 77172/131072，CCMRAM 42872/65536，heap=0。
-- 默认`.ssdecoder`：102035 bytes，SHA-256
-  `67f2eb4f5c96ec28dcbe4ef2d0b22fbcb1c731a88163a596812c6dc92b7cb6cc`，仍只有5个声明式数据文件且不含可执行代码。
-- 自定义CubeMX F407最终迁移后Release与Host Tests通过；二次规划1760 `PRESERVE` + 32 `UNCHANGED`，Ready。
-
-完整命令、哈希、内存数据与限制见根目录`VALIDATION.md`。
+- `python -m pytest -q`：276 passed in 478.64s（0:07:58）。
+- `python -m compileall -q src main.py tools`：通过。
+- 默认工程首次生成504个文件；二次生成0新增、0修改、472个工程自有文件保持，Ready且无
+  missing/stale；Source Graph为136个C源文件+1个ASM。
+- 默认`.ssdecoder`：102390 bytes，SHA-256
+  `696d09226fc8a574602514e342667b46e7cf4e707c1f580740b62640927482d3`。
+- Release/Debug、Host Tests、Architecture、Power of Ten、GCC `-fanalyzer` Static Analysis和
+  Artifact Check全部通过；精确命令、内存、计数和哈希见根目录`VALIDATION.md`。
+- 8种Telemetry/Maintenance/Logging组合的16个Release/Debug构建及任务函数/栈/TCB符号审计
+  全部通过；4种校准选择完成代表性编译，默认空选另完成完整Host Tests。
 
 ## 只读参考
 
-参考固件始终只读：`C:/Users/chdxm/Desktop/stm32-1/Flight_Controller0.5`，clean `main`，
-HEAD `cc0b377ded690556d037a412a55f87fe334c42d0`，提交主题
-`完善同能力多实例与日志配置契约`。本轮只读取和复制到FCCG staged builtin payload，没有修改、构建、提交或推送参考固件。
+参考固件保持clean `main`：`cc0b377ded690556d037a412a55f87fe334c42d0`，snapshot digest
+`7998cace3e609d4e0c3f16f8d9e4cdf531f3f82939670638d4fe4d02f3c4e942`。导入器连续重建
+结果确定，FCCG没有修改、格式化、构建、提交或推送该目录。
 
-## 剩余限制
+## 尚未完成
 
-- 完整固件构建验证范围仍只有STM32F407VET6 + SS0.5；H7/G4/其他MCU没有生产插件与验证结果。
-- 软件`supported`不等于硬件`verified`。I²C外部上拉、PWM波形/安全电平、SD卡介质行为、烧录、台架与飞行必须后续实机验证。
-- 当前没有普通CAN consumer，没有连续控制执行器、Guidance、Control、Control Allocation、Multi-EKF或传感器投票/故障切换。
-- `.ssdecoder`仍是数据包；本轮没有实现可执行日志解析器、多版本解析插件或FLP导入。
-- 当前Board/Environment没有声明已验证flash能力，因此GUI/Make/VS Code/EIDE不生成上传动作。
+- I²C外部上拉及PWM波形、极性、安全电平的真实电气测试。
+- 第二套真实硬件平台的双平台内部测试；当前合成H743 fixture不等于H7支持。
+- 烧录、SD介质耐久、射频、执行器台架、HIL与飞行验证。
+- 后续SilverStar_FLP：每次导入一个日志、严格匹配`.ssdecoder`、不兼容未发布旧日志，且
+  离线算法比较不受机载算法清单限制。

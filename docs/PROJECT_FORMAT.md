@@ -4,7 +4,7 @@
 
 ## Sections
 
-- `project`: name, firmware version, and embedded build target.
+- `project`: name, SilverStar firmware/platform version, and release identity. New 0.0.10 projects use `firmware_version: "0.0.10"` and `build_target: "SilverStar_0_0_10"`; this release identity is distinct from the MCU Target Profile.
 - `components`: exactly one Core, automatically matched MCU/Platform, OS, and DevelopmentEnvironment; an optional Board while custom hardware is active; ordered `devices: [{instance_id, plugin}]`, base components, and generic `strategies: {slot: component-id | null}`. Protocol components no longer live in this block.
 - `modes`: generic `{slot: [option, ...]}` selections. Slot rules and labels come from manifests.
 - `mode_parameters`: generic `{slot: {option: {parameter: number}}}` values. Types, units, ranges, defaults, generated symbols, and scaling come from the owning Mode manifest.
@@ -14,7 +14,7 @@
 - `capability_sources`: only non-default user decisions for a required capability with several providers, mapping capability to the selected physical Device instance; absent values bind Canonical Source to capability instance 0.
 - `logging.streams`: the selected Protocol metadata order plus enable state, policy, decimation, and period. Record definitions and Required/Recommended/Optional levels do not live in the project file. The values remain user preferences but are inactive when `protocols.logging` is `null`.
 - `log_decoder_profile`: generated relative `.ssdecoder` path, package-schema version, container-plugin ID, generation-profile SHA-256, and complete package SHA-256. These are derived verification data, not editable generation inputs; all five strings use the existing empty-reference state while logging is disabled.
-- `build`: target, Make/toolchain preferences, native EIDE mode, and project-local tool-path overrides. Release is the generated default and Debug remains an invocation choice; neither is persisted as mutable project configuration. `flash_command` is currently an empty reserved field; it creates no GUI, Make, VS Code, or EIDE upload action without a future validated capability contract.
+- `build`: the MCU/Platform-derived `target_profile` integrity lock, Make/toolchain preferences, native EIDE mode, and project-local tool-path overrides. The lock must exactly match the selected MCU manifest (`SilverStar_F407` for the current verified plugin); it is reconciled, not user-selected, and a mismatch blocks strict generation. Release is the generated default and Debug remains an invocation choice; neither is persisted as mutable project configuration. `flash_command` is currently an empty reserved field; it creates no GUI, Make, VS Code, or EIDE upload action without a future validated capability contract.
 - `generated_glue`: the reviewed FCCG-owned glue set.
 - `component_provenance` and `reference_provenance`: audit information only.
 
@@ -59,7 +59,7 @@ Logging does not persist a second capability database. Protocol metadata names R
     }
   },
   "modes": {
-    "calibration": ["Existing", "OneFace", "SixFace"],
+    "calibration": [],
     "deployment": ["ApogeeVerticalVelocity", "Tilt"]
   },
   "mode_parameters": {
@@ -91,6 +91,12 @@ Logging does not persist a second capability database. Protocol metadata names R
   }
 }
 ```
+
+`modes.calibration` may be `[]`, `["OneFace"]`, `["SixFace"]`, or both options. Empty means
+NONE/READY identity correction, not an absent calibration subsystem or raw-data bypass. The exact
+official 0.0.9 pre-release `Existing` combinations migrate once by removing `Existing`, updating
+the 0.0.10 Core/platform locks, and requiring regeneration in a new output directory; unknown
+third-party selections are not silently upgraded.
 
 No Python schema change is required when a real future plugin declares a new Strategy slot such as `guidance` or a Mode slot with new options.
 

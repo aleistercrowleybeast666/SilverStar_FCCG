@@ -2536,34 +2536,40 @@ def _Build_Parse(value: Any) -> BuildContribution:
         toolchain_prefix
     ):
         raise PluginManifestError("build.toolchain_prefix is invalid")
-    path_values = (
-        sources
-        + tuple(
-            source
-            for values in protocol_sources.values()
-            for source in values
-        )
-        + tuple(
-            source
-            for variants in strategy_sources.values()
-            for state_sources in variants.values()
-            for source in state_sources
-        )
-        + asm_sources
-        + include_dirs
-        + forced_includes
-        + virtual_sources
-        + exclude_sources
+    path_groups = {
+        "build.sources": sources,
+        **{
+            f"build.protocol_sources.{category}": values
+            for category, values in protocol_sources.items()
+        },
+        **{
+            f"build.strategy_sources.{slot}.{state}": values
+            for slot, variants in strategy_sources.items()
+            for state, values in variants.items()
+        },
+        "build.asm_sources": asm_sources,
+        "build.include_dirs": include_dirs,
+        "build.forced_includes": forced_includes,
+        "build.virtual_sources": virtual_sources,
+        "build.exclude_sources": exclude_sources,
+    }
+    path_values = tuple(
+        value
+        for values in path_groups.values()
+        for value in values
     )
     _BuildTokens_Validate(path_values, "build paths", BUILD_PATH_PATTERN)
     _BuildTokens_Validate(defines, "build.defines", DEFINE_PATTERN)
     _BuildTokens_Validate(mcu_flags, "build.mcu_flags", BUILD_TOKEN_PATTERN)
     _BuildTokens_Validate(specs, "build.specs", BUILD_TOKEN_PATTERN)
     _BuildTokens_Validate(libraries, "build.libraries", BUILD_TOKEN_PATTERN)
-    _RelativePaths_Validate(path_values, "build")
+    for field_name, values in path_groups.items():
+        _RelativePaths_Validate(values, field_name)
     if linker_script:
-        _RelativePaths_Validate((linker_script,), "linker_script")
-        _BuildTokens_Validate((linker_script,), "linker_script", BUILD_PATH_PATTERN)
+        _RelativePaths_Validate((linker_script,), "build.linker_script")
+        _BuildTokens_Validate(
+            (linker_script,), "build.linker_script", BUILD_PATH_PATTERN
+        )
     return BuildContribution(
         sources=sources,
         protocol_sources=protocol_sources,

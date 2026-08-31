@@ -24,6 +24,18 @@ environment, or any other repository. Project-local settings and logs belong bel
 
 ## Architecture and ownership
 
+- `src/silverstar_fccg/app/version.py` is the single runtime authority for the SilverStar 0.0.10
+  application/platform release train. Generated firmware identity and official SilverStar builtin
+  versions derive from it; AIR M0, maintenance/log 0.0, decoder/project-semantics 1.1, FreeRTOS,
+  Board revision, MCU part, CubeMX, and vendor package versions remain independent.
+- The matched MCU/Platform manifest owns the build Target Profile. Persisted
+  `build.target_profile` is a derived integrity lock, never a GUI choice or a Python MCU-model
+  default. Current production validation remains limited to `SilverStar_F407` on SS0.5.
+- Calibration is a permanently present correction subsystem with optional OneFace/SixFace
+  procedures. An empty Mode selection means `SYSTEM_CALIBRATION_MODE_NONE`, READY identity
+  correction, not raw-data bypass; logging-enabled projects must retain the Required
+  `CALIBRATION_RESULT` snapshot.
+
 - Plugins are declarative source packages. Installing a plugin must never execute plugin code.
 - Component payloads copied into an embedded project become ordinary project-owned source and
   normal Apply Configuration operations must not overwrite them.

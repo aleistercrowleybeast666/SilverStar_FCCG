@@ -20,6 +20,46 @@ Four PySide6 pages + project/plugin dialogs
 
 Widgets expose view state and signals. They do not parse archives, copy payloads, edit Make/EIDE/VS Code files, import CubeMX data, or run toolchains directly.
 
+## Frozen 0.0.10 identity and target ownership
+
+`src/silverstar_fccg/app/version.py` is the one runtime source for the SilverStar 0.0.10 platform
+release identity. The application version, new-project firmware/release identity, official
+SilverStar builtin manifest versions, embedded Core version macros, generated semantics, and
+component locks derive from that authority. It deliberately does not own AIR M0, maintenance/log
+0.0, `.ssdecoder`/project-semantics 1.1, FreeRTOS 11.3.0, CubeMX/Firmware Package, SS0.5, MCU part,
+or third-party upstream versions.
+
+```text
+Detected Board / imported IOC MCU facts
+                  ↓ exact Platform match
+MCU/Platform manifest.platform.build_target.profile
+                  ↓ reconcile + persisted integrity lock
+          Project build.target_profile
+              ├── Make target/output paths
+              ├── native EIDE graph
+              ├── VS Code tasks
+              └── quality/artifact paths
+```
+
+The model never guesses F407 from a Python default. The current verified manifest owns
+`SilverStar_F407`; another complete plugin can declare a different safe profile without adding an
+MCU branch to FCCG. A synthetic H743 fixture tests this routing contract only and is not production
+firmware, flash, or hardware support.
+
+## Calibration subsystem and optional procedures
+
+Calibration is a selected base component and corrected-IMU invariant, while OneFace and SixFace are
+optional procedures inside its manifest-owned Mode slot. An empty project list generates procedure
+mask zero and startup uses the existing `SYSTEM_CALIBRATION_MODE_NONE` state machine to establish
+READY identity correction: zero biases, unit scales, no completed faces/samples/retries, and a valid
+correction. Raw IMU is never silently relabeled as corrected data.
+
+When logging is enabled, `CALIBRATION_RESULT` remains a Required event and records the effective
+correction snapshot—including NONE—rather than proving that a physical procedure ran. Its ID 0x17,
+version 0, 72-byte payload, field order, endian, and CRC remain SSLOG 0.0 wire truth. The calibration
+component stays in `.ssdecoder.algorithms`; that list describes onboard composition and is not a
+whitelist for future FLP offline replay algorithms.
+
 ## Physical Device capability architecture
 
 ```text

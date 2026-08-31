@@ -1,10 +1,10 @@
 # Builtin reference components
 
-The current catalog contains 36 strict declarative packages synchronized and adapted from the clean SilverStar 0.0.9 reference commit `cc0b377ded690556d037a412a55f87fe334c42d0` (`完善同能力多实例与日志配置契约`), together with FCCG's declarative selectors, physical and logical Devices, internal service owners, three independent Protocol packages, and official Platform overlays. `plugins/builtin/reference_provenance.json` records the read-only reference path, commit, branch, clean status, snapshot digest, import time, audited groups, and protocol-source hashes. Per-manifest `source_origins` distinguishes the reference base from FCCG extensions replayed by the importer. The synchronized SSLOG catalog contains 29 records, including the decoder-profile descriptor.
+The current catalog contains 36 strict declarative packages in the SilverStar 0.0.10 release train, synchronized and adapted from clean read-only reference commit `cc0b377ded690556d037a412a55f87fe334c42d0` (`完善同能力多实例与日志配置契约`), together with FCCG's declarative selectors, physical and logical Devices, internal service owners, three independent Protocol packages, and official Platform overlays. `plugins/builtin/reference_provenance.json` records the read-only reference path, commit, branch, clean status, snapshot digest, deterministic commit-derived import time, audited groups, and protocol-source hashes. Per-manifest `source_origins` distinguishes the reference base from FCCG extensions replayed by the importer. The synchronized SSLOG catalog contains 29 records, including the decoder-profile descriptor.
 
 | Type | Builtins |
 |---|---|
-| Core | SilverStar Core 0.0.9 |
+| Core | SilverStar Core 0.0.10 |
 | MCU/Platform | STM32F407VET6 exact/family matching, declarative resource ABI, STM32F4 Platform, conditionally selected I²C/Classic-CAN/PWM backends, HAL/CMSIS, and target memory contract |
 | Board | SS0.5 verified `.ioc`, semantic connections, fixed resource roles, and provenance; no generic storage/log/mission/indicator service ownership |
 | Device | JY901B, NEO-M9N, physical E28-2G4M12SX (SX1281 Driver), internal maintenance UART, SD/TF Card · SDIO + FatFs, input-voltage monitor, two mission-action power outputs, and software indicators; instance policy separates per-model `plugin_max` from class-wide `class_max` |
@@ -19,7 +19,7 @@ The current catalog contains 36 strict declarative packages synchronized and ada
 | HardwareConfigurationProvider | Trusted STM32CubeMX importer declaration |
 | DevelopmentEnvironment | VS Code + EIDE + Arm GNU Toolchain renderer declaration |
 
-Calibration options remain `Existing`, `OneFace`, and `SixFace` in one multi-select Mode component; new projects select all three. Deployment options remain `ApogeeVerticalVelocity`, `Tilt`, and `Delay`; new projects select Apogee and Tilt while Delay starts clear. The same manifest owns -2 m/s, 45°, and 60 s defaults plus their validated generated symbols/scaling. Declarative per-option requirements disable unsupported options.
+Calibration is one permanent correction component with optional `OneFace` and `SixFace` procedures; new projects select neither. An empty selection starts `SYSTEM_CALIBRATION_MODE_NONE`, establishes READY identity correction, and does not remove corrected-IMU or Required `CALIBRATION_RESULT` production. Deployment options remain `ApogeeVerticalVelocity`, `Tilt`, and `Delay`; new projects select Apogee and Tilt while Delay starts clear. The same manifest owns -2 m/s, 45°, and 60 s defaults plus their validated generated symbols/scaling. Declarative per-option requirements disable unsupported options.
 
 ## Raw and qualified capabilities
 

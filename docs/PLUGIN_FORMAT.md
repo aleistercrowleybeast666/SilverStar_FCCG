@@ -35,6 +35,16 @@ The strict schema is `schemas/plugin.schema.json`. Version 0 includes identity/t
 
 `build` may declare C/ASM sources, includes, defines, MCU flags, specs, libraries, forced includes, virtual sources, excluded sources, linker script, and toolchain prefix. `strategy_sources` can additionally contribute a `selected` or `none` C-source set for a manifest-named Strategy slot. `protocol_sources` maps telemetry/maintenance/logging to finite Core/Service sources that enter the graph only while that Protocol slot is non-null. Sources/linker/forced includes must exist in the declared payload; Make-unsafe tokens are rejected.
 
+### MCU/Platform
+
+Every MCU manifest owns `platform.build_target.profile`, a strict non-empty safe token such as
+`SilverStar_F407`. It names the generated Target Profile and output subtree; it is not a GUI option
+and does not imply hardware verification. Reconciliation derives the project lock from the matched
+MCU/Platform, while strict validation rejects a missing, unsafe, or mismatched lock. Non-MCU
+manifests cannot declare `platform`. The official SilverStar builtin manifest `version` follows the
+0.0.10 platform release train, while MCU part/Board revision, CubeMX/Firmware Package, protocol
+Profile, schema, RTOS, and third-party upstream versions retain their own namespaces.
+
 ### Board
 
 `resources.provides` declares stable semantic resource aliases and the small generated-interface metadata they need. `resources.roles` binds requirement keys/classes to a kind, default, candidates, and `fixed` state. Provisions may be reserved; conflict groups reject illegal simultaneous use. For STM32, `board.ioc_file` points to the physical truth and `board.connections_file` maps aliases to IOC resource IDs. The Board block also declares compatible MCUs, vendor/provider, verification/source kind, and hardware root.
@@ -99,6 +109,11 @@ may not silently substitute another container identity for the selected real cod
 `selection.kind = "strategy"` declares a slot, order, required/`allow_none`, and optional build definitions for None. Exactly the selected strategy payload enters the graph.
 
 `selection.kind = "mode"` declares a slot, `allow_none`, `allow_multiple`, options, defaults, localized labels, per-option requirements, optional numeric `parameters`, generated symbols/scales, per-option trigger symbols, and an aggregate mask symbol. Modes remain options of their owner component rather than fake algorithm packages.
+
+The calibration component uses `allow_none: true`, `allow_multiple: true`, options OneFace/SixFace,
+and an empty default. That empty list is the declared NONE/identity-correction state; no fake None or
+Existing option is installed. The component remains in the Source Graph and its Required
+`CALIBRATION_RESULT` producer remains active whenever logging is selected.
 
 ### Hardware provider
 

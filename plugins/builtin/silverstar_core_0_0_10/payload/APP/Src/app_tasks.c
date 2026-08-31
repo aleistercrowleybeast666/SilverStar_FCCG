@@ -163,10 +163,6 @@ static TaskHandle_t AppTasks_TelemetryCreate(void)
 
 AppTasksInitResult AppTasks_Init(void)
 {
-#if (SYSTEM_CALIBRATION_BUILD_PROCEDURE_MASK == 0U)
-    SystemDeviceResult calibration_result;
-#endif
-
     SILVERSTAR_ASSERT(s_tasks[SYSTEM_TASK_STACK_DEVICE].stack_words ==
                       APP_TASK_STACK_DEVICE_WORDS,
                       SILVERSTAR_ASSERT_MODULE_APP,
@@ -178,14 +174,16 @@ AppTasksInitResult AppTasks_Init(void)
                       SILVERSTAR_ASSERT_REASON_STATE_INVARIANT);
 #endif
     SystemCalibration_Init();
-#if (SYSTEM_CALIBRATION_BUILD_PROCEDURE_MASK == 0U)
-    calibration_result = SystemCalibration_Start(
-        SYSTEM_CALIBRATION_MODE_NONE);
-    if (calibration_result != SYSTEM_DEVICE_OK)
+    if (SYSTEM_CALIBRATION_BUILD_PROCEDURE_MASK == 0U)
     {
-        return AppTasksInitResult_CalibrationInitFailed;
+        const SystemDeviceResult calibration_result =
+            SystemCalibration_Start(SYSTEM_CALIBRATION_MODE_NONE);
+
+        if (calibration_result != SYSTEM_DEVICE_OK)
+        {
+            return AppTasksInitResult_CalibrationInitFailed;
+        }
     }
-#endif
     SystemAlignment_Init();
     if ((SystemInertial_Init() != SYSTEM_DEVICE_OK) ||
         (ImuSampleBus_Init() != IMU_SAMPLE_BUS_RESULT_OK) ||

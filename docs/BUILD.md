@@ -4,6 +4,12 @@
 
 The selected components and project model resolve to explicit C/ASM sources, includes, defines, forced includes, exclusions, linker script, CPU/FPU flags, specs, libraries, and toolchain prefix. No renderer scans the project with wildcards.
 
+The matched MCU/Platform manifest also owns the build Target Profile. Reconciliation persists that
+value as `build.target_profile`, and Make, EIDE, VS Code, static analysis, artifacts, and output paths
+all consume the same lock. `SilverStar_F407` is the current verified plugin's declaration and an
+example command value, not a Python default or a global MCU whitelist. A synthetic alternate-target
+test validates generic routing only; production validation is still limited to F407/SS0.5.
+
 The default reference graph has 136 C sources and one startup assembly source. The eight nullable-Protocol combinations resolve to 136, 126, 132, 122, 133, 123, 129, and 119 C sources for T1M1L1 through T0M0L0 respectively. Each graph contains only the selected Alignment/INS/Estimator/Landing strategies, active protocol tasks/services/codecs, the FreeRTOS static kernel subset/CM4F port, and applicable generated C files. A physical SX1281 or SD/TF Device may remain selected while its Protocol sources are absent. `Core/Src/sysmem.c` is excluded; both target memory and generated flight-configuration headers are forced includes, keeping deployment parameters identical across Make/EIDE.
 
 Generated Protocol macros gate finite first-party call sites and static allocation. A disabled

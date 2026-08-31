@@ -112,7 +112,7 @@ Host能力矩阵已验证：JY901B的重力已知航向角、六轴硬件四元�
 
 | 功能 | 分类 | 当前F407选择 |
 |---|---|---|
-| Calibration | Mode | Existing/default、OneFace、SixFace均保留 |
+| Calibration | Mode | 空选=NONE/单位校正；OneFace、SixFace可独立或组合选择 |
 | Alignment | Strategy | `GravityKnownYaw` |
 | INS | Strategy | `Coning2Sculling2` |
 | Estimator/Fusion | Strategy | `KF6`；`None`不编入KF6源码 |

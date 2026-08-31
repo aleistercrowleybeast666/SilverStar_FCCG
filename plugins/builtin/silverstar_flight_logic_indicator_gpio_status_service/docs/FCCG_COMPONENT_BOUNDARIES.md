@@ -77,14 +77,14 @@ Strategy是build-time selected的互斥Component；未选择实现不编译、�
 
 | 功能 | 分类 | 当前reference选择 |
 | --- | --- | --- |
-| Calibration | Mode/operation | Existing、OneFace、SixFace均保留 |
+| Calibration | Mode/operation | 空选=NONE/单位校正；OneFace、SixFace可独立或组合选择 |
 | Alignment | Strategy | GravityKnownYaw |
 | INS | Strategy | Coning2Sculling2 |
 | Estimator/Fusion | Strategy | KF6；None不编译KF6 |
 | Landing | Strategy | BarometerImuWindow |
 | Deployment | Strategy + Modes | MultiTrigger；Apogee/Tilt/Delay为可组合trigger Modes |
 
-Mode由已编入Component的runtime/project配置选择。Mode Set可以按contract允许0..N项；Deployment `selection: []`/mask=0合法且不自动部署。Calibration的`NONE`是“使用已有校准”业务模式，不等同于通用empty set。FCCG负责选择Strategy并生成source graph，runtime只选择Mode；不得生成runtime registry、vtable或函数指针dispatch。
+Mode由已编入Component的runtime/project配置选择。Mode Set可以按contract允许0..N项；Deployment `selection: []`/mask=0合法且不自动部署。Calibration空选由FCCG确定性映射为`NONE`与单位校正，是该Mode slot的合法empty set。FCCG负责选择Strategy并生成source graph，runtime只选择Mode；不得生成runtime registry、vtable或函数指针dispatch。
 
 `SilverStar.ssproject`只保存上述human/FCCG reference metadata，不参与Make解析。当前构建truth是Target与module manifests；配置头只保存已编入Component的Mode/参数。
 

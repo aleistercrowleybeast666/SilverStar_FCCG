@@ -271,7 +271,7 @@ SysTick由Target交给`xPortSysTickHandler`，HAL tick由TIM1维护。任何MCU�
 
 Strategy是构建期互斥组件，Target通过`ALIGNMENT_STRATEGY`、`INS_STRATEGY`、`ESTIMATOR_STRATEGY`、`LANDING_STRATEGY`和`DEPLOYMENT_STRATEGY`只include当前实现的`module.mk`。当前F407分别选择GravityKnownYaw、Coning2Sculling2、KF6、BarometerImuWindow和MultiTrigger；其他三种Alignment实现保留在仓库并由独立Host入口测试，但不进入当前固件或EIDE源图。`ESTIMATOR_STRATEGY=None`只保留INS输出和系统胶水，`navigation_kf.c`不进入源图。
 
-Mode属于已编入组件内部：Calibration保留Existing/OneFace/SixFace；MultiTrigger内部的Apogee/Tilt/Delay使用bitmask任意组合，空mask合法且不自动部署。这里允许普通mode dispatch，但不允许runtime Strategy registry、vtable或函数指针选择。
+Mode属于已编入组件内部：Calibration保留空选（NONE/单位校正）/OneFace/SixFace；MultiTrigger内部的Apogee/Tilt/Delay使用bitmask任意组合，空mask合法且不自动部署。这里允许普通mode dispatch，但不允许runtime Strategy registry、vtable或函数指针选择。
 
 Deployment只产生“是否部署、匹配mask和reason”的判定。实际动作路径为：
 

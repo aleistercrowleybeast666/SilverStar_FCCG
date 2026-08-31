@@ -1,9 +1,19 @@
-# Validation — 2026-08-30 optional protocols and firmware task gating
+# Validation — 2026-08-31 SilverStar 0.0.10 final freeze
 
-This file records only validation actually performed against the current FCCG source tree for
-project-format 11, independently optional telemetry/maintenance/logging protocols, and generated
-firmware task/source gating. The result remains an internal software validation result; it is not
-a hardware-flash, electrical, or flight qualification.
+This document records validation actually performed against the final FCCG 0.0.10 source tree.
+The result is an internal **Software Release Candidate / Pre-Hardware-Validation** result. It is
+not a public release, tag, flash result, electrical qualification, dual-platform qualification,
+or flight qualification.
+
+## Commit identity
+
+- Branch: `main`
+- Requested final commit subject: `修改测试与文档，完成基础功能`
+- Parent before this closeout: `0fb9101a31ab949c25e41da3c0d61dbb6b9f8efd`
+- The immutable final commit ID is obtained after creating the commit with `git rev-parse HEAD` and
+  is reported in the final handoff. A Git commit cannot embed its own hash in its tree because that
+  edit would create a different hash; the subject, branch, parent, and verification command record
+  the commit identity without a false self-reference.
 
 ## Environment
 
@@ -14,19 +24,29 @@ a hardware-flash, electrical, or flight qualification.
 - GNU Make 4.4.1 (`mingw32-make`)
 - MSYS2 UCRT64 Host GCC 16.1.0, target `x86_64-w64-mingw32`
 - Builtin catalog: 36 strict packages
+- Platform/FCCG/generated-firmware release identity: 0.0.10
+- Project format: 11
+- Decoder package/project-semantics schema: 1.1
 
-## Read-only reference and wire evidence
+AIR M0, Serial Maintenance 0.0, Flight Log Format/SSLOG container 0.0, FreeRTOS 11.3.0,
+SS0.5, STM32F407VET6, CubeMX, and STM32Cube FW retain their independent versions.
+
+## Read-only reference and reproducibility
 
 - Path: `C:/Users/chdxm/Desktop/stm32-1/Flight_Controller0.5`
 - Branch: `main`
 - Commit: `cc0b377ded690556d037a412a55f87fe334c42d0`
 - Subject: `完善同能力多实例与日志配置契约`
-- Recorded working tree: clean
+- Working tree: clean
 - Snapshot digest: `7998cace3e609d4e0c3f16f8d9e4cdf531f3f82939670638d4fe4d02f3c4e942`
+- Deterministic recorded UTC time: `2026-08-27T18:07:29+00:00`, derived from the commit
 
-The external reference was not modified, formatted, built, committed, or pushed. Tests compared
-the current builtin wire sources with the SHA-256 values recorded by the read-only reference
-import, and all four matched exactly:
+The importer was run repeatedly against that exact read-only snapshot. Each run completed the
+required-file and maintenance-document audits with no missing files/findings, and the second
+publication produced no further tree change. The external repository was not modified, formatted,
+built, committed, or pushed.
+
+The four frozen wire-source SHA-256 values still match the read-only reference:
 
 - `Protocol/Src/air_protocol.c`:
   `4537b3588b65baa051c13605eed5715a42f530abe5a0bdfad11a4925a2a0b418`
@@ -37,36 +57,59 @@ import, and all four matched exactly:
 - `Protocol/SSLOG/Src/sslog_records.c`:
   `871b73bd1cecf9a39a2b95006f34bb32d303a5cba23d55aa02aedb934fe03d30`
 
-The default generated compatibility tag remains the eight bytes for `AIR-NCRC`:
-`41 49 52 2D 4E 43 52 43`. The T=0/L=1 build uses the documented fixed no-telemetry tag:
-`00 00 00 00 00 00 00 00`. The default Host golden sample round-trip passed; its generated
-artifact was 1350 bytes with SHA-256
-`91683b4a466d80402b512ed00d5508d25e0bc85f455fd8f02ee1cbcc609f2302`.
-The decoder-profile descriptor's schema minor is intentionally 1 for the declared 1.1 contract;
-record IDs, field layouts, AIR/maintenance/SSLOG codec sources, CRC behavior, and container layout
-were not changed.
+## Python, schema, GUI, and model regression
 
-## Python, schema, model, and GUI regression
-
-- `python -m pytest -q`: **225 passed in 368.11 s**
 - `python -m compileall -q src main.py tools`: passed
-- The suite covers format 10 to 11 migration, exact nullable protocol keys, canonical digest and
-  serialization, component/lock/provenance/source-graph omission, strict enabled-profile locks,
-  zero/one/multiple transport availability, atomic protocol clearing when a device disappears,
-  no automatic protocol restoration, and the maintenance endpoint lifecycle.
-- Headless GUI tests cover all three persistent `None` entries, disabled unavailable profiles,
-  localized tooltips, language rebuilds, stable signals, logging-table/button disabling, and the
-  localized log-decoder export error when logging is disabled.
-- Logging-disabled generation tests cover stale managed decoder/golden/descriptor removal while
-  preserving user-owned log files and retained inactive logging preferences.
+- `python -m pytest -q`: **276 passed in 478.64 s (0:07:58)**
+- Strict builtin/plugin/project/schema loading passed.
+- Root-CWD portable-path tests passed while actual `WorkspacePolicy` root authorization remained
+  rejected; traversal, absolute/drive/UNC, dot/empty segment, backslash, control, reserved-name,
+  trailing-space/dot, and unsafe build-field cases remained rejected.
+- F407 target lock, mismatch/tamper detection, save/reload/reconcile, render paths, and a fully
+  test-only synthetic `SilverStar_H743_Test` MCU/Board/OS/storage fixture passed. The fixture is
+  architecture coverage only and is not an H7 product-support claim.
+- Calibration GUI/model/migration/semantics tests passed for empty, OneFace, SixFace, and both;
+  the pre-release Existing combinations migrate deterministically and are never serialized again.
+- Host-level NONE/identity/READY/corrected-IMU/Required `CALIBRATION_RESULT` field checks passed.
 
-## Eight-combination Source Graph and builds
+## Fresh default generation and deterministic outputs
 
-`tools/check_optional_protocol_combinations.py` generated all combinations below
-`tests/acceptance_optional_protocols_final/` and built every one with both configurations. Each
-row has one assembly source in addition to the listed C-source count.
+Fresh project: `tests/acceptance_final_freeze_0_0_10_r2`.
 
-| Telemetry | Maintenance | Logging | C sources | Release | Debug | task function/stack/TCB audit |
+- First materialization: **504 generated/copied files**
+- Resolved Source Graph: **136 C + 1 ASM source**
+- Readiness before second apply: Ready, no missing or stale paths
+- Second apply: 0 files added, 0 files modified, 472 project-owned component files preserved
+- Release, Debug, static-analysis, EIDE, and VS Code consume this same Source Graph
+
+Generated decoder package:
+
+- File: `FCCG_Final_0_0_10.ssdecoder`
+- Size: **102390 bytes**
+- SHA-256: `696d09226fc8a574602514e342667b46e7cf4e707c1f580740b62640927482d3`
+- Package schema ID: `silverstar.ssdecoder.package-schema/1.1`
+- Entries: only `README.md`, `checksums.sha256`, `manifest.json`, `project_semantics.json`, and
+  `record_catalog.json`; no executable code
+
+Generated Host golden log:
+
+- File: `FCCG_Final_0_0_10_golden.sslog`
+- Size: 1350 bytes
+- SHA-256: `bf0ffeb23344390764377807ce6e4aa9a4a02ad4416687e7fe9516edccb69fed`
+
+The `.ssdecoder.algorithms` list is verified/documented as onboard composition, not an FLP offline
+algorithm whitelist. FCCG did not modify FLP or implement old-log compatibility.
+
+## Eight optional-Protocol combinations
+
+`tools/check_optional_protocol_combinations.py` freshly generated every Telemetry/Maintenance/
+Logging combination below `tests/acceptance_optional_protocols_0_0_10_final_freeze/`. All 16
+Release/Debug builds returned 0. `arm-none-eabi-nm` found every enabled task function/stack/TCB and
+found none of those three allocation symbols for each disabled Protocol.
+
+Each row also contains one startup ASM source.
+
+| Telemetry | Maintenance | Logging | C sources | Release | Debug | task symbol audit |
 | --- | --- | --- | ---: | --- | --- | --- |
 | 1 | 1 | 1 | 136 | passed | passed | passed |
 | 1 | 1 | 0 | 126 | passed | passed | passed |
@@ -77,54 +120,51 @@ row has one assembly source in addition to the listed C-source count.
 | 0 | 0 | 1 | 129 | passed | passed | passed |
 | 0 | 0 | 0 | 119 | passed | passed | passed |
 
-All 16 build processes returned 0. `arm-none-eabi-nm` confirmed that each disabled protocol omits
-its task entry point, stack object, and `StaticTask_t` control object, while enabled protocols
-contain all three. The generated model checks additionally retain the telemetry device under T=0
-and the SD/TF storage device under L=0; M=0 removes the auto-managed Console device, UART
-assignment, SerialTask sources, stack, and TCB.
+## Calibration build combinations
 
-For T=M=L=1, the regular builds reported:
+The default empty selection completed both Release and Debug plus the full Host suite. Three fresh
+additional projects supplied representative toolchain coverage:
 
-- Release: `text=248664`, `data=1072`, `bss=118976`
-- Debug: `text=262456`, `data=1072`, `bss=118992`
+| Calibration procedures | Configuration | Source Graph | Result |
+| --- | --- | --- | --- |
+| empty → NONE/identity | Release + Debug + Host | 136 C + 1 ASM | passed |
+| OneFace | Release | 136 C + 1 ASM | passed |
+| SixFace | Debug | 136 C + 1 ASM | passed |
+| OneFace + SixFace | Release | 136 C + 1 ASM | passed |
 
-## Decoder and project-semantics contract
-
-- T1/M1/L1 generated `T1_M1_L1.ssdecoder`: 101973 bytes, SHA-256
-  `0a54c7679aab4b3f6c1fceecaa5984e41bdf16bddd3d489fcc14f6799b3a034e`.
-- T0/M1/L1 generated `T0_M1_L1.ssdecoder`: 101186 bytes, SHA-256
-  `01b44ebcd300d0a7c46c142214ee3f3fca84f257c8258fbe96d658fc6197b323`;
-  its telemetry selection is JSON `null` while maintenance and logging remain locked objects.
-- Both packages use `silverstar.ssdecoder.package-schema/1.1` and embed
-  `silverstar.project-semantics/1.1`. Their deterministic entry set is `README.md`,
-  `checksums.sha256`, `manifest.json`, `project_semantics.json`, and `record_catalog.json`.
-- T1/M1/L0 generated no `.ssdecoder` and no `Logs/Golden` directory, but did generate the
-  standalone `Generated/project_semantics.json` audit document.
-- Logging remains mandatory inside a package that exists; telemetry and maintenance are nullable.
+Empty selection retained the calibration subsystem and required result producer. No Record ID,
+72-byte payload layout, endian, CRC, or SSLOG 0.0 container change was made.
 
 ## Generated firmware quality gates
 
-All commands ran from the freshly generated final T1/M1/L1 project and returned 0.
+All commands ran against the fresh default F407/SS0.5 project and returned 0.
 
-- Host Tests: 50 executables, 8756 checks, 0 failures, 8 compile-pass cases, and 16 expected
-  compile rejections. Expected rejections retained raw GCC diagnostics and counted as successful
-  gates.
-- Architecture Check: 250 checks, 0 failures.
-- Power of Ten: 5601 checks over 92 first-party C files and 2074 functions; passed.
-- Static Analysis: complete Arm GCC `-fanalyzer` build with strict warnings as errors; passed and
-  linked ELF/HEX/BIN artifacts.
-- Artifact Check: passed with ELF 2630100 bytes and BIN 249736 bytes; FLASH 249736/524288,
-  main SRAM 77176/131072, CCMRAM 42872/65536, heap reserved 0, runtime allocator symbols 0.
+- Release: `text=248680`, `data=1072`, `bss=118976`, `dec=368728`
+- Debug: `text=262472`, `data=1072`, `bss=118992`, `dec=382536`
+- Host Tests: 51 executables, 8799 checks, 0 failures, 8 compile-pass cases, and 16 expected
+  compile rejections. Expected rejections retained raw GCC details and counted as successful gates.
+- Architecture Check: 250 checks, 0 failures
+- Power of Ten: 5601 checks over 92 first-party C files and 2074 functions
+- Static Analysis: full first-party Arm GCC `-fanalyzer` build with strict warnings, link, size,
+  HEX, and BIN stages passed
+- Artifact Check: ELF 2630264 bytes, BIN/FLASH 249752 bytes; FLASH 249752/524288, main SRAM
+  77176/131072, CCMRAM 42872/65536, heap reserved 0, runtime allocator symbols 0
 
-## Conclusions and remaining hardware work
+## Source-package and repository closeout
 
-1. Project format 11 preserves enabled v10 selections and represents each explicit disabled
-   protocol as JSON `null`; the official SS0.5 project still defaults to all three protocols.
-2. Physical device selection and protocol enablement are independent. Lost transports clear their
-   dependent protocol atomically, and restored devices do not silently re-enable it.
-3. Disabled telemetry, maintenance, and logging protocols are removed from the resolved Source
-   Graph and from static FreeRTOS task resources; stable task-status slots report them as disabled.
-4. Logging-disabled projects leave no managed decoder/golden artifacts, while project semantics
-   remains available for audit.
-5. Flash/upload, physical UART/radio/storage behavior, and flight operation still require hardware
-   validation.
+The final documentation snapshot is followed by two consecutive deterministic source-package
+exports. Both contain **757 entries**, are byte-for-byte identical, and contain no absolute/drive
+entry names, acceptance/build/cache directories, or binary/object/dependency/listing artifacts.
+The final archive size and SHA-256 are reported in the handoff after the last export because the
+archive includes this document itself; embedding its own hash would change that hash.
+
+## Remaining validation
+
+- Physical I²C external-pull-up and PWM waveform/polarity/safe-level electrical tests are not done.
+- Dual real-hardware-platform internal testing is not done; the synthetic H743 fixture is not a
+  substitute.
+- Flash/upload, SD-card media endurance, radio link, actuator bench, HIL, and flight tests are not
+  done.
+- A normal Classic CAN consumer/filter/router/bus-off contract is not implemented.
+- SilverStar_FLP single-log import, exact decoder matching, rejection of unpublished old logs, and
+  offline-algorithm comparison remain a separate follow-up task.

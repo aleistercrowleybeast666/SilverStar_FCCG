@@ -1,5 +1,28 @@
 # Changelog
 
+## Unreleased — 2026-08-31
+
+- Froze the SilverStar_FCCG application, new-project identity, generated firmware, embedded Core,
+  and official SilverStar builtin release train at 0.0.10 while retaining AIR M0, maintenance/log
+  0.0, `.ssdecoder`/project-semantics 1.1, FreeRTOS 11.3.0, SS0.5, and STM32F407VET6 as independent
+  protocol, upstream, hardware, and schema identities.
+- Made portable relative-path validation independent of the process working directory while keeping
+  filesystem-root authorization and all traversal/reserved-name protections intact. Manifest errors
+  now identify the exact unsafe build field and value.
+- Moved build Target Profile ownership into the matched MCU/Platform manifest. The persisted
+  `build.target_profile` is now a derived integrity lock; current F407 declares `SilverStar_F407`,
+  and a synthetic H743 test fixture proves generic routing without claiming H7 product support.
+- Removed the pre-release Existing calibration pseudo-option. Calibration now allows an empty
+  selection, OneFace, SixFace, or both; empty selection starts NONE identity correction to READY.
+  `CALIBRATION_RESULT` remains a Required event snapshot and records the actually active correction.
+- Corrected the final package-schema assertion to
+  `silverstar.ssdecoder.package-schema/1.1`, removed a duplicate estimator default block, made
+  reference timestamps deterministic from the source commit, and aligned imported documentation
+  with the frozen calibration semantics.
+- Re-ran the complete Python, generation, eight-protocol-combination, calibration-combination,
+  Release/Debug, Host, architecture, Power of Ten, static-analysis, and artifact acceptance suite.
+  This remains an internal pre-hardware result; no release or tag is created.
+
 ## Unreleased — 2026-08-30
 
 - Upgraded strict project format to 11. Telemetry, maintenance, and logging remain three required

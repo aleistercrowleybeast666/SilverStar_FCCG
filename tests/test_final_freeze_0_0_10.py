@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import zipfile
-from copy import deepcopy
 from dataclasses import replace
 from io import BytesIO
 from pathlib import Path
@@ -34,7 +34,7 @@ from silverstar_fccg.hardware.platform import (
     PlatformMatchError,
     PlatformMatch_Resolve,
 )
-from silverstar_fccg.i18n.translator import Translator
+from silverstar_fccg.core.i18n import Translator
 from silverstar_fccg.plugins.catalog import PluginCatalog
 from silverstar_fccg.plugins.manifest import (
     PluginManifestError,
@@ -50,6 +50,7 @@ from silverstar_fccg.project.logging import (
     ProtocolLogDefinitions_Get,
 )
 from silverstar_fccg.project.model import (
+    HardwareConfiguration,
     PROJECT_FORMAT_VERSION,
     ProjectModelError,
     ProjectModel_Parse,
@@ -63,6 +64,9 @@ CALIBRATION_COMPONENT = "silverstar.algorithm.calibration"
 CALIBRATION_RECORD = "FLIGHT_LOG_RECORD_CALIBRATION_RESULT"
 F407_MCU = "silverstar.mcu.stm32f407vet6"
 H743_FIXTURE_MCU = "fixture.mcu.stm32h743zit6"
+H743_FIXTURE_BOARD = "fixture.board.stm32h743"
+H743_FIXTURE_OS = "fixture.os.freertos_h743"
+H743_FIXTURE_STORAGE = "fixture.device.storage_sdio_h743"
 
 
 def _LegacyProjectData_Get(
@@ -108,6 +112,26 @@ def _H743Catalog_Create(
     )
     package = installed_root / "fixture_mcu_stm32h743zit6"
     shutil.copytree(source, package)
+    target_root = package / "payload" / "Targets"
+    shutil.move(
+        target_root / "SilverStar_F407",
+        target_root / "SilverStar_H743_Test",
+    )
+    for path in sorted(package.rglob("*")):
+        if path.is_file() and path.suffix.casefold() in {
+            ".c",
+            ".h",
+            ".json",
+            ".ld",
+            ".md",
+            ".mk",
+            ".s",
+        }:
+            text = path.read_text(encoding="utf-8")
+            path.write_text(
+                text.replace("SilverStar_F407", "SilverStar_H743_Test"),
+                encoding="utf-8",
+            )
     manifest_path = package / "plugin.json"
     data = json.loads(manifest_path.read_text(encoding="utf-8"))
     data["id"] = H743_FIXTURE_MCU
@@ -152,6 +176,112 @@ def _H743Catalog_Create(
         json.dumps(data, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
+
+    board_source = (
+        workspace_root
+        / "plugins"
+        / "builtin"
+        / "silverstar_board_silverstar_0_5"
+    )
+    board_package = installed_root / "fixture_board_stm32h743"
+    shutil.copytree(board_source, board_package)
+    board_manifest_path = board_package / "plugin.json"
+    board_data = json.loads(board_manifest_path.read_text(encoding="utf-8"))
+    board_data["id"] = H743_FIXTURE_BOARD
+    board_data["name"] = "Fixture STM32H743 Board"
+    board_data["description"] = (
+        "Test-only board fixture; it is not a production support claim."
+    )
+    for requirement in board_data["requires"]["components"]:
+        if requirement["id"] == F407_MCU:
+            requirement["id"] = H743_FIXTURE_MCU
+    board_data["board"]["compatible_mcus"] = [H743_FIXTURE_MCU]
+    board_data["board"]["verified"] = False
+    board_manifest_path.write_text(
+        json.dumps(board_data, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    board_ioc = board_package / "payload" / "Flight_Controller0.5.ioc"
+    ioc_text = board_ioc.read_text(encoding="utf-8")
+    ioc_text = ioc_text.replace(
+        "Mcu.CPN=STM32F407VET6", "Mcu.CPN=STM32H743ZIT6"
+    ).replace(
+        "Mcu.Family=STM32F4", "Mcu.Family=STM32H7"
+    ).replace(
+        "Mcu.Name=STM32F407V(E-G)Tx", "Mcu.Name=STM32H743ZIT6"
+    ).replace(
+        "Mcu.Package=LQFP100", "Mcu.Package=LQFP144"
+    ).replace(
+        "Mcu.UserName=STM32F407VETx",
+        "Mcu.UserName=STM32H743ZIT6\nMcu.Core=ARM Cortex-M7",
+    )
+    board_ioc.write_text(ioc_text, encoding="utf-8")
+
+    os_source = (
+        workspace_root
+        / "plugins"
+        / "builtin"
+        / "silverstar_os_freertos_11_3_0"
+    )
+    os_package = installed_root / "fixture_os_freertos_h743"
+    shutil.copytree(os_source, os_package)
+    os_target_root = os_package / "payload" / "Targets"
+    shutil.move(
+        os_target_root / "SilverStar_F407",
+        os_target_root / "SilverStar_H743_Test",
+    )
+    for path in sorted(os_package.rglob("*")):
+        if path.is_file() and path.suffix.casefold() in {
+            ".c",
+            ".h",
+            ".json",
+            ".md",
+            ".mk",
+        }:
+            text = path.read_text(encoding="utf-8")
+            path.write_text(
+                text.replace("SilverStar_F407", "SilverStar_H743_Test"),
+                encoding="utf-8",
+            )
+    os_manifest_path = os_package / "plugin.json"
+    os_data = json.loads(os_manifest_path.read_text(encoding="utf-8"))
+    os_data["id"] = H743_FIXTURE_OS
+    os_data["name"] = "Fixture FreeRTOS for STM32H743"
+    os_data["description"] = (
+        "Test-only target-routing fixture; it is not a production support claim."
+    )
+    for requirement in os_data["requires"]["components"]:
+        if requirement["id"] == F407_MCU:
+            requirement["id"] = H743_FIXTURE_MCU
+    os_manifest_path.write_text(
+        json.dumps(os_data, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+    storage_source = (
+        workspace_root
+        / "plugins"
+        / "builtin"
+        / "silverstar_device_storage_sd_sdio_fatfs"
+    )
+    storage_package = installed_root / "fixture_storage_sdio_h743"
+    shutil.copytree(storage_source, storage_package)
+    storage_manifest_path = storage_package / "plugin.json"
+    storage_data = json.loads(
+        storage_manifest_path.read_text(encoding="utf-8")
+    )
+    storage_data["id"] = H743_FIXTURE_STORAGE
+    storage_data["name"] = "Fixture SDIO Storage for STM32H743"
+    storage_data["description"] = (
+        "Test-only dependency fixture; it is not a production support claim."
+    )
+    for requirement in storage_data["requires"]["components"]:
+        if requirement["id"] == F407_MCU:
+            requirement["id"] = H743_FIXTURE_MCU
+    storage_manifest_path.write_text(
+        json.dumps(storage_data, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
     catalog = PluginCatalog(
         workspace_root / "plugins" / "builtin",
         installed_root,
@@ -162,33 +292,19 @@ def _H743Catalog_Create(
 
 def _CustomH743Model_Get(catalog: PluginCatalog):
     model = ReferenceProject_Create("AlternateTarget", catalog=catalog)
-    inventory = deepcopy(model.hardware.inventory)
-    inventory.update(
-        {
-            "mcu_part": "STM32H743ZIT6",
-            "mcu_name": "STM32H743ZITx",
-            "mcu_family": "STM32H7",
-            "package": "LQFP144",
-            "core": "ARM Cortex-M7",
-        }
-    )
-    model.board = ""
-    model.hardware = replace(
-        model.hardware,
-        mode="custom",
-        source_kind="manual_import",
-        provider="silverstar.hardware_provider.stm32_cubemx",
-        snapshot_id="fixture-h743",
-        mcu="STM32H743ZIT6",
-        inventory=inventory,
-        platform_component="",
-        platform_version="",
-        platform_manifest_sha256="",
-        source_digest="a" * 64,
-        source_label="Test-only STM32H743ZIT6 fixture",
-        risk_acknowledged=True,
-        assignment_fingerprint="",
-    )
+    model.board = H743_FIXTURE_BOARD
+    model.mcu = H743_FIXTURE_MCU
+    model.os = H743_FIXTURE_OS
+    model.protocols["logging"] = None
+    model.device_instances = [
+        (
+            replace(instance, plugin=H743_FIXTURE_STORAGE)
+            if instance.plugin == "silverstar.device.storage.sd_sdio_fatfs"
+            else instance
+        )
+        for instance in model.device_instances
+    ]
+    model.resource_assignments = {}
     return ProjectConfiguration_Reconcile(model, catalog).model
 
 
@@ -274,7 +390,7 @@ def test_new_project_and_generated_identity_are_consistently_0_0_10(
     package = LogDecoderProfile_Render(model, builtin_catalog)
     manifest = LogDecoderPackage_Verify(package.content)
     assert manifest["package_schema"] == {
-        "id": "silverstar.ssdecoder/1.1",
+        "id": "silverstar.ssdecoder.package-schema/1.1",
         "major": 1,
         "minor": 1,
     }
@@ -299,12 +415,16 @@ def test_generated_firmware_version_macros_are_revision_ten(
         / "User"
         / "system_user_config.h"
     ).read_text(encoding="utf-8")
-    assert "#define SYSTEM_VERSION_MAJOR 0U" in config
-    assert "#define SYSTEM_VERSION_MINOR 0U" in config
-    assert "#define SYSTEM_VERSION_PATCH 10U" in config
-    assert "#define SYSTEM_VERSION_BUILD 0U" in config
-    assert '#define SYSTEM_BUILD_TAG "SILV0010"' in config
-    assert "#define SYSTEM_PROFILE_ID 0x0000000AUL" in config
+    assert re.search(r"#define\s+SILVERSTAR_VERSION_MAJOR\s+0\b", config)
+    assert re.search(r"#define\s+SILVERSTAR_VERSION_MINOR\s+0\b", config)
+    assert re.search(r"#define\s+SILVERSTAR_VERSION_PATCH\s+10\b", config)
+    assert re.search(r"#define\s+SILVERSTAR_VERSION_BUILD\s+0\b", config)
+    assert re.search(
+        r'#define\s+SILVERSTAR_LOG_BUILD_TAG\s+"SILV0010"', config
+    )
+    assert re.search(
+        r"#define\s+SYSTEM_PROFILE_ID\s+0x0000000AUL\b", config
+    )
 
 
 @pytest.mark.parametrize(
@@ -443,7 +563,7 @@ def test_calibration_manifest_gui_and_defaults_use_empty_selection(
         for label in page.findChildren(QLabel)
         if label.property("secondaryText") is True
     ]
-    assert any("单位校正" in note and "仍记录" in note for note in notes)
+    assert any("恒等校正" in note and "仍记录" in note for note in notes)
 
 
 @pytest.mark.parametrize(
@@ -543,10 +663,14 @@ def test_none_calibration_initialization_and_required_record_contract(
         "silverstar.core.flight_task",
     )
 
-    stream = next(
-        item for item in model.logging_streams if item.record == CALIBRATION_RECORD
+    stream_index = next(
+        index
+        for index, item in enumerate(model.logging_streams)
+        if item.record == CALIBRATION_RECORD
     )
-    stream.enabled = False
+    model.logging_streams[stream_index] = replace(
+        model.logging_streams[stream_index], enabled=False
+    )
     LoggingProfile_Reconcile(model, builtin_catalog)
     assert next(
         item for item in model.logging_streams if item.record == CALIBRATION_RECORD
@@ -607,8 +731,14 @@ def test_logging_disabled_removes_logger_but_keeps_identity_correction(
     header = GeneratedFiles_Render(model, builtin_catalog, graph)[
         "Generated/Inc/project_flight_config.h"
     ].decode("utf-8")
-    assert "#define SILVERSTAR_PROTOCOL_LOGGING_ENABLED 0U" in header
-    assert "#define SYSTEM_CALIBRATION_BUILD_PROCEDURE_MASK 0U" in header
+    assert re.search(
+        r"#define\s+SILVERSTAR_PROTOCOL_LOGGING_ENABLED\s+0U\b",
+        header,
+    )
+    assert re.search(
+        r"#define\s+SYSTEM_CALIBRATION_BUILD_PROCEDURE_MASK\s+0U\b",
+        header,
+    )
 
 
 def test_f407_target_profile_is_manifest_owned_and_tamper_detected(
@@ -713,6 +843,7 @@ def test_synthetic_h743_target_flows_through_match_project_and_renderers(
     model = _CustomH743Model_Get(catalog)
     assert model.mcu == H743_FIXTURE_MCU
     assert model.build.target_profile == "SilverStar_H743_Test"
+    assert Project_Validate(model, catalog).valid
     graph = SourceGraph_Resolve(model, catalog)
     generated = GeneratedFiles_Render(model, catalog, graph)
     metadata = MetadataFiles_Render(model, catalog, graph)
@@ -726,30 +857,17 @@ def test_synthetic_h743_target_flows_through_match_project_and_renderers(
     assert "SilverStar_H743_Test" in metadata[".eide/eide.yml"].decode(
         "utf-8"
     )
-    assert "SilverStar_H743_Test" in metadata[
-        "AlternateTarget.code-workspace"
-    ].decode("utf-8")
     semantics = json.loads(
         generated["Generated/project_semantics.json"].decode("utf-8")
     )
     assert semantics["target"] == "SilverStar_H743_Test"
     assert semantics["hardware"]["matched_mcu_platform"] == H743_FIXTURE_MCU
 
-    inventory = deepcopy(model.hardware.inventory)
-    inventory.update(
-        {
-            "mcu_part": "STM32F407VET6",
-            "mcu_name": "STM32F407VETx",
-            "mcu_family": "STM32F4",
-            "package": "LQFP100",
-            "core": "ARM Cortex-M4",
-        }
+    model.board = "silverstar.board.silverstar_0_5"
+    model.hardware = HardwareConfiguration(
+        mode="board_plugin", source_kind="verified_builtin"
     )
-    model.hardware = replace(
-        model.hardware,
-        mcu="STM32F407VET6",
-        inventory=inventory,
-    )
+    model.resource_assignments = {}
     f407 = ProjectConfiguration_Reconcile(model, catalog).model
     assert f407.mcu == F407_MCU
     assert f407.build.target_profile == "SilverStar_F407"

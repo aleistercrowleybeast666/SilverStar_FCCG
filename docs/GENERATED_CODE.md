@@ -34,6 +34,18 @@ Generated/
 
 Generated C is static, heap-free connection/configuration data. It does not implement sensor drivers, MCU backends, INS/KF math, flight decisions, protocol codecs, or serialization. Function/type names and header guards follow the embedded reference convention.
 
+The 0.0.10 release identity is derived from the one FCCG platform-version authority and appears in
+the saved project, generated semantics/component locks, Core macros (`SILV0010`, revision-10 profile
+ID), firmware metadata, and log header. AIR M0, maintenance/log format 0.0, decoder/project-semantics
+1.1, FreeRTOS 11.3.0, SS0.5, and STM32F407VET6 remain independent identities. The generated target
+directory and Make/EIDE/VS Code profile come from the selected MCU/Platform manifest lock.
+
+Calibration procedure selection generates a mask for OneFace/SixFace. An empty list emits mask zero;
+startup then calls the existing `SYSTEM_CALIBRATION_MODE_NONE` path to establish READY identity
+correction before corrected IMU is consumed. It does not remove the calibration component. With
+logging enabled, `CALIBRATION_RESULT` remains Required and describes the active NONE or measured
+correction snapshot without changing Record ID, 72-byte layout, SSLOG 0.0, or CRC behavior.
+
 Component payloads outside `Generated/` are project-owned source. Normal Save preserves them even when their original plugin changes or a component becomes inactive.
 
 The SDIO/FatFs storage and file-log implementations are emitted under `Devices/Storage/SdSdioFatFs/` and owned by `silverstar.device.storage.sd_sdio_fatfs`. Legacy format-9 projects may retain the former Board-path copies as inactive project-owned files; applying the current format adds the Device-owned paths without overwriting or deleting those legacy files, and the resolved Source Graph compiles only the new owner. CubeMX App/Target glue, the controlled MCU FatFs core, and the storage consumer remain distinct providers.

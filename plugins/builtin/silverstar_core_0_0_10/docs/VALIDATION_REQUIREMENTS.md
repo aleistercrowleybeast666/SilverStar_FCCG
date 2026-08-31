@@ -67,7 +67,7 @@ mingw32-make TARGET_PROFILE=SilverStar_F407 CONFIG=Release artifact-check
 - 编译期能力成功/预期失败矩阵；
 - 周期路径不复制大型Alignment status的静态栈审计。
 - 四种仓库Alignment Strategy各自独立Host入口；正式F407只编GravityKnownYaw；
-- Calibration Existing/default、OneFace和SixFace全部路径；
+- Calibration NONE/单位校正、OneFace和SixFace及其组合全部路径；
 - Deployment mask NONE、三个单项、三个两两组合和ALL，验证任一满足、reason/mask、one-shot动作与事件序列；
 - Estimator None源图不含KF6的构建级检查。
 
