@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -7,9 +9,15 @@ import pytest
 
 import silverstar_fccg.core.workspace as workspace_module
 from silverstar_fccg.core.workspace import (
+    PortablePath_Normalize,
+    PortableRelativePath_Validate,
     WorkspacePolicy,
     WorkspacePolicyError,
     _WindowsDirectoryInheritance_Enable,
+)
+from silverstar_fccg.plugins.manifest import (
+    PluginManifestError,
+    PluginManifest_Load,
 )
 
 
@@ -34,6 +42,93 @@ def test_workspace_policy_rejects_escape_and_unsafe_portable_paths(tmp_path: Pat
     ):
         with pytest.raises(WorkspacePolicyError):
             policy.RelativePath_Validate(value)
+
+
+@pytest.mark.parametrize(
+    "value",
+    (
+        "/absolute",
+        "//server/share",
+        "C:/drive",
+        "C:\\drive",
+        "\\\\server\\share",
+        "../escape",
+        "a/../b",
+        "a/./b",
+        "a//b",
+        "a\\b",
+        "NUL",
+        "nul.txt",
+        "folder/COM1.log",
+        "trailing.",
+        "trailing ",
+        "control\nname",
+        "delete\x7fname",
+        "alternate:stream",
+    ),
+)
+def test_pure_portable_relative_path_validator_keeps_illegal_corpus(
+    value: str,
+) -> None:
+    with pytest.raises(WorkspacePolicyError):
+        PortableRelativePath_Validate(value)
+
+
+def test_pure_relative_path_validation_and_manifest_load_ignore_root_cwd(
+    monkeypatch: pytest.MonkeyPatch,
+    workspace_root: Path,
+) -> None:
+    filesystem_root = Path(workspace_root.anchor)
+    monkeypatch.chdir(filesystem_root)
+
+    assert PortableRelativePath_Validate(
+        "nested/component/source.c"
+    ).as_posix() == "nested/component/source.c"
+    assert PortablePath_Normalize("nested/component/source.c") == (
+        "nested/component/source.c"
+    )
+    manifest = PluginManifest_Load(
+        workspace_root
+        / "plugins"
+        / "builtin"
+        / "silverstar_algorithm_calibration"
+        / "plugin.json"
+    )
+    assert manifest.component_id == "silverstar.algorithm.calibration"
+
+
+def test_manifest_path_error_reports_field_and_value(
+    tmp_path: Path,
+    workspace_root: Path,
+) -> None:
+    source = (
+        workspace_root
+        / "plugins"
+        / "builtin"
+        / "silverstar_algorithm_calibration"
+    )
+    package = tmp_path / "invalid_manifest_path"
+    shutil.copytree(source, package)
+    manifest_path = package / "plugin.json"
+    data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    data["build"]["sources"][0] = "../escape.c"
+    manifest_path.write_text(
+        json.dumps(data, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        PluginManifestError,
+        match=r"build\.sources.*'\.\./escape\.c'",
+    ):
+        PluginManifest_Load(manifest_path, source="installed")
+
+
+def test_workspace_policy_still_rejects_filesystem_root_authorization(
+    workspace_root: Path,
+) -> None:
+    with pytest.raises(WorkspacePolicyError, match="filesystem root"):
+        WorkspacePolicy(Path(workspace_root.anchor))
 
 
 def test_workspace_staging_and_atomic_write_remain_inside_root(tmp_path: Path) -> None:

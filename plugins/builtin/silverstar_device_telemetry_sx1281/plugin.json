@@ -4,12 +4,12 @@
   "name": "E28-2G4M12SX (SX1281)",
   "type": "device",
   "class": "telemetry",
-  "version": "0.0.9",
+  "version": "0.0.10",
   "description": "Reference SX1281 Device driver and canonical adapter.",
   "requires": {
     "components": [
       {
-        "id": "silverstar.core.0_0_9",
+        "id": "silverstar.core.0_0_10",
         "optional": false
       }
     ],

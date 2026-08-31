@@ -1,13 +1,13 @@
 # SilverStar 串口维护协议 0.0
 
 > **项目：SilverStar**
-> **文档版本：0.0.9**
+> **文档版本：0.0.10**
 > **协议版本：0.0**
 > **状态：Draft / 未发布**
 
 ## 1. 边界
 
-串口维护协议0.0是System Console处理的ASCII行协议，与AIR遥测协议M0二进制wire互不复用。这里的0.0是维护协议版本，不是固件0.0.9版本。Console Interface只负责非阻塞字节输入、输出和链路健康；SerialTask形成完整行并调用System Console，不直接访问设备寄存器，也不推进GNSS、IMU或Telemetry解析器。
+串口维护协议0.0是System Console处理的ASCII行协议，与AIR遥测协议M0二进制wire互不复用。这里的0.0是维护协议版本，不是固件0.0.10版本。Console Interface只负责非阻塞字节输入、输出和链路健康；SerialTask形成完整行并调用System Console，不直接访问设备寄存器，也不推进GNSS、IMU或Telemetry解析器。
 
 关键词使用本文给出的ASCII大写形式，token以空格或制表符分隔，CR、LF或CRLF结束。Parser使用5项固定容量token数组，不分配内存。能力端点命令与系统命令使用两套明确grammar：
 
@@ -43,7 +43,7 @@ IMU GNSS BARO MAG ATTITUDE TELEMETRY POWER
 SYSTEM ESTIMATOR KF INS CAL ALIGN OUTPUT LOG TIME
 ```
 
-不能使用`INS 0 STATUS`或`KF 0 STATUS`。0.0.9尚未发布，因此不保留`IMU STATUS`、`GNSS SAMPLE`、`BARO STATUS`等旧无实例别名，它们返回`BAD_FORMAT/INSTANCE_REQUIRED`。
+不能使用`INS 0 STATUS`或`KF 0 STATUS`。0.0.10尚未发布，因此不保留`IMU STATUS`、`GNSS SAMPLE`、`BARO STATUS`等旧无实例别名，它们返回`BAD_FORMAT/INSTANCE_REQUIRED`。
 
 `TF STATUS`、`TF HEALTH`、`TF TEST`和`TF SYNC`也不是正式命令；`TF`作为未知模块返回`BAD_MODULE/UNKNOWN`。日志系统只使用与介质无关的`LOG`模块名。
 
@@ -119,7 +119,7 @@ IMU 2 STATUS -> NOT_PRESENT/INSTANCE
 | LOG | `INFO`、`STATUS` |
 | TIME | `STATUS` |
 
-表中`CONFIG VERIFY/APPLY`表示命令语义已被Parser识别，不表示当前每个Device均实现相应硬件事务；能力缺失时按第4节的公共命令错误语义返回`UNSUPPORTED`。`SYSTEM SELFTEST`、`SYSTEM PARAM ...`、`<DEVICE> SELFTEST`和`<DEVICE> PARAM ...`保留明确拒绝路径并返回`UNSUPPORTED`，不是0.0.9已实现功能。未知命令返回`BAD_COMMAND`，未知模块返回`BAD_MODULE`。
+表中`CONFIG VERIFY/APPLY`表示命令语义已被Parser识别，不表示当前每个Device均实现相应硬件事务；能力缺失时按第4节的公共命令错误语义返回`UNSUPPORTED`。`SYSTEM SELFTEST`、`SYSTEM PARAM ...`、`<DEVICE> SELFTEST`和`<DEVICE> PARAM ...`保留明确拒绝路径并返回`UNSUPPORTED`，不是0.0.10已实现功能。未知命令返回`BAD_COMMAND`，未知模块返回`BAD_MODULE`。
 
 完整示例：
 
@@ -174,7 +174,7 @@ OK GNSS 0 CONFIG READ source=HARDWARE read_result=<result> valid_mask=<mask> ...
 
 `ALIGN STATUS`输出总体`state/ready/config`、32-bit `capability/selected/required/ready` mask和配置诊断，然后只遍历selected sources追加`<key>=<state>`。`ALIGN DETAIL`首行输出总体和mask，随后每个selected source输出一行`ALIGN SOURCE name=<key> ...`专用详情；未选择GNSS时不得出现`gnss=...`，未来选择MAG时主命令无需改动即可出现`mag=...`。`ALIGN START`返回`accepted=1`只表示对准事务已启动；只有required mask全部ready才异步输出`EVENT ALIGN COMPLETE result=PASSED`，事件同样只显示selected sources。`ALIGN START`只在Calibration READY后可用，否则返回`NOT_READY/CALIBRATION_REQUIRED`；它清除并重新采集本次任务姿态与原点。`ALIGN STOP/RESET`不清除Calibration mode、bias或scale。完整语义见[`SYSTEM_ALIGNMENT.md`](SYSTEM_ALIGNMENT.md)。
 
-`SYSTEM READY`保留既有字段，并输出`calibration_ready`、`calibration_mode`、`alignment_ready`和`capability_required_for_air_start=1`。兼容字段`imu_alignment_ready`在0.0.9中等于`calibration_ready`，不再表示Alignment内部子模块；各`<key>_alignment_ready`字段只对selected sources动态输出。正式依赖为`Calibration READY -> Alignment READY -> START READY`。Capability ACK是AIR会话状态，不降低本机`SYSTEM READY ready`；本机`SYSTEM START`不要求AIR Capability握手。当前GNSS selected但optional，气压selected且required；无预飞GNSS原点不阻止READY，但本次任务`gnss_fusion_enabled=0`，气压未ready则Alignment不得READY。
+`SYSTEM READY`保留既有字段，并输出`calibration_ready`、`calibration_mode`、`alignment_ready`和`capability_required_for_air_start=1`。兼容字段`imu_alignment_ready`在0.0.10中等于`calibration_ready`，不再表示Alignment内部子模块；各`<key>_alignment_ready`字段只对selected sources动态输出。正式依赖为`Calibration READY -> Alignment READY -> START READY`。Capability ACK是AIR会话状态，不降低本机`SYSTEM READY ready`；本机`SYSTEM START`不要求AIR Capability握手。当前GNSS selected但optional，气压selected且required；无预飞GNSS原点不阻止READY，但本次任务`gnss_fusion_enabled=0`，气压未ready则Alignment不得READY。
 
 `SYSTEM STACK`只读输出`DeviceTask/InsTask/EstimatorTask/FlightTask/LoggerTask/SerialTask/RadioTask`的`high_water_mark/allocation`，格式为`Task=<high_water_words>/<allocation_words>`并明确`unit=words`。未创建任务由`valid_mask`区分。该命令仅用于栈余量诊断，不参与System Health、READY、START或任何飞行状态判定。
 

@@ -1392,6 +1392,12 @@ class FlightConfigurationPage(ScrollableLocalizedPage):
             section_layout.addWidget(
                 QLabel(self._translator.Text_Get(f"mode.slot.{slot}"))
             )
+            selection_note = str(owner.options.get("selection_note", ""))
+            if selection_note:
+                note = QLabel(selection_note)
+                note.setWordWrap(True)
+                note.setProperty("secondaryText", True)
+                section_layout.addWidget(note)
             checks: list[StandardCheckBox] = []
             labels = owner.options.get("selection_labels", {})
             parameter_definitions = owner.options.get(

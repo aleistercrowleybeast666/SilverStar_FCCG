@@ -4,12 +4,12 @@
   "name": "AIR Telemetry Protocol M0",
   "type": "protocol",
   "class": "telemetry",
-  "version": "0.0",
+  "version": "0.0.10",
   "description": "AIR M0 telemetry protocol with unchanged wire codec.",
   "requires": {
     "components": [
       {
-        "id": "silverstar.core.0_0_9",
+        "id": "silverstar.core.0_0_10",
         "optional": false
       }
     ],
@@ -63,8 +63,8 @@
     "category": "telemetry",
     "logging_metadata": "Protocol/metadata/air_m0.json",
     "maintenance_protocol_version": "0.0",
-    "firmware_version": "0.0.9",
-    "documentation_version": "0.0.9",
+    "firmware_version": "0.0.10",
+    "documentation_version": "0.0.10",
     "profiles": {
       "telemetry": [
         {

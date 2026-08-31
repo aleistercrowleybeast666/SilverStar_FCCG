@@ -182,7 +182,11 @@ def LogDecoderPackage_Build(
         "`record_catalog.json` describes the Flight Log container and record wire "
         "schema. `project_semantics.json` binds those records to this generated "
         "project's devices, capability routes, flight configuration, and logging "
-        "policy. Verify `checksums.sha256` before loading the package.\n"
+        "policy. `project_semantics.algorithms` is the set of algorithms present "
+        "onboard; it is not a whitelist for future offline replay in SilverStar_FLP. "
+        "`CALIBRATION_RESULT` is the active correction snapshot, including a valid "
+        "NONE/identity snapshot when no sampling procedure is selected. Verify "
+        "`checksums.sha256` before loading the package.\n"
     ).encode("utf-8")
     payloads = {
         "README.md": readme,

@@ -320,7 +320,7 @@
       }
     }},
     {"if": {"properties": {"type": {"const": "board"}}}, "then": {"required": ["board"]}},
-    {"if": {"properties": {"type": {"const": "mcu"}}}, "then": {"required": ["platform"]}},
+    {"if": {"properties": {"type": {"const": "mcu"}}}, "then": {"required": ["platform"]}, "else": {"not": {"required": ["platform"]}}},
     {"if": {"properties": {"type": {"const": "hardware_configuration_provider"}}}, "then": {"required": ["hardware_provider"]}},
     {"if": {"properties": {"type": {"const": "development_environment"}}}, "then": {"required": ["environment"]}},
     {"if": {"properties": {"type": {"const": "protocol"}}}, "then": {"required": ["protocol"]}},
@@ -335,7 +335,7 @@
     "bindingMacro": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]*$"},
     "platform": {
       "type": "object",
-      "required": ["abi", "provider", "match_rules", "resource_binding", "resource_backends", "compatibility", "support"],
+      "required": ["abi", "provider", "build_target", "match_rules", "resource_binding", "resource_backends", "compatibility", "support"],
       "properties": {
         "abi": {
           "type": "object",
@@ -348,6 +348,14 @@
           "additionalProperties": false
         },
         "provider": {"$ref": "#/$defs/lowerIdentifier"},
+        "build_target": {
+          "type": "object",
+          "required": ["profile"],
+          "properties": {
+            "profile": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_.-]{0,79}$"}
+          },
+          "additionalProperties": false
+        },
         "match_rules": {
           "type": "array", "minItems": 1,
           "items": {

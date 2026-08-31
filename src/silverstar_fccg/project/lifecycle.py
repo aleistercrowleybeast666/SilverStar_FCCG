@@ -84,6 +84,17 @@ def ProjectReadiness_Inspect(
         )
 
     stale: list[str] = []
+    pre_release_migration = model.reference_provenance.get(
+        "pre_release_migration"
+    )
+    if (
+        "silverstar.core.0_0_9" in model.component_provenance
+        or (
+            isinstance(pre_release_migration, dict)
+            and pre_release_migration.get("requires_new_output_directory") is True
+        )
+    ):
+        stale.append("SilverStar.ssproject:pre_release_rebuild_required")
     if ProjectGenerationState_Normalize(
         saved_model
     ) != ProjectGenerationState_Normalize(model):

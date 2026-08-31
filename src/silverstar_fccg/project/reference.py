@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from silverstar_fccg.app.version import SILVERSTAR_CORE_COMPONENT_ID
 from silverstar_fccg.plugins.manifest import PluginManifest_Load
 from silverstar_fccg.hardware.platform import (
     DetectedMcuFacts_FromInventory,
@@ -29,7 +30,7 @@ from silverstar_fccg.project.resources import BoardHardwareInventory_Get
 
 
 REFERENCE_COMPONENT_IDS = {
-    "core": "silverstar.core.0_0_9",
+    "core": SILVERSTAR_CORE_COMPONENT_ID,
     "board": "silverstar.board.silverstar_0_5",
     "os": "silverstar.os.freertos_11_3_0",
     "jy901b": "silverstar.device.imu.jy901b",
@@ -212,7 +213,7 @@ def ReferenceProject_Create(
             "landing": ids["landing"],
         },
         modes={
-            "calibration": ["Existing", "OneFace", "SixFace"],
+            "calibration": [],
             "deployment": ["ApogeeVerticalVelocity", "Tilt"],
         },
         protocols=protocols,
@@ -246,7 +247,13 @@ def ReferenceProject_Create(
         ),
         resource_assignments=ReferenceResourceAssignments_Get(),
         logging_streams=ProtocolDefaultStreams_Get(),
-        build=BuildOptions(),
+        build=BuildOptions(
+            target_profile=(
+                platform_manifest.platform.build_target_profile
+                if platform_manifest.platform is not None
+                else ""
+            )
+        ),
         reference_provenance=dict(reference_provenance or {}),
     )
     LoggingProfile_SelectAllAvailable(model, catalog)

@@ -1,11 +1,11 @@
 # SilverStar Hardware Quaternion 接口
 
 > **项目：SilverStar**  
-> **文档版本：0.0.9**
+> **文档版本：0.0.10**
 > **状态：Draft / 未发布**  
-> **适用范围：SilverStar 0.0.9**
+> **适用范围：SilverStar 0.0.10**
 
-> `0.0.9` 表示协议、接口和实现均处于首次发布前阶段。文档中的结构可以在评审后调整，不提供跨版本兼容承诺。
+> `0.0.10` 表示协议、接口和实现均处于首次发布前阶段。文档中的结构可以在评审后调整，不提供跨版本兼容承诺。
 
 ## 1. 目的
 
@@ -113,4 +113,4 @@ Hardware Quaternion Interface只为显式选择的`HW_QUAT_9AXIS`或`HW_QUAT_6AX
 
 默认`GRAVITY_KNOWN_YAW`和可选`GRAVITY_MAG_TRIAD`不依赖hardware quaternion。Alignment READY后冻结的`final_alignment_q_nb`是START唯一初始姿态来源；接口后续样本只用于diagnostics/logging或hardware兼容模式的预飞guard。
 
-SilverStar 0.0.9只支持`SYSTEM_ATTITUDE_SOFTWARE_ALWAYS`。`Algorithm/attitude_transition.*`、transition context、配置宏和相关测试均不存在；START后任务姿态不得被hardware quaternion修正、替换或渐近牵引。完整Alignment和ENU yaw契约见[CALIBRATION_AND_ALIGNMENT.md](CALIBRATION_AND_ALIGNMENT.md)。
+SilverStar 0.0.10只支持`SYSTEM_ATTITUDE_SOFTWARE_ALWAYS`。`Algorithm/attitude_transition.*`、transition context、配置宏和相关测试均不存在；START后任务姿态不得被hardware quaternion修正、替换或渐近牵引。完整Alignment和ENU yaw契约见[CALIBRATION_AND_ALIGNMENT.md](CALIBRATION_AND_ALIGNMENT.md)。

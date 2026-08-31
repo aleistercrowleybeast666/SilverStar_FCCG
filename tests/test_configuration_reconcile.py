@@ -52,7 +52,7 @@ def _AccelOnlyCatalog_Create(
         "description": "Test-only acceleration and angular-rate provider.",
         "requires": {
             "components": [
-                {"id": "silverstar.core.0_0_9", "optional": False}
+                {"id": "silverstar.core.0_0_10", "optional": False}
             ],
             "resources": [],
             "capabilities": [],
@@ -113,7 +113,7 @@ def test_unselected_hardware_is_editable_but_strictly_not_buildable(
     assert any(issue.code == "hardware_unselected" for issue in edit.issues)
     assert not strict.valid
     assert any(issue.code == "hardware_unselected" for issue in strict.issues)
-    assert model.modes["calibration"] == ["Existing", "OneFace", "SixFace"]
+    assert model.modes["calibration"] == []
     assert model.modes["deployment"] == [
         "ApogeeVerticalVelocity",
         "Tilt",

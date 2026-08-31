@@ -4,7 +4,7 @@
   "name": "VS Code + EIDE + Arm GNU Toolchain",
   "type": "development_environment",
   "class": "vscode_eide_gcc",
-  "version": "0.0.9",
+  "version": "0.0.10",
   "description": "Native Make, VS Code and EIDE project environment resolved from one source graph.",
   "requires": {
     "components": [],

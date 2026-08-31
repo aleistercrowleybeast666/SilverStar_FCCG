@@ -1,11 +1,11 @@
 # SilverStar 导航、惯导与状态估计规范
 
 > **项目：SilverStar**  
-> **文档版本：0.0.9**
+> **文档版本：0.0.10**
 > **状态：Draft / 未发布**  
-> **适用范围：SilverStar 0.0.9**
+> **适用范围：SilverStar 0.0.10**
 
-> `0.0.9` 表示协议、接口和实现均处于首次发布前阶段。文档中的结构可以在评审后调整，不提供跨版本兼容承诺。
+> `0.0.10` 表示协议、接口和实现均处于首次发布前阶段。文档中的结构可以在评审后调整，不提供跨版本兼容承诺。
 
 ## 1. 四个正交算法选择
 
@@ -75,7 +75,7 @@ corrected acceleration窗口均值确定gravity/up，corrected gyro只用于静�
 
 ## 3. START后姿态
 
-软件传播从START冻结的Alignment final `q_nb`开始，使用二子样圆锥补偿角增量持续更新。SilverStar 0.0.9只有`SYSTEM_ATTITUDE_SOFTWARE_ALWAYS`：START后可以继续读取和记录硬件四元数，但不得把它回注到任务姿态；工程中不存在软件姿态向硬件四元数的渐近过渡源文件、配置或运行路径。运行期权威姿态始终是归一化四元数，Euler angles不参与导航或估计算法。
+软件传播从START冻结的Alignment final `q_nb`开始，使用二子样圆锥补偿角增量持续更新。SilverStar 0.0.10只有`SYSTEM_ATTITUDE_SOFTWARE_ALWAYS`：START后可以继续读取和记录硬件四元数，但不得把它回注到任务姿态；工程中不存在软件姿态向硬件四元数的渐近过渡源文件、配置或运行路径。运行期权威姿态始终是归一化四元数，Euler angles不参与导航或估计算法。
 
 Pure INS支路始终保持独立，不接受KF或硬件四元数回注，作为基线对照。
 
@@ -228,7 +228,7 @@ P' = D * P * D'
 - [`../formula/flight_controller_6d_kf_equations.tex`](../formula/flight_controller_6d_kf_equations.tex) / [PDF](../formula/flight_controller_6d_kf_equations.pdf)
 - [`../formula/ins_coning_sculling_mechanization.tex`](../formula/ins_coning_sculling_mechanization.tex) / [PDF](../formula/ins_coning_sculling_mechanization.pdf)
 
-## 11. SilverStar 0.0.9 Calibration与初始对准实现
+## 11. SilverStar 0.0.10 Calibration与初始对准实现
 
 当前固件的任务初始姿态固定采用`ALIGN START`后由所选静态窗口算法生成并在READY冻结的final `q_nb`。默认GravityKnownYaw和TRIAD是已接入的软件对准能力，hardware quaternion模式也使用多帧hemisphere mean；当前JY901B六轴/九轴模式具备这种预飞静态资格，但不具备START后权威姿态资格，不存在最新单帧捷径或飞行中回注。
 
@@ -284,7 +284,7 @@ GNSS旧聚合计数维持每个历元最多增加一次：至少一个有效posi
 
 ## 16. 采样驱动周期与离线重放
 
-SilverStar 0.0.9不使用固定100 Hz定时器强行更新导航。IMU Device把完整加速度+角速度样本放入自有FIFO，System通过`get_next_sample()`按时间顺序排空；InsTask按真实`sample_timestamp_us`构造子区间。两子样机械化每两个区间输出一次惯性增量，KF预测对每个惯性增量执行一次。GNSS和气压只在出现新sequence时更新。
+SilverStar 0.0.10不使用固定100 Hz定时器强行更新导航。IMU Device把完整加速度+角速度样本放入自有FIFO，System通过`get_next_sample()`按时间顺序排空；InsTask按真实`sample_timestamp_us`构造子区间。两子样机械化每两个区间输出一次惯性增量，KF预测对每个惯性增量执行一次。GNSS和气压只在出现新sequence时更新。
 
 `System/User/system_user_config.h`集中配置：
 

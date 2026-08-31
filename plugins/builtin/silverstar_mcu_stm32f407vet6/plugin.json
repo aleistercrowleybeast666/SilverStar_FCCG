@@ -4,7 +4,7 @@
   "name": "STM32F407VET6",
   "type": "mcu",
   "class": "stm32f4",
-  "version": "0.0.9",
+  "version": "0.0.10",
   "description": "STM32F407VET6 capabilities, STM32F4 Platform backend, HAL/CMSIS dependency and target memory contract.",
   "requires": {
     "components": [],
@@ -135,6 +135,9 @@
       "minor": 0
     },
     "provider": "stm32_cubemx",
+    "build_target": {
+      "profile": "SilverStar_F407"
+    },
     "match_rules": [
       {
         "vendor": "STM32",

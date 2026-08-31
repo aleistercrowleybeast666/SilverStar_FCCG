@@ -37,7 +37,7 @@ def test_deployment_parameters_and_protocol_profiles_reach_all_outputs(
     builtin_catalog,
 ) -> None:
     model = ReferenceProject_Create("FlightConfigurationContract", catalog=builtin_catalog)
-    assert model.modes["calibration"] == ["Existing", "OneFace", "SixFace"]
+    assert model.modes["calibration"] == []
     assert model.modes["deployment"] == ["ApogeeVerticalVelocity", "Tilt"]
     assert model.ProtocolProfiles_Get() == {
         "telemetry": "air.m0",

@@ -8,7 +8,7 @@
   "description": "Test fixture mapping IMU to USART1 and GNSS to USART2.",
   "requires": {
     "components": [
-      {"id": "silverstar.core.0_0_9", "optional": false},
+      {"id": "silverstar.core.0_0_10", "optional": false},
       {"id": "silverstar.mcu.stm32f407vet6", "optional": false}
     ],
     "resources": [],

@@ -4,7 +4,7 @@
   "name": "Gravity + Magnetic-Field Two-Vector Alignment",
   "type": "algorithm",
   "class": "alignment",
-  "version": "0.0.9",
+  "version": "0.0.10",
   "description": "Build-selected Gravity + Magnetic-Field Two-Vector Alignment alignment strategy.",
   "requires": {
     "components": [

@@ -288,7 +288,7 @@ def test_generated_quality_scripts_declare_real_progress_and_neutral_rejections(
         workspace_root
         / "plugins"
         / "builtin"
-        / "silverstar_core_0_0_9"
+        / "silverstar_core_0_0_10"
         / "payload"
     )
     host = (payload / "Tests" / "Host" / "run_tests.ps1").read_text(

@@ -4,7 +4,7 @@
   "name": "STM32CubeMX Hardware Provider",
   "type": "hardware_configuration_provider",
   "class": "stm32_cubemx",
-  "version": "0.0.9",
+  "version": "0.0.10",
   "description": "Trusted FCCG provider for validating and importing generated STM32CubeMX projects as data.",
   "requires": {
     "components": [],

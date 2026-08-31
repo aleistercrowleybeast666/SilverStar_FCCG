@@ -4,7 +4,7 @@
   "name": "Gravity + Known Yaw",
   "type": "algorithm",
   "class": "alignment",
-  "version": "0.0.9",
+  "version": "0.0.10",
   "description": "Build-selected Gravity + Known Yaw alignment strategy.",
   "requires": {
     "components": [

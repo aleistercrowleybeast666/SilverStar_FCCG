@@ -1,6 +1,6 @@
 # FCCG组件边界
 
-本文定义SilverStar 0.0.9 reference firmware未来拆入独立`SilverStar_FCCG`工程时的payload边界。本仓库没有实现GUI、插件管理器、`.ssplugin`、JSON驱动构建或代码生成器。
+本文定义SilverStar 0.0.10 reference firmware未来拆入独立`SilverStar_FCCG`工程时的payload边界。本仓库没有实现GUI、插件管理器、`.ssplugin`、JSON驱动构建或代码生成器。
 
 ## Ownership原则
 
@@ -110,4 +110,4 @@ FCCG的MCU/Target插件应携带memory capability、vendor-neutral placement映�
 
 ## FCCG阶段仍需实现
 
-当前未提供plugin manifest、插件依赖/版本解析、资源冲突检查、toolchain管理、组件升级合并或自动配置摘要生成。当前EIDE native source graph只是手工reference镜像，未来FCCG仍需按选择生成/覆盖；这些能力属于独立FCCG工程，不是0.0.9 firmware运行依赖。
+当前未提供plugin manifest、插件依赖/版本解析、资源冲突检查、toolchain管理、组件升级合并或自动配置摘要生成。当前EIDE native source graph只是手工reference镜像，未来FCCG仍需按选择生成/覆盖；这些能力属于独立FCCG工程，不是0.0.10 firmware运行依赖。

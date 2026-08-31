@@ -87,7 +87,7 @@ def _Device_Write(
         "description": "Test-only declarative platform resource consumer.",
         "requires": {
             "components": [
-                {"id": "silverstar.core.0_0_9", "optional": False}
+                {"id": "silverstar.core.0_0_10", "optional": False}
             ],
             "resources": [
                 {
@@ -776,7 +776,7 @@ def test_protocol_split_preserves_reference_source_hashes(
             "silverstar_protocol_telemetry_air_m0/payload/Protocol/Src/air_protocol.c"
         ),
         "System/Src/system_console.c": (
-            "silverstar_core_0_0_9/payload/System/Src/system_console.c"
+            "silverstar_core_0_0_10/payload/System/Src/system_console.c"
         ),
         "Protocol/SSLOG/Src/sslog_protocol.c": (
             "silverstar_protocol_logging_sslog_0_0/payload/Protocol/SSLOG/Src/sslog_protocol.c"

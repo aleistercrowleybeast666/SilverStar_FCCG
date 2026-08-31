@@ -4,12 +4,12 @@
   "name": "Multi-Trigger Deployment",
   "type": "flight_logic",
   "class": "deployment",
-  "version": "0.0.9",
+  "version": "0.0.10",
   "description": "Deployment component with independently selectable apogee, tilt and delay modes.",
   "requires": {
     "components": [
       {
-        "id": "silverstar.core.0_0_9",
+        "id": "silverstar.core.0_0_10",
         "optional": false
       }
     ],

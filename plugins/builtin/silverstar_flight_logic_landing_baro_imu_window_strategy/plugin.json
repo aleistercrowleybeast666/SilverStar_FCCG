@@ -4,7 +4,7 @@
   "name": "Barometer + IMU Window Landing",
   "type": "flight_logic",
   "class": "landing",
-  "version": "0.0.9",
+  "version": "0.0.10",
   "description": "Uses qualified barometric-window and IMU-stillness data for landing detection.",
   "requires": {
     "components": [

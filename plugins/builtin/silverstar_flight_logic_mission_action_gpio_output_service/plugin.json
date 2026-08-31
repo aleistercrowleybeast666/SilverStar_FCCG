@@ -4,12 +4,12 @@
   "name": "GPIO Mission-Action Output Service",
   "type": "flight_logic",
   "class": "mission_action_output_service",
-  "version": "0.0.9",
+  "version": "0.0.10",
   "description": "Board-independent SilverStar mission-action and timed GPIO output service selected as an internal dependency of an ignition or parachute output Device.",
   "requires": {
     "components": [
       {
-        "id": "silverstar.core.0_0_9",
+        "id": "silverstar.core.0_0_10",
         "optional": false
       }
     ],

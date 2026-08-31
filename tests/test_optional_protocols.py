@@ -54,7 +54,7 @@ def test_default_protocol_wire_sources_match_read_only_reference_hashes(
             "Protocol/Src/air_protocol.c"
         ),
         "System/Src/system_console.c": (
-            "plugins/builtin/silverstar_core_0_0_9/payload/"
+            "plugins/builtin/silverstar_core_0_0_10/payload/"
             "System/Src/system_console.c"
         ),
         "Protocol/SSLOG/Src/sslog_protocol.c": (

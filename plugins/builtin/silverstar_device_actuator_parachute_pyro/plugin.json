@@ -4,12 +4,12 @@
   "name": "Parachute Pyro Power Output",
   "type": "device",
   "class": "mission_action_actuator",
-  "version": "0.0.9",
+  "version": "0.0.10",
   "description": "Declarative physical-resource Device backed by an internal SilverStar service component rather than by a Board plugin.",
   "requires": {
     "components": [
       {
-        "id": "silverstar.core.0_0_9",
+        "id": "silverstar.core.0_0_10",
         "optional": false
       },
       {

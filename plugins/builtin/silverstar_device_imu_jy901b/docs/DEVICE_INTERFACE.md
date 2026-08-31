@@ -1,9 +1,9 @@
 # SilverStar Device Interface 与构建期Adapter
 
-> 文档版本：0.0.9  
-> 适用范围：SilverStar 0.0.9
+> 文档版本：0.0.10  
+> 适用范围：SilverStar 0.0.10
 
-0.0.9删除运行期Provider Ops、VTable、Registry和`GetOps()`。System与具体Device之间只有独立公共Interface和随Device组件选择的直接Adapter；链接器在每个固件目标中解析唯一一套`System*`符号。
+0.0.10删除运行期Provider Ops、VTable、Registry和`GetOps()`。System与具体Device之间只有独立公共Interface和随Device组件选择的直接Adapter；链接器在每个固件目标中解析唯一一套`System*`符号。
 
 ## 1. 三层类型
 

@@ -1,7 +1,7 @@
 # SilverStar 系统生命周期与START事务
 
-> 文档版本：0.0.9
-> 适用范围：SilverStar 0.0.9
+> 文档版本：0.0.10
+> 适用范围：SilverStar 0.0.10
 
 ## 1. 状态
 
@@ -88,7 +88,7 @@ AIR映射必须同时读取result与reason。`BUSY`只表示已有请求/事务�
 
 ## 6. START后锁定
 
-FLIGHT及之后配置被锁定。AIR Capability状态进入`DISABLED_FOR_FLIGHT`，停止Capability、PREFLIGHT_STATUS和PREFLIGHT_STATE；TelemetryService根据独立`command_policy`决定RX行为。当前0.0.9为`PREFLIGHT_ONLY`，因此仍排空Transport RX但不解析、不执行任何新CMD，也不为新入站命令回ACK。若AIR START已在PREFLIGHT合法提交，其Lifecycle最终响应即使在状态切换后才被TelemetryTask消费，也必须排入ACK队列并发送一次；关闭预飞RX不得清除此pending事务或ACK队列。任务期间不能重新握手或恢复预飞命令。
+FLIGHT及之后配置被锁定。AIR Capability状态进入`DISABLED_FOR_FLIGHT`，停止Capability、PREFLIGHT_STATUS和PREFLIGHT_STATE；TelemetryService根据独立`command_policy`决定RX行为。当前0.0.10为`PREFLIGHT_ONLY`，因此仍排空Transport RX但不解析、不执行任何新CMD，也不为新入站命令回ACK。若AIR START已在PREFLIGHT合法提交，其Lifecycle最终响应即使在状态切换后才被TelemetryTask消费，也必须排入ACK队列并发送一次；关闭预飞RX不得清除此pending事务或ACK队列。任务期间不能重新握手或恢复预飞命令。
 
 ## 7. 所有权
 

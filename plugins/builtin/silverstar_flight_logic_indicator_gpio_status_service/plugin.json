@@ -4,12 +4,12 @@
   "name": "GPIO Status Indicator Service",
   "type": "flight_logic",
   "class": "status_indicator_service",
-  "version": "0.0.9",
+  "version": "0.0.10",
   "description": "Board-independent status-indicator adapter selected as an internal dependency of a software-controlled Indicator Device.",
   "requires": {
     "components": [
       {
-        "id": "silverstar.core.0_0_9",
+        "id": "silverstar.core.0_0_10",
         "optional": false
       }
     ],

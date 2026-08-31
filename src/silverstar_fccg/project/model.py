@@ -8,12 +8,18 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
+from silverstar_fccg.app.version import (
+    SILVERSTAR_BUILD_ID,
+    SILVERSTAR_CORE_COMPONENT_ID,
+    SILVERSTAR_PLATFORM_VERSION,
+)
 from silverstar_fccg.core.workspace import WorkspacePolicy
 from silverstar_fccg.core.errors import FccgError
 
 
 PROJECT_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_. -]{0,79}$")
 PROJECT_TOKEN_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$")
+BUILD_TARGET_PROFILE_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]{0,79}$")
 COMPONENT_ID_PATTERN = re.compile(r"^[a-z0-9]+(?:[._-][a-z0-9]+)*$")
 CONTAINER_PLUGIN_ID_PATTERN = re.compile(
     r"^[a-z0-9]+(?:[._/-][a-z0-9]+)*$"
@@ -76,8 +82,8 @@ class ProjectModelError(FccgError):
 @dataclass(frozen=True, slots=True)
 class ProjectIdentity:
     name: str
-    firmware_version: str = "0.0.9"
-    build_target: str = "SilverStar_0_0_9"
+    firmware_version: str = SILVERSTAR_PLATFORM_VERSION
+    build_target: str = SILVERSTAR_BUILD_ID
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,7 +94,7 @@ class DeviceInstance:
 
 @dataclass(frozen=True, slots=True)
 class BuildOptions:
-    target_profile: str = "SilverStar_F407"
+    target_profile: str = ""
     make_command: str = "mingw32-make"
     toolchain_prefix: str = "arm-none-eabi-"
     gcc_path: str = ""
@@ -705,6 +711,52 @@ def _ProjectV10_Migrate(root: dict[str, Any]) -> dict[str, Any]:
     return migrated
 
 
+def _CurrentPreRelease_Migrate(root: dict[str, Any]) -> dict[str, Any]:
+    """Upgrade only the exact official 0.0.9 pre-release identity."""
+
+    migrated = deepcopy(root)
+    if migrated.get("format_version") != PROJECT_FORMAT_VERSION:
+        return migrated
+    project = migrated.get("project")
+    components = migrated.get("components")
+    if not isinstance(project, dict) or not isinstance(components, dict):
+        return migrated
+    official_identity = (
+        project.get("firmware_version") == "0.0.9"
+        and project.get("build_target") == "SilverStar_0_0_9"
+        and components.get("core") == "silverstar.core.0_0_9"
+    )
+    if not official_identity:
+        return migrated
+
+    project["firmware_version"] = SILVERSTAR_PLATFORM_VERSION
+    project["build_target"] = SILVERSTAR_BUILD_ID
+    components["core"] = SILVERSTAR_CORE_COMPONENT_ID
+
+    modes = migrated.get("modes")
+    if isinstance(modes, dict):
+        calibration = modes.get("calibration")
+        if isinstance(calibration, list):
+            if len(calibration) != len(set(calibration)):
+                raise ProjectModelError(
+                    "modes.calibration contains duplicate values"
+                )
+            modes["calibration"] = [
+                option for option in calibration if option != "Existing"
+            ]
+
+    provenance = migrated.get("component_provenance")
+    if isinstance(provenance, dict) and "silverstar.core.0_0_9" in provenance:
+        reference = migrated.get("reference_provenance")
+        if isinstance(reference, dict):
+            reference["pre_release_migration"] = {
+                "from": "0.0.9",
+                "to": SILVERSTAR_PLATFORM_VERSION,
+                "requires_new_output_directory": True,
+            }
+    return migrated
+
+
 def _LogDecoderProfile_Parse(value: Any) -> LogDecoderProfileReference:
     profile = _Object_Require(value, "log_decoder_profile")
     expected = {
@@ -1275,8 +1327,12 @@ def _Build_Parse(value: Any) -> BuildOptions:
     }
     if set(data) != expected:
         raise ProjectModelError("build has missing or unknown fields")
-    target_profile = _String_Require(data, "target_profile")
-    if not PROJECT_TOKEN_PATTERN.fullmatch(target_profile):
+    target_profile = _String_Require(
+        data, "target_profile", allow_empty=True
+    )
+    if target_profile and not BUILD_TARGET_PROFILE_PATTERN.fullmatch(
+        target_profile
+    ):
         raise ProjectModelError(f"Invalid target profile: {target_profile!r}")
     toolchain_prefix = _String_Require(data, "toolchain_prefix")
     eide_mode = _String_Require(data, "eide_mode")
@@ -1383,6 +1439,7 @@ def ProjectModel_Parse(data: dict[str, Any]) -> ProjectModel:
         root = _ProjectV9_Migrate(root)
     if root.get("format_version") == 10:
         root = _ProjectV10_Migrate(root)
+    root = _CurrentPreRelease_Migrate(root)
     required_root = {
         "format_version",
         "project",

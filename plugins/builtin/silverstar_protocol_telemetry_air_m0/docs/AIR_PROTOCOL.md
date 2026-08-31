@@ -924,7 +924,7 @@ Unknown sensor ID 必须保留原值。
 
 ## 40. AIR M0 冻结目标
 
-AIR M0 wire在0.0.9当前契约内冻结；普通物理设备或能力实例扩展只能复用既有`SENSOR_STATUS.sensor_id + instance_id`，不能顺带调整现有帧。
+AIR M0 wire在0.0.10当前契约内冻结；普通物理设备或能力实例扩展只能复用既有`SENSOR_STATUS.sensor_id + instance_id`，不能顺带调整现有帧。
 
 正式发布后，普通硬件扩展不得要求修改 wire format。
 

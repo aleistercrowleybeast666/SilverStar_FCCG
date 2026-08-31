@@ -85,28 +85,28 @@ def test_reference_import_reapplies_progress_to_pristine_scripts(
     policy = WorkspacePolicy(tmp_path)
     cases = (
         (
-            "plugins/builtin/silverstar_core_0_0_9/payload/Tools/"
+            "plugins/builtin/silverstar_core_0_0_10/payload/Tools/"
             "check_architecture.ps1",
             _ArchitectureChecker_Adapt,
             "FCCG_PROGRESS|ARCHITECTURE|PLAN|6",
             _ProgressLines_Remove,
         ),
         (
-            "plugins/builtin/silverstar_core_0_0_9/payload/Tools/"
+            "plugins/builtin/silverstar_core_0_0_10/payload/Tools/"
             "check_power_of_ten.ps1",
             _PowerTenChecker_Adapt,
             "FCCG_PROGRESS|POWER10|PLAN|$progressTotal",
             _PowerProgress_Remove,
         ),
         (
-            "plugins/builtin/silverstar_core_0_0_9/payload/Tools/"
+            "plugins/builtin/silverstar_core_0_0_10/payload/Tools/"
             "check_firmware_artifact.ps1",
             _ArtifactChecker_Adapt,
             "FCCG_PROGRESS|ARTIFACT|PLAN|8",
             _ProgressLines_Remove,
         ),
         (
-            "plugins/builtin/silverstar_core_0_0_9/payload/Tests/Host/"
+            "plugins/builtin/silverstar_core_0_0_10/payload/Tests/Host/"
             "run_tests.ps1",
             _HostTestRunner_Adapt,
             "FCCG_PROGRESS|$taskKind|PLAN|$total",

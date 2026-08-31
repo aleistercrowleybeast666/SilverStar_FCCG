@@ -4,7 +4,7 @@
   "name": "Navigation Algorithm Common",
   "type": "algorithm",
   "class": "common",
-  "version": "0.0.9",
+  "version": "0.0.10",
   "description": "Shared MCU-independent attitude-frame and local-geodesy algorithms.",
   "requires": {
     "components": [],

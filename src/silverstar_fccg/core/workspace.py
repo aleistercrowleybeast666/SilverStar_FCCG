@@ -15,6 +15,43 @@ class WorkspacePolicyError(FccgError):
     """Raised when a filesystem operation would escape an authorized root."""
 
 
+def PortableRelativePath_Validate(value: str) -> PurePosixPath:
+    """Validate a portable project-relative path without filesystem state."""
+
+    if (
+        not isinstance(value, str)
+        or not value
+        or "\\" in value
+        or any(ord(character) < 32 or ord(character) == 127 for character in value)
+    ):
+        raise WorkspacePolicyError(f"Invalid portable relative path: {value!r}")
+    raw_parts = value.split("/")
+    if any(part in ("", ".", "..") for part in raw_parts):
+        raise WorkspacePolicyError(f"Unsafe portable relative path: {value!r}")
+    path = PurePosixPath(value)
+    if path.is_absolute() or any(part in ("", ".", "..") for part in path.parts):
+        raise WorkspacePolicyError(f"Unsafe portable relative path: {value!r}")
+    windows_reserved = {
+        "CON",
+        "PRN",
+        "AUX",
+        "NUL",
+        *(f"COM{index}" for index in range(1, 10)),
+        *(f"LPT{index}" for index in range(1, 10)),
+    }
+    for part in path.parts:
+        if ":" in part or part.endswith((" ", ".")):
+            raise WorkspacePolicyError(
+                f"Non-portable path segment is not allowed: {value!r}"
+            )
+        base_name = part.split(".", 1)[0].upper()
+        if base_name in windows_reserved:
+            raise WorkspacePolicyError(
+                f"Windows reserved path segment is not allowed: {value!r}"
+            )
+    return path
+
+
 def _WindowsDirectoryInheritance_Enable(path: Path) -> None:
     result = subprocess.run(
         ["icacls", str(path), "/inheritance:e"],
@@ -59,37 +96,7 @@ class WorkspacePolicy:
         return resolved
 
     def RelativePath_Validate(self, value: str) -> PurePosixPath:
-        if (
-            not value
-            or "\\" in value
-            or any(ord(character) < 32 or ord(character) == 127 for character in value)
-        ):
-            raise WorkspacePolicyError(f"Invalid portable relative path: {value!r}")
-        raw_parts = value.split("/")
-        if any(part in ("", ".", "..") for part in raw_parts):
-            raise WorkspacePolicyError(f"Unsafe portable relative path: {value!r}")
-        path = PurePosixPath(value)
-        if path.is_absolute() or any(part in ("", ".", "..") for part in path.parts):
-            raise WorkspacePolicyError(f"Unsafe portable relative path: {value!r}")
-        windows_reserved = {
-            "CON",
-            "PRN",
-            "AUX",
-            "NUL",
-            *(f"COM{index}" for index in range(1, 10)),
-            *(f"LPT{index}" for index in range(1, 10)),
-        }
-        for part in path.parts:
-            if ":" in part or part.endswith((" ", ".")):
-                raise WorkspacePolicyError(
-                    f"Non-portable path segment is not allowed: {value!r}"
-                )
-            base_name = part.split(".", 1)[0].upper()
-            if base_name in windows_reserved:
-                raise WorkspacePolicyError(
-                    f"Windows reserved path segment is not allowed: {value!r}"
-                )
-        return path
+        return PortableRelativePath_Validate(value)
 
     def Directory_Ensure(self, path: str | Path) -> Path:
         resolved = self.Path_Resolve(path)
@@ -187,5 +194,4 @@ class WorkspacePolicy:
 def PortablePath_Normalize(value: str) -> str:
     """Return a validated, slash-separated project path."""
 
-    temporary_policy = WorkspacePolicy(Path.cwd())
-    return temporary_policy.RelativePath_Validate(value).as_posix()
+    return PortableRelativePath_Validate(value).as_posix()

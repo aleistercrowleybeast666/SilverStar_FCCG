@@ -4,7 +4,7 @@
   "name": "6-Axis Hardware Quaternion + Known Yaw",
   "type": "algorithm",
   "class": "alignment",
-  "version": "0.0.9",
+  "version": "0.0.10",
   "description": "Build-selected 6-Axis Hardware Quaternion + Known Yaw alignment strategy.",
   "requires": {
     "components": [

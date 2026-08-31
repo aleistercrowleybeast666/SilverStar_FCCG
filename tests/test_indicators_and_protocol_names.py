@@ -233,7 +233,7 @@ def test_gnss_indicator_firmware_uses_position_usable(workspace_root: Path) -> N
         workspace_root
         / "plugins"
         / "builtin"
-        / "silverstar_core_0_0_9"
+        / "silverstar_core_0_0_10"
         / "payload"
         / "System"
         / "Indicator"

@@ -4,6 +4,11 @@ from dataclasses import dataclass
 import math
 import re
 
+from silverstar_fccg.app.version import (
+    SILVERSTAR_BUILD_ID,
+    SILVERSTAR_CORE_COMPONENT_ID,
+    SILVERSTAR_PLATFORM_VERSION,
+)
 from silverstar_fccg.core.errors import FccgError
 from silverstar_fccg.hardware.platform import PlatformCompatibilityErrors_Get
 from silverstar_fccg.plugins.catalog import PluginCatalog
@@ -434,6 +439,15 @@ def _Hardware_Validate(
             )
         )
         return
+    if model.build.target_profile != mcu.platform.build_target_profile:
+        issues.append(
+            ValidationIssue(
+                "error",
+                "target_profile_lock",
+                f"Build Target Profile must match MCU Platform contract "
+                f"{mcu.platform.build_target_profile!r}",
+            )
+        )
     for message in PlatformCompatibilityErrors_Get(
         mcu,
         cubemx_version=model.hardware.cubemx_version,
@@ -676,6 +690,26 @@ def Project_Validate(model: ProjectModel, catalog: PluginCatalog) -> ProjectVali
     except ProjectModelError as error:
         return ProjectValidationResult(
             (ValidationIssue("error", "project_model", str(error)),)
+        )
+    if model.core == SILVERSTAR_CORE_COMPONENT_ID and (
+        model.identity.firmware_version != SILVERSTAR_PLATFORM_VERSION
+        or model.identity.build_target != SILVERSTAR_BUILD_ID
+    ):
+        issues.append(
+            ValidationIssue(
+                "error",
+                "platform_identity",
+                "Official SilverStar core and project version identity do not match",
+            )
+        )
+    if "silverstar.core.0_0_9" in model.component_provenance:
+        issues.append(
+            ValidationIssue(
+                "error",
+                "pre_release_rebuild_required",
+                "This 0.0.9 project contains project-owned pre-release payload; "
+                "create a new 0.0.10 output directory instead of mixing payload trains",
+            )
         )
     raw_components = [model.core, model.mcu, model.board, model.os]
     raw_components.extend(model.base_components)
@@ -946,12 +980,6 @@ def Project_Validate(model: ProjectModel, catalog: PluginCatalog) -> ProjectVali
                         f"Required SSLOG record cannot be disabled: {definition.record}",
                     )
                 )
-    if model.build.target_profile != "SilverStar_F407":
-        issues.append(
-            ValidationIssue(
-                "error", "target", "Only SilverStar_F407 is currently validated"
-            )
-        )
     return ProjectValidationResult(tuple(issues))
 
 
@@ -986,6 +1014,24 @@ def Project_EditValidate(
                 "warning",
                 "hardware_import_pending",
                 "A STM32CubeMX project still needs to be imported",
+            )
+        )
+
+    expected_target = ""
+    if model.mcu:
+        try:
+            mcu_manifest = catalog.Component_Get(model.mcu)
+        except ValueError:
+            pass
+        else:
+            if mcu_manifest.platform is not None:
+                expected_target = mcu_manifest.platform.build_target_profile
+    if model.build.target_profile != expected_target:
+        issues.append(
+            ValidationIssue(
+                "warning",
+                "target_profile_pending",
+                "Build Target Profile will be synchronized from the selected MCU Platform",
             )
         )
 

@@ -2574,8 +2574,8 @@
       "FLIGHT_LOG_RECORD_CALIBRATION_RESULT": {
         "level": "required",
         "display_names": {
-          "zh_CN": "校准结果",
-          "en_US": "Calibration Result"
+          "zh_CN": "生效校准结果",
+          "en_US": "Active Calibration Result"
         },
         "requires": {
           "capabilities": [
@@ -2584,7 +2584,10 @@
         },
         "cadence": {
           "kind": "event"
-        }
+        },
+        "producer_components": [
+          "silverstar.core.flight_task"
+        ]
       },
       "FLIGHT_LOG_RECORD_ALIGNMENT_RESULT": {
         "level": "required",

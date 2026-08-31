@@ -17,6 +17,17 @@ SOURCE_ROOT = WORKSPACE_ROOT / "src"
 if str(SOURCE_ROOT) not in sys.path:
     sys.path.insert(0, str(SOURCE_ROOT))
 
+from silverstar_fccg.app.version import (  # noqa: E402
+    SILVERSTAR_CORE_COMPONENT_ID,
+    SILVERSTAR_CORE_PACKAGE_SLUG,
+    SILVERSTAR_LOG_BUILD_TAG,
+    SILVERSTAR_PLATFORM_ID_SUFFIX,
+    SILVERSTAR_PLATFORM_VERSION,
+    SILVERSTAR_PLATFORM_VERSION_MAJOR,
+    SILVERSTAR_PLATFORM_VERSION_MINOR,
+    SILVERSTAR_PLATFORM_VERSION_PATCH,
+    SILVERSTAR_SYSTEM_PROFILE_ID,
+)
 from silverstar_fccg.core.workspace import WorkspacePolicy  # noqa: E402
 from silverstar_fccg.plugins.catalog import PluginCatalog  # noqa: E402
 
@@ -273,6 +284,29 @@ def _ManifestValues_Get(reference: Path, relative: str, variable: str) -> list[s
     return values
 
 
+def _ExistingCorePackageRoot_Get() -> Path:
+    preferred = BUILTIN_ROOT / SILVERSTAR_CORE_PACKAGE_SLUG
+    if (preferred / "plugin.json").is_file():
+        return preferred
+    candidates: list[Path] = []
+    for manifest_path in BUILTIN_ROOT.glob("*/plugin.json"):
+        try:
+            document = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if (
+            document.get("type") == "core"
+            and str(document.get("id", "")).startswith("silverstar.core.")
+        ):
+            candidates.append(manifest_path.parent)
+    if len(candidates) != 1:
+        raise RuntimeError(
+            "Exactly one existing official SilverStar Core package is required "
+            "to replay FCCG-owned overlays"
+        )
+    return candidates[0]
+
+
 def _Component(
     component_id: str,
     name: str,
@@ -309,7 +343,7 @@ def _Component(
     fccg_owned_files: dict[str, str] | None = None,
     reference_files: dict[str, str] | None = None,
     vendor_files: dict[str, str] | None = None,
-    version: str = "0.0.9",
+    version: str = SILVERSTAR_PLATFORM_VERSION,
 ) -> dict[str, Any]:
     build: dict[str, Any] = {
         "sources": sources or [],
@@ -504,6 +538,7 @@ def _Stm32F407PlatformContract_Get() -> dict[str, Any]:
             "minor": 0,
         },
         "provider": "stm32_cubemx",
+        "build_target": {"profile": "SilverStar_F407"},
         "match_rules": [
             {
                 "vendor": "STM32",
@@ -964,12 +999,15 @@ def _Components_Get(
         for source in core_sources
         if source not in conditional_protocol_sources
     ]
+    core_source_root = _ExistingCorePackageRoot_Get()
+    core_source_relative = core_source_root.relative_to(WORKSPACE_ROOT).as_posix()
     core_fccg_owned_files = {
         relative: (
-            "plugins/builtin/silverstar_core_0_0_9/payload/" + relative
+            f"{core_source_relative}/payload/{relative}"
         )
         for relative in (
             "APP/Src/app_tasks.c",
+            "APP/Inc/app_tasks.h",
             "APP/Src/device_task.c",
             "APP/Src/estimator_task.c",
             "APP/Src/flight_task.c",
@@ -981,6 +1019,10 @@ def _Components_Get(
             "System/Src/system_capabilities.c",
             "System/Src/system_startup.c",
             "Tests/Host/test_logger.c",
+            "Tests/Host/test_console.c",
+            "Tests/Host/test_imu_sample_bus.c",
+            "Tests/Host/test_lifecycle_logging.c",
+            "Tests/Host/run_tests.ps1",
             "Tools/check_power_of_ten.ps1",
             "Tools/validate_sslog_record_catalog.py",
         )
@@ -1032,7 +1074,7 @@ def _Components_Get(
         if path.startswith(("OS/", "Targets/SilverStar_F407/Src/freertos"))
     ]
     os_sources += _ManifestValues_Get(reference, "BuildSystem/freertos.mk", "C_SOURCES")
-    core_id = "silverstar.core.0_0_9"
+    core_id = SILVERSTAR_CORE_COMPONENT_ID
     mcu_id = "silverstar.mcu.stm32f407vet6"
     board_id = "silverstar.board.silverstar_0_5"
     storage_id = "silverstar.device.storage.sd_sdio_fatfs"
@@ -1049,7 +1091,7 @@ def _Components_Get(
     components.append(
         _Component(
             core_id,
-            "SilverStar Core 0.0.9",
+            f"SilverStar Core {SILVERSTAR_PLATFORM_VERSION}",
             "core",
             "flight_controller_core",
             ["APP", "Common", "Interfaces", "Modules", "System", "Tests", "Tools", "BuildSystem/first_party.mk", ".clang-format"],
@@ -1061,9 +1103,15 @@ def _Components_Get(
             capabilities_required=[],
             provides=["core.silverstar", "interface.canonical", "system.lifecycle"],
             metadata={
-                "display_names": {"zh_CN": "SilverStar 核心 0.0.9", "en_US": "SilverStar Core 0.0.9"},
+                "display_names": {
+                    "zh_CN": f"SilverStar 核心 {SILVERSTAR_PLATFORM_VERSION}",
+                    "en_US": f"SilverStar Core {SILVERSTAR_PLATFORM_VERSION}",
+                },
                 "protocol_log_producers": {
-                    "logging": ["silverstar.core.device_task"],
+                    "logging": [
+                        "silverstar.core.device_task",
+                        "silverstar.core.flight_task",
+                    ],
                     "telemetry": ["silverstar.core.telemetry_task"],
                 },
                 "source_origins": {
@@ -2015,8 +2063,14 @@ def _Components_Get(
                 {"capability": "imu.acceleration", "purpose": "calibration"},
                 {"capability": "imu.angular_rate", "purpose": "calibration"},
             ],
-            selection={"kind": "mode", "slot": "calibration", "required": True, "allow_none": False, "allow_multiple": True, "ui_order": 10, "options": ["Existing", "OneFace", "SixFace"], "default": ["Existing", "OneFace", "SixFace"], "labels": {"zh_CN": {"Existing": "使用现有校准", "OneFace": "单面校准", "SixFace": "六面校准"}, "en_US": {"Existing": "Use existing calibration", "OneFace": "One-face", "SixFace": "Six-face"}}},
-            metadata={"display_names": {"zh_CN": "IMU 校准", "en_US": "IMU Calibration"}},
+            selection={"kind": "mode", "slot": "calibration", "required": False, "allow_none": True, "allow_multiple": True, "ui_order": 10, "options": ["OneFace", "SixFace"], "default": [], "labels": {"zh_CN": {"OneFace": "单面校准", "SixFace": "六面校准"}, "en_US": {"OneFace": "One-face", "SixFace": "Six-face"}}, "option_symbols": {"OneFace": "SYSTEM_CALIBRATION_CAPABILITY_ONE_FACE", "SixFace": "SYSTEM_CALIBRATION_CAPABILITY_SIX_FACE"}, "aggregate_symbol": "SYSTEM_CALIBRATION_BUILD_PROCEDURE_MASK"},
+            metadata={
+                "display_names": {"zh_CN": "IMU 校准", "en_US": "IMU Calibration"},
+                "selection_notes": {
+                    "zh_CN": "未选择校准流程时使用恒等校正；日志仍记录当前生效的校准结果。",
+                    "en_US": "With no calibration procedure selected, identity correction is used; logging still records the active calibration result.",
+                },
+            },
             docs=["docs/details/CALIBRATION.md"],
         )
     )
@@ -2274,8 +2328,8 @@ def _Components_Get(
                 "category": "telemetry",
                 "logging_metadata": "Protocol/metadata/air_m0.json",
                 "maintenance_protocol_version": "0.0",
-                "firmware_version": "0.0.9",
-                "documentation_version": "0.0.9",
+                "firmware_version": SILVERSTAR_PLATFORM_VERSION,
+                "documentation_version": SILVERSTAR_PLATFORM_VERSION,
                 "profiles": {"telemetry": [{
                     "id": "air.m0", "version": "0.0",
                     "display_names": {"zh_CN": "AIR遥测协议 M0", "en_US": "AIR Telemetry Protocol M0"},
@@ -2291,7 +2345,6 @@ def _Components_Get(
                     "golden_tests": ["Tests/Host/test_air_kf.c", "Tests/Host/test_telemetry.c"],
                 }]},
             },
-            version="0.0",
         )
     )
     components.append(
@@ -2317,8 +2370,8 @@ def _Components_Get(
                 "category": "maintenance",
                 "logging_metadata": "Protocol/metadata/maintenance_serial_0_0.json",
                 "maintenance_protocol_version": "0.0",
-                "firmware_version": "0.0.9",
-                "documentation_version": "0.0.9",
+                "firmware_version": SILVERSTAR_PLATFORM_VERSION,
+                "documentation_version": SILVERSTAR_PLATFORM_VERSION,
                 "profiles": {"maintenance": [{
                     "id": "maintenance.serial.0_0", "version": "0.0",
                     "display_names": {"zh_CN": "串口维护协议 0.0", "en_US": "Serial Maintenance Protocol 0.0"},
@@ -2334,7 +2387,6 @@ def _Components_Get(
                     "golden_tests": ["Tests/Host/test_console.c"],
                 }]},
             },
-            version="0.0",
         )
     )
     components.append(
@@ -2358,8 +2410,8 @@ def _Components_Get(
                 "category": "logging",
                 "logging_metadata": "Protocol/SSLOG/schema/sslog_parser_metadata.json",
                 "maintenance_protocol_version": "0.0",
-                "firmware_version": "0.0.9",
-                "documentation_version": "0.0.9",
+                "firmware_version": SILVERSTAR_PLATFORM_VERSION,
+                "documentation_version": SILVERSTAR_PLATFORM_VERSION,
                 "profiles": {"logging": [{
                     "id": "flight_log.0_0", "version": "0.0",
                     "display_names": {"zh_CN": "飞行日志格式 0.0", "en_US": "Flight Log Format 0.0"},
@@ -2375,7 +2427,6 @@ def _Components_Get(
                     "golden_tests": ["Tests/Host/test_logger.c"],
                 }]},
             },
-            version="0.0",
         )
     )
     components.append(
@@ -3312,7 +3363,7 @@ def _GeneratedFacadeTemplates_Copy(
 ) -> None:
     template_root = (
         staged_builtin
-        / "silverstar_core_0_0_9"
+        / SILVERSTAR_CORE_PACKAGE_SLUG
         / "templates"
         / "generated"
     )
@@ -3324,12 +3375,7 @@ def _GeneratedFacadeTemplates_Copy(
         reference / "Generated" / "Inc" / "project_log_decoder_profile.h"
     )
     fccg_template_source_root = (
-        WORKSPACE_ROOT
-        / "plugins"
-        / "builtin"
-        / "silverstar_core_0_0_9"
-        / "templates"
-        / "generated"
+        _ExistingCorePackageRoot_Get() / "templates" / "generated"
     )
     decoder_implementation_source = (
         fccg_template_source_root / "project_log_decoder_profile.c"
@@ -3929,6 +3975,16 @@ HAL/CMSIS采用单一来源政策`plugin_payload_authoritative`：HAL、CMSIS、
                 "因此换介质只替换存储Device及其硬件契约，不改变System、LoggerBus或Maintenance命令。",
                 1,
             )
+            adapted += """
+
+## CALIBRATION_RESULT 生效快照语义
+
+`CALIBRATION_RESULT`（Record `0x17`、version 0、72-byte payload）表示本日志会话中
+实际生效的IMU校正状态与参数快照，不是“执行过物理校准”的证明。mode为`NONE`时，
+它明确表示未执行OneFace/SixFace采样流程、使用零bias和单位scale；此时state为READY、
+ready/correction_valid为1。启用Logging时该Record保持required，并由Flight Task在每次
+正常会话的启动/状态事件路径至少提交一次；禁用Logging时不构建Logger/SSLOG。
+"""
         if (
             package_name == "silverstar_mcu_stm32f407vet6"
             and path.name == "BUILD_AND_TARGETS.md"
@@ -3970,6 +4026,87 @@ FCCG将本协议作为可独立启用或设为`不使用`的单一`{category}`�
 """
         if adapted != content:
             policy.Text_AtomicWrite(path, adapted)
+
+
+def _PlatformRelease_Adapt(
+    staged_builtin: Path, policy: WorkspacePolicy
+) -> None:
+    """Apply the FCCG-owned release identity to the imported payload train."""
+
+    header = (
+        staged_builtin
+        / SILVERSTAR_CORE_PACKAGE_SLUG
+        / "payload"
+        / "System"
+        / "User"
+        / "system_user_config.h"
+    )
+    content = header.read_text(encoding="utf-8")
+    definitions = {
+        "SILVERSTAR_VERSION_MAJOR": str(SILVERSTAR_PLATFORM_VERSION_MAJOR),
+        "SILVERSTAR_VERSION_MINOR": str(SILVERSTAR_PLATFORM_VERSION_MINOR),
+        "SILVERSTAR_VERSION_PATCH": str(SILVERSTAR_PLATFORM_VERSION_PATCH),
+        "SILVERSTAR_VERSION_BUILD": "0",
+        "SILVERSTAR_LOG_BUILD_TAG": f'"{SILVERSTAR_LOG_BUILD_TAG}"',
+        "SYSTEM_PROFILE_ID": f"0x{SILVERSTAR_SYSTEM_PROFILE_ID:08X}UL",
+    }
+    for symbol, value in definitions.items():
+        pattern = rf"(?m)^#define\s+{re.escape(symbol)}\s+.*$"
+        content, count = re.subn(
+            pattern, f"#define {symbol:<28} {value}", content, count=1
+        )
+        if count != 1:
+            raise RuntimeError(
+                f"Reference release identity definition changed: {symbol}"
+            )
+    policy.Text_AtomicWrite(header, content)
+
+    core_docs = staged_builtin / SILVERSTAR_CORE_PACKAGE_SLUG / "docs"
+    legacy_doc = core_docs / "SilverStar_0_0_9.md"
+    current_doc = core_docs / f"SilverStar_{SILVERSTAR_PLATFORM_ID_SUFFIX}.md"
+    if legacy_doc.is_file():
+        policy.Path_Replace(legacy_doc, current_doc)
+    for path in staged_builtin.rglob("*.md"):
+        doc = path.read_text(encoding="utf-8")
+        adapted = doc.replace("0.0.9", SILVERSTAR_PLATFORM_VERSION)
+        adapted = adapted.replace("0_0_9", SILVERSTAR_PLATFORM_ID_SUFFIX)
+        adapted = adapted.replace("SILV0009", SILVERSTAR_LOG_BUILD_TAG)
+        adapted = adapted.replace(
+            "0x00000009", f"0x{SILVERSTAR_SYSTEM_PROFILE_ID:08X}"
+        )
+        if adapted != doc:
+            policy.Text_AtomicWrite(path, adapted)
+
+    active_release_files = (
+        "payload/Tools/check_architecture.ps1",
+        "payload/Tools/check_firmware_artifact.ps1",
+        "payload/Tests/Host/test_console.c",
+    )
+    for relative in active_release_files:
+        path = staged_builtin / SILVERSTAR_CORE_PACKAGE_SLUG / relative
+        text = path.read_text(encoding="utf-8")
+        adapted = text.replace("SilverStar_0_0_9", f"SilverStar_{SILVERSTAR_PLATFORM_ID_SUFFIX}")
+        adapted = adapted.replace("0.0.9", SILVERSTAR_PLATFORM_VERSION)
+        adapted = adapted.replace(
+            r"SILVERSTAR_VERSION_PATCH\s+9",
+            rf"SILVERSTAR_VERSION_PATCH\s+{SILVERSTAR_PLATFORM_VERSION_PATCH}",
+        )
+        if adapted != text:
+            policy.Text_AtomicWrite(path, adapted)
+
+    semantics_path = (
+        staged_builtin
+        / SILVERSTAR_CORE_PACKAGE_SLUG
+        / "templates"
+        / "generated"
+        / "project_semantics.json"
+    )
+    semantics = json.loads(semantics_path.read_text(encoding="utf-8"))
+    semantics["firmware_version"] = SILVERSTAR_PLATFORM_VERSION
+    policy.Text_AtomicWrite(
+        semantics_path,
+        json.dumps(semantics, ensure_ascii=False, indent=2) + "\n",
+    )
 
 
 def _BuiltinReadme_Render(manifest: dict[str, Any], provenance: dict[str, Any]) -> str:
@@ -4116,7 +4253,7 @@ def Components_Import(reference: Path, *, force: bool = False) -> dict[str, Any]
             policy.Text_AtomicWrite(package_root / "README.md", readme)
         _ArchitectureChecker_Adapt(
             staged_builtin
-            / "silverstar_core_0_0_9"
+            / SILVERSTAR_CORE_PACKAGE_SLUG
             / "payload"
             / "Tools"
             / "check_architecture.ps1",
@@ -4124,7 +4261,7 @@ def Components_Import(reference: Path, *, force: bool = False) -> dict[str, Any]
         )
         _HostTestRunner_Adapt(
             staged_builtin
-            / "silverstar_core_0_0_9"
+            / SILVERSTAR_CORE_PACKAGE_SLUG
             / "payload"
             / "Tests"
             / "Host"
@@ -4133,7 +4270,7 @@ def Components_Import(reference: Path, *, force: bool = False) -> dict[str, Any]
         )
         _HostPlatformMock_Adapt(
             staged_builtin
-            / "silverstar_core_0_0_9"
+            / SILVERSTAR_CORE_PACKAGE_SLUG
             / "payload"
             / "Tests"
             / "Host"
@@ -4143,7 +4280,7 @@ def Components_Import(reference: Path, *, force: bool = False) -> dict[str, Any]
         policy.File_Copy(
             REFERENCE_OVERLAY_ROOT / "generate_golden_sample.c",
             staged_builtin
-            / "silverstar_core_0_0_9"
+            / SILVERSTAR_CORE_PACKAGE_SLUG
             / "payload"
             / "Tests"
             / "Host"
@@ -4151,7 +4288,7 @@ def Components_Import(reference: Path, *, force: bool = False) -> dict[str, Any]
         )
         _ArtifactChecker_Adapt(
             staged_builtin
-            / "silverstar_core_0_0_9"
+            / SILVERSTAR_CORE_PACKAGE_SLUG
             / "payload"
             / "Tools"
             / "check_firmware_artifact.ps1",
@@ -4159,7 +4296,7 @@ def Components_Import(reference: Path, *, force: bool = False) -> dict[str, Any]
         )
         _PowerTenChecker_Adapt(
             staged_builtin
-            / "silverstar_core_0_0_9"
+            / SILVERSTAR_CORE_PACKAGE_SLUG
             / "payload"
             / "Tools"
             / "check_power_of_ten.ps1",
@@ -4172,6 +4309,7 @@ def Components_Import(reference: Path, *, force: bool = False) -> dict[str, Any]
         _ImportedDocumentation_Adapt(staged_builtin, policy)
         _EnvironmentTemplates_Copy(reference, staged_builtin, policy)
         _GeneratedFacadeTemplates_Copy(reference, staged_builtin, policy)
+        _PlatformRelease_Adapt(staged_builtin, policy)
         _ProtocolProfileMetadata_Write(staged_builtin, policy)
         _ProtocolMetadata_Adapt(
             staged_builtin
@@ -4190,7 +4328,7 @@ def Components_Import(reference: Path, *, force: bool = False) -> dict[str, Any]
                 "Protocol/Src/air_protocol.c",
             ),
             "System/Src/system_console.c": (
-                "silverstar_core_0_0_9",
+                SILVERSTAR_CORE_PACKAGE_SLUG,
                 "System/Src/system_console.c",
             ),
             "Protocol/SSLOG/Src/sslog_protocol.c": (

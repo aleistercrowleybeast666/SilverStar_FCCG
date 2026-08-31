@@ -1,7 +1,7 @@
 # SilverStar Platform Interface
 
-> 文档版本：0.0.9  
-> 适用范围：SilverStar 0.0.9
+> 文档版本：0.0.10  
+> 适用范围：SilverStar 0.0.10
 
 Platform抽象通用MCU能力，不抽象传感器。公共头位于`Platform/Inc`，当前实现位于`Platform/STM32F4`；只有后者可以包含STM32/HAL/CubeMX类型。
 
@@ -67,7 +67,7 @@ MCU backend同样不得认识具体设备或具体Board；它只消费由项目�
 5. 在Host接口测试之外完成backend语法/ARM构建、外设loopback和实际设备测试；
 6. 若有D-Cache/DMA一致性需求，先扩展最小Platform DMA cache契约，不得让Device直接调用vendor cache API。
 
-0.0.9只完成STM32F407 backend的实现、静态检查和ARM编译；其他MCU仅为架构可扩展目标，不得宣称已支持。
+0.0.10只完成STM32F407 backend的实现、静态检查和ARM编译；其他MCU仅为架构可扩展目标，不得宣称已支持。
 
 
 ## 8. FCCG Platform插件扩展与所有权

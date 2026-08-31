@@ -1315,6 +1315,15 @@ class FccgService:
                     else {}
                 )
                 ,
+                "selection_note": str(
+                    (
+                        manifest.metadata.get("selection_notes", {})
+                        if isinstance(
+                            manifest.metadata.get("selection_notes", {}), dict
+                        )
+                        else {}
+                    ).get(language, "")
+                ),
                 "selection_option_requirements": (
                     {
                         option: {

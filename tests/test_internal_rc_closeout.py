@@ -433,7 +433,7 @@ def test_host_tests_use_generated_component_features_with_override_guards(
     assert "#ifndef SYSTEM_USER_MISSION_ACTION_ENABLE" in flight_config
     assert "#ifndef MISSION_ACTION_OUTPUT_BUILD_START_ACTION_AVAILABLE" in flight_config
 
-    core = builtin_catalog.Component_Get("silverstar.core.0_0_9")
+    core = builtin_catalog.Component_Get("silverstar.core.0_0_10")
     host_runner = (
         core.payload_root / "Tests" / "Host" / "run_tests.ps1"
     ).read_text(encoding="utf-8")

@@ -4,12 +4,12 @@
   "name": "NEO-M9N",
   "type": "device",
   "class": "gnss",
-  "version": "0.0.9",
+  "version": "0.0.10",
   "description": "Reference NEO-M9N Device driver and canonical adapter.",
   "requires": {
     "components": [
       {
-        "id": "silverstar.core.0_0_9",
+        "id": "silverstar.core.0_0_10",
         "optional": false
       }
     ],

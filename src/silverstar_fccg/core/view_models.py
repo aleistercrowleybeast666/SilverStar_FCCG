@@ -5,6 +5,8 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
+from silverstar_fccg.app.version import SILVERSTAR_PLATFORM_VERSION
+
 
 class ComponentType(StrEnum):
     CORE = "core"
@@ -207,7 +209,7 @@ class PlanOperationView:
 class ProjectDraftView:
     name: str = ""
     output_directory: Path | None = None
-    firmware_version: str = "0.0.9"
+    firmware_version: str = SILVERSTAR_PLATFORM_VERSION
     core_component_id: str = ""
     selected_component_ids: list[str] = field(default_factory=list)
     resource_assignments: dict[str, str] = field(default_factory=dict)

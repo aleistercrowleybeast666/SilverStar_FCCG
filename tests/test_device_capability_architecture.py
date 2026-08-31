@@ -74,7 +74,7 @@ def _MultiBarometerCatalog_Create(
         "description": "Test-only declarative physical barometer.",
         "requires": {
             "components": [
-                {"id": "silverstar.core.0_0_9", "optional": False}
+                {"id": "silverstar.core.0_0_10", "optional": False}
             ],
             "resources": [],
             "capabilities": [],
@@ -160,7 +160,7 @@ def _MultiInstanceDeviceCatalog_Create(
             "description": "Test-only context-safe multi-instance device.",
             "requires": {
                 "components": [
-                    {"id": "silverstar.core.0_0_9", "optional": False}
+                    {"id": "silverstar.core.0_0_10", "optional": False}
                 ],
                 "resources": [{"name": "data", "kind": "uart"}],
                 "capabilities": [],
@@ -280,7 +280,7 @@ def _MixedSingletonDeviceCatalog_Create(
             "description": "Test-only distinct singleton IMU.",
             "requires": {
                 "components": [
-                    {"id": "silverstar.core.0_0_9", "optional": False}
+                    {"id": "silverstar.core.0_0_10", "optional": False}
                 ],
                 "resources": [],
                 "capabilities": [],
@@ -953,8 +953,8 @@ def test_physical_names_and_protocol_versions_are_structured(
         assert protocol.protocol is not None
         assert protocol.protocol.category == category
         assert protocol.protocol.maintenance_protocol_version == "0.0"
-        assert protocol.protocol.firmware_version == "0.0.9"
-        assert protocol.protocol.documentation_version == "0.0.9"
+        assert protocol.protocol.firmware_version == "0.0.10"
+        assert protocol.protocol.documentation_version == "0.0.10"
 
 
 def test_save_as_copies_full_source_and_excludes_intermediates(

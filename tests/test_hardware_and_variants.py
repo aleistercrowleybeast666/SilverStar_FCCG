@@ -76,7 +76,7 @@ def test_estimator_none_is_absent_from_make_and_eide(
     assert "SYSTEM_FUSION_NONE" in make_graph
     assert "SYSTEM_FUSION_NONE" in eide
 
-    core = builtin_catalog.Component_Get("silverstar.core.0_0_9")
+    core = builtin_catalog.Component_Get("silverstar.core.0_0_10")
     estimator_header = (
         core.payload_root / "APP" / "Inc" / "estimator_task.h"
     ).read_text(encoding="utf-8")

@@ -4,7 +4,7 @@
   "name": "9-Axis Hardware Quaternion Static Sampling",
   "type": "algorithm",
   "class": "alignment",
-  "version": "0.0.9",
+  "version": "0.0.10",
   "description": "Build-selected 9-Axis Hardware Quaternion Static Sampling alignment strategy.",
   "requires": {
     "components": [

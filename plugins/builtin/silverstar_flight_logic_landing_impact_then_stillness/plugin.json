@@ -4,7 +4,7 @@
   "name": "Impact Then Stillness Landing",
   "type": "flight_logic",
   "class": "landing",
-  "version": "0.0.9",
+  "version": "0.0.10",
   "description": "Detects a qualified landing impact and then confirms landing with a stillness window.",
   "requires": {
     "components": [

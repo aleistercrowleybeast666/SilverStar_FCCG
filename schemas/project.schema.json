@@ -205,7 +205,12 @@
       "type": "object",
       "required": ["target_profile", "make_command", "toolchain_prefix", "gcc_path", "flash_command", "eide_mode", "tool_paths"],
       "properties": {
-        "target_profile": {"$ref": "#/$defs/projectToken"},
+        "target_profile": {
+          "anyOf": [
+            {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_.-]{0,79}$"},
+            {"const": ""}
+          ]
+        },
         "make_command": {"type": "string", "minLength": 1},
         "toolchain_prefix": {"type": "string", "pattern": "^[A-Za-z0-9_.+-]+$"},
         "gcc_path": {"type": "string"},

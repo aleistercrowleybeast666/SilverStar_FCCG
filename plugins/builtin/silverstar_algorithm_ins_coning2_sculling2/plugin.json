@@ -4,7 +4,7 @@
   "name": "Coning2 + Sculling2 INS",
   "type": "algorithm",
   "class": "ins",
-  "version": "0.0.9",
+  "version": "0.0.10",
   "description": "Build-selected Coning2 + Sculling2 inertial mechanization strategy.",
   "requires": {
     "components": [

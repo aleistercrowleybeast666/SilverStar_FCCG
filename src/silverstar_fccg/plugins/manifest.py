@@ -9,7 +9,10 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
-from silverstar_fccg.core.workspace import WorkspacePolicy
+from silverstar_fccg.core.workspace import (
+    PortableRelativePath_Validate,
+    WorkspacePolicyError,
+)
 from silverstar_fccg.core.errors import FccgError
 
 
@@ -27,6 +30,7 @@ BUILD_TOKEN_PATTERN = re.compile(r"^[-A-Za-z0-9_+.,=:/]+$")
 BUILD_PATH_PATTERN = re.compile(r"^[A-Za-z0-9_./+@-]+$")
 TOOLCHAIN_PREFIX_PATTERN = re.compile(r"^[A-Za-z0-9_.+-]*$")
 SELECTION_OPTION_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
+BUILD_TARGET_PROFILE_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]{0,79}$")
 
 ALLOWED_PLUGIN_TYPES = frozenset(
     {
@@ -329,6 +333,7 @@ class PlatformContribution:
     abi_major: int
     abi_minor: int
     provider: str
+    build_target_profile: str
     match_rules: tuple[PlatformMatchRule, ...]
     resource_header: str
     resource_bindings: dict[str, PlatformResourceBinding]
@@ -678,11 +683,10 @@ def _BuildTokens_Validate(
 
 
 def _RelativePaths_Validate(paths: tuple[str, ...], field_name: str) -> None:
-    policy = WorkspacePolicy(Path.cwd())
     for value in paths:
         try:
-            policy.RelativePath_Validate(value)
-        except ValueError as error:
+            PortableRelativePath_Validate(value)
+        except WorkspacePolicyError as error:
             raise PluginManifestError(
                 f"Invalid {field_name} path {value!r}"
             ) from error
@@ -1609,6 +1613,7 @@ def _Platform_Parse(value: Any) -> PlatformContribution | None:
     required_fields = {
         "abi",
         "provider",
+        "build_target",
         "match_rules",
         "resource_binding",
         "resource_backends",
@@ -1621,8 +1626,8 @@ def _Platform_Parse(value: Any) -> PlatformContribution | None:
         or set(value) - (required_fields | {"module_providers"})
     ):
         raise PluginManifestError(
-            "platform must contain abi, provider, match_rules, resource_binding, "
-            "resource_backends, compatibility and support"
+            "platform must contain abi, provider, build_target, match_rules, "
+            "resource_binding, resource_backends, compatibility and support"
         )
     abi = value["abi"]
     if (
@@ -1641,6 +1646,14 @@ def _Platform_Parse(value: Any) -> PlatformContribution | None:
     provider = value["provider"]
     if not isinstance(provider, str) or not PLUGIN_ID_PATTERN.fullmatch(provider):
         raise PluginManifestError("platform.provider is invalid")
+    build_target = value["build_target"]
+    if (
+        not isinstance(build_target, dict)
+        or set(build_target) != {"profile"}
+        or not isinstance(build_target.get("profile"), str)
+        or BUILD_TARGET_PROFILE_PATTERN.fullmatch(build_target["profile"]) is None
+    ):
+        raise PluginManifestError("platform.build_target.profile is invalid")
 
     raw_rules = value["match_rules"]
     if not isinstance(raw_rules, list) or not raw_rules:
@@ -2050,6 +2063,7 @@ def _Platform_Parse(value: Any) -> PlatformContribution | None:
         abi_major=abi["major"],
         abi_minor=abi["minor"],
         provider=provider,
+        build_target_profile=build_target["profile"],
         match_rules=tuple(match_rules),
         resource_header=resource_header,
         resource_bindings=resource_bindings,

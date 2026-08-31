@@ -457,7 +457,7 @@ def test_power_of_ten_violation_fixture_fails(
         workspace_root
         / "plugins"
         / "builtin"
-        / "silverstar_core_0_0_9"
+        / "silverstar_core_0_0_10"
         / "payload"
         / "Tools"
         / "check_power_of_ten.ps1",

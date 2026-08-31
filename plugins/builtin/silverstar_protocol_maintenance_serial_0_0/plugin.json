@@ -4,12 +4,12 @@
   "name": "Serial Maintenance Protocol 0.0",
   "type": "protocol",
   "class": "maintenance",
-  "version": "0.0",
+  "version": "0.0.10",
   "description": "Serial maintenance profile; its unchanged Core source is selected only by this plugin.",
   "requires": {
     "components": [
       {
-        "id": "silverstar.core.0_0_9",
+        "id": "silverstar.core.0_0_10",
         "optional": false
       }
     ],
@@ -60,8 +60,8 @@
     "category": "maintenance",
     "logging_metadata": "Protocol/metadata/maintenance_serial_0_0.json",
     "maintenance_protocol_version": "0.0",
-    "firmware_version": "0.0.9",
-    "documentation_version": "0.0.9",
+    "firmware_version": "0.0.10",
+    "documentation_version": "0.0.10",
     "profiles": {
       "maintenance": [
         {

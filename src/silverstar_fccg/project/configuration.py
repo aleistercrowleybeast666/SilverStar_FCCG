@@ -437,6 +437,7 @@ def _Hardware_Reconcile(
     if model.hardware.mode == "unselected":
         model.board = ""
         model.resource_assignments = {}
+        model.build = replace(model.build, target_profile="")
         return ()
     reset = False
     if model.hardware.mode == "board_plugin":
@@ -559,10 +560,22 @@ def _Hardware_Reconcile(
                 },
             )
     if not reset:
+        platform_manifest = catalog.Component_Get(model.mcu)
+        if platform_manifest.platform is None:
+            raise FccgError(
+                "error.platform_match",
+                {},
+                f"MCU {model.mcu} has no Platform contract",
+            )
+        model.build = replace(
+            model.build,
+            target_profile=platform_manifest.platform.build_target_profile,
+        )
         return ()
     model.board = ""
     model.hardware = HardwareConfiguration()
     model.resource_assignments = {}
+    model.build = replace(model.build, target_profile="")
     return (ConfigurationNotice("configuration.hardware_reset"),)
 
 

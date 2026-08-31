@@ -125,7 +125,7 @@ def test_source_package_is_deterministic_and_keeps_real_test_sources(
         names = set(archive.namelist())
     assert "SilverStar_FCCG/tests/test_project_domain.py" in names
     assert (
-        "SilverStar_FCCG/plugins/builtin/silverstar_core_0_0_9/"
+        "SilverStar_FCCG/plugins/builtin/silverstar_core_0_0_10/"
         "payload/Tests/Host/test_interfaces.c"
     ) in names
     assert "SilverStar_FCCG/src/silverstar_fccg/build/runner.py" in names
@@ -228,7 +228,7 @@ def test_generated_architecture_check_treats_plugin_docs_as_import_audit() -> No
         Path(__file__).resolve().parents[1]
         / "plugins"
         / "builtin"
-        / "silverstar_core_0_0_9"
+        / "silverstar_core_0_0_10"
         / "payload"
         / "Tools"
         / "check_architecture.ps1"
