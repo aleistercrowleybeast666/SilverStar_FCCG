@@ -25,7 +25,23 @@ Calibration is one permanent correction component with optional `OneFace` and `S
 
 Capabilities have two formal kinds. A Raw/Data capability means the device can output a value. A Qualified capability, identified by the `_qualified` suffix, means the value satisfies a concrete implementation contract. Strategy requirements name the exact kind they need; FCCG never infers qualification from a device model name or from the presence of related raw data.
 
-The reference has one JY901B physical instance (`imu0`). Its raw data includes `imu.acceleration`, `imu.angular_rate`, `attitude.external`, `magnetometer.field`, and `barometer.altitude`. Reference compile-time evidence additionally qualifies software alignment, software propagation, preflight external-attitude fallback, static 6-axis and 9-axis preflight quaternion alignment, IMU stillness landing, and the barometer landing window. It explicitly does not qualify the magnetic field as an absolute vector, external attitude as authoritative 6-axis/9-axis runtime attitude, or acceleration as a landing-impact source.
+The default reference composition has one JY901B physical instance (`imu0`), while the official
+JY901B, NEO-M9N, and E28-2G4M12SX/SX1281 plugins each support up to four repeated context-safe
+instances when the selected hardware supplies independent resources. Each repeated physical module
+has independent driver/parser/FIFO/status/radio state and descriptor identity, but the same plugin
+payload sources compile once. JY901B raw data includes `imu.acceleration`, `imu.angular_rate`,
+`attitude.external`, `magnetometer.field`, and `barometer.altitude`. Reference compile-time evidence
+additionally qualifies software alignment, software propagation, preflight external-attitude
+fallback, static 6-axis and 9-axis preflight quaternion alignment, IMU stillness landing, and the
+barometer landing window. It explicitly does not qualify the magnetic field as an absolute vector,
+external attitude as authoritative 6-axis/9-axis runtime attitude, or acceleration as a
+landing-impact source.
+
+All selected IMU/GNSS modules continue processing and expose separately identifiable native logs.
+The Canonical IMU locks before calibration/alignment and never fails over in flight. Canonical GNSS
+may advance one way after basic liveness loss; fresh no-fix traffic is still live. AIR M0 uses only
+one active telemetry instance and advances one way after ten consecutive local TX timeouts. This is
+minimal availability behavior, not sensor voting, Multi-EKF, RF health, or automatic failback.
 
 Consequently, GravityKnownYaw, HardwareQuat6AxisKnownYaw, and HardwareQuat9Axis static alignment are available; GravityMagTriad is unavailable. Stillness and BarometerImuWindow landing are available; ImpactThenStillness is unavailable. The GUI reports the missing qualified-use contract rather than blaming the JY901B model.
 

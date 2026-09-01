@@ -53,6 +53,21 @@ Profile, schema, RTOS, and third-party upstream versions retain their own namesp
 
 Device requirements may use legacy simple constraints or one typed UART/SPI/I²C/Classic-CAN/PWM contract plus independent GPIO electrical constraints and required Platform capabilities. Typed I²C, Classic-CAN, and PWM requirements must name at least one `platform_capabilities` entry; seeing a matching peripheral in an inventory is not evidence that the selected Platform implements its backend. A backend also declares `maturity` as `reserved`, `experimental`, `supported`, or `verified`; normal projects reject reserved and experimental entries. I²C requirements may declare a `composite_device` identity. Two endpoints may share one bus/address only when they belong to the same physical Device instance and explicitly use the same non-empty composite identity; otherwise the duplicate address is rejected. `required_pullup` accepts internal pin pull-ups, Board resource metadata `external_pullup_verified=true`/`pullup_source=external_verified`, or an exact custom-snapshot confirmation; NOPULL alone is never evidence. New `instance_policy` data separates `plugin_max` (instances of one model) from `class_max` (all physical Devices in that class), plus `same_plugin_multiple` and `multi_instance_ready`. Legacy `project_max` manifests remain loadable and map safely to those two limits. Raising `plugin_max` above one requires a real context-capable driver; a class limit above one may instead permit two different singleton models. Declaring multiple physical instances never duplicates shared source paths in the resolved graph.
 
+A context-safe repeated Device may additionally declare strict `metadata.instance_resource_binding`:
+`struct_type`, `accessor`, `count_symbol`, `runtime_context_upper_bound`, and `fields`. Every field
+maps exactly one declared resource requirement to one C struct member; omissions, duplicates,
+unknown requirements/members, unsafe identifiers, or a runtime bound different from `plugin_max`
+fail manifest loading. The generator emits one bounded typed table and accessor per
+declaration. Singleton plugins may keep their existing macros, and merely raising a limit never
+opts a driver into this path.
+
+Protocol profiles declare `transport_selection` as `single` or `ordered_failover`. `single` retains
+the zero/one/many missing/valid/ambiguous rules used by maintenance and SSLOG.
+`ordered_failover` accepts one or more compatible transports and preserves a deterministic candidate
+order; AIR M0 is the current user. The resolver follows the declaration rather than a protocol-name
+special case. Project semantics 1.1 keeps the initial binding and records the selection mode and
+candidate instance IDs without a schema-version change.
+
 `physical_device` distinguishes vendor/model/chipset from the reusable driver. For example, the current radio is physical model Ebyte E28-2G4M12SX, chipset SX1281, using the existing SX1281 Driver. A single Device can `provide` several capabilities; JY901B is one physical UART instance that provides acceleration, angular rate, external attitude, magnetic field, and barometric altitude.
 
 `metadata.device_instance_bindings` may map a capability class to a C function prefix and declare

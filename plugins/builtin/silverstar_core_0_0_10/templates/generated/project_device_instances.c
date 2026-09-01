@@ -231,6 +231,54 @@ uint8_t ProjectImuInstance_CountGet(void)
     return ProjectDeviceInstance_CountGet(SYSTEM_DEVICE_CLASS_IMU);
 }
 
+SystemDeviceResult ProjectImuInstance_Init(uint8_t instance_id)
+{
+    switch (instance_id)
+    {
+        case 0U: return SystemImu_Init();
+        default: return SYSTEM_DEVICE_NOT_PRESENT;
+    }
+}
+
+SystemDeviceResult ProjectImuInstance_Start(uint8_t instance_id)
+{
+    switch (instance_id)
+    {
+        case 0U: return SystemImu_Start();
+        default: return SYSTEM_DEVICE_NOT_PRESENT;
+    }
+}
+
+SystemDeviceResult ProjectImuInstance_Stop(uint8_t instance_id)
+{
+    switch (instance_id)
+    {
+        case 0U: return SystemImu_Stop();
+        default: return SYSTEM_DEVICE_NOT_PRESENT;
+    }
+}
+
+SystemDeviceResult ProjectImuInstance_RuntimeOwnerActivate(
+    uint8_t instance_id)
+{
+    switch (instance_id)
+    {
+        case 0U: return SystemImu_RuntimeOwnerActivate();
+        default: return SYSTEM_DEVICE_NOT_PRESENT;
+    }
+}
+
+SystemDeviceResult ProjectImuInstance_Process(uint8_t instance_id)
+{
+    switch (instance_id)
+    {
+        /* The renderer replaces this reference operation with the direct
+         * instance-aware Process operation declared by the selected plugin. */
+        case 0U: return SystemImu_Init();
+        default: return SYSTEM_DEVICE_NOT_PRESENT;
+    }
+}
+
 SystemDeviceResult ProjectImuInstance_InfoGet(
     uint8_t instance_id, SystemDeviceInfo *info)
 {
@@ -275,6 +323,54 @@ SystemDeviceResult ProjectImuInstance_LatestSampleGet(
     }
 }
 
+SystemDeviceResult ProjectImuInstance_NextSampleGet(
+    uint8_t instance_id, SystemImuSample *sample)
+{
+    if (sample == NULL) { return SYSTEM_DEVICE_INVALID_ARGUMENT; }
+    switch (instance_id)
+    {
+        case 0U: return SystemImu_NextSampleGet(sample);
+        default: return SYSTEM_DEVICE_NOT_PRESENT;
+    }
+}
+
+SystemDeviceResult ProjectImuInstance_SelfTestRun(
+    uint8_t instance_id, SystemDeviceSelfTestResult *result)
+{
+    if (result == NULL) { return SYSTEM_DEVICE_INVALID_ARGUMENT; }
+    switch (instance_id)
+    {
+        case 0U: return SystemImu_SelfTestRun(result);
+        default: return SYSTEM_DEVICE_NOT_PRESENT;
+    }
+}
+
+SystemDeviceResult ProjectImuInstance_ConfigApply(
+    uint8_t instance_id, const SystemImuConfig *config,
+    SystemDeviceConfigReport *report)
+{
+    if ((config == NULL) || (report == NULL))
+    { return SYSTEM_DEVICE_INVALID_ARGUMENT; }
+    switch (instance_id)
+    {
+        case 0U: return SystemImu_ConfigApply(config, report);
+        default: return SYSTEM_DEVICE_NOT_PRESENT;
+    }
+}
+
+SystemDeviceResult ProjectImuInstance_ConfigVerify(
+    uint8_t instance_id, const SystemImuConfig *config,
+    SystemDeviceConfigReport *report)
+{
+    if ((config == NULL) || (report == NULL))
+    { return SYSTEM_DEVICE_INVALID_ARGUMENT; }
+    switch (instance_id)
+    {
+        case 0U: return SystemImu_ConfigVerify(config, report);
+        default: return SYSTEM_DEVICE_NOT_PRESENT;
+    }
+}
+
 SystemDeviceResult ProjectImuInstance_EffectiveConfigGet(
     uint8_t instance_id, SystemImuConfig *config)
 {
@@ -282,6 +378,17 @@ SystemDeviceResult ProjectImuInstance_EffectiveConfigGet(
     switch (instance_id)
     {
         case 0U: return SystemImu_EffectiveConfigGet(config);
+        default: return SYSTEM_DEVICE_NOT_PRESENT;
+    }
+}
+
+SystemDeviceResult ProjectImuInstance_NoiseCharacteristicsGet(
+    uint8_t instance_id, SystemImuNoiseCharacteristics *noise)
+{
+    if (noise == NULL) { return SYSTEM_DEVICE_INVALID_ARGUMENT; }
+    switch (instance_id)
+    {
+        case 0U: return SystemImu_NoiseCharacteristicsGet(noise);
         default: return SYSTEM_DEVICE_NOT_PRESENT;
     }
 }
@@ -311,6 +418,53 @@ SystemDeviceResult ProjectImuInstance_IoDiagnosticsGet(
 uint8_t ProjectGnssInstance_CountGet(void)
 {
     return ProjectDeviceInstance_CountGet(SYSTEM_DEVICE_CLASS_GNSS);
+}
+
+SystemDeviceResult ProjectGnssInstance_Init(uint8_t instance_id)
+{
+    switch (instance_id)
+    {
+        case 0U: return SystemGnss_Init();
+        default: return SYSTEM_DEVICE_NOT_PRESENT;
+    }
+}
+
+SystemDeviceResult ProjectGnssInstance_Start(uint8_t instance_id)
+{
+    switch (instance_id)
+    {
+        case 0U: return SystemGnss_Start();
+        default: return SYSTEM_DEVICE_NOT_PRESENT;
+    }
+}
+
+SystemDeviceResult ProjectGnssInstance_Stop(uint8_t instance_id)
+{
+    switch (instance_id)
+    {
+        case 0U: return SystemGnss_Stop();
+        default: return SYSTEM_DEVICE_NOT_PRESENT;
+    }
+}
+
+SystemDeviceResult ProjectGnssInstance_RuntimeOwnerActivate(
+    uint8_t instance_id)
+{
+    switch (instance_id)
+    {
+        case 0U: return SystemGnss_RuntimeOwnerActivate();
+        default: return SYSTEM_DEVICE_NOT_PRESENT;
+    }
+}
+
+SystemDeviceResult ProjectGnssInstance_Process(uint8_t instance_id)
+{
+    switch (instance_id)
+    {
+        /* Replaced by the selected plugin's direct Process operation. */
+        case 0U: return SystemGnss_Init();
+        default: return SYSTEM_DEVICE_NOT_PRESENT;
+    }
 }
 
 SystemDeviceResult ProjectGnssInstance_InfoGet(
@@ -357,6 +511,54 @@ SystemDeviceResult ProjectGnssInstance_LatestSampleGet(
     }
 }
 
+SystemDeviceResult ProjectGnssInstance_TimeGet(
+    uint8_t instance_id, SystemGnssTime *time)
+{
+    if (time == NULL) { return SYSTEM_DEVICE_INVALID_ARGUMENT; }
+    switch (instance_id)
+    {
+        case 0U: return SystemGnss_TimeGet(time);
+        default: return SYSTEM_DEVICE_NOT_PRESENT;
+    }
+}
+
+SystemDeviceResult ProjectGnssInstance_SelfTestRun(
+    uint8_t instance_id, SystemDeviceSelfTestResult *result)
+{
+    if (result == NULL) { return SYSTEM_DEVICE_INVALID_ARGUMENT; }
+    switch (instance_id)
+    {
+        case 0U: return SystemGnss_SelfTestRun(result);
+        default: return SYSTEM_DEVICE_NOT_PRESENT;
+    }
+}
+
+SystemDeviceResult ProjectGnssInstance_ConfigApply(
+    uint8_t instance_id, const SystemGnssConfig *config,
+    SystemDeviceConfigReport *report)
+{
+    if ((config == NULL) || (report == NULL))
+    { return SYSTEM_DEVICE_INVALID_ARGUMENT; }
+    switch (instance_id)
+    {
+        case 0U: return SystemGnss_ConfigApply(config, report);
+        default: return SYSTEM_DEVICE_NOT_PRESENT;
+    }
+}
+
+SystemDeviceResult ProjectGnssInstance_ConfigVerify(
+    uint8_t instance_id, const SystemGnssConfig *config,
+    SystemDeviceConfigReport *report)
+{
+    if ((config == NULL) || (report == NULL))
+    { return SYSTEM_DEVICE_INVALID_ARGUMENT; }
+    switch (instance_id)
+    {
+        case 0U: return SystemGnss_ConfigVerify(config, report);
+        default: return SYSTEM_DEVICE_NOT_PRESENT;
+    }
+}
+
 SystemDeviceResult ProjectGnssInstance_EffectiveConfigGet(
     uint8_t instance_id, SystemGnssConfig *config)
 {
@@ -364,6 +566,17 @@ SystemDeviceResult ProjectGnssInstance_EffectiveConfigGet(
     switch (instance_id)
     {
         case 0U: return SystemGnss_EffectiveConfigGet(config);
+        default: return SYSTEM_DEVICE_NOT_PRESENT;
+    }
+}
+
+SystemDeviceResult ProjectGnssInstance_NoiseCharacteristicsGet(
+    uint8_t instance_id, SystemGnssNoiseCharacteristics *noise)
+{
+    if (noise == NULL) { return SYSTEM_DEVICE_INVALID_ARGUMENT; }
+    switch (instance_id)
+    {
+        case 0U: return SystemGnss_NoiseCharacteristicsGet(noise);
         default: return SYSTEM_DEVICE_NOT_PRESENT;
     }
 }
@@ -401,6 +614,39 @@ SystemDeviceResult ProjectGnssInstance_RfDiagnosticsRead(
     }
 }
 
+SystemDeviceResult ProjectGnssInstance_LastConfigReportGet(
+    uint8_t instance_id, SystemGnssConfigTransactionReport *report)
+{
+    if (report == NULL) { return SYSTEM_DEVICE_INVALID_ARGUMENT; }
+    switch (instance_id)
+    {
+        case 0U: return SystemGnss_LastConfigReportGet(report);
+        default: return SYSTEM_DEVICE_NOT_PRESENT;
+    }
+}
+
+SystemDeviceResult ProjectGnssInstance_LatestSatelliteDiagnosticsGet(
+    uint8_t instance_id, SystemGnssSatelliteDiagnostics *diagnostics)
+{
+    if (diagnostics == NULL) { return SYSTEM_DEVICE_INVALID_ARGUMENT; }
+    switch (instance_id)
+    {
+        case 0U: return SystemGnss_LatestSatelliteDiagnosticsGet(diagnostics);
+        default: return SYSTEM_DEVICE_NOT_PRESENT;
+    }
+}
+
+SystemDeviceResult ProjectGnssInstance_LatestRfDiagnosticsGet(
+    uint8_t instance_id, SystemGnssRfDiagnostics *diagnostics)
+{
+    if (diagnostics == NULL) { return SYSTEM_DEVICE_INVALID_ARGUMENT; }
+    switch (instance_id)
+    {
+        case 0U: return SystemGnss_LatestRfDiagnosticsGet(diagnostics);
+        default: return SYSTEM_DEVICE_NOT_PRESENT;
+    }
+}
+
 SystemDeviceResult ProjectGnssInstance_IoDetailGet(
     uint8_t instance_id, SystemGnssIoDetail *detail)
 {
@@ -426,6 +672,33 @@ SystemDeviceResult ProjectGnssInstance_IoDiagnosticsGet(
 uint8_t ProjectBarometerInstance_CountGet(void)
 {
     return ProjectDeviceInstance_CountGet(SYSTEM_DEVICE_CLASS_BAROMETER);
+}
+
+SystemDeviceResult ProjectBarometerInstance_Init(uint8_t instance_id)
+{
+    switch (instance_id)
+    {
+        case 0U: return SystemBarometer_Init();
+        default: return SYSTEM_DEVICE_NOT_PRESENT;
+    }
+}
+
+SystemDeviceResult ProjectBarometerInstance_Start(uint8_t instance_id)
+{
+    switch (instance_id)
+    {
+        case 0U: return SystemBarometer_Start();
+        default: return SYSTEM_DEVICE_NOT_PRESENT;
+    }
+}
+
+SystemDeviceResult ProjectBarometerInstance_Stop(uint8_t instance_id)
+{
+    switch (instance_id)
+    {
+        case 0U: return SystemBarometer_Stop();
+        default: return SYSTEM_DEVICE_NOT_PRESENT;
+    }
 }
 
 SystemDeviceResult ProjectBarometerInstance_InfoGet(
@@ -472,6 +745,43 @@ SystemDeviceResult ProjectBarometerInstance_LatestSampleGet(
     }
 }
 
+SystemDeviceResult ProjectBarometerInstance_SelfTestRun(
+    uint8_t instance_id, SystemDeviceSelfTestResult *result)
+{
+    if (result == NULL) { return SYSTEM_DEVICE_INVALID_ARGUMENT; }
+    switch (instance_id)
+    {
+        case 0U: return SystemBarometer_SelfTestRun(result);
+        default: return SYSTEM_DEVICE_NOT_PRESENT;
+    }
+}
+
+SystemDeviceResult ProjectBarometerInstance_ConfigApply(
+    uint8_t instance_id, const SystemBarometerConfig *config,
+    SystemDeviceConfigReport *report)
+{
+    if ((config == NULL) || (report == NULL))
+    { return SYSTEM_DEVICE_INVALID_ARGUMENT; }
+    switch (instance_id)
+    {
+        case 0U: return SystemBarometer_ConfigApply(config, report);
+        default: return SYSTEM_DEVICE_NOT_PRESENT;
+    }
+}
+
+SystemDeviceResult ProjectBarometerInstance_ConfigVerify(
+    uint8_t instance_id, const SystemBarometerConfig *config,
+    SystemDeviceConfigReport *report)
+{
+    if ((config == NULL) || (report == NULL))
+    { return SYSTEM_DEVICE_INVALID_ARGUMENT; }
+    switch (instance_id)
+    {
+        case 0U: return SystemBarometer_ConfigVerify(config, report);
+        default: return SYSTEM_DEVICE_NOT_PRESENT;
+    }
+}
+
 SystemDeviceResult ProjectBarometerInstance_EffectiveConfigGet(
     uint8_t instance_id, SystemBarometerConfig *config)
 {
@@ -483,9 +793,47 @@ SystemDeviceResult ProjectBarometerInstance_EffectiveConfigGet(
     }
 }
 
+SystemDeviceResult ProjectBarometerInstance_NoiseCharacteristicsGet(
+    uint8_t instance_id, SystemBarometerNoiseCharacteristics *noise)
+{
+    if (noise == NULL) { return SYSTEM_DEVICE_INVALID_ARGUMENT; }
+    switch (instance_id)
+    {
+        case 0U: return SystemBarometer_NoiseCharacteristicsGet(noise);
+        default: return SYSTEM_DEVICE_NOT_PRESENT;
+    }
+}
+
 uint8_t ProjectMagnetometerInstance_CountGet(void)
 {
     return ProjectDeviceInstance_CountGet(SYSTEM_DEVICE_CLASS_MAGNETOMETER);
+}
+
+SystemDeviceResult ProjectMagnetometerInstance_Init(uint8_t instance_id)
+{
+    switch (instance_id)
+    {
+        case 0U: return SystemMagnetometer_Init();
+        default: return SYSTEM_DEVICE_NOT_PRESENT;
+    }
+}
+
+SystemDeviceResult ProjectMagnetometerInstance_Start(uint8_t instance_id)
+{
+    switch (instance_id)
+    {
+        case 0U: return SystemMagnetometer_Start();
+        default: return SYSTEM_DEVICE_NOT_PRESENT;
+    }
+}
+
+SystemDeviceResult ProjectMagnetometerInstance_Stop(uint8_t instance_id)
+{
+    switch (instance_id)
+    {
+        case 0U: return SystemMagnetometer_Stop();
+        default: return SYSTEM_DEVICE_NOT_PRESENT;
+    }
 }
 
 SystemDeviceResult ProjectMagnetometerInstance_InfoGet(
@@ -532,6 +880,43 @@ SystemDeviceResult ProjectMagnetometerInstance_LatestSampleGet(
     }
 }
 
+SystemDeviceResult ProjectMagnetometerInstance_SelfTestRun(
+    uint8_t instance_id, SystemDeviceSelfTestResult *result)
+{
+    if (result == NULL) { return SYSTEM_DEVICE_INVALID_ARGUMENT; }
+    switch (instance_id)
+    {
+        case 0U: return SystemMagnetometer_SelfTestRun(result);
+        default: return SYSTEM_DEVICE_NOT_PRESENT;
+    }
+}
+
+SystemDeviceResult ProjectMagnetometerInstance_ConfigApply(
+    uint8_t instance_id, const SystemMagnetometerConfig *config,
+    SystemDeviceConfigReport *report)
+{
+    if ((config == NULL) || (report == NULL))
+    { return SYSTEM_DEVICE_INVALID_ARGUMENT; }
+    switch (instance_id)
+    {
+        case 0U: return SystemMagnetometer_ConfigApply(config, report);
+        default: return SYSTEM_DEVICE_NOT_PRESENT;
+    }
+}
+
+SystemDeviceResult ProjectMagnetometerInstance_ConfigVerify(
+    uint8_t instance_id, const SystemMagnetometerConfig *config,
+    SystemDeviceConfigReport *report)
+{
+    if ((config == NULL) || (report == NULL))
+    { return SYSTEM_DEVICE_INVALID_ARGUMENT; }
+    switch (instance_id)
+    {
+        case 0U: return SystemMagnetometer_ConfigVerify(config, report);
+        default: return SYSTEM_DEVICE_NOT_PRESENT;
+    }
+}
+
 SystemDeviceResult ProjectMagnetometerInstance_EffectiveConfigGet(
     uint8_t instance_id, SystemMagnetometerConfig *config)
 {
@@ -547,6 +932,33 @@ uint8_t ProjectAttitudeInstance_CountGet(void)
 {
     return ProjectDeviceInstance_CountGet(
         SYSTEM_DEVICE_CLASS_HARDWARE_QUATERNION);
+}
+
+SystemDeviceResult ProjectAttitudeInstance_Init(uint8_t instance_id)
+{
+    switch (instance_id)
+    {
+        case 0U: return SystemHardwareQuaternion_Init();
+        default: return SYSTEM_DEVICE_NOT_PRESENT;
+    }
+}
+
+SystemDeviceResult ProjectAttitudeInstance_Start(uint8_t instance_id)
+{
+    switch (instance_id)
+    {
+        case 0U: return SystemHardwareQuaternion_Start();
+        default: return SYSTEM_DEVICE_NOT_PRESENT;
+    }
+}
+
+SystemDeviceResult ProjectAttitudeInstance_Stop(uint8_t instance_id)
+{
+    switch (instance_id)
+    {
+        case 0U: return SystemHardwareQuaternion_Stop();
+        default: return SYSTEM_DEVICE_NOT_PRESENT;
+    }
 }
 
 SystemDeviceResult ProjectAttitudeInstance_InfoGet(
@@ -594,6 +1006,43 @@ SystemDeviceResult ProjectAttitudeInstance_LatestSampleGet(
     }
 }
 
+SystemDeviceResult ProjectAttitudeInstance_SelfTestRun(
+    uint8_t instance_id, SystemDeviceSelfTestResult *result)
+{
+    if (result == NULL) { return SYSTEM_DEVICE_INVALID_ARGUMENT; }
+    switch (instance_id)
+    {
+        case 0U: return SystemHardwareQuaternion_SelfTestRun(result);
+        default: return SYSTEM_DEVICE_NOT_PRESENT;
+    }
+}
+
+SystemDeviceResult ProjectAttitudeInstance_ConfigApply(
+    uint8_t instance_id, const SystemHardwareQuaternionConfig *config,
+    SystemDeviceConfigReport *report)
+{
+    if ((config == NULL) || (report == NULL))
+    { return SYSTEM_DEVICE_INVALID_ARGUMENT; }
+    switch (instance_id)
+    {
+        case 0U: return SystemHardwareQuaternion_ConfigApply(config, report);
+        default: return SYSTEM_DEVICE_NOT_PRESENT;
+    }
+}
+
+SystemDeviceResult ProjectAttitudeInstance_ConfigVerify(
+    uint8_t instance_id, const SystemHardwareQuaternionConfig *config,
+    SystemDeviceConfigReport *report)
+{
+    if ((config == NULL) || (report == NULL))
+    { return SYSTEM_DEVICE_INVALID_ARGUMENT; }
+    switch (instance_id)
+    {
+        case 0U: return SystemHardwareQuaternion_ConfigVerify(config, report);
+        default: return SYSTEM_DEVICE_NOT_PRESENT;
+    }
+}
+
 SystemDeviceResult ProjectAttitudeInstance_EffectiveConfigGet(
     uint8_t instance_id, SystemHardwareQuaternionConfig *config)
 {
@@ -608,6 +1057,68 @@ SystemDeviceResult ProjectAttitudeInstance_EffectiveConfigGet(
 uint8_t ProjectTelemetryInstance_CountGet(void)
 {
     return ProjectDeviceInstance_CountGet(SYSTEM_DEVICE_CLASS_TELEMETRY);
+}
+
+SystemDeviceResult ProjectTelemetryInstance_Init(uint8_t instance_id)
+{
+    switch (instance_id)
+    {
+        case 0U: return SystemTelemetry_Init();
+        default: return SYSTEM_DEVICE_NOT_PRESENT;
+    }
+}
+
+SystemDeviceResult ProjectTelemetryInstance_Start(uint8_t instance_id)
+{
+    switch (instance_id)
+    {
+        case 0U: return SystemTelemetry_Start();
+        default: return SYSTEM_DEVICE_NOT_PRESENT;
+    }
+}
+
+SystemDeviceResult ProjectTelemetryInstance_Stop(uint8_t instance_id)
+{
+    switch (instance_id)
+    {
+        case 0U: return SystemTelemetry_Stop();
+        default: return SYSTEM_DEVICE_NOT_PRESENT;
+    }
+}
+
+SystemDeviceResult ProjectTelemetryInstance_Send(
+    uint8_t instance_id, const uint8_t *data, uint16_t length)
+{
+    if ((data == NULL) || (length == 0U))
+    { return SYSTEM_DEVICE_INVALID_ARGUMENT; }
+    switch (instance_id)
+    {
+        case 0U: return SystemTelemetry_Send(data, length);
+        default: return SYSTEM_DEVICE_NOT_PRESENT;
+    }
+}
+
+SystemDeviceResult ProjectTelemetryInstance_Receive(
+    uint8_t instance_id, uint8_t *data, uint16_t capacity,
+    uint16_t *length)
+{
+    if ((data == NULL) || (length == NULL) || (capacity == 0U))
+    { return SYSTEM_DEVICE_INVALID_ARGUMENT; }
+    switch (instance_id)
+    {
+        case 0U: return SystemTelemetry_Receive(data, capacity, length);
+        default: return SYSTEM_DEVICE_NOT_PRESENT;
+    }
+}
+
+SystemDeviceResult ProjectTelemetryInstance_Process(uint8_t instance_id)
+{
+    switch (instance_id)
+    {
+        /* Replaced by the selected plugin's direct Process operation. */
+        case 0U: return SystemTelemetry_Init();
+        default: return SYSTEM_DEVICE_NOT_PRESENT;
+    }
 }
 
 SystemDeviceResult ProjectTelemetryInstance_InfoGet(
@@ -650,6 +1161,28 @@ SystemDeviceResult ProjectTelemetryInstance_IoDiagnosticsGet(
     switch (instance_id)
     {
         case 0U: return SystemTelemetry_IoDiagnosticsGet(diagnostics);
+        default: return SYSTEM_DEVICE_NOT_PRESENT;
+    }
+}
+
+SystemDeviceResult ProjectTelemetryInstance_SelfTestRun(
+    uint8_t instance_id, SystemDeviceSelfTestResult *result)
+{
+    if (result == NULL) { return SYSTEM_DEVICE_INVALID_ARGUMENT; }
+    switch (instance_id)
+    {
+        case 0U: return SystemTelemetry_SelfTestRun(result);
+        default: return SYSTEM_DEVICE_NOT_PRESENT;
+    }
+}
+
+SystemDeviceResult ProjectTelemetryInstance_MtuGet(
+    uint8_t instance_id, uint16_t *mtu)
+{
+    if (mtu == NULL) { return SYSTEM_DEVICE_INVALID_ARGUMENT; }
+    switch (instance_id)
+    {
+        case 0U: return SystemTelemetry_MtuGet(mtu);
         default: return SYSTEM_DEVICE_NOT_PRESENT;
     }
 }

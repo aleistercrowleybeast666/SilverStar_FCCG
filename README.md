@@ -47,6 +47,17 @@ The old combined protocol package is split into three independently locked optio
 
 Physical Devices and protocol activation are independent. A selected SX1281 or SD/TF Device may remain present while its protocol is **None**. Removing the only compatible transport atomically clears the dependent protocol; restoring a Device never silently re-enables it. Maintenance uses a declaratively auto-managed internal UART Console endpoint, which is added only while the maintenance protocol is enabled and is removed together with its UART assignment and SerialTask sources when disabled.
 
+The official JY901B, NEO-M9N, and E28-2G4M12SX/SX1281 plugins now support up to four repeated
+instances of the same plugin. The Device page exposes deterministic Add/Remove rows and Hardware
+Connection binds each row to independent UART/SPI/GPIO resources. The configured Canonical source
+is first in a stable backup chain. All IMU/GNSS instances initialize and produce distinguishable
+native logs; IMU selection occurs only before calibration/alignment and then locks. GNSS can move
+one way on basic liveness failure (`no fix` is not failure). AIR M0 uses exactly one active radio and
+moves one way only after ten consecutive true local TX timeouts; a success resets the counter, busy
+does not count, and a final source continues one bounded attempt on each normal send period. These
+policies do not add voting, Multi-EKF, RF end-to-end health, failback, duplicate packets, or a wire
+change.
+
 Reference import uses a reproducible two-source pipeline: the external firmware snapshot is read-only, then official FCCG extensions from `tools/reference_overlays/` are replayed into builtin packages. The F407 Platform extension declares the resource-rendering ABI instead of hard-coding F4 headers/getters in Python. I²C provides blocking 7-bit master and 8/16-bit register access without HAL constants or generic repeated-start; PWM accepts only CubeMX-proven ordinary PWM1/PWM2 channels and uses exact forced endpoints. Both are software `supported`, not electrically `verified`. Classic CAN remains inventory-visible but its backend is `reserved` and cannot serve a normal consumer. Default SS0.5 therefore contains none of these optional backends or unrelated I²C/CAN/PWM code.
 
 Component payloads are copied only when first selected and then belong to the generated embedded project. Normal Save does not overwrite them. FCCG replaces only its small `Generated/` glue surface and managed project/editor metadata. A new CubeMX snapshot is a special dangerous replacement and requires confirmation; ordinary component deactivation retains files and removes them only from the active source graph.

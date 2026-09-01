@@ -7,6 +7,7 @@
 #include "platform_critical.h"
 #include "silverstar_assert.h"
 #include "system_alignment.h"
+#include "system_source_selector.h"
 #include "system_lifecycle.h"
 #include "system_user_config.h"
 #include "system_user_startup_config.h"
@@ -669,6 +670,7 @@ static SystemDeviceResult SystemCalibration_FaceCorrectionInvalidate(
 SystemDeviceResult SystemCalibration_Start(SystemCalibrationMode mode)
 {
     SystemDeviceResult invalidate_result;
+    SystemDeviceResult selector_result;
     uint32_t primask;
 
     if (SystemCalibration_ModificationAllowed() == 0U)
@@ -680,6 +682,11 @@ SystemDeviceResult SystemCalibration_Start(SystemCalibrationMode mode)
     if (mode > SYSTEM_CALIBRATION_MODE_SIX_FACE)
     {
         return SYSTEM_DEVICE_INVALID_ARGUMENT;
+    }
+    selector_result = SystemSourceSelector_ImuSelectAndLock();
+    if (selector_result != SYSTEM_DEVICE_OK)
+    {
+        return selector_result;
     }
     if (SystemCalibration_ActionBegin() == 0U)
     {

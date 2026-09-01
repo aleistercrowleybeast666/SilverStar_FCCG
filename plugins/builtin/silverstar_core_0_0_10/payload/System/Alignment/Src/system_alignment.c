@@ -14,6 +14,7 @@
 #include "system_imu_if.h"
 #include "system_lifecycle.h"
 #include "system_magnetometer_if.h"
+#include "system_source_selector.h"
 #include "system_startup.h"
 #include "system_user_alignment_config.h"
 #include "system_user_config.h"
@@ -971,6 +972,11 @@ SystemDeviceResult SystemAlignment_Start(void)
     if (SystemCalibration_IsReady() == 0U)
     {
         return SYSTEM_DEVICE_NOT_READY;
+    }
+    result = SystemSourceSelector_ImuSelectAndLock();
+    if (result != SYSTEM_DEVICE_OK)
+    {
+        return result;
     }
     result = SystemAlignment_ActionBegin();
     if (result != SYSTEM_DEVICE_OK)

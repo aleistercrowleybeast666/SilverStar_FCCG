@@ -9,6 +9,23 @@
 #include "test_common.h"
 
 #define TEST_TX_BUFFER_CAPACITY 512U
+#ifndef PROJECT_RESOURCE_IMU_UART
+#define PROJECT_RESOURCE_IMU_UART PLATFORM_UART_1
+#endif
+
+/* Exercise the first generated instance in the existing single-device cases. */
+#define IMU_LocalGravitySet(gravity) IMU_LocalGravitySet(0U, (gravity))
+#define IMU_Init() IMU_Init(0U)
+#define IMU_ApplyDefaultConfig(rate, algorithm) \
+    IMU_ApplyDefaultConfig(0U, (rate), (algorithm))
+#define IMU_Poll() IMU_Poll(0U)
+#define IMU_StreamDiagnosticsGet(diagnostics) \
+    IMU_StreamDiagnosticsGet(0U, (diagnostics))
+#define IMU_IsOnline() IMU_IsOnline(0U)
+#define IMU_GetData() IMU_GetData(0U)
+#define Jy901bImu_SampleGetNext(sample) \
+    Jy901bImu_SampleGetNext(0U, (sample))
+#define IMU_ConfigCacheGet(config) IMU_ConfigCacheGet(0U, (config))
 
 static uint8_t Test_ChecksumGet(const uint8_t *frame)
 {

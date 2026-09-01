@@ -35,10 +35,10 @@ mingw32-make TARGET_PROFILE=SilverStar_F407 CONFIG=Release artifact-check
 - EIDE拥有可直接构建但非权威的F407镜像图；其实际C/S集合、include、define、CPU/FPU、linker、forced include和输出隔离必须与Make/Target契约一致；
 - SilverStar 0.0.10、AIR遥测协议M0、串口维护协议0.0和飞行日志格式0.0的版本边界正确；技术wire标识仍为profile numeric 0和magic `SSLOG0`；
 - `Generated/`只含评审允许的项目资源、日志配置、metadata和manifest薄胶水，不含算法或飞行判定；
-- Generated instance facade只包含有界0..N静态direct binding；无function pointer registry、vtable、heap或动态注册；descriptor明确区分`physical_device_id`与类别内`instance_id`，不存在实例不回退到0；正式F407仍只生成instance 0；
+- Generated instance facade只包含有界0..N静态direct binding；无function pointer registry、vtable、heap或动态注册；descriptor明确区分`physical_device_id`与类别内`instance_id`，不存在实例不回退到0；默认SS0.5为单实例，多实例编译fixture验证每类2个独立source context；
 - Maintenance以Capability Module而非物理型号寻址；instance模块使用`<CAPABILITY> <INSTANCE> <COMMAND>`，不存在实例不回退到0；
 - SSLOG普通源码包含显式little-endian serializer/deserializer与Device/Algorithm/Log Stream/Decoder Profile四类descriptor，wire路径无struct直写；声明式Record Catalog、parser mirror、C ID/size/codec、Generated stream配置与profile hash通过Host离线validator交叉校验；authoritative Make/manifest不调用Python或生成器；
-- Native producer通过Generated Count/Instance facade有界枚举全部启用实例，sequence/timestamp基线按实例保存；JY901B保持`multi_instance_ready=0`，Host fixture不得进入Target source graph；
+- Native producer通过Generated Count/Instance facade有界枚举全部启用实例，sequence/timestamp基线按实例保存；JY901B、NEO-M9N、SX1281保持`multi_instance_ready=true`且上限4，实际Driver context隔离Host fixture不得进入Target source graph；
 - 旧`Bindings/`、`Board/SilverStar_F407`、`Protocol/SSLOG/generated`和SSLOG generator不存在。
 
 脚本通过后仍需人工复核例外：CubeMX `Core`、STM32 HAL/Drivers、FATFS Target和Target port中的vendor依赖合理存在。

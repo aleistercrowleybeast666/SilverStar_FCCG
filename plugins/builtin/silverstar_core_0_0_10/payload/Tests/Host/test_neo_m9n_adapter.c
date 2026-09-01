@@ -2,12 +2,23 @@
 #include <string.h>
 
 #include "host_platform_mock.h"
+#include "neo_m9n_instance.h"
 #include "project_resources.h"
 #include "system_gnss_if.h"
 #include "test_common.h"
 
 #define TEST_NAV_PVT_PAYLOAD_SIZE 92U
 #define TEST_NAV_PVT_FRAME_SIZE   (TEST_NAV_PVT_PAYLOAD_SIZE + 8U)
+
+#ifndef PROJECT_RESOURCE_GNSS_UART
+#define PROJECT_RESOURCE_GNSS_UART PLATFORM_UART_2
+#endif
+#define SystemGnss_Init() NeoM9nGnssInstance_Init(0U)
+#define SystemGnss_Start() NeoM9nGnssInstance_Start(0U)
+#define SystemGnss_Stop() NeoM9nGnssInstance_Stop(0U)
+#define SystemGnss_Process() ((void)NeoM9nGnssInstance_Process(0U))
+#define SystemGnss_LatestSampleGet(sample) \
+    NeoM9nGnssInstance_LatestSampleGet(0U, (sample))
 
 static void Test_U16Put(uint8_t *data, uint16_t value)
 {

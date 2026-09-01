@@ -85,6 +85,7 @@
           ],
           "defines": [],
           "binding": "maintenance_console",
+          "transport_selection": "single",
           "transport": {
             "capability": "transport.byte_stream",
             "kind": "byte_stream",

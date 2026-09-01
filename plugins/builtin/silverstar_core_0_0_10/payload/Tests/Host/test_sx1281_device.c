@@ -19,90 +19,138 @@ static uint32_t s_set_rx_count;
 static uint16_t s_raw_irq;
 static uint8_t s_dio1_pending;
 
-void SX1280Init(void) { }
+void SX1280Init(uint8_t instance) { (void)instance; }
 
-RadioStatus_t SX1280GetStatus(void)
+RadioStatus_t SX1280GetStatus(uint8_t instance)
 {
     RadioStatus_t status;
 
+    (void)instance;
     status.Value = 0x20U;
     return status;
 }
 
-uint16_t SX1280GetFirmwareVersion(void) { return 0x1234U; }
-void SX1280SetRegulatorMode(RadioRegulatorModes_t mode) { (void)mode; }
-void SX1280SetStandby(RadioStandbyModes_t mode) { (void)mode; }
-void SX1280SetPacketType(RadioPacketTypes_t type) { (void)type; }
-void SX1280SetModulationParams(ModulationParams_t *params) { (void)params; }
-void SX1280SetPacketParams(PacketParams_t *params) { (void)params; }
-void SX1280SetRfFrequency(uint32_t frequency) { (void)frequency; }
-void SX1280SetBufferBaseAddresses(uint8_t tx, uint8_t rx)
+uint16_t SX1280GetFirmwareVersion(uint8_t instance)
+{ (void)instance; return 0x1234U; }
+void SX1280SetRegulatorMode(uint8_t instance, RadioRegulatorModes_t mode)
+{ (void)instance; (void)mode; }
+void SX1280SetStandby(uint8_t instance, RadioStandbyModes_t mode)
+{ (void)instance; (void)mode; }
+void SX1280SetPacketType(uint8_t instance, RadioPacketTypes_t type)
+{ (void)instance; (void)type; }
+void SX1280SetModulationParams(uint8_t instance, ModulationParams_t *params)
+{ (void)instance; (void)params; }
+void SX1280SetPacketParams(uint8_t instance, PacketParams_t *params)
+{ (void)instance; (void)params; }
+void SX1280SetRfFrequency(uint8_t instance, uint32_t frequency)
+{ (void)instance; (void)frequency; }
+void SX1280SetBufferBaseAddresses(
+    uint8_t instance, uint8_t tx, uint8_t rx)
 {
+    (void)instance;
     (void)tx;
     (void)rx;
 }
-void SX1280SetTxParams(int8_t power, RadioRampTimes_t ramp)
+void SX1280SetTxParams(
+    uint8_t instance, int8_t power, RadioRampTimes_t ramp)
 {
+    (void)instance;
     (void)power;
     (void)ramp;
 }
-void SX1280SetDioIrqParams(uint16_t irq, uint16_t dio1,
-                           uint16_t dio2, uint16_t dio3)
+void SX1280SetDioIrqParams(
+    uint8_t instance, uint16_t irq, uint16_t dio1,
+    uint16_t dio2, uint16_t dio3)
 {
+    (void)instance;
     (void)irq;
     (void)dio1;
     (void)dio2;
     (void)dio3;
 }
-void SX1280SetRx(TickTime_t timeout)
+void SX1280SetRx(uint8_t instance, TickTime_t timeout)
 {
+    (void)instance;
     (void)timeout;
     s_set_rx_count++;
 }
-uint16_t SX1280GetIrqStatus(void)
+uint16_t SX1280GetIrqStatus(uint8_t instance)
 {
+    (void)instance;
     s_irq_get_count++;
     return s_raw_irq;
 }
-void SX1280ClearIrqStatus(uint16_t irq)
+void SX1280ClearIrqStatus(uint8_t instance, uint16_t irq)
 {
+    (void)instance;
     (void)irq;
     s_irq_clear_count++;
     s_raw_irq = 0U;
 }
-RadioPacketTypes_t SX1280GetPacketType(void)
+RadioPacketTypes_t SX1280GetPacketType(uint8_t instance)
 {
+    (void)instance;
     s_packet_type_get_count++;
     return PACKET_TYPE_LORA;
 }
-int8_t SX1280GetRssiInst(void)
+int8_t SX1280GetRssiInst(uint8_t instance)
 {
+    (void)instance;
     s_rssi_get_count++;
     return -60;
 }
-uint8_t SX1280GetPayload(uint8_t *payload, uint8_t *size,
-                         uint8_t maximum)
+uint8_t SX1280GetPayload(
+    uint8_t instance, uint8_t *payload, uint8_t *size, uint8_t maximum)
 {
+    (void)instance;
     (void)payload;
     (void)size;
     (void)maximum;
     return 1U;
 }
-void SX1280GetPacketStatus(PacketStatus_t *status)
+void SX1280GetPacketStatus(uint8_t instance, PacketStatus_t *status)
 {
+    (void)instance;
     if (status != NULL) { (void)memset(status, 0, sizeof(*status)); }
 }
-void SX1280SendPayload(uint8_t *payload, uint8_t size, TickTime_t timeout)
+void SX1280SendPayload(
+    uint8_t instance, uint8_t *payload, uint8_t size, TickTime_t timeout)
 {
+    (void)instance;
     (void)payload;
     (void)size;
     (void)timeout;
 }
 
-void Sx1281Bus_Init(void) { }
-void Sx1281Bus_StatusGet(Sx1281BusStatus *status)
+void Sx1281Bus_Init(uint8_t instance) { (void)instance; }
+void Sx1281Bus_StatusGet(uint8_t instance, Sx1281BusStatus *status)
 {
+    (void)instance;
     if (status != NULL) { (void)memset(status, 0, sizeof(*status)); }
+}
+PlatformGpioId Sx1281Bus_NssGet(uint8_t instance)
+{
+    ProjectSx1281Resources resources;
+    return (ProjectSx1281Resources_Get(instance, &resources) ==
+            SYSTEM_DEVICE_OK) ? resources.nss : PLATFORM_GPIO_COUNT;
+}
+PlatformGpioId Sx1281Bus_ResetGet(uint8_t instance)
+{
+    ProjectSx1281Resources resources;
+    return (ProjectSx1281Resources_Get(instance, &resources) ==
+            SYSTEM_DEVICE_OK) ? resources.reset : PLATFORM_GPIO_COUNT;
+}
+PlatformGpioId Sx1281Bus_BusyGet(uint8_t instance)
+{
+    ProjectSx1281Resources resources;
+    return (ProjectSx1281Resources_Get(instance, &resources) ==
+            SYSTEM_DEVICE_OK) ? resources.busy : PLATFORM_GPIO_COUNT;
+}
+PlatformGpioId Sx1281Bus_Dio1Get(uint8_t instance)
+{
+    ProjectSx1281Resources resources;
+    return (ProjectSx1281Resources_Get(instance, &resources) ==
+            SYSTEM_DEVICE_OK) ? resources.dio1 : PLATFORM_GPIO_COUNT;
 }
 
 uint32_t PlatformTime_Ms(void) { return s_tick_ms; }
@@ -125,11 +173,23 @@ uint8_t PlatformGpio_IrqConsume(PlatformGpioId id)
 {
     uint8_t pending;
 
-    if (id != PROJECT_RESOURCE_RADIO_DIO1) { return 0U; }
+    if (id != PLATFORM_GPIO_3) { return 0U; }
     pending = s_dio1_pending;
     s_dio1_pending = 0U;
     return pending;
 }
+
+#define Lora_Init() Lora_Init(0U)
+#define Lora_StartRx() Lora_StartRx(0U)
+#define Lora_Process() Lora_Process(0U)
+#define Lora_GetDiagSnapshot(snapshot) Lora_GetDiagSnapshot(0U, (snapshot))
+#define Lora_ChipStatusGet(status) Lora_ChipStatusGet(0U, (status))
+#define Lora_GetStats(stats) Lora_GetStats(0U, (stats))
+#define Lora_ControlSubmit(operation, timeout_ms, transaction_id) \
+    Lora_ControlSubmit(0U, (operation), (timeout_ms), (transaction_id))
+#define Lora_ControlResultGet(transaction_id, result) \
+    Lora_ControlResultGet(0U, (transaction_id), (result))
+#define Lora_IrqClear(raw_before) Lora_IrqClear(0U, (raw_before))
 
 static void Test_CachedDiagnosticsDoNotReadSpi(void)
 {

@@ -1,5 +1,27 @@
 # Development targets
 
+## 2026-08-31 bounded same-model multi-instance and minimal failover
+
+- [x] JY901B, NEO-M9N, and E28-2G4M12SX/SX1281 allow up to four context-safe repeated instances,
+  with deterministic IDs, independent typed resource rows, static resource tables, and one copy of
+  each source in the graph
+- [x] all selected IMU/GNSS instances initialize, process, and retain independently identifiable
+  native-log sources; one configured primary plus stable remaining instance order forms the backup
+  chain
+- [x] IMU chooses the first initialized fresh finite source before calibration/alignment and then
+  locks for the run; no in-flight IMU switch, voting, cross-check, multi-calibration, or Multi-EKF
+- [x] GNSS performs latched one-way basic-liveness failover while treating fresh no-fix messages as
+  live; no backup leaves the current source active and polled
+- [x] AIR M0 binds an ordered telemetry candidate set but transmits/receives through exactly one
+  active transport; ten consecutive true local TX timeouts trigger one-way failover, success resets
+  the counter, busy does not increment it, and an exhausted last source continues bounded periodic
+  retries
+- [x] source changes reuse the existing SSLOG EVENT payload and `.ssdecoder`/project-semantics stay
+  1.1; AIR M0, maintenance 0.0, SSLOG 0.0, and all record layouts remain unchanged
+- [ ] real dual-JY901B, dual-NEO-M9N, and dual-SX1281 electrical, RF, HIL, and flight validation
+- [ ] future full health management: numeric IMU cross-check, bias/stuck detection, 2oo3 voting,
+  GNSS residual/quality ranking, Multi-EKF, RF end-to-end health, and explicit failback policies
+
 ## 2026-08-31 SilverStar 0.0.10 final freeze
 
 - [x] one authoritative 0.0.10 application/platform/generated-firmware release identity while
@@ -150,6 +172,8 @@
 - **Export Log Decoder Profile** writes a verified data-only package; this round still does not implement a log parser, executable decoder plugin, or version-plugin system.
 - [x] Final multi-instance Facade, 29-record catalog, decoder descriptor, and STATS/TELEMETRY_DIAG producer declarations were imported only after clean reference HEAD `cc0b377ded690556d037a412a55f87fe334c42d0` matched GitHub main and named `完善同能力多实例与日志配置契约`; no older firmware was used to infer state.
 - The GUI exposes add/remove controls when class capacity and another legal model/instance remain; same-model repetition still requires a context-safe manifest. Firmware-backed builtin limits are synchronized only after the specified reference commit passes the dependency gate.
-- Multi-EKF and sensor voting/failover are not implemented; they remain future explicit Strategies, never an automatic consequence of adding sensors.
+- Full health-managed voting, in-flight IMU failover, Multi-EKF, GNSS quality comparison, RF
+  end-to-end health, and automatic failback are not implemented. The only runtime switching is the
+  narrow latched GNSS-liveness and local telemetry-TX-timeout policy described above.
 - EIDE native metadata is generated and structurally/architecturally checked; an EIDE CLI builder is required before claiming an actual EIDE-native compile.
 - No current Board/Environment pair declares validated flash capability, so FCCG emits no GUI, Make, VS Code, or EIDE upload action; no hardware flash or electrical test is claimed.

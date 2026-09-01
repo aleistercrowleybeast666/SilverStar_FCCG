@@ -272,59 +272,59 @@ typedef struct
     uint32_t process_limit_count;
 } IMUStreamDiagnostics;
 
-IMUState IMU_LocalGravitySet(float gravity_mps2);
-IMUState IMU_Init(void);
-IMUState IMU_ApplyDefaultConfig(IMUOutputRate output_rate,
+IMUState IMU_LocalGravitySet(uint8_t instance, float gravity_mps2);
+IMUState IMU_Init(uint8_t instance);
+IMUState IMU_ApplyDefaultConfig(uint8_t instance, IMUOutputRate output_rate,
                                 IMUAlgorithm algorithm);
-void IMU_Reset(void);
-void IMU_StreamReset(void);
-void IMU_Poll(void);
-uint8_t IMU_HasNewFrame(void);
-void IMU_ClearNewFrame(void);
-uint16_t IMU_GetConsecutiveLegalFrameCount(void);
-void IMU_StreamDiagnosticsGet(IMUStreamDiagnostics *diagnostics);
+void IMU_Reset(uint8_t instance);
+void IMU_StreamReset(uint8_t instance);
+void IMU_Poll(uint8_t instance);
+uint8_t IMU_HasNewFrame(uint8_t instance);
+void IMU_ClearNewFrame(uint8_t instance);
+uint16_t IMU_GetConsecutiveLegalFrameCount(uint8_t instance);
+void IMU_StreamDiagnosticsGet(uint8_t instance, IMUStreamDiagnostics *diagnostics);
 
-uint8_t IMU_IsOnline(void);
-const IMUData *IMU_GetData(void);
-int16_t IMU_AccelMps2ToRaw(float accel_mps2);
-int16_t IMU_GyroRadpsToRaw(float gyro_radps);
-Jy901bImuSampleGetResult Jy901bImu_SampleGetNext(Jy901bImuSample *sample);
-uint32_t Jy901bImu_OverflowCountTake(void);
+uint8_t IMU_IsOnline(uint8_t instance);
+const IMUData *IMU_GetData(uint8_t instance);
+int16_t IMU_AccelMps2ToRaw(uint8_t instance, float accel_mps2);
+int16_t IMU_GyroRadpsToRaw(uint8_t instance, float gyro_radps);
+Jy901bImuSampleGetResult Jy901bImu_SampleGetNext(uint8_t instance, Jy901bImuSample *sample);
+uint32_t Jy901bImu_OverflowCountTake(uint8_t instance);
 
 /* Bootstrap or JY901B IMU-owner context only: these APIs touch UART/DMA. */
-IMUState IMU_SetBaudrate(IMUBaudrate baudrate);
-IMUState IMU_SetOutputRate(IMUOutputRate output_rate);
-IMUState IMU_SetBandwidth(IMUBandwidth bandwidth);
-IMUState IMU_SetAlgorithm(IMUAlgorithm algorithm);
-IMUState IMU_SetInstallationOrientation(uint16_t orient_value, uint32_t timeout_ms);
-IMUState IMU_SetGyroRange(IMUGyroRange range);
-IMUState IMU_SetAccelRange(IMUAccelRange range);
+IMUState IMU_SetBaudrate(uint8_t instance, IMUBaudrate baudrate);
+IMUState IMU_SetOutputRate(uint8_t instance, IMUOutputRate output_rate);
+IMUState IMU_SetBandwidth(uint8_t instance, IMUBandwidth bandwidth);
+IMUState IMU_SetAlgorithm(uint8_t instance, IMUAlgorithm algorithm);
+IMUState IMU_SetInstallationOrientation(uint8_t instance, uint16_t orient_value, uint32_t timeout_ms);
+IMUState IMU_SetGyroRange(uint8_t instance, IMUGyroRange range);
+IMUState IMU_SetAccelRange(uint8_t instance, IMUAccelRange range);
 /* Fusion and acceleration filter recommended value: 200U~500U. */
-IMUState IMU_SetFusionFilter(uint16_t filter_value);
-IMUState IMU_SetAccelerationFilter(uint16_t filter_value);
-IMUState IMU_SetReturnContent(uint16_t rsw);
-IMUState IMU_EnsureAlgorithm6Axis(void);
-IMUState IMU_EnsureQuaternionOutput(void);
-IMUState IMU_HardwareZeroZ(void);
-IMUState IMU_GetLastHardwareZeroZResult(void);
-IMUState IMU_SaveConfig(void);
+IMUState IMU_SetFusionFilter(uint8_t instance, uint16_t filter_value);
+IMUState IMU_SetAccelerationFilter(uint8_t instance, uint16_t filter_value);
+IMUState IMU_SetReturnContent(uint8_t instance, uint16_t rsw);
+IMUState IMU_EnsureAlgorithm6Axis(uint8_t instance);
+IMUState IMU_EnsureQuaternionOutput(uint8_t instance);
+IMUState IMU_HardwareZeroZ(uint8_t instance);
+IMUState IMU_GetLastHardwareZeroZResult(uint8_t instance);
+IMUState IMU_SaveConfig(uint8_t instance);
 const char *IMU_StateToString(IMUState state);
 const char *IMU_AlgorithmValueToString(uint16_t value);
-void IMU_ConfigCacheGet(IMUConfig *config);
-void IMU_ConfigCacheSetField(uint16_t valid_mask, uint16_t value);
-void IMU_ConfigCacheSetAll(const IMUConfig *config);
+void IMU_ConfigCacheGet(uint8_t instance, IMUConfig *config);
+void IMU_ConfigCacheSetField(uint8_t instance, uint16_t valid_mask, uint16_t value);
+void IMU_ConfigCacheSetAll(uint8_t instance, const IMUConfig *config);
 
-IMUState IMU_ReadBaudrate(uint16_t *value);
-IMUState IMU_ReadOutputRate(uint16_t *value);
-IMUState IMU_ReadBandwidth(uint16_t *value);
-IMUState IMU_ReadAlgorithm(uint16_t *value);
-IMUState IMU_ReadInstallationOrientation(uint16_t *value, uint32_t timeout_ms);
-IMUState IMU_ReadGyroRange(uint16_t *value);
-IMUState IMU_ReadAccelRange(uint16_t *value);
-IMUState IMU_ReadFusionFilter(uint16_t *value);
-IMUState IMU_ReadAccelerationFilter(uint16_t *value);
-IMUState IMU_ReadReturnContent(uint16_t *value);
-IMUState IMU_ReadCurrentConfig(IMUConfig *config);
-IMUState IMU_ReadCurrentConfigPartial(IMUConfig *config, uint32_t *elapsed_ms);
+IMUState IMU_ReadBaudrate(uint8_t instance, uint16_t *value);
+IMUState IMU_ReadOutputRate(uint8_t instance, uint16_t *value);
+IMUState IMU_ReadBandwidth(uint8_t instance, uint16_t *value);
+IMUState IMU_ReadAlgorithm(uint8_t instance, uint16_t *value);
+IMUState IMU_ReadInstallationOrientation(uint8_t instance, uint16_t *value, uint32_t timeout_ms);
+IMUState IMU_ReadGyroRange(uint8_t instance, uint16_t *value);
+IMUState IMU_ReadAccelRange(uint8_t instance, uint16_t *value);
+IMUState IMU_ReadFusionFilter(uint8_t instance, uint16_t *value);
+IMUState IMU_ReadAccelerationFilter(uint8_t instance, uint16_t *value);
+IMUState IMU_ReadReturnContent(uint8_t instance, uint16_t *value);
+IMUState IMU_ReadCurrentConfig(uint8_t instance, IMUConfig *config);
+IMUState IMU_ReadCurrentConfigPartial(uint8_t instance, IMUConfig *config, uint32_t *elapsed_ms);
 
 #endif /* __JY901B_DEVICE_H */

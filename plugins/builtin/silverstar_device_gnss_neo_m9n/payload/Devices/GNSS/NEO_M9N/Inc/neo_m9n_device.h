@@ -273,73 +273,73 @@ typedef struct
     uint16_t response_length;
 } GnssNeoM9nRfDiagnostics;
 
-GnssNeoM9nInitResult GnssNeoM9n_Init(void);
-int GnssNeoM9n_ApplyDefaultConfig(void);
-GnssNeoM9nUpdateResult GnssNeoM9n_Process(uint32_t now_ms);
-uint8_t GnssNeoM9n_GetData(GnssNeoM9nData *out);
-uint8_t GnssNeoM9n_IsInitialized(void);
-void GnssNeoM9n_GetConfigSnapshot(GnssNeoM9nConfigSnapshot *out);
-void GnssNeoM9n_GetStatusSnapshot(GnssNeoM9nStatusSnapshot *out);
-GnssNeoM9nAckState GnssNeoM9n_GetLastAck(void);
+GnssNeoM9nInitResult GnssNeoM9n_Init(uint8_t instance);
+int GnssNeoM9n_ApplyDefaultConfig(uint8_t instance);
+GnssNeoM9nUpdateResult GnssNeoM9n_Process(uint8_t instance, uint32_t now_ms);
+uint8_t GnssNeoM9n_GetData(uint8_t instance, GnssNeoM9nData *out);
+uint8_t GnssNeoM9n_IsInitialized(uint8_t instance);
+void GnssNeoM9n_GetConfigSnapshot(uint8_t instance, GnssNeoM9nConfigSnapshot *out);
+void GnssNeoM9n_GetStatusSnapshot(uint8_t instance, GnssNeoM9nStatusSnapshot *out);
+GnssNeoM9nAckState GnssNeoM9n_GetLastAck(uint8_t instance);
 
 /* Bootstrap or GNSS adapter-owner context only for command/config APIs. */
-int GnssNeoM9n_SendUbx(uint8_t cls, uint8_t id, const uint8_t *payload, uint16_t len);
-int GnssNeoM9n_ConfigOutputUbxOnly(uint8_t layers);
-int GnssNeoM9n_ConfigOutputProtocol(uint8_t layers, GnssOutputProtocol output);
-int GnssNeoM9n_ConfigNavPvtOutput(uint8_t layers, uint8_t rate);
-int GnssNeoM9n_ConfigNavRate(uint8_t layers, uint8_t hz);
-int GnssNeoM9n_ConfigUartBaudrate(uint8_t layers, uint32_t baudrate);
-int GnssNeoM9n_WaitUartConfigSettle(uint32_t minimum_wait_ms,
+int GnssNeoM9n_SendUbx(uint8_t instance, uint8_t cls, uint8_t id, const uint8_t *payload, uint16_t len);
+int GnssNeoM9n_ConfigOutputUbxOnly(uint8_t instance, uint8_t layers);
+int GnssNeoM9n_ConfigOutputProtocol(uint8_t instance, uint8_t layers, GnssOutputProtocol output);
+int GnssNeoM9n_ConfigNavPvtOutput(uint8_t instance, uint8_t layers, uint8_t rate);
+int GnssNeoM9n_ConfigNavRate(uint8_t instance, uint8_t layers, uint8_t hz);
+int GnssNeoM9n_ConfigUartBaudrate(uint8_t instance, uint8_t layers, uint32_t baudrate);
+int GnssNeoM9n_WaitUartConfigSettle(uint8_t instance, uint32_t minimum_wait_ms,
                                     uint32_t stream_timeout_ms);
-int GnssNeoM9n_ConfigDynamicModel(uint8_t layers, uint8_t dyn_model);
-int GnssNeoM9n_ConfigSignals(uint8_t layers, uint32_t constellation_mask);
-int GnssNeoM9n_ConfigSignalsGpsBdsGal(uint8_t layers);
-int GnssNeoM9n_WaitForNewNavPvt(uint32_t baseline_sequence,
+int GnssNeoM9n_ConfigDynamicModel(uint8_t instance, uint8_t layers, uint8_t dyn_model);
+int GnssNeoM9n_ConfigSignals(uint8_t instance, uint8_t layers, uint32_t constellation_mask);
+int GnssNeoM9n_ConfigSignalsGpsBdsGal(uint8_t instance, uint8_t layers);
+int GnssNeoM9n_WaitForNewNavPvt(uint8_t instance, uint32_t baseline_sequence,
                                 uint64_t minimum_receive_timestamp_us,
                                 uint32_t timeout_ms);
-int GnssNeoM9n_ConfigPreset(uint8_t layers, uint32_t baudrate, uint8_t nav_rate_hz);
-GnssNeoM9nConfigReadResult GnssNeoM9n_ReadHardwareConfig(
+int GnssNeoM9n_ConfigPreset(uint8_t instance, uint8_t layers, uint32_t baudrate, uint8_t nav_rate_hz);
+GnssNeoM9nConfigReadResult GnssNeoM9n_ReadHardwareConfig(uint8_t instance,
     GnssNeoM9nConfigSnapshot *out,
     uint32_t *elapsed_ms,
     GnssNeoM9nConfigReadDiagnostics *diagnostics);
 /* Runtime-owner APIs: each poll advances at most one finite state-machine step. */
-GnssNeoM9nAsyncStartResult GnssNeoM9n_ConfigReadAsyncStart(void);
-GnssNeoM9nAsyncPollResult GnssNeoM9n_ConfigReadAsyncPoll(
+GnssNeoM9nAsyncStartResult GnssNeoM9n_ConfigReadAsyncStart(uint8_t instance);
+GnssNeoM9nAsyncPollResult GnssNeoM9n_ConfigReadAsyncPoll(uint8_t instance,
     GnssNeoM9nConfigSnapshot *out,
     uint32_t *elapsed_ms,
     GnssNeoM9nConfigReadDiagnostics *diagnostics,
     GnssNeoM9nConfigReadResult *result);
-void GnssNeoM9n_ConfigReadAsyncCancel(
+void GnssNeoM9n_ConfigReadAsyncCancel(uint8_t instance,
     GnssNeoM9nConfigReadResult result,
     GnssNeoM9nTransactionDetail detail);
 /* Bootstrap or GNSS-owner context only; System callers use the interface. */
-GnssNeoM9nConfigReadResult GnssNeoM9n_ValgetRead(
+GnssNeoM9nConfigReadResult GnssNeoM9n_ValgetRead(uint8_t instance,
     const uint32_t *keys,
     uint8_t count,
     GnssNeoM9nConfigReadDiagnostics *diagnostics);
-int GnssNeoM9n_ReadSatelliteDiagnostics(
+int GnssNeoM9n_ReadSatelliteDiagnostics(uint8_t instance,
     GnssNeoM9nSatelliteDiagnostics *diagnostics);
-GnssNeoM9nAsyncStartResult GnssNeoM9n_SatelliteDiagnosticsAsyncStart(void);
-GnssNeoM9nAsyncPollResult GnssNeoM9n_SatelliteDiagnosticsAsyncPoll(
+GnssNeoM9nAsyncStartResult GnssNeoM9n_SatelliteDiagnosticsAsyncStart(uint8_t instance);
+GnssNeoM9nAsyncPollResult GnssNeoM9n_SatelliteDiagnosticsAsyncPoll(uint8_t instance,
     GnssNeoM9nSatelliteDiagnostics *diagnostics);
-void GnssNeoM9n_SatelliteDiagnosticsAsyncCancel(
+void GnssNeoM9n_SatelliteDiagnosticsAsyncCancel(uint8_t instance,
     GnssNeoM9nConfigReadResult result,
     GnssNeoM9nTransactionDetail detail);
-uint8_t GnssNeoM9n_GetSatelliteDiagnostics(
+uint8_t GnssNeoM9n_GetSatelliteDiagnostics(uint8_t instance,
     GnssNeoM9nSatelliteDiagnostics *diagnostics);
-int GnssNeoM9n_ReadRfDiagnostics(GnssNeoM9nRfDiagnostics *diagnostics);
-GnssNeoM9nAsyncStartResult GnssNeoM9n_RfDiagnosticsAsyncStart(void);
-GnssNeoM9nAsyncPollResult GnssNeoM9n_RfDiagnosticsAsyncPoll(
+int GnssNeoM9n_ReadRfDiagnostics(uint8_t instance, GnssNeoM9nRfDiagnostics *diagnostics);
+GnssNeoM9nAsyncStartResult GnssNeoM9n_RfDiagnosticsAsyncStart(uint8_t instance);
+GnssNeoM9nAsyncPollResult GnssNeoM9n_RfDiagnosticsAsyncPoll(uint8_t instance,
     GnssNeoM9nRfDiagnostics *diagnostics);
-void GnssNeoM9n_RfDiagnosticsAsyncCancel(
+void GnssNeoM9n_RfDiagnosticsAsyncCancel(uint8_t instance,
     GnssNeoM9nConfigReadResult result,
     GnssNeoM9nTransactionDetail detail);
-uint8_t GnssNeoM9n_GetRfDiagnostics(
+uint8_t GnssNeoM9n_GetRfDiagnostics(uint8_t instance,
     GnssNeoM9nRfDiagnostics *diagnostics);
-int GnssNeoM9n_SaveConfig(uint8_t layers, uint8_t *saved_count);
-uint8_t GnssNeoM9n_GetSaveCacheCount(void);
-uint8_t GnssNeoM9n_IsBaudCached(void);
-void GnssNeoM9n_StreamDiagnosticsGet(
+int GnssNeoM9n_SaveConfig(uint8_t instance, uint8_t layers, uint8_t *saved_count);
+uint8_t GnssNeoM9n_GetSaveCacheCount(uint8_t instance);
+uint8_t GnssNeoM9n_IsBaudCached(uint8_t instance);
+void GnssNeoM9n_StreamDiagnosticsGet(uint8_t instance,
     GnssNeoM9nStreamDiagnostics *diagnostics);
 
 #endif /* __NEO_M9N_DEVICE_H */

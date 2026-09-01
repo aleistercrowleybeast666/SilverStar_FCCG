@@ -22,6 +22,33 @@
 #define TEST_FAILURE_KEY 0x30210002UL
 #define TEST_FRAME_CAPACITY 128U
 #define TEST_RX_CAPACITY 8192U
+#ifndef PROJECT_RESOURCE_GNSS_UART
+#define PROJECT_RESOURCE_GNSS_UART PLATFORM_UART_2
+#endif
+
+/* Exercise instance zero in the legacy single-receiver scenarios. */
+#define GnssNeoM9n_Init() GnssNeoM9n_Init(0U)
+#define GnssNeoM9n_Process(now_ms) GnssNeoM9n_Process(0U, (now_ms))
+#define GnssNeoM9n_ReadHardwareConfig(out, elapsed, diagnostics) \
+    GnssNeoM9n_ReadHardwareConfig(0U, (out), (elapsed), (diagnostics))
+#define GnssNeoM9n_ValgetRead(keys, count, diagnostics) \
+    GnssNeoM9n_ValgetRead(0U, (keys), (count), (diagnostics))
+#define GnssNeoM9n_ReadSatelliteDiagnostics(diagnostics) \
+    GnssNeoM9n_ReadSatelliteDiagnostics(0U, (diagnostics))
+#define GnssNeoM9n_ReadRfDiagnostics(diagnostics) \
+    GnssNeoM9n_ReadRfDiagnostics(0U, (diagnostics))
+#define GnssNeoM9n_ConfigReadAsyncStart() \
+    GnssNeoM9n_ConfigReadAsyncStart(0U)
+#define GnssNeoM9n_ConfigReadAsyncPoll(out, elapsed, diagnostics, result) \
+    GnssNeoM9n_ConfigReadAsyncPoll(0U, (out), (elapsed), (diagnostics), (result))
+#define GnssNeoM9n_SatelliteDiagnosticsAsyncStart() \
+    GnssNeoM9n_SatelliteDiagnosticsAsyncStart(0U)
+#define GnssNeoM9n_SatelliteDiagnosticsAsyncPoll(diagnostics) \
+    GnssNeoM9n_SatelliteDiagnosticsAsyncPoll(0U, (diagnostics))
+#define GnssNeoM9n_RfDiagnosticsAsyncStart() \
+    GnssNeoM9n_RfDiagnosticsAsyncStart(0U)
+#define GnssNeoM9n_RfDiagnosticsAsyncPoll(diagnostics) \
+    GnssNeoM9n_RfDiagnosticsAsyncPoll(0U, (diagnostics))
 
 typedef enum
 {

@@ -7,20 +7,51 @@
 #include "project_resources.h"
 #include "jy901b_config.h"
 #include "jy901b_imu_build_capabilities.h"
+#include "jy901b_instance.h"
 #include "platform_critical.h"
 #include "platform_time.h"
 #include "platform_uart.h"
 #include "silverstar_assert.h"
 #include "system_user_config.h"
 
-static volatile uint8_t s_initialized;
-static volatile uint8_t s_started;
-static volatile uint8_t s_runtime_owner_active;
-static SystemDeviceHealth s_health;
-static SystemImuConfig s_effective_config;
-static IMUData s_published_data;
-static uint32_t s_imu_logical_sequence;
-static IMUAlgorithm s_staged_algorithm = Algorithm_6Axis;
+typedef struct
+{
+    volatile uint8_t initialized;
+    volatile uint8_t started;
+    volatile uint8_t runtime_owner_active;
+    SystemDeviceHealth health;
+    SystemImuConfig effective_config;
+    IMUData published_data;
+    uint32_t imu_logical_sequence;
+    IMUAlgorithm staged_algorithm;
+} Jy901bImuAdapterContext;
+
+static Jy901bImuAdapterContext
+    s_contexts[PROJECT_JY901B_INSTANCE_COUNT];
+
+_Static_assert(PROJECT_JY901B_INSTANCE_COUNT <=
+               PROJECT_JY901B_INSTANCE_COUNT_MAX,
+               "JY901B adapter count exceeds generated resource bound");
+
+#define s_initialized          (s_contexts[instance].initialized)
+#define s_started              (s_contexts[instance].started)
+#define s_runtime_owner_active (s_contexts[instance].runtime_owner_active)
+#define s_health               (s_contexts[instance].health)
+#define s_effective_config     (s_contexts[instance].effective_config)
+#define s_published_data       (s_contexts[instance].published_data)
+#define s_imu_logical_sequence (s_contexts[instance].imu_logical_sequence)
+#define s_staged_algorithm     (s_contexts[instance].staged_algorithm)
+
+static PlatformUartId Jy901bAdapter_UartGet(uint8_t instance)
+{
+    ProjectJy901bResources resources;
+
+    if (ProjectJy901bResources_Get(instance, &resources) != SYSTEM_DEVICE_OK)
+    {
+        return (PlatformUartId)PLATFORM_UART_COUNT;
+    }
+    return resources.uart;
+}
 
 static uint8_t Jy901bAdapter_ImuSampleBuild(const IMUData *data,
                                               SystemImuSample *sample)
@@ -88,7 +119,7 @@ static const uint32_t s_baud_candidates[] =
 
 #define JY901B_LEGAL_FRAME_WAIT_MAX_POLLS 1024U
 
-static void Jy901bAdapter_EffectiveRangeUpdate(const IMUConfig *config)
+static void Jy901bAdapter_EffectiveRangeUpdate(uint8_t instance, const IMUConfig *config)
 {
     static const float accel_ranges_g[] = {2.0f, 4.0f, 8.0f, 16.0f};
     static const float gyro_ranges_dps[] = {200.0f, 500.0f, 1000.0f, 2000.0f};
@@ -113,7 +144,7 @@ static void Jy901bAdapter_EffectiveRangeUpdate(const IMUConfig *config)
     }
 }
 
-static void Jy901bAdapter_EffectiveConfigUpdate(
+static void Jy901bAdapter_EffectiveConfigUpdate(uint8_t instance,
     const IMUConfig *private_config)
 {
     if (private_config == NULL) { return; }
@@ -161,18 +192,18 @@ static void Jy901bAdapter_EffectiveConfigUpdate(
             SYSTEM_IMU_CFG_ACCEL_BANDWIDTH |
             SYSTEM_IMU_CFG_GYRO_BANDWIDTH;
     }
-    Jy901bAdapter_EffectiveRangeUpdate(private_config);
+    Jy901bAdapter_EffectiveRangeUpdate(instance, private_config);
 }
 
-static uint8_t Jy901bAdapter_LegalFramesWait(uint32_t timeout_ms)
+static uint8_t Jy901bAdapter_LegalFramesWait(uint8_t instance, uint32_t timeout_ms)
 {
     uint32_t start_tick = PlatformTime_Ms();
     uint32_t poll;
 
     for (poll = 0U; poll < JY901B_LEGAL_FRAME_WAIT_MAX_POLLS; poll++)
     {
-        IMU_Poll();
-        if (IMU_GetConsecutiveLegalFrameCount() >=
+        IMU_Poll(instance);
+        if (IMU_GetConsecutiveLegalFrameCount(instance) >=
             JY901B_BAUD_VERIFY_FRAME_COUNT)
         {
             return 1U;
@@ -187,18 +218,18 @@ static uint8_t Jy901bAdapter_LegalFramesWait(uint32_t timeout_ms)
     return 0U;
 }
 
-static uint8_t Jy901bAdapter_BaudCandidateTry(uint32_t baudrate)
+static uint8_t Jy901bAdapter_BaudCandidateTry(uint8_t instance, uint32_t baudrate)
 {
-    if (PlatformUart_BaudSet(PROJECT_RESOURCE_IMU_UART, baudrate) != PLATFORM_OK)
+    if (PlatformUart_BaudSet(Jy901bAdapter_UartGet(instance), baudrate) != PLATFORM_OK)
     {
         return 0U;
     }
-    IMU_StreamReset();
-    (void)PlatformUart_RxFlush(PROJECT_RESOURCE_IMU_UART);
-    return Jy901bAdapter_LegalFramesWait(JY901B_BAUD_SCAN_DWELL_MS);
+    IMU_StreamReset(instance);
+    (void)PlatformUart_RxFlush(Jy901bAdapter_UartGet(instance));
+    return Jy901bAdapter_LegalFramesWait(instance, JY901B_BAUD_SCAN_DWELL_MS);
 }
 
-static uint8_t Jy901bAdapter_BaudRescueRun(void)
+static uint8_t Jy901bAdapter_BaudRescueRun(uint8_t instance)
 {
     IMUConfig private_config;
     uint32_t elapsed_ms;
@@ -220,7 +251,7 @@ static uint8_t Jy901bAdapter_BaudRescueRun(void)
                                sizeof(s_baud_candidates[0]));
              index++)
         {
-            if (Jy901bAdapter_BaudCandidateTry(s_baud_candidates[index]) != 0U)
+            if (Jy901bAdapter_BaudCandidateTry(instance, s_baud_candidates[index]) != 0U)
             {
                 detected_baudrate = s_baud_candidates[index];
                 break;
@@ -231,12 +262,12 @@ static uint8_t Jy901bAdapter_BaudRescueRun(void)
             continue;
         }
 
-        (void)IMU_ReadCurrentConfigPartial(&private_config, &elapsed_ms);
-        Jy901bAdapter_EffectiveConfigUpdate(&private_config);
+        (void)IMU_ReadCurrentConfigPartial(instance, &private_config, &elapsed_ms);
+        Jy901bAdapter_EffectiveConfigUpdate(instance, &private_config);
         if ((JY901B_BAUD_NORMALIZE_ENABLE != 0U) &&
             (detected_baudrate != IMU_DEFAULT_BAUDRATE))
         {
-            if (IMU_SetBaudrate(Baudrate_230400) != IMU_OK)
+            if (IMU_SetBaudrate(instance, Baudrate_230400) != IMU_OK)
             {
                 detected_baudrate = 0U;
                 continue;
@@ -244,9 +275,9 @@ static uint8_t Jy901bAdapter_BaudRescueRun(void)
             detected_baudrate = IMU_DEFAULT_BAUDRATE;
         }
 
-        IMU_StreamReset();
-        (void)PlatformUart_RxFlush(PROJECT_RESOURCE_IMU_UART);
-        if (Jy901bAdapter_LegalFramesWait(
+        IMU_StreamReset(instance);
+        (void)PlatformUart_RxFlush(Jy901bAdapter_UartGet(instance));
+        if (Jy901bAdapter_LegalFramesWait(instance,
                 JY901B_BAUD_SCAN_DWELL_MS) != 0U)
         {
             return 1U;
@@ -254,9 +285,9 @@ static uint8_t Jy901bAdapter_BaudRescueRun(void)
         detected_baudrate = 0U;
     }
 
-    (void)PlatformUart_BaudSet(PROJECT_RESOURCE_IMU_UART, JY901B_UART_BOOT_BAUD);
-    IMU_StreamReset();
-    (void)PlatformUart_RxFlush(PROJECT_RESOURCE_IMU_UART);
+    (void)PlatformUart_BaudSet(Jy901bAdapter_UartGet(instance), JY901B_UART_BOOT_BAUD);
+    IMU_StreamReset(instance);
+    (void)PlatformUart_RxFlush(Jy901bAdapter_UartGet(instance));
     return 0U;
 }
 
@@ -270,7 +301,7 @@ static void Jy901bAdapter_IrqUnlock(uint32_t primask)
     PlatformCritical_Exit(primask);
 }
 
-SystemDeviceResult Jy901bAdapter_SharedInit(void)
+SystemDeviceResult Jy901bAdapter_SharedInit(uint8_t instance)
 {
     IMUState state;
 
@@ -285,10 +316,11 @@ SystemDeviceResult Jy901bAdapter_SharedInit(void)
     (void)memset(&s_published_data, 0, sizeof(s_published_data));
     s_imu_logical_sequence = 0U;
     s_runtime_owner_active = 0U;
-    state = IMU_LocalGravitySet(SYSTEM_LOCAL_GRAVITY_MPS2);
+    s_staged_algorithm = Algorithm_6Axis;
+    state = IMU_LocalGravitySet(instance, SYSTEM_LOCAL_GRAVITY_MPS2);
     if (state == IMU_OK)
     {
-        state = IMU_Init();
+        state = IMU_Init(instance);
     }
     if (state != IMU_OK)
     {
@@ -296,7 +328,7 @@ SystemDeviceResult Jy901bAdapter_SharedInit(void)
         return (state == IMU_RESP_TIMEOUT) ? SYSTEM_DEVICE_TIMEOUT :
                                              SYSTEM_DEVICE_IO_ERROR;
     }
-    if (Jy901bAdapter_BaudRescueRun() == 0U)
+    if (Jy901bAdapter_BaudRescueRun(instance) == 0U)
     {
         s_health.timeout_count++;
         return SYSTEM_DEVICE_TIMEOUT;
@@ -306,7 +338,7 @@ SystemDeviceResult Jy901bAdapter_SharedInit(void)
     return SYSTEM_DEVICE_OK;
 }
 
-SystemDeviceResult Jy901bAdapter_AlgorithmStage(IMUAlgorithm algorithm)
+SystemDeviceResult Jy901bAdapter_AlgorithmStage(uint8_t instance, IMUAlgorithm algorithm)
 {
     if ((algorithm != Algorithm_6Axis) && (algorithm != Algorithm_9Axis))
     {
@@ -316,7 +348,7 @@ SystemDeviceResult Jy901bAdapter_AlgorithmStage(IMUAlgorithm algorithm)
     return SYSTEM_DEVICE_CONFIG_DELEGATED;
 }
 
-SystemDeviceResult Jy901bAdapter_SharedStart(void)
+SystemDeviceResult Jy901bAdapter_SharedStart(uint8_t instance)
 {
     uint32_t primask;
 
@@ -329,7 +361,7 @@ SystemDeviceResult Jy901bAdapter_SharedStart(void)
     return SYSTEM_DEVICE_OK;
 }
 
-SystemDeviceResult Jy901bAdapter_SharedStop(void)
+SystemDeviceResult Jy901bAdapter_SharedStop(uint8_t instance)
 {
     uint32_t primask = Jy901bAdapter_IrqLock();
 
@@ -339,7 +371,7 @@ SystemDeviceResult Jy901bAdapter_SharedStop(void)
     return SYSTEM_DEVICE_OK;
 }
 
-void Jy901bAdapter_SharedProcess(void)
+void Jy901bAdapter_SharedProcess(uint8_t instance)
 {
     const IMUData *data;
     IMUData snapshot;
@@ -350,9 +382,9 @@ void Jy901bAdapter_SharedProcess(void)
     SILVERSTAR_ASSERT_OBJECT(&s_health, SystemDeviceHealth,
         SILVERSTAR_ASSERT_MODULE_DEVICE);
     if (s_started == 0U) { return; }
-    IMU_Poll();
-    (void)PlatformUart_DiagnosticsGet(PROJECT_RESOURCE_IMU_UART, &io_diagnostics);
-    data = IMU_GetData();
+    IMU_Poll(instance);
+    (void)PlatformUart_DiagnosticsGet(Jy901bAdapter_UartGet(instance), &io_diagnostics);
+    data = IMU_GetData(instance);
     snapshot = *data;
     primask = Jy901bAdapter_IrqLock();
     health = s_health;
@@ -362,8 +394,8 @@ void Jy901bAdapter_SharedProcess(void)
             snapshot.GyroTimestampUs : snapshot.AccTimestampUs;
     health.last_receive_timestamp_us = health.last_sample_timestamp_us;
     health.sample_count = s_imu_logical_sequence;
-    health.error_count += Jy901bImu_OverflowCountTake();
-    health.online = IMU_IsOnline();
+    health.error_count += Jy901bImu_OverflowCountTake(instance);
+    health.online = IMU_IsOnline(instance);
     health.healthy = (uint8_t)((health.online != 0U) &&
         ((snapshot.ValidMask & 0x03U) == 0x03U) &&
         (io_diagnostics.rx_active != 0U));
@@ -373,7 +405,7 @@ void Jy901bAdapter_SharedProcess(void)
     Jy901bAdapter_IrqUnlock(primask);
 }
 
-SystemDeviceResult Jy901bAdapter_SharedHealthGet(SystemDeviceHealth *health)
+SystemDeviceResult Jy901bAdapter_SharedHealthGet(uint8_t instance, SystemDeviceHealth *health)
 {
     uint32_t primask;
 
@@ -384,7 +416,7 @@ SystemDeviceResult Jy901bAdapter_SharedHealthGet(SystemDeviceHealth *health)
     return SYSTEM_DEVICE_OK;
 }
 
-SystemDeviceResult Jy901bAdapter_SharedSnapshotGet(IMUData *snapshot)
+SystemDeviceResult Jy901bAdapter_SharedSnapshotGet(uint8_t instance, IMUData *snapshot)
 {
     uint32_t primask;
 
@@ -397,22 +429,22 @@ SystemDeviceResult Jy901bAdapter_SharedSnapshotGet(IMUData *snapshot)
                                          SYSTEM_DEVICE_NOT_READY;
 }
 
-static SystemDeviceResult Jy901bImuAdapter_Init(void)
+static SystemDeviceResult Jy901bImuAdapter_Init(uint8_t instance)
 {
-    return Jy901bAdapter_SharedInit();
+    return Jy901bAdapter_SharedInit(instance);
 }
 
-static SystemDeviceResult Jy901bImuAdapter_Start(void)
+static SystemDeviceResult Jy901bImuAdapter_Start(uint8_t instance)
 {
-    return Jy901bAdapter_SharedStart();
+    return Jy901bAdapter_SharedStart(instance);
 }
 
-static SystemDeviceResult Jy901bImuAdapter_Stop(void)
+static SystemDeviceResult Jy901bImuAdapter_Stop(uint8_t instance)
 {
-    return Jy901bAdapter_SharedStop();
+    return Jy901bAdapter_SharedStop(instance);
 }
 
-static SystemDeviceResult Jy901bImuAdapter_RuntimeOwnerActivate(void)
+static SystemDeviceResult Jy901bImuAdapter_RuntimeOwnerActivate(uint8_t instance)
 {
     uint32_t primask;
 
@@ -428,15 +460,15 @@ static SystemDeviceResult Jy901bImuAdapter_RuntimeOwnerActivate(void)
     return SYSTEM_DEVICE_OK;
 }
 
-SystemDeviceResult Jy901bAdapter_ConfigAccessCheck(void)
+SystemDeviceResult Jy901bAdapter_ConfigAccessCheck(uint8_t instance)
 {
     return (s_runtime_owner_active != 0U) ? SYSTEM_DEVICE_BUSY :
                                             SYSTEM_DEVICE_OK;
 }
 
-static void Jy901bImuAdapter_Process(void)
+static void Jy901bImuAdapter_Process(uint8_t instance)
 {
-    Jy901bAdapter_SharedProcess();
+    Jy901bAdapter_SharedProcess(instance);
 }
 
 static SystemDeviceResult Jy901bImuAdapter_GetInfo(SystemDeviceInfo *info)
@@ -469,7 +501,7 @@ static SystemDeviceResult Jy901bImuAdapter_GetCapabilities(uint32_t *mask)
     return SYSTEM_DEVICE_OK;
 }
 
-static SystemDeviceResult Jy901bImuAdapter_GetLatestSample(
+static SystemDeviceResult Jy901bImuAdapter_GetLatestSample(uint8_t instance,
     SystemImuSample *sample)
 {
     IMUData data;
@@ -477,7 +509,7 @@ static SystemDeviceResult Jy901bImuAdapter_GetLatestSample(
     SystemDeviceResult result;
 
     if (sample == NULL) { return SYSTEM_DEVICE_INVALID_ARGUMENT; }
-    result = Jy901bAdapter_SharedSnapshotGet(&data);
+    result = Jy901bAdapter_SharedSnapshotGet(instance, &data);
     if (result != SYSTEM_DEVICE_OK) { return result; }
     (void)index;
     if (Jy901bAdapter_ImuSampleBuild(&data, sample) == 0U)
@@ -488,14 +520,14 @@ static SystemDeviceResult Jy901bImuAdapter_GetLatestSample(
     return SYSTEM_DEVICE_OK;
 }
 
-static SystemDeviceResult Jy901bImuAdapter_GetNextSample(
+static SystemDeviceResult Jy901bImuAdapter_GetNextSample(uint8_t instance,
     SystemImuSample *sample)
 {
     Jy901bImuSample native;
     Jy901bImuSampleGetResult result;
 
     if (sample == NULL) { return SYSTEM_DEVICE_INVALID_ARGUMENT; }
-    result = Jy901bImu_SampleGetNext(&native);
+    result = Jy901bImu_SampleGetNext(instance, &native);
     if (result == JY901B_IMU_SAMPLE_GET_EMPTY)
     {
         return SYSTEM_DEVICE_NOT_READY;
@@ -612,7 +644,7 @@ static SystemDeviceResult Jy901bImuAdapter_ConfigValidate(
         SYSTEM_DEVICE_UNSUPPORTED : SYSTEM_DEVICE_OK;
 }
 
-static void Jy901bImuAdapter_EffectiveConfigApply(
+static void Jy901bImuAdapter_EffectiveConfigApply(uint8_t instance,
     const SystemImuConfig *config,
     const SystemDeviceConfigReport *report)
 {
@@ -644,7 +676,7 @@ static void Jy901bImuAdapter_EffectiveConfigApply(
     }
 }
 
-static SystemDeviceResult Jy901bImuAdapter_ApplyConfig(
+static SystemDeviceResult Jy901bImuAdapter_ApplyConfig(uint8_t instance,
     const SystemImuConfig *config,
     SystemDeviceConfigReport *report)
 {
@@ -658,7 +690,7 @@ static SystemDeviceResult Jy901bImuAdapter_ApplyConfig(
     }
     SILVERSTAR_ASSERT_OBJECT(config, SystemImuConfig,
         SILVERSTAR_ASSERT_MODULE_DEVICE);
-    if (Jy901bAdapter_ConfigAccessCheck() != SYSTEM_DEVICE_OK)
+    if (Jy901bAdapter_ConfigAccessCheck(instance) != SYSTEM_DEVICE_OK)
     {
         (void)memset(report, 0, sizeof(*report));
         return SYSTEM_DEVICE_BUSY;
@@ -674,7 +706,7 @@ static SystemDeviceResult Jy901bImuAdapter_ApplyConfig(
     {
         (void)Jy901bAdapter_OutputRateValueGet(config->output_rate_hz, &rate);
     }
-    state = IMU_ApplyDefaultConfig(rate, s_staged_algorithm);
+    state = IMU_ApplyDefaultConfig(instance, rate, s_staged_algorithm);
     if (state != IMU_OK)
     {
         report->verify_failed_mask = config->requested_mask;
@@ -687,11 +719,11 @@ static SystemDeviceResult Jy901bImuAdapter_ApplyConfig(
     report->applied_mask = report->matched_mask;
     report->persisted = 1U;
     report->success = 1U;
-    Jy901bImuAdapter_EffectiveConfigApply(config, report);
+    Jy901bImuAdapter_EffectiveConfigApply(instance, config, report);
     return result;
 }
 
-static uint32_t Jy901bImuAdapter_ConfigMismatchMaskGet(
+static uint32_t Jy901bImuAdapter_ConfigMismatchMaskGet(uint8_t instance,
     const IMUConfig *config,
     IMUOutputRate expected_rate)
 {
@@ -722,7 +754,7 @@ static uint32_t Jy901bImuAdapter_ConfigMismatchMaskGet(
     return mismatch_mask;
 }
 
-static SystemDeviceResult Jy901bImuAdapter_VerifyConfig(
+static SystemDeviceResult Jy901bImuAdapter_VerifyConfig(uint8_t instance,
     const SystemImuConfig *config,
     SystemDeviceConfigReport *report)
 {
@@ -738,7 +770,7 @@ static SystemDeviceResult Jy901bImuAdapter_VerifyConfig(
     }
     SILVERSTAR_ASSERT_OBJECT(config, SystemImuConfig,
         SILVERSTAR_ASSERT_MODULE_DEVICE);
-    if (Jy901bAdapter_ConfigAccessCheck() != SYSTEM_DEVICE_OK)
+    if (Jy901bAdapter_ConfigAccessCheck(instance) != SYSTEM_DEVICE_OK)
     {
         (void)memset(report, 0, sizeof(*report));
         return SYSTEM_DEVICE_BUSY;
@@ -755,7 +787,7 @@ static SystemDeviceResult Jy901bImuAdapter_VerifyConfig(
         (void)Jy901bAdapter_OutputRateValueGet(config->output_rate_hz,
                                                  &expected_rate);
     }
-    state = IMU_ReadCurrentConfig(&private_config);
+    state = IMU_ReadCurrentConfig(instance, &private_config);
     if (state != IMU_OK)
     {
         report->matched_mask = 0U;
@@ -766,7 +798,7 @@ static SystemDeviceResult Jy901bImuAdapter_VerifyConfig(
         return (state == IMU_RESP_TIMEOUT) ? SYSTEM_DEVICE_TIMEOUT :
                                              SYSTEM_DEVICE_IO_ERROR;
     }
-    mismatch_mask = Jy901bImuAdapter_ConfigMismatchMaskGet(&private_config,
+    mismatch_mask = Jy901bImuAdapter_ConfigMismatchMaskGet(instance, &private_config,
         expected_rate);
     report->detail_code = mismatch_mask;
     if (mismatch_mask != 0U)
@@ -781,7 +813,7 @@ static SystemDeviceResult Jy901bImuAdapter_VerifyConfig(
     return validation;
 }
 
-static SystemDeviceResult Jy901bImuAdapter_GetIoDiagnostics(
+static SystemDeviceResult Jy901bImuAdapter_GetIoDiagnostics(uint8_t instance,
     SystemDeviceIoDiagnostics *diagnostics)
 {
     PlatformUartDiagnostics source;
@@ -789,7 +821,7 @@ static SystemDeviceResult Jy901bImuAdapter_GetIoDiagnostics(
     if (diagnostics == NULL) { return SYSTEM_DEVICE_INVALID_ARGUMENT; }
     SILVERSTAR_ASSERT_OBJECT(diagnostics, SystemDeviceIoDiagnostics,
         SILVERSTAR_ASSERT_MODULE_DEVICE);
-    (void)PlatformUart_DiagnosticsGet(PROJECT_RESOURCE_IMU_UART, &source);
+    (void)PlatformUart_DiagnosticsGet(Jy901bAdapter_UartGet(instance), &source);
     (void)memset(diagnostics, 0, sizeof(*diagnostics));
     diagnostics->supported_mask = SYSTEM_DEVICE_IO_VALID_TRANSPORT |
         SYSTEM_DEVICE_IO_VALID_RX_BYTES |
@@ -829,20 +861,20 @@ static SystemDeviceResult Jy901bImuAdapter_GetIoDiagnostics(
     return SYSTEM_DEVICE_OK;
 }
 
-static SystemDeviceResult Jy901bImuAdapter_GetIoDetail(
+static SystemDeviceResult Jy901bImuAdapter_GetIoDetail(uint8_t instance,
     SystemImuIoDetail *detail)
 {
     IMUStreamDiagnostics source;
 
     if (detail == NULL) { return SYSTEM_DEVICE_INVALID_ARGUMENT; }
-    IMU_StreamDiagnosticsGet(&source);
+    IMU_StreamDiagnosticsGet(instance, &source);
     detail->valid_frame_count = source.valid_frame_count;
     detail->checksum_error_count = source.checksum_error_count;
     detail->parser_resync_count = source.parser_resync_count;
     return SYSTEM_DEVICE_OK;
 }
 
-SystemDeviceResult Jy901bAdapter_FrameHealthGet(IMUFrameType frame_type,
+SystemDeviceResult Jy901bAdapter_FrameHealthGet(uint8_t instance, IMUFrameType frame_type,
                                                  SystemDeviceHealth *health)
 {
     IMUData snapshot;
@@ -856,10 +888,10 @@ SystemDeviceResult Jy901bAdapter_FrameHealthGet(IMUFrameType frame_type,
     if (health == NULL) { return SYSTEM_DEVICE_INVALID_ARGUMENT; }
     SILVERSTAR_ASSERT_OBJECT(health, SystemDeviceHealth,
         SILVERSTAR_ASSERT_MODULE_DEVICE);
-    result = Jy901bAdapter_SharedHealthGet(health);
+    result = Jy901bAdapter_SharedHealthGet(instance, health);
     if (result != SYSTEM_DEVICE_OK) { return result; }
     (void)memset(&snapshot, 0, sizeof(snapshot));
-    result = Jy901bAdapter_SharedSnapshotGet(&snapshot);
+    result = Jy901bAdapter_SharedSnapshotGet(instance, &snapshot);
     if ((result != SYSTEM_DEVICE_OK) &&
         (result != SYSTEM_DEVICE_NOT_READY))
     {
@@ -904,7 +936,7 @@ SystemDeviceResult Jy901bAdapter_FrameHealthGet(IMUFrameType frame_type,
     return SYSTEM_DEVICE_OK;
 }
 
-static SystemDeviceResult Jy901bImuAdapter_GetEffectiveConfig(
+static SystemDeviceResult Jy901bImuAdapter_GetEffectiveConfig(uint8_t instance,
     SystemImuConfig *config)
 {
     if (config == NULL) { return SYSTEM_DEVICE_INVALID_ARGUMENT; }
@@ -927,64 +959,79 @@ static SystemDeviceResult Jy901bImuAdapter_GetNoise(
     return SYSTEM_DEVICE_OK;
 }
 
-const char *SystemImu_NameGet(void) { return "JY901B IMU"; }
-SystemDeviceResult SystemImu_Init(void) { return Jy901bImuAdapter_Init(); }
-SystemDeviceResult SystemImu_Start(void) { return Jy901bImuAdapter_Start(); }
-SystemDeviceResult SystemImu_Stop(void) { return Jy901bImuAdapter_Stop(); }
-SystemDeviceResult SystemImu_RuntimeOwnerActivate(void)
+const char *Jy901bImuInstance_NameGet(uint8_t instance)
 {
-    return Jy901bImuAdapter_RuntimeOwnerActivate();
+    (void)instance;
+    return "JY901B IMU";
 }
-void SystemImu_Process(void) { Jy901bImuAdapter_Process(); }
-SystemDeviceResult SystemImu_InfoGet(SystemDeviceInfo *info)
+SystemDeviceResult Jy901bImuInstance_Init(uint8_t instance) { return Jy901bImuAdapter_Init(instance); }
+SystemDeviceResult Jy901bImuInstance_Start(uint8_t instance) { return Jy901bImuAdapter_Start(instance); }
+SystemDeviceResult Jy901bImuInstance_Stop(uint8_t instance) { return Jy901bImuAdapter_Stop(instance); }
+SystemDeviceResult Jy901bImuInstance_RuntimeOwnerActivate(uint8_t instance)
 {
+    return Jy901bImuAdapter_RuntimeOwnerActivate(instance);
+}
+SystemDeviceResult Jy901bImuInstance_Process(uint8_t instance)
+{
+    Jy901bImuAdapter_Process(instance);
+    return SYSTEM_DEVICE_OK;
+}
+SystemDeviceResult Jy901bImuInstance_InfoGet(
+    uint8_t instance, SystemDeviceInfo *info)
+{
+    (void)instance;
     return Jy901bImuAdapter_GetInfo(info);
 }
-SystemDeviceResult SystemImu_CapabilitiesGet(uint32_t *capability_mask)
+SystemDeviceResult Jy901bImuInstance_CapabilitiesGet(
+    uint8_t instance, uint32_t *capability_mask)
 {
+    (void)instance;
     return Jy901bImuAdapter_GetCapabilities(capability_mask);
 }
-SystemDeviceResult SystemImu_HealthGet(SystemDeviceHealth *health)
+SystemDeviceResult Jy901bImuInstance_HealthGet(uint8_t instance, SystemDeviceHealth *health)
 {
-    return Jy901bAdapter_SharedHealthGet(health);
+    return Jy901bAdapter_SharedHealthGet(instance, health);
 }
-SystemDeviceResult SystemImu_IoDiagnosticsGet(
+SystemDeviceResult Jy901bImuInstance_IoDiagnosticsGet(uint8_t instance,
     SystemDeviceIoDiagnostics *diagnostics)
 {
-    return Jy901bImuAdapter_GetIoDiagnostics(diagnostics);
+    return Jy901bImuAdapter_GetIoDiagnostics(instance, diagnostics);
 }
-SystemDeviceResult SystemImu_IoDetailGet(SystemImuIoDetail *detail)
+SystemDeviceResult Jy901bImuInstance_IoDetailGet(uint8_t instance, SystemImuIoDetail *detail)
 {
-    return Jy901bImuAdapter_GetIoDetail(detail);
+    return Jy901bImuAdapter_GetIoDetail(instance, detail);
 }
-SystemDeviceResult SystemImu_LatestSampleGet(SystemImuSample *sample)
+SystemDeviceResult Jy901bImuInstance_LatestSampleGet(uint8_t instance, SystemImuSample *sample)
 {
-    return Jy901bImuAdapter_GetLatestSample(sample);
+    return Jy901bImuAdapter_GetLatestSample(instance, sample);
 }
-SystemDeviceResult SystemImu_NextSampleGet(SystemImuSample *sample)
+SystemDeviceResult Jy901bImuInstance_NextSampleGet(uint8_t instance, SystemImuSample *sample)
 {
-    return Jy901bImuAdapter_GetNextSample(sample);
+    return Jy901bImuAdapter_GetNextSample(instance, sample);
 }
-SystemDeviceResult SystemImu_SelfTestRun(SystemDeviceSelfTestResult *result)
+SystemDeviceResult Jy901bImuInstance_SelfTestRun(
+    uint8_t instance, SystemDeviceSelfTestResult *result)
 {
+    (void)instance;
     return Jy901bImuAdapter_RunSelfTest(result);
 }
-SystemDeviceResult SystemImu_ConfigApply(const SystemImuConfig *config,
+SystemDeviceResult Jy901bImuInstance_ConfigApply(uint8_t instance, const SystemImuConfig *config,
                                          SystemDeviceConfigReport *report)
 {
-    return Jy901bImuAdapter_ApplyConfig(config, report);
+    return Jy901bImuAdapter_ApplyConfig(instance, config, report);
 }
-SystemDeviceResult SystemImu_ConfigVerify(const SystemImuConfig *config,
+SystemDeviceResult Jy901bImuInstance_ConfigVerify(uint8_t instance, const SystemImuConfig *config,
                                           SystemDeviceConfigReport *report)
 {
-    return Jy901bImuAdapter_VerifyConfig(config, report);
+    return Jy901bImuAdapter_VerifyConfig(instance, config, report);
 }
-SystemDeviceResult SystemImu_EffectiveConfigGet(SystemImuConfig *config)
+SystemDeviceResult Jy901bImuInstance_EffectiveConfigGet(uint8_t instance, SystemImuConfig *config)
 {
-    return Jy901bImuAdapter_GetEffectiveConfig(config);
+    return Jy901bImuAdapter_GetEffectiveConfig(instance, config);
 }
-SystemDeviceResult SystemImu_NoiseCharacteristicsGet(
-    SystemImuNoiseCharacteristics *noise)
+SystemDeviceResult Jy901bImuInstance_NoiseCharacteristicsGet(
+    uint8_t instance, SystemImuNoiseCharacteristics *noise)
 {
+    (void)instance;
     return Jy901bImuAdapter_GetNoise(noise);
 }

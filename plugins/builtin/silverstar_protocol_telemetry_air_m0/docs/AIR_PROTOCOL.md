@@ -911,6 +911,15 @@ Unknown sensor ID 必须保留原值。
 
 本轮Capability Instance Addressing对AIR M0的wire修改为NONE：没有新增message、字段、ID或CRC，没有改变任何帧长度、offset、量化、发送频率或MTU要求，当前golden frame保持逐字节一致。System Sensor Status从Generated descriptor/facade枚举全部启用能力实例，既有9-byte `SENSOR_STATUS.sensor_id + instance_id`可表达instance 1；正式F407默认成员和输出字节不变。AIR继续只承载一份绑定instance 0的Canonical flight state和低频sensor health；不会通过M0发送多个IMU/GNSS的高频原始数据。多实例raw数据属于本地飞行日志和维护协议。
 
+AIR profile声明`transport_selection=ordered_failover`。所有selected Telemetry Device先独立
+Init，但只有一个active transport执行Start、TX、RX和IRQ/Process上层路径，backup不得重复
+发送frame或提交command。candidate顺序为配置primary后接稳定instance顺序；active连续10次
+真实本地TX timeout后才单向切换到下一已初始化candidate。成功TX清零连续计数，BUSY或其他
+非timeout临时状态不累计。不存在后续candidate时不停止AIR/TelemetryTask，最后source保留为
+active并在以后每个正常发送周期只进行一次有界尝试；后续成功同样清零。该策略不循环
+failback，不在单次Send中重试10次，不添加ground heartbeat/ACK/RSSI判定，因此本地TX_DONE
+不能证明地面站实际收到，天线或RF端到端故障仍不在0.0.10检测范围内。
+
 未来新增 STAR_TRACKER、SUN_SENSOR、AIR_DATA 或其他普通传感器，只需：
 
 1. 分配稳定`sensor_id`；

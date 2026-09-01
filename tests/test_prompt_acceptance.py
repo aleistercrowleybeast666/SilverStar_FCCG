@@ -62,6 +62,7 @@ from tools.import_reference_components import _ProtocolMetadata_Adapt
 
 def test_reference_import_definition_preserves_current_fccg_overlays(
     monkeypatch: pytest.MonkeyPatch,
+    workspace_root: Path,
 ) -> None:
     monkeypatch.setattr(
         reference_import, "_ManifestValues_Get", lambda *_arguments: []
@@ -133,11 +134,74 @@ def test_reference_import_definition_preserves_current_fccg_overlays(
     core_owned = components_by_id["silverstar.core.0_0_10"]["fccg_owned_files"]
     for relative in (
         "APP/Src/app_tasks.c",
+        "System/Inc/system_source_selector.h",
+        "System/Src/system_source_selector.c",
+        "Tests/Host/Fixtures/MultiInstance/Inc/project_resources.h",
+        "Tests/Host/test_source_selector.c",
+        "Tests/Host/test_sx1280_hal_multi_instance.c",
         "Tests/Host/test_logger.c",
         "Tools/check_power_of_ten.ps1",
         "Tools/validate_sslog_record_catalog.py",
     ):
         assert relative in core_owned
+    context_files = {
+        "silverstar.device.imu.jy901b": (
+            "Devices/IMU/JY901B/Inc/jy901b_imu_build_capabilities.h",
+            "Devices/IMU/JY901B/Adapter/Inc/jy901b_instance.h",
+            "Devices/IMU/JY901B/Src/jy901b_device.c",
+        ),
+        "silverstar.device.gnss.neo_m9n": (
+            "Devices/GNSS/NEO_M9N/Adapter/Inc/neo_m9n_instance.h",
+            "Devices/GNSS/NEO_M9N/Src/neo_m9n_device.c",
+        ),
+        "silverstar.device.telemetry.sx1281": (
+            "Devices/Telemetry/SX1281/Adapter/Inc/sx1281_instance.h",
+            "Middlewares/Third_Party/SX1280lib/sx1280.c",
+        ),
+    }
+    for component_id, relatives in context_files.items():
+        owned = components_by_id[component_id]["fccg_owned_files"]
+        assert all(relative in owned for relative in relatives)
+    assert imu["metadata"]["device_instance_bindings"][
+        "SYSTEM_DEVICE_CLASS_IMU"
+    ] == {
+        "function_prefix": "Jy901bImuInstance",
+        "headers": ["jy901b_instance.h"],
+        "pass_instance": True,
+    }
+    assert manifests["silverstar.device.gnss.neo_m9n"]["metadata"][
+        "device_instance_bindings"
+    ]["SYSTEM_DEVICE_CLASS_GNSS"]["function_prefix"] == (
+        "NeoM9nGnssInstance"
+    )
+    assert manifests["silverstar.device.telemetry.sx1281"]["metadata"][
+        "device_instance_bindings"
+    ]["SYSTEM_DEVICE_CLASS_TELEMETRY"]["function_prefix"] == (
+        "Sx1281TelemetryInstance"
+    )
+    for component_id in context_files:
+        package = component_id.replace(".", "_")
+        installed = json.loads(
+            (
+                workspace_root / "plugins" / "builtin" / package / "plugin.json"
+            ).read_text(encoding="utf-8")
+        )
+        generated = manifests[component_id]
+        assert generated["instance_policy"] == installed["instance_policy"]
+        for key in (
+            "instance_resource_binding",
+            "device_instance_bindings",
+            "source_origins",
+        ):
+            assert generated["metadata"][key] == installed["metadata"][key]
+    logging_owned = components_by_id[
+        "silverstar.protocol.logging.sslog_0_0"
+    ]["fccg_owned_files"]
+    assert {
+        "Protocol/SSLOG/Inc/sslog_protocol.h",
+        "Protocol/SSLOG/schema/sslog_parser_metadata.json",
+        "Protocol/SSLOG/schema/sslog_schema.json",
+    }.issubset(logging_owned)
 
 
 def test_manifest_reference_provenance_excludes_dynamic_audit_fields() -> None:
@@ -190,14 +254,15 @@ def test_fccg_owned_decoder_templates_survive_reference_reimport(
 
     assert semantics["schema_id"] == "silverstar.project-semantics/1.1"
     assert "profile->package_schema_minor = 1U;" in descriptor_source
-    assert (
-        'fccg_template_source_root / "project_log_decoder_profile.c"'
-        in importer_source
-    )
-    assert (
-        'semantics_source = fccg_template_source_root / "project_semantics.json"'
-        in importer_source
-    )
+    for relative in (
+        "project_device_instances.h",
+        "project_device_instances.c",
+        "project_log_config.c",
+        "project_log_decoder_profile.h",
+        "project_log_decoder_profile.c",
+        "project_semantics.json",
+    ):
+        assert f'"{relative}",' in importer_source
 
 
 def test_reference_payload_sync_and_environment_templates_are_read_only(
@@ -229,11 +294,6 @@ def test_reference_payload_sync_and_environment_templates_are_read_only(
             "jy901b_quaternion_build_capabilities.h",
         ),
         (
-            "Devices/IMU/JY901B/Inc/jy901b_imu_build_capabilities.h",
-            "plugins/builtin/silverstar_device_imu_jy901b/payload/"
-            "Devices/IMU/JY901B/Inc/jy901b_imu_build_capabilities.h",
-        ),
-        (
             "System/User/system_user_capability_validation.h",
             "plugins/builtin/silverstar_core_0_0_10/payload/"
             "System/User/system_user_capability_validation.h",
@@ -257,11 +317,6 @@ def test_reference_payload_sync_and_environment_templates_are_read_only(
             "Generated/Src/project_log_config.c",
             "plugins/builtin/silverstar_core_0_0_10/templates/"
             "generated/project_log_config.c",
-        ),
-        (
-            "Protocol/SSLOG/schema/sslog_schema.json",
-            "plugins/builtin/silverstar_protocol_logging_sslog_0_0/payload/"
-            "Protocol/SSLOG/schema/sslog_schema.json",
         ),
         (
             "Protocol/SSLOG/Inc/sslog_records.h",
@@ -298,6 +353,25 @@ def test_reference_payload_sync_and_environment_templates_are_read_only(
         assert (reference / reference_relative).read_bytes() == (
             workspace_root / builtin_relative
         ).read_bytes()
+
+    reference_schema = json.loads(
+        (reference / "Protocol/SSLOG/schema/sslog_schema.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    builtin_schema = json.loads(
+        (
+            workspace_root
+            / "plugins/builtin/silverstar_protocol_logging_sslog_0_0/"
+            "payload/Protocol/SSLOG/schema/sslog_schema.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert builtin_schema["records"] == reference_schema["records"]
+    reasons = builtin_schema["sensor_source_change_event"]["reasons"]
+    assert reasons["5"] == "prestart_primary_unavailable"
+    assert reasons["6"] == "gnss_liveness_timeout"
+    assert reasons["7"] == "telemetry_consecutive_tx_timeout"
+    assert reasons["8"] == "telemetry_init_failure"
 
     core_manifest = json.loads(
         (

@@ -147,7 +147,7 @@ System源码只读取通用qualification宏，不包含设备名。具体宏映�
 
 `SystemDeviceDescriptor`同时携带`descriptor_id`、`physical_device_id`、`device_class`和类别内`instance_id`。相同`physical_device_id`表示多个Capability Endpoint共享一个实际模块；它不能由driver/model hash推断，也不等于instance ID。descriptor表有公共编译期上界，但每个实例写成独立SSLOG Record，不把设备ID塞入固定长度payload数组。descriptor接口是只读project metadata，不是运行期Device Registry，也不包含函数地址。
 
-`Generated/Inc/project_device_instances.h`提供Maintenance、Sensor Status、Native Log和未来FCCG使用的按实例静态facade。每个正式能力具有Count及其实际支持的Info/Health/Sample/Config/I/O操作；实现先验证descriptor，再使用有界`switch(instance_id)`静态direct case，不存在实例明确返回`NOT_PRESENT`。不同Device插件可以分别绑定同能力instance 0/1；同一插件只有声明`multi_instance_ready`后才能重复。当前F407每个已启用类别只生成instance 0，`JY901B_BUILD_MULTI_INSTANCE_READY=0U`；双实例Host fixture不进入Target图。不得把facade扩展成运行期注册表、function pointer dispatch或动态选择器。算法侧Canonical接口继续绑定instance 0的单一输入，多实例facade本身不实现Selection、Voting、Multi-INS或Multi-EKF。
+`Generated/Inc/project_device_instances.h`提供Maintenance、Sensor Status、Native Log和FCCG使用的按实例静态facade。每个正式能力具有Count及其实际支持的Info/Health/Sample/Config/I/O操作；实现先验证descriptor，再使用有界`switch(instance_id)`静态direct case，不存在实例明确返回`NOT_PRESENT`。JY901B、NEO-M9N和SX1281声明`multi_instance_ready=true`并各自最多4实例，Generated resource accessor将每个source instance绑定到独立硬件资源；实际Driver Host测试覆盖context隔离，fixture不进入Target图。不得把facade扩展成运行期注册表、function pointer dispatch或动态选择器。算法侧仍只有一个Canonical输入：IMU只在Calibration/Alignment前选择并锁定，绝不在飞行中自动切换，也不实现Voting、Multi-INS或Multi-EKF。
 
 ## 10. 新设备流程
 

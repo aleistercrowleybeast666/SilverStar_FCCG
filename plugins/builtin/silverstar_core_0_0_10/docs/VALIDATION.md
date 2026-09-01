@@ -4,7 +4,9 @@
 
 ## 2026-08-28 同能力多实例与日志配置契约验证
 
-本轮将同能力多实例的正式边界收敛到Generated静态门面。IMU、GNSS、BARO、MAG、ATTITUDE、TELEMETRY和POWER均提供有界`CountGet`及按`instance_id`访问descriptor、capabilities、health和适用sample/config/I/O的接口；实现使用生成期固定`switch`直接绑定，不含heap、函数指针、runtime registry、vtable或动态注册。当前SilverStar_F407真实配置仍只生成各现有能力的instance 0；JY901B明确声明`JY901B_BUILD_MULTI_INSTANCE_READY=0U`，因此“一个复合物理设备导出多个不同能力端点”不等于“同一Driver插件已支持重复实例化”。
+本轮将同能力多实例的正式边界从Generated静态门面扩展到实际Driver context。IMU、GNSS、BARO、MAG、ATTITUDE、TELEMETRY和POWER均提供有界`CountGet`及按`instance_id`访问descriptor、capabilities、health和适用sample/config/I/O的接口；实现使用生成期固定`switch`直接绑定，不含heap、函数指针、runtime registry、vtable或动态注册。JY901B、NEO-M9N和SX1281现明确声明最多4个context-safe同插件实例；每个实例使用独立Generated资源、parser/FIFO/config/status/radio context，同一源码只编译一次。真实双设备电气与飞行资格仍未验证。
+
+最小Source Selector只实现pre-start IMU新鲜有效源选择并锁定、GNSS基础liveness单向切换，以及AIR单active transport在连续10次真实本地TX timeout后的单向切换。成功TX清零、BUSY不累计、无backup保留最后source并按正常周期继续有界尝试。不存在IMU飞行中切换、Voting、Multi-EKF、RF端到端健康或自动failback。真实切换复用既有SSLOG EVENT，`.ssdecoder`/project-semantics保持1.1且AIR M0、维护0.0、SSLOG 0.0 layout不变。
 
 维护协议0.0继续按`<CAPABILITY> <INSTANCE> <COMMAND>`寻址实例化能力，越界实例明确返回`NOT_PRESENT`，不会回退到0。Host-only fixture生成IMU 0/1和GNSS 0/1两个逻辑实例，验证LIST、descriptor/physical identity、sample、health、配置与越界拒绝；fixture不进入firmware source graph。Canonical INS/KF仍固定使用当前项目语义选择的instance 0，本轮没有实现Sensor Selection、Voting、同型号Driver多实例或Multi-EKF。
 

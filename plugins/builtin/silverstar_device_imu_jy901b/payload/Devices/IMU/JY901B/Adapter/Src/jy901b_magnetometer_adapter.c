@@ -4,6 +4,8 @@
 #include <stddef.h>
 #include <string.h>
 
+#include "project_resources.h"
+#include "jy901b_instance.h"
 #include "jy901b_sensor_adapter.h"
 #include "jy901b_magnetometer_config.h"
 #include "silverstar_assert.h"
@@ -12,38 +14,47 @@
 #define JY901B_MAG_MGAUSS_PER_LSB 0.0667f
 #define JY901B_MAG_UT_PER_LSB     0.00667f
 
-static SystemMagnetometerConfig s_effective_config;
+static SystemMagnetometerConfig
+    s_effective_configs[PROJECT_JY901B_INSTANCE_COUNT];
 
-static SystemDeviceResult Jy901bMagnetometerAdapter_GetHealth(
+#define s_effective_config (s_effective_configs[instance])
+
+static SystemDeviceResult Jy901bMagnetometerAdapter_GetHealth(uint8_t instance,
     SystemDeviceHealth *health)
 {
-    return Jy901bAdapter_FrameHealthGet(IMUFrameMag, health);
+    (void)instance;
+    return Jy901bAdapter_FrameHealthGet(instance, IMUFrameMag, health);
 }
 
-static SystemDeviceResult Jy901bMagnetometerAdapter_Init(void)
+static SystemDeviceResult Jy901bMagnetometerAdapter_Init(uint8_t instance)
 {
-    return Jy901bAdapter_SharedInit();
+    (void)instance;
+    return Jy901bAdapter_SharedInit(instance);
 }
 
-static SystemDeviceResult Jy901bMagnetometerAdapter_Start(void)
+static SystemDeviceResult Jy901bMagnetometerAdapter_Start(uint8_t instance)
 {
-    SystemDeviceResult result = Jy901bAdapter_SharedStart();
+    (void)instance;
+    SystemDeviceResult result = Jy901bAdapter_SharedStart(instance);
 
     return (result == SYSTEM_DEVICE_ALREADY_MATCHED) ? SYSTEM_DEVICE_OK : result;
 }
 
-static SystemDeviceResult Jy901bMagnetometerAdapter_Stop(void)
+static SystemDeviceResult Jy901bMagnetometerAdapter_Stop(uint8_t instance)
 {
+    (void)instance;
     return SYSTEM_DEVICE_OK;
 }
 
-static void Jy901bMagnetometerAdapter_Process(void)
+static void Jy901bMagnetometerAdapter_Process(uint8_t instance)
 {
+    (void)instance;
 }
 
-static SystemDeviceResult Jy901bMagnetometerAdapter_GetInfo(
+static SystemDeviceResult Jy901bMagnetometerAdapter_GetInfo(uint8_t instance,
     SystemDeviceInfo *info)
 {
+    (void)instance;
     if (info == NULL) { return SYSTEM_DEVICE_INVALID_ARGUMENT; }
     info->device_name = "JY901B Magnetometer Adapter";
     info->model_name = "JY901B";
@@ -56,9 +67,10 @@ static SystemDeviceResult Jy901bMagnetometerAdapter_GetInfo(
     return SYSTEM_DEVICE_OK;
 }
 
-static SystemDeviceResult Jy901bMagnetometerAdapter_GetCapabilities(
+static SystemDeviceResult Jy901bMagnetometerAdapter_GetCapabilities(uint8_t instance,
     uint32_t *mask)
 {
+    (void)instance;
     if (mask == NULL) { return SYSTEM_DEVICE_INVALID_ARGUMENT; }
     *mask = SYSTEM_MAG_CAP_RAW_OUTPUT |
             SYSTEM_MAG_CAP_PHYSICAL_UNIT |
@@ -67,9 +79,10 @@ static SystemDeviceResult Jy901bMagnetometerAdapter_GetCapabilities(
     return SYSTEM_DEVICE_OK;
 }
 
-static SystemDeviceResult Jy901bMagnetometerAdapter_GetSample(
+static SystemDeviceResult Jy901bMagnetometerAdapter_GetSample(uint8_t instance,
     SystemMagnetometerSample *sample)
 {
+    (void)instance;
     IMUData data;
     SystemDeviceResult result;
     uint8_t index;
@@ -77,7 +90,7 @@ static SystemDeviceResult Jy901bMagnetometerAdapter_GetSample(
     if (sample == NULL) { return SYSTEM_DEVICE_INVALID_ARGUMENT; }
     SILVERSTAR_ASSERT_OBJECT(sample, SystemMagnetometerSample,
                              SILVERSTAR_ASSERT_MODULE_DEVICE);
-    result = Jy901bAdapter_SharedSnapshotGet(&data);
+    result = Jy901bAdapter_SharedSnapshotGet(instance, &data);
     if (result != SYSTEM_DEVICE_OK) { return result; }
     if ((data.ValidMask & (1U << 3)) == 0U) { return SYSTEM_DEVICE_NOT_READY; }
     (void)memset(sample, 0, sizeof(*sample));
@@ -103,19 +116,21 @@ static SystemDeviceResult Jy901bMagnetometerAdapter_GetSample(
     return SYSTEM_DEVICE_OK;
 }
 
-static SystemDeviceResult Jy901bMagnetometerAdapter_SelfTest(
+static SystemDeviceResult Jy901bMagnetometerAdapter_SelfTest(uint8_t instance,
     SystemDeviceSelfTestResult *result)
 {
+    (void)instance;
     if (result == NULL) { return SYSTEM_DEVICE_INVALID_ARGUMENT; }
     (void)memset(result, 0, sizeof(*result));
     result->unsupported_mask = 1U;
     return SYSTEM_DEVICE_UNSUPPORTED;
 }
 
-static SystemDeviceResult Jy901bMagnetometerAdapter_ConfigCheck(
+static SystemDeviceResult Jy901bMagnetometerAdapter_ConfigCheck(uint8_t instance,
     const SystemMagnetometerConfig *config,
     SystemDeviceConfigReport *report)
 {
+    (void)instance;
     if ((config == NULL) || (report == NULL))
     {
         return SYSTEM_DEVICE_INVALID_ARGUMENT;
@@ -145,12 +160,13 @@ static SystemDeviceResult Jy901bMagnetometerAdapter_ConfigCheck(
         SYSTEM_DEVICE_UNSUPPORTED : SYSTEM_DEVICE_OK;
 }
 
-static SystemDeviceResult Jy901bMagnetometerAdapter_ApplyConfig(
+static SystemDeviceResult Jy901bMagnetometerAdapter_ApplyConfig(uint8_t instance,
     const SystemMagnetometerConfig *config,
     SystemDeviceConfigReport *report)
 {
+    (void)instance;
     SystemDeviceResult result =
-        Jy901bMagnetometerAdapter_ConfigCheck(config, report);
+        Jy901bMagnetometerAdapter_ConfigCheck(instance, config, report);
 
     if ((result != SYSTEM_DEVICE_OK) && (result != SYSTEM_DEVICE_UNSUPPORTED))
     {
@@ -164,15 +180,16 @@ static SystemDeviceResult Jy901bMagnetometerAdapter_ApplyConfig(
         SYSTEM_DEVICE_CONFIG_DELEGATED : result;
 }
 
-static SystemDeviceResult Jy901bMagnetometerAdapter_VerifyConfig(
+static SystemDeviceResult Jy901bMagnetometerAdapter_VerifyConfig(uint8_t instance,
     const SystemMagnetometerConfig *config,
     SystemDeviceConfigReport *report)
 {
+    (void)instance;
     uint16_t value;
     IMUOutputRate expected_rate;
     IMUState state;
     SystemDeviceResult result =
-        Jy901bMagnetometerAdapter_ConfigCheck(config, report);
+        Jy901bMagnetometerAdapter_ConfigCheck(instance, config, report);
 
     if ((result != SYSTEM_DEVICE_OK) && (result != SYSTEM_DEVICE_UNSUPPORTED))
     { return result; }
@@ -180,12 +197,12 @@ static SystemDeviceResult Jy901bMagnetometerAdapter_VerifyConfig(
                              SILVERSTAR_ASSERT_MODULE_DEVICE);
     if ((config->requested_mask & SYSTEM_MAG_CFG_OUTPUT_RATE) == 0U)
     { return result; }
-    if (Jy901bAdapter_ConfigAccessCheck() != SYSTEM_DEVICE_OK)
+    if (Jy901bAdapter_ConfigAccessCheck(instance) != SYSTEM_DEVICE_OK)
     { return SYSTEM_DEVICE_BUSY; }
     if (Jy901bAdapter_OutputRateValueGet(config->output_rate_hz,
                                           &expected_rate) != SYSTEM_DEVICE_OK)
     { return SYSTEM_DEVICE_INVALID_ARGUMENT; }
-    state = IMU_ReadOutputRate(&value);
+    state = IMU_ReadOutputRate(instance, &value);
     if ((state != IMU_OK) || (value != (uint16_t)expected_rate))
     {
         report->matched_mask = 0U;
@@ -199,40 +216,54 @@ static SystemDeviceResult Jy901bMagnetometerAdapter_VerifyConfig(
     return result;
 }
 
-static SystemDeviceResult Jy901bMagnetometerAdapter_GetConfig(
+static SystemDeviceResult Jy901bMagnetometerAdapter_GetConfig(uint8_t instance,
     SystemMagnetometerConfig *config)
 {
+    (void)instance;
     if (config == NULL) { return SYSTEM_DEVICE_INVALID_ARGUMENT; }
     *config = s_effective_config;
     return SYSTEM_DEVICE_OK;
 }
 
-const char *SystemMagnetometer_NameGet(void) { return "JY901B Magnetometer"; }
-SystemDeviceResult SystemMagnetometer_Init(void)
-{ return Jy901bMagnetometerAdapter_Init(); }
-SystemDeviceResult SystemMagnetometer_Start(void)
-{ return Jy901bMagnetometerAdapter_Start(); }
-SystemDeviceResult SystemMagnetometer_Stop(void)
-{ return Jy901bMagnetometerAdapter_Stop(); }
-void SystemMagnetometer_Process(void) { Jy901bMagnetometerAdapter_Process(); }
-SystemDeviceResult SystemMagnetometer_InfoGet(SystemDeviceInfo *info)
-{ return Jy901bMagnetometerAdapter_GetInfo(info); }
-SystemDeviceResult SystemMagnetometer_CapabilitiesGet(uint32_t *mask)
-{ return Jy901bMagnetometerAdapter_GetCapabilities(mask); }
-SystemDeviceResult SystemMagnetometer_HealthGet(SystemDeviceHealth *health)
-{ return Jy901bMagnetometerAdapter_GetHealth(health); }
-SystemDeviceResult SystemMagnetometer_LatestSampleGet(
+const char *Jy901bMagnetometerInstance_NameGet(uint8_t instance) {
+    (void)instance; return "JY901B Magnetometer"; }
+SystemDeviceResult Jy901bMagnetometerInstance_Init(uint8_t instance)
+{
+    (void)instance; return Jy901bMagnetometerAdapter_Init(instance); }
+SystemDeviceResult Jy901bMagnetometerInstance_Start(uint8_t instance)
+{
+    (void)instance; return Jy901bMagnetometerAdapter_Start(instance); }
+SystemDeviceResult Jy901bMagnetometerInstance_Stop(uint8_t instance)
+{
+    (void)instance; return Jy901bMagnetometerAdapter_Stop(instance); }
+void Jy901bMagnetometerInstance_Process(uint8_t instance) {
+    (void)instance; Jy901bMagnetometerAdapter_Process(instance); }
+SystemDeviceResult Jy901bMagnetometerInstance_InfoGet(uint8_t instance, SystemDeviceInfo *info)
+{
+    (void)instance; return Jy901bMagnetometerAdapter_GetInfo(instance, info); }
+SystemDeviceResult Jy901bMagnetometerInstance_CapabilitiesGet(uint8_t instance, uint32_t *mask)
+{
+    (void)instance; return Jy901bMagnetometerAdapter_GetCapabilities(instance, mask); }
+SystemDeviceResult Jy901bMagnetometerInstance_HealthGet(uint8_t instance, SystemDeviceHealth *health)
+{
+    (void)instance; return Jy901bMagnetometerAdapter_GetHealth(instance, health); }
+SystemDeviceResult Jy901bMagnetometerInstance_LatestSampleGet(uint8_t instance,
     SystemMagnetometerSample *sample)
-{ return Jy901bMagnetometerAdapter_GetSample(sample); }
-SystemDeviceResult SystemMagnetometer_SelfTestRun(
+{
+    (void)instance; return Jy901bMagnetometerAdapter_GetSample(instance, sample); }
+SystemDeviceResult Jy901bMagnetometerInstance_SelfTestRun(uint8_t instance,
     SystemDeviceSelfTestResult *result)
-{ return Jy901bMagnetometerAdapter_SelfTest(result); }
-SystemDeviceResult SystemMagnetometer_ConfigApply(
+{
+    (void)instance; return Jy901bMagnetometerAdapter_SelfTest(instance, result); }
+SystemDeviceResult Jy901bMagnetometerInstance_ConfigApply(uint8_t instance,
     const SystemMagnetometerConfig *config, SystemDeviceConfigReport *report)
-{ return Jy901bMagnetometerAdapter_ApplyConfig(config, report); }
-SystemDeviceResult SystemMagnetometer_ConfigVerify(
+{
+    (void)instance; return Jy901bMagnetometerAdapter_ApplyConfig(instance, config, report); }
+SystemDeviceResult Jy901bMagnetometerInstance_ConfigVerify(uint8_t instance,
     const SystemMagnetometerConfig *config, SystemDeviceConfigReport *report)
-{ return Jy901bMagnetometerAdapter_VerifyConfig(config, report); }
-SystemDeviceResult SystemMagnetometer_EffectiveConfigGet(
+{
+    (void)instance; return Jy901bMagnetometerAdapter_VerifyConfig(instance, config, report); }
+SystemDeviceResult Jy901bMagnetometerInstance_EffectiveConfigGet(uint8_t instance,
     SystemMagnetometerConfig *config)
-{ return Jy901bMagnetometerAdapter_GetConfig(config); }
+{
+    (void)instance; return Jy901bMagnetometerAdapter_GetConfig(instance, config); }

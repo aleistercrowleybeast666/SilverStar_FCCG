@@ -84,6 +84,24 @@ Static project_capability_routes.c
 
 `DeviceInstance` identifies the physical module (`imu0`, `gnss0`, `telemetry0`, `maintenance0`) independently of its plugin implementation. Generated descriptors then assign contiguous capability-class endpoint indices: one JY901B physical instance can own IMU 0, BAROMETER 0, MAGNETOMETER 0, and ATTITUDE 0 without duplicating UART initialization or status objects. Canonical Source Selection is a third identity: each consumed capability defaults to endpoint instance 0 and stores only a non-default physical-source override. Instance policy distinguishes a per-model `plugin_max` from a whole-class `class_max`; legacy `project_max` data migrates conservatively. A class may contain two different singleton models when its class limit permits it, while repeating one model additionally requires `same_plugin_multiple` and a context-safe `multi_instance_ready` driver.
 
+For JY901B, NEO-M9N, and SX1281, that repeated-instance contract is real and bounded at four. The
+manifest-owned `instance_resource_binding` names a generated struct, accessor, count symbol,
+runtime upper bound, and complete requirement-to-member map. Generated static tables bind every
+physical instance to its UART/SPI/GPIO/time resources; driver contexts use the same source-instance
+index while implementation sources remain deduplicated. No component ID is special-cased in
+Python.
+
+The runtime selector is deliberately narrower than a health manager. It orders candidates as the
+configured primary followed by stable project instance order. Every IMU initializes/processes and
+logs native data, but only the first fresh finite source selected before calibration/alignment feeds
+the Canonical API and the choice then locks. Every GNSS initializes/processes/logs; only loss of
+basic liveness advances the active instance, with no failback and no-fix separate from liveness.
+Every telemetry candidate initializes, but AIR M0 starts and services TX/RX on exactly one active
+transport. Ten consecutive true local TX timeouts advance to the next candidate; success resets the
+counter, non-timeout busy does not count, and the last candidate remains active for bounded
+once-per-period retries. Runtime changes use the existing SSLOG source-change EVENT; static
+descriptors continue to describe the initial route.
+
 Strategy selection determines which implementation enters the source graph. Capability resolution determines which physical instance supplies each declared input. These are deliberately separate. The consuming implementation owns when and how it uses an input; FCCG has no general PRE_START/ASCENT/RECOVERY phase-policy layer. Future sensor selection/health and Multi-EKF behavior must be explicit Strategies, not automatic consequences of adding devices.
 
 Capability state has three separate views: **Provided** means a Device can produce the datum, **Consumed** means a selected implementation has a routed requirement, and **Recordable** means Device/protocol metadata permits raw logging. Recordability never depends on a current Algorithm route. This allows JY901B hardware quaternions to be logged under software alignment while keeping magnetic frames disabled for the actual device return configuration.

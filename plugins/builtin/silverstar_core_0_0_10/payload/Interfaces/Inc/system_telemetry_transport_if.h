@@ -16,6 +16,7 @@ typedef struct
     uint64_t last_receive_timestamp_us;
     uint32_t transmit_packet_count;
     uint32_t receive_packet_count;
+    uint32_t transmit_timeout_count;
     uint32_t transmit_error_count;
     uint32_t receive_error_count;
     uint32_t integrity_error_count;

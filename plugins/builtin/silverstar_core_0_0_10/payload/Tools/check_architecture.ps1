@@ -275,6 +275,7 @@ $expectedGeneratedFiles = @(
     'Generated\Src\project_log_config.c',
     'Generated\Src\project_log_decoder_profile.c',
     'Generated\Src\project_metadata.c',
+    'Generated\Src\project_resources.c',
     'Generated\Inc\project_capability_routes.h',
     'Generated\Src\project_capability_routes.c',
     'Generated\Inc\project_flight_config.h',
@@ -815,8 +816,29 @@ Assert-NoArchitecturePattern -Name `
     -Pattern '\(\s*\*\s*[A-Za-z_][A-Za-z0-9_]*\s*\)'
 Assert-FileContainsPattern `
     -RelativePath 'Devices\IMU\JY901B\Inc\jy901b_imu_build_capabilities.h' `
-    -Pattern 'JY901B_BUILD_MULTI_INSTANCE_READY\s+0U' `
-    -Message 'JY901B must remain explicitly unqualified for same-plugin repetition.'
+    -Pattern 'JY901B_BUILD_MULTI_INSTANCE_READY\s+1U' `
+    -Message 'JY901B must remain qualified for bounded context-safe repetition.'
+foreach ($contextDriver in @(
+    @{ Path = 'Devices\IMU\JY901B\Src\jy901b_device.c';
+       Macro = 'PROJECT_JY901B_INSTANCE_COUNT_MAX' },
+    @{ Path = 'Devices\GNSS\NEO_M9N\Src\neo_m9n_device.c';
+       Macro = 'PROJECT_NEO_M9N_INSTANCE_COUNT_MAX' },
+    @{ Path = 'Devices\Telemetry\SX1281\Src\sx1281_device.c';
+       Macro = 'PROJECT_SX1281_INSTANCE_COUNT_MAX' })) {
+    Assert-FileContainsPattern `
+        -RelativePath $contextDriver.Path `
+        -Pattern $contextDriver.Macro `
+        -Message ("Generated multi-instance bound is not consumed: {0}" -f `
+            $contextDriver.Path)
+}
+Assert-FileContainsPattern `
+    -RelativePath 'System\Src\system_source_selector.c' `
+    -Pattern 'SYSTEM_TELEMETRY_FAILOVER_CONSECUTIVE_TIMEOUT_LIMIT' `
+    -Message 'Bounded telemetry failover policy is missing.'
+Assert-FileContainsPattern `
+    -RelativePath 'System\Src\system_source_selector.c' `
+    -Pattern 'SystemSourceSelector_ImuSelectAndLock\s*\(' `
+    -Message 'Pre-start IMU source lock is missing.'
 foreach ($nativeFacade in @(
     'Imu', 'Gnss', 'Barometer', 'Magnetometer', 'Attitude', 'Power')) {
     Assert-FileContainsPattern `

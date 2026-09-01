@@ -149,7 +149,7 @@ INS / Estimator
 
 Physical Device是JY901B、NEO-M9N、E28等实际硬件；Capability Endpoint是`IMU 0`、`BARO 0`、`ATTITUDE 0`、`GNSS 0`等逻辑能力实例。一个物理设备可以提供多个端点，但硬件所有权仍唯一。当前JY901B物理UART和parser只由共享JY901B Adapter拥有；IMU、Barometer、Magnetometer与Hardware Quaternion Adapter读取同一静态native snapshot并委托物理配置，不创建第二个UART消费者或第二个parser。`IMU`只表示加速度和角速度，气压、磁场和硬件姿态必须是独立能力端点。
 
-Target descriptor用明确的`physical_device_id`和`SYSTEM_DESCRIPTOR_FLAG_SHARED_PHYSICAL`表达共享关系；逻辑`instance_id`只在同一device class内从0连续编号。Generated facade为IMU、GNSS、BARO、MAG、ATTITUDE、TELEMETRY和POWER提供类别Count及受支持操作，生成的`switch(instance_id)`直接绑定各插件Adapter；不存在实例返回`NOT_PRESENT`，不使用registry、vtable、function pointer或heap。不同插件可以提供同一能力的不同实例；同一插件能否重复由插件`multi_instance_ready`资格决定，当前JY901B为0。Maintenance、Sensor Status与Native Log使用该facade；正式F407仍只实例化各类instance 0，双实例只在Host静态fixture中验证。当前INS/Estimator仍消费绑定instance 0的单一Canonical输入，多实例诊断与日志不等于Sensor Selection、Voting、Multi-INS或Multi-EKF。
+Target descriptor用明确的`physical_device_id`和`SYSTEM_DESCRIPTOR_FLAG_SHARED_PHYSICAL`表达共享关系；逻辑`instance_id`只在同一device class内从0连续编号。Generated facade为IMU、GNSS、BARO、MAG、ATTITUDE、TELEMETRY和POWER提供类别Count及受支持操作，生成的`switch(instance_id)`直接绑定各插件Adapter；不存在实例返回`NOT_PRESENT`，不使用registry、vtable、function pointer或heap。JY901B、NEO-M9N和SX1281现已通过每实例静态context、类型化resource table和实际Driver Host隔离测试，正式允许同插件最多4实例；其他插件仍按各自manifest边界。Maintenance、Sensor Status与Native Log使用该facade，所有IMU/GNSS实例均持续Process并生成可区分Native数据。当前INS/Estimator只消费一个Canonical输入：IMU在Calibration/Alignment前按primary后稳定顺序选择首个新鲜有效源并锁定，飞行中不切换；GNSS只在基础liveness故障时单向切到后续备用，no-fix不等于故障；AIR只启用一个active Telemetry，连续10次真实本地TX timeout后单向切换，成功清零，备用耗尽后仍按正常周期重试最后source。该窄策略不实现Voting、Multi-INS、Multi-EKF、RF端到端健康、自动failback或重复AIR收发。
 
 ## 6. 启动所有权
 

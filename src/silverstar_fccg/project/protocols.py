@@ -64,6 +64,8 @@ class ProtocolBinding:
     provider_component: str
     provider_instance: str
     transport_capability: str
+    transport_selection: str = "single"
+    candidate_instances: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -275,10 +277,11 @@ def ProtocolProfileAvailabilities_Get(
             reason_code = ""
             if requirement is None or not compatible:
                 reason_code = "protocol.unavailable.transport_missing"
-            elif len(compatible) > 1:
+            elif profile.transport_selection == "single" and len(compatible) > 1:
                 reason_code = "protocol.unavailable.transport_ambiguous"
-            elif not _ProviderHardwareAvailable_Is(
-                candidate, catalog, compatible[0]
+            elif not any(
+                _ProviderHardwareAvailable_Is(candidate, catalog, provider)
+                for provider in compatible
             ):
                 reason_code = "protocol.unavailable.hardware"
             availability = ProtocolProfileAvailability(
@@ -387,7 +390,7 @@ def ProtocolResolution_Resolve(
                 )
             )
             continue
-        if len(compatible) > 1:
+        if profile.transport_selection == "single" and len(compatible) > 1:
             issues.append(
                 ProtocolResolutionIssue(
                     "protocol_transport_ambiguous",
@@ -397,7 +400,21 @@ def ProtocolResolution_Resolve(
                 )
             )
             continue
-        provider = compatible[0]
+        available = tuple(
+            provider
+            for provider in compatible
+            if _ProviderHardwareAvailable_Is(model, catalog, provider)
+        )
+        if not available:
+            issues.append(
+                ProtocolResolutionIssue(
+                    "protocol_transport_hardware",
+                    f"Protocol profile {category}/{profile.profile_id} has no "
+                    "hardware-available transport",
+                )
+            )
+            continue
+        provider = available[0]
         bindings.append(
             ProtocolBinding(
                 category=category,
@@ -408,6 +425,10 @@ def ProtocolResolution_Resolve(
                 provider_component=provider.component_id,
                 provider_instance=provider.instance_id,
                 transport_capability=provider.transport.capability,
+                transport_selection=profile.transport_selection,
+                candidate_instances=tuple(
+                    candidate.instance_id for candidate in available
+                ),
             )
         )
     return ProtocolResolution(

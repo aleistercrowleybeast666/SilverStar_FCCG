@@ -19,39 +19,87 @@
 #define IMU_CONFIG_READ_MAX_POLLS       1024U
 #define IMU_MAX_READ_CHUNKS_PER_PROCESS   16U
 
-static IMUData s_imu;
-static IMUConfig s_config_cache;
-static IMUState s_lastHardwareZeroZResult = IMU_RESP_INVALID;
-static float s_local_gravity_mps2;
-static Jy901bImuSample s_sample_fifo[JY901B_IMU_SAMPLE_FIFO_DEPTH];
-static uint16_t s_sample_fifo_head;
-static uint16_t s_sample_fifo_tail;
-static uint32_t s_sample_overflow_count;
-static uint32_t s_last_sample_acc_count;
-static uint32_t s_last_sample_gyro_count;
+typedef struct
+{
+    IMUData imu;
+    IMUConfig config_cache;
+    IMUState last_hardware_zero_z_result;
+    float local_gravity_mps2;
+    Jy901bImuSample sample_fifo[JY901B_IMU_SAMPLE_FIFO_DEPTH];
+    uint16_t sample_fifo_head;
+    uint16_t sample_fifo_tail;
+    uint32_t sample_overflow_count;
+    uint32_t last_sample_acc_count;
+    uint32_t last_sample_gyro_count;
+    uint8_t frame_buffer[IMU_FRAME_LEN];
+    uint8_t frame_index;
+    uint16_t consecutive_legal_frame_count;
+    uint32_t valid_frame_count;
+    uint32_t checksum_error_count;
+    uint32_t parser_resync_count;
+    uint32_t process_limit_count;
+    uint32_t port_discontinuity_sequence;
+} Jy901bContext;
 
-static uint8_t s_frameBuf[IMU_FRAME_LEN];
-static uint8_t s_frameIndex = 0U;
-static uint16_t s_consecutiveLegalFrameCount;
-static uint32_t s_validFrameCount;
-static uint32_t s_checksumErrorCount;
-static uint32_t s_parserResyncCount;
-static uint32_t s_processLimitCount;
-static uint32_t s_portDiscontinuitySequence;
+static Jy901bContext s_contexts[PROJECT_JY901B_INSTANCE_COUNT];
 
-static uint16_t IMU_ConfigGyroRangeGet(void);
-static uint16_t IMU_ConfigAccelRangeGet(void);
+_Static_assert(PROJECT_JY901B_INSTANCE_COUNT <=
+               PROJECT_JY901B_INSTANCE_COUNT_MAX,
+               "JY901B context count exceeds generated resource bound");
+
+#define s_imu                         (s_contexts[instance].imu)
+#define s_config_cache                (s_contexts[instance].config_cache)
+#define s_lastHardwareZeroZResult     \
+    (s_contexts[instance].last_hardware_zero_z_result)
+#define s_local_gravity_mps2          \
+    (s_contexts[instance].local_gravity_mps2)
+#define s_sample_fifo                 (s_contexts[instance].sample_fifo)
+#define s_sample_fifo_head            (s_contexts[instance].sample_fifo_head)
+#define s_sample_fifo_tail            (s_contexts[instance].sample_fifo_tail)
+#define s_sample_overflow_count       \
+    (s_contexts[instance].sample_overflow_count)
+#define s_last_sample_acc_count       \
+    (s_contexts[instance].last_sample_acc_count)
+#define s_last_sample_gyro_count      \
+    (s_contexts[instance].last_sample_gyro_count)
+#define s_frameBuf                    (s_contexts[instance].frame_buffer)
+#define s_frameIndex                  (s_contexts[instance].frame_index)
+#define s_consecutiveLegalFrameCount \
+    (s_contexts[instance].consecutive_legal_frame_count)
+#define s_validFrameCount             (s_contexts[instance].valid_frame_count)
+#define s_checksumErrorCount          \
+    (s_contexts[instance].checksum_error_count)
+#define s_parserResyncCount           \
+    (s_contexts[instance].parser_resync_count)
+#define s_processLimitCount           \
+    (s_contexts[instance].process_limit_count)
+#define s_portDiscontinuitySequence   \
+    (s_contexts[instance].port_discontinuity_sequence)
+
+static PlatformUartId Jy901bResource_UartGet(uint8_t instance)
+{
+    ProjectJy901bResources resources;
+
+    if (ProjectJy901bResources_Get(instance, &resources) != SYSTEM_DEVICE_OK)
+    {
+        return (PlatformUartId)PLATFORM_UART_COUNT;
+    }
+    return resources.uart;
+}
+
+static uint16_t IMU_ConfigGyroRangeGet(uint8_t instance);
+static uint16_t IMU_ConfigAccelRangeGet(uint8_t instance);
 static float IMU_GyroRangeValueToDps(uint16_t value);
 static float IMU_AccelRangeValueToG(uint16_t value);
 static int16_t IMU_PhysicalToRawS16(float physical_value, float scale_per_lsb);
-static void IMU_OrientationConfigStatusSet(uint8_t attempted, uint8_t ok);
+static void IMU_OrientationConfigStatusSet(uint8_t instance, uint8_t attempted, uint8_t ok);
 
 static uint16_t Jy901bImu_FifoIndexNext(uint16_t index)
 {
     index++;
     return (index >= JY901B_IMU_SAMPLE_FIFO_DEPTH) ? 0U : index;
 }
-static void Jy901bImu_SampleQueue(void)
+static void Jy901bImu_SampleQueue(uint8_t instance)
 {
     Jy901bImuSample sample;
     uint16_t next_head;
@@ -88,7 +136,7 @@ static void Jy901bImu_SampleQueue(void)
     s_last_sample_gyro_count = s_imu.GyroFrameCount;
 }
 
-static void IMU_ParserReset(void)
+static void IMU_ParserReset(uint8_t instance)
 {
     (void)memset(s_frameBuf, 0, sizeof(s_frameBuf));
     s_frameIndex = 0U;
@@ -121,7 +169,7 @@ static uint8_t IMU_Checksum(const uint8_t *frame)
     return sum;
 }
 
-static void IMU_UpdateAttitudeMatrix(void)
+static void IMU_UpdateAttitudeMatrix(uint8_t instance)
 {
     float q0 = s_imu.Quaternion[0];
     float q1 = s_imu.Quaternion[1];
@@ -142,7 +190,7 @@ static void IMU_UpdateAttitudeMatrix(void)
     s_imu.AttitudeMatrix[2][2] = 1.0f - 2.0f * (q1 * q1 + q2 * q2);
 }
 
-static void IMU_OnFrameDecoded(IMUFrameType frame_type)
+static void IMU_OnFrameDecoded(uint8_t instance, IMUFrameType frame_type)
 {
     uint64_t timestamp_us = PlatformTime_Us();
 
@@ -202,13 +250,13 @@ static void IMU_OnFrameDecoded(IMUFrameType frame_type)
 
     if ((frame_type == IMUFrameAcc) || (frame_type == IMUFrameGyro))
     {
-        Jy901bImu_SampleQueue();
+        Jy901bImu_SampleQueue(instance);
     }
 }
 
-static void IMU_AccelerationFrameDecode(const uint8_t *data)
+static void IMU_AccelerationFrameDecode(uint8_t instance, const uint8_t *data)
 {
-    float scale = (IMU_AccelRangeValueToG(IMU_ConfigAccelRangeGet()) *
+    float scale = (IMU_AccelRangeValueToG(IMU_ConfigAccelRangeGet(instance)) *
                    s_local_gravity_mps2) / 32768.0f;
 
     s_imu.AccRaw[0] = IMU_S16FromLE(&data[0]);
@@ -218,12 +266,12 @@ static void IMU_AccelerationFrameDecode(const uint8_t *data)
     s_imu.Acc[1] = (float)s_imu.AccRaw[1] * scale;
     s_imu.Acc[2] = (float)s_imu.AccRaw[2] * scale;
     s_imu.TemperatureC = (float)IMU_S16FromLE(&data[6]) / 100.0f;
-    IMU_OnFrameDecoded(IMUFrameAcc);
+    IMU_OnFrameDecoded(instance, IMUFrameAcc);
 }
 
-static void IMU_GyroscopeFrameDecode(const uint8_t *data)
+static void IMU_GyroscopeFrameDecode(uint8_t instance, const uint8_t *data)
 {
-    float scale = (IMU_GyroRangeValueToDps(IMU_ConfigGyroRangeGet()) /
+    float scale = (IMU_GyroRangeValueToDps(IMU_ConfigGyroRangeGet(instance)) /
                    32768.0f) * (PI / 180.0f);
 
     s_imu.GyroRaw[0] = IMU_S16FromLE(&data[0]);
@@ -233,10 +281,10 @@ static void IMU_GyroscopeFrameDecode(const uint8_t *data)
     s_imu.Gyro[1] = (float)s_imu.GyroRaw[1] * scale;
     s_imu.Gyro[2] = (float)s_imu.GyroRaw[2] * scale;
     s_imu.TemperatureC = (float)IMU_S16FromLE(&data[6]) / 100.0f;
-    IMU_OnFrameDecoded(IMUFrameGyro);
+    IMU_OnFrameDecoded(instance, IMUFrameGyro);
 }
 
-static void IMU_EulerFrameDecode(const uint8_t *data)
+static void IMU_EulerFrameDecode(uint8_t instance, const uint8_t *data)
 {
     const float scale = 180.0f / 32768.0f;
 
@@ -247,10 +295,10 @@ static void IMU_EulerFrameDecode(const uint8_t *data)
     s_imu.Euler[1] = (float)s_imu.EulerRaw[1] * scale;
     s_imu.Euler[2] = (float)s_imu.EulerRaw[2] * scale;
     s_imu.TemperatureC = (float)IMU_S16FromLE(&data[6]) / 100.0f;
-    IMU_OnFrameDecoded(IMUFrameEuler);
+    IMU_OnFrameDecoded(instance, IMUFrameEuler);
 }
 
-static void IMU_MagnetometerFrameDecode(const uint8_t *data)
+static void IMU_MagnetometerFrameDecode(uint8_t instance, const uint8_t *data)
 {
     s_imu.MagRaw[0] = IMU_S16FromLE(&data[0]);
     s_imu.MagRaw[1] = IMU_S16FromLE(&data[2]);
@@ -259,19 +307,19 @@ static void IMU_MagnetometerFrameDecode(const uint8_t *data)
     s_imu.Mag[1] = (float)s_imu.MagRaw[1];
     s_imu.Mag[2] = (float)s_imu.MagRaw[2];
     s_imu.TemperatureC = (float)IMU_S16FromLE(&data[6]) / 100.0f;
-    IMU_OnFrameDecoded(IMUFrameMag);
+    IMU_OnFrameDecoded(instance, IMUFrameMag);
 }
 
-static void IMU_PressureFrameDecode(const uint8_t *data)
+static void IMU_PressureFrameDecode(uint8_t instance, const uint8_t *data)
 {
     s_imu.PressureRawPa = IMU_S32FromLE(&data[0]);
     s_imu.HeightRawCm = IMU_S32FromLE(&data[4]);
     s_imu.PressurePa = (float)s_imu.PressureRawPa;
     s_imu.HeightCm = (float)s_imu.HeightRawCm;
-    IMU_OnFrameDecoded(IMUFramePressureHeight);
+    IMU_OnFrameDecoded(instance, IMUFramePressureHeight);
 }
 
-static void IMU_QuaternionFrameDecode(const uint8_t *data)
+static void IMU_QuaternionFrameDecode(uint8_t instance, const uint8_t *data)
 {
     const float scale = 1.0f / 32768.0f;
 
@@ -283,11 +331,11 @@ static void IMU_QuaternionFrameDecode(const uint8_t *data)
     s_imu.Quaternion[1] = (float)s_imu.QuaternionRawQ15[1] * scale;
     s_imu.Quaternion[2] = (float)s_imu.QuaternionRawQ15[2] * scale;
     s_imu.Quaternion[3] = (float)s_imu.QuaternionRawQ15[3] * scale;
-    IMU_UpdateAttitudeMatrix();
-    IMU_OnFrameDecoded(IMUFrameQuaternion);
+    IMU_UpdateAttitudeMatrix(instance);
+    IMU_OnFrameDecoded(instance, IMUFrameQuaternion);
 }
 
-static void IMU_DecodeFrame(const uint8_t *frame)
+static void IMU_DecodeFrame(uint8_t instance, const uint8_t *frame)
 {
     IMUFrameType frame_type;
     const uint8_t *data;
@@ -303,29 +351,29 @@ static void IMU_DecodeFrame(const uint8_t *frame)
         case IMUFrameNone:
             break;
         case IMUFrameAcc:
-            IMU_AccelerationFrameDecode(data);
+            IMU_AccelerationFrameDecode(instance, data);
             break;
         case IMUFrameGyro:
-            IMU_GyroscopeFrameDecode(data);
+            IMU_GyroscopeFrameDecode(instance, data);
             break;
         case IMUFrameEuler:
-            IMU_EulerFrameDecode(data);
+            IMU_EulerFrameDecode(instance, data);
             break;
         case IMUFrameMag:
-            IMU_MagnetometerFrameDecode(data);
+            IMU_MagnetometerFrameDecode(instance, data);
             break;
         case IMUFramePressureHeight:
-            IMU_PressureFrameDecode(data);
+            IMU_PressureFrameDecode(instance, data);
             break;
         case IMUFrameQuaternion:
-            IMU_QuaternionFrameDecode(data);
+            IMU_QuaternionFrameDecode(instance, data);
             break;
         default:
             break;
     }
 }
 
-static void IMU_ParseByte(uint8_t byte)
+static void IMU_ParseByte(uint8_t instance, uint8_t byte)
 {
     SILVERSTAR_ASSERT_OBJECT(s_frameBuf, uint8_t,
         SILVERSTAR_ASSERT_MODULE_DEVICE);
@@ -345,7 +393,7 @@ static void IMU_ParseByte(uint8_t byte)
         if (IMU_Checksum(s_frameBuf) == s_frameBuf[IMU_FRAME_LEN - 1U])
         {
             s_validFrameCount++;
-            IMU_DecodeFrame(s_frameBuf);
+            IMU_DecodeFrame(instance, s_frameBuf);
         }
         else
         {
@@ -358,7 +406,7 @@ static void IMU_ParseByte(uint8_t byte)
     }
 }
 
-static IMUState IMU_SendConfigFrame(uint8_t reg, uint16_t value)
+static IMUState IMU_SendConfigFrame(uint8_t instance, uint8_t reg, uint16_t value)
 {
     uint8_t frame[IMU_CFG_FRAME_LEN];
 
@@ -368,7 +416,7 @@ static IMUState IMU_SendConfigFrame(uint8_t reg, uint16_t value)
     frame[3] = (uint8_t)(value & 0xFFU);
     frame[4] = (uint8_t)((value >> 8) & 0xFFU);
 
-    if (PlatformUart_Write(PROJECT_RESOURCE_IMU_UART, frame, IMU_CFG_FRAME_LEN,
+    if (PlatformUart_Write(Jy901bResource_UartGet(instance), frame, IMU_CFG_FRAME_LEN,
                            IMU_CFG_TX_TIMEOUT_MS) != PLATFORM_OK)
     {
         return IMU_UART_TX_ERROR;
@@ -377,42 +425,42 @@ static IMUState IMU_SendConfigFrame(uint8_t reg, uint16_t value)
     return IMU_OK;
 }
 
-static IMUState IMU_WriteRegister(uint8_t reg, uint16_t value, uint8_t save)
+static IMUState IMU_WriteRegister(uint8_t instance, uint8_t reg, uint16_t value, uint8_t save)
 {
     IMUState state;
 
     SILVERSTAR_ASSERT_OBJECT(&s_config_cache, IMUConfig,
         SILVERSTAR_ASSERT_MODULE_DEVICE);
-    (void)PlatformUart_RxStop(PROJECT_RESOURCE_IMU_UART);
+    (void)PlatformUart_RxStop(Jy901bResource_UartGet(instance));
 
-    state = IMU_SendConfigFrame(IMU_REG_KEY, IMU_KEY_UNLOCK);
+    state = IMU_SendConfigFrame(instance, IMU_REG_KEY, IMU_KEY_UNLOCK);
     if (state != IMU_OK)
     {
-        (void)PlatformUart_RxRestart(PROJECT_RESOURCE_IMU_UART);
+        (void)PlatformUart_RxRestart(Jy901bResource_UartGet(instance));
         return state;
     }
     PlatformTime_DelayMs(IMU_CFG_UNLOCK_DELAY_MS);
 
-    state = IMU_SendConfigFrame(reg, value);
+    state = IMU_SendConfigFrame(instance, reg, value);
     if (state != IMU_OK)
     {
-        (void)PlatformUart_RxRestart(PROJECT_RESOURCE_IMU_UART);
+        (void)PlatformUart_RxRestart(Jy901bResource_UartGet(instance));
         return state;
     }
     PlatformTime_DelayMs(IMU_CFG_WRITE_DELAY_MS);
 
     if (save != 0U)
     {
-        state = IMU_SendConfigFrame(IMU_REG_SAVE, 0x0000U);
+        state = IMU_SendConfigFrame(instance, IMU_REG_SAVE, 0x0000U);
         if (state != IMU_OK)
         {
-            (void)PlatformUart_RxRestart(PROJECT_RESOURCE_IMU_UART);
+            (void)PlatformUart_RxRestart(Jy901bResource_UartGet(instance));
             return state;
         }
         PlatformTime_DelayMs(IMU_CFG_SAVE_DELAY_MS);
     }
 
-    (void)PlatformUart_RxRestart(PROJECT_RESOURCE_IMU_UART);
+    (void)PlatformUart_RxRestart(Jy901bResource_UartGet(instance));
     return IMU_OK;
 }
 
@@ -496,7 +544,7 @@ static uint8_t IMU_ParseReadResponseByte(uint8_t byte, uint8_t *frame, uint8_t *
     return 0U;
 }
 
-static IMUState IMU_ReadRegister(uint8_t reg, uint16_t *value)
+static IMUState IMU_ReadRegister(uint8_t instance, uint8_t reg, uint16_t *value)
 {
     uint8_t cmd[IMU_CFG_FRAME_LEN];
     uint8_t rxBuf[IMU_TEMP_BUF_LEN];
@@ -524,9 +572,9 @@ static IMUState IMU_ReadRegister(uint8_t reg, uint16_t *value)
      * The Platform UART backend owns the receive mechanism. Register reads
      * only consume its byte stream and never switch to a competing RX path.
      */
-    (void)PlatformUart_RxFlush(PROJECT_RESOURCE_IMU_UART);
+    (void)PlatformUart_RxFlush(Jy901bResource_UartGet(instance));
 
-    if (PlatformUart_Write(PROJECT_RESOURCE_IMU_UART, cmd, sizeof(cmd),
+    if (PlatformUart_Write(Jy901bResource_UartGet(instance), cmd, sizeof(cmd),
                            IMU_CFG_TX_TIMEOUT_MS) != PLATFORM_OK)
     {
         PlatformTime_DelayMs(IMU_CONFIG_REG_GAP_MS);
@@ -540,7 +588,7 @@ static IMUState IMU_ReadRegister(uint8_t reg, uint16_t *value)
         {
             break;
         }
-        if (PlatformUart_Read(PROJECT_RESOURCE_IMU_UART, rxBuf, sizeof(rxBuf),
+        if (PlatformUart_Read(Jy901bResource_UartGet(instance), rxBuf, sizeof(rxBuf),
                               &readLen) != PLATFORM_OK)
         {
             return IMU_UART_RX_ERROR;
@@ -566,14 +614,14 @@ static IMUState IMU_ReadRegister(uint8_t reg, uint16_t *value)
     return IMU_RESP_TIMEOUT;
 }
 
-static IMUState IMU_WriteFilterRegister(uint8_t reg, uint16_t value)
+static IMUState IMU_WriteFilterRegister(uint8_t instance, uint8_t reg, uint16_t value)
 {
     if ((value < IMU_FILTER_VALUE_MIN) || (value > IMU_FILTER_VALUE_MAX))
     {
         return IMU_RESP_INVALID;
     }
 
-    return IMU_WriteRegister(reg, value, 0U);
+    return IMU_WriteRegister(instance, reg, value, 0U);
 }
 
 static IMUState IMU_BaudrateToConfig(IMUBaudrate baudrate, uint16_t *reg_value, uint32_t *uart_baudrate)
@@ -749,7 +797,7 @@ static IMUState IMU_AccelRangeToValue(IMUAccelRange range, uint16_t *value)
     }
 }
 
-static uint16_t IMU_ConfigGyroRangeGet(void)
+static uint16_t IMU_ConfigGyroRangeGet(uint8_t instance)
 {
     if ((s_config_cache.ValidMask & IMU_CONFIG_VALID_GYRO_RANGE) != 0U)
     {
@@ -759,7 +807,7 @@ static uint16_t IMU_ConfigGyroRangeGet(void)
     return IMU_DEFAULT_GYRO_RANGE_VALUE;
 }
 
-static uint16_t IMU_ConfigAccelRangeGet(void)
+static uint16_t IMU_ConfigAccelRangeGet(uint8_t instance)
 {
     if ((s_config_cache.ValidMask & IMU_CONFIG_VALID_ACCEL_RANGE) != 0U)
     {
@@ -847,8 +895,11 @@ static const char *IMU_AlgorithmToString(uint16_t value)
 
 const char *IMU_StateToString(IMUState state)
 {
-    SILVERSTAR_ASSERT_OBJECT(&s_imu, IMUData,
-        SILVERSTAR_ASSERT_MODULE_DEVICE);
+    SILVERSTAR_ASSERT_OBJECT(&state, IMUState,
+                             SILVERSTAR_ASSERT_MODULE_DEVICE);
+    SILVERSTAR_ASSERT(state <= IMU_RESP_TIMEOUT,
+                      SILVERSTAR_ASSERT_MODULE_DEVICE,
+                      SILVERSTAR_ASSERT_REASON_ENUM_RANGE);
     switch (state)
     {
         case IMU_OK:
@@ -882,18 +933,18 @@ const char *IMU_AlgorithmValueToString(uint16_t value)
     return IMU_AlgorithmToString(value);
 }
 
-void IMU_Reset(void)
+void IMU_Reset(uint8_t instance)
 {
-    IMU_StreamReset();
+    IMU_StreamReset(instance);
     memset(&s_config_cache, 0, sizeof(s_config_cache));
 }
 
-void IMU_StreamReset(void)
+void IMU_StreamReset(uint8_t instance)
 {
     uint32_t state = IMU_IrqLock();
 
     memset(&s_imu, 0, sizeof(s_imu));
-    IMU_ParserReset();
+    IMU_ParserReset(instance);
     s_validFrameCount = 0U;
     s_checksumErrorCount = 0U;
     s_parserResyncCount = 0U;
@@ -921,7 +972,7 @@ static void IMU_DefaultConfigStepUpdate(const char *name, IMUState state, IMUSta
 
 }
 
-static IMUState IMU_DefaultTransportAttitudeApply(
+static IMUState IMU_DefaultTransportAttitudeApply(uint8_t instance,
     IMUOutputRate output_rate,
     IMUAlgorithm algorithm)
 {
@@ -930,113 +981,113 @@ static IMUState IMU_DefaultTransportAttitudeApply(
 
     SILVERSTAR_ASSERT_OBJECT(&s_config_cache, IMUConfig,
         SILVERSTAR_ASSERT_MODULE_DEVICE);
-    state = IMU_SetBaudrate(Baudrate_230400);
+    state = IMU_SetBaudrate(instance, Baudrate_230400);
     if (state == IMU_OK)
     {
-        IMU_ConfigCacheSetField(IMU_CONFIG_VALID_BAUD,
+        IMU_ConfigCacheSetField(instance, IMU_CONFIG_VALID_BAUD,
                                 IMU_DEFAULT_BAUD_VALUE);
     }
     IMU_DefaultConfigStepUpdate("baudrate", state, &result);
     if (result != IMU_OK) { return result; }
 
-    state = IMU_SetInstallationOrientation(IMU_DEFAULT_ORIENT_VALUE,
+    state = IMU_SetInstallationOrientation(instance, IMU_DEFAULT_ORIENT_VALUE,
                                            IMU_ORIENT_CONFIG_TIMEOUT_MS);
     IMU_DefaultConfigStepUpdate("orientation_write", state, &result);
     if (result != IMU_OK) { return result; }
 
-    state = IMU_SetAlgorithm(algorithm);
+    state = IMU_SetAlgorithm(instance, algorithm);
     if (state == IMU_OK)
     {
-        IMU_ConfigCacheSetField(IMU_CONFIG_VALID_ALGORITHM,
+        IMU_ConfigCacheSetField(instance, IMU_CONFIG_VALID_ALGORITHM,
                                 (uint16_t)algorithm);
     }
     IMU_DefaultConfigStepUpdate("algorithm", state, &result);
     if (result != IMU_OK) { return result; }
 
-    state = IMU_SetBandwidth((IMUBandwidth)IMU_DEFAULT_BANDWIDTH_VALUE);
+    state = IMU_SetBandwidth(instance, (IMUBandwidth)IMU_DEFAULT_BANDWIDTH_VALUE);
     if (state == IMU_OK)
     {
-        IMU_ConfigCacheSetField(IMU_CONFIG_VALID_BANDWIDTH, IMU_DEFAULT_BANDWIDTH_VALUE);
+        IMU_ConfigCacheSetField(instance, IMU_CONFIG_VALID_BANDWIDTH, IMU_DEFAULT_BANDWIDTH_VALUE);
     }
     IMU_DefaultConfigStepUpdate("bandwidth", state, &result);
     if (result != IMU_OK) { return result; }
 
-    state = IMU_SetOutputRate(output_rate);
+    state = IMU_SetOutputRate(instance, output_rate);
     if (state == IMU_OK)
     {
-        IMU_ConfigCacheSetField(IMU_CONFIG_VALID_RATE,
+        IMU_ConfigCacheSetField(instance, IMU_CONFIG_VALID_RATE,
                                 (uint16_t)output_rate);
     }
     IMU_DefaultConfigStepUpdate("rate", state, &result);
     return result;
 }
 
-static IMUState IMU_DefaultSensorOutputApply(void)
+static IMUState IMU_DefaultSensorOutputApply(uint8_t instance)
 {
     IMUState state;
     IMUState result = IMU_OK;
 
     SILVERSTAR_ASSERT_OBJECT(&s_config_cache, IMUConfig,
         SILVERSTAR_ASSERT_MODULE_DEVICE);
-    state = IMU_SetGyroRange((IMUGyroRange)IMU_DEFAULT_GYRO_RANGE_VALUE);
+    state = IMU_SetGyroRange(instance, (IMUGyroRange)IMU_DEFAULT_GYRO_RANGE_VALUE);
     if (state == IMU_OK)
     {
-        IMU_ConfigCacheSetField(IMU_CONFIG_VALID_GYRO_RANGE, IMU_DEFAULT_GYRO_RANGE_VALUE);
+        IMU_ConfigCacheSetField(instance, IMU_CONFIG_VALID_GYRO_RANGE, IMU_DEFAULT_GYRO_RANGE_VALUE);
     }
     IMU_DefaultConfigStepUpdate("gyro_range", state, &result);
     if (result != IMU_OK) { return result; }
 
-    state = IMU_SetAccelRange((IMUAccelRange)IMU_DEFAULT_ACCEL_RANGE_VALUE);
+    state = IMU_SetAccelRange(instance, (IMUAccelRange)IMU_DEFAULT_ACCEL_RANGE_VALUE);
     if (state == IMU_OK)
     {
-        IMU_ConfigCacheSetField(IMU_CONFIG_VALID_ACCEL_RANGE, IMU_DEFAULT_ACCEL_RANGE_VALUE);
+        IMU_ConfigCacheSetField(instance, IMU_CONFIG_VALID_ACCEL_RANGE, IMU_DEFAULT_ACCEL_RANGE_VALUE);
     }
     IMU_DefaultConfigStepUpdate("accel_range", state, &result);
     if (result != IMU_OK) { return result; }
 
-    state = IMU_SetFusionFilter(IMU_DEFAULT_FUSION_FILTER_VALUE);
+    state = IMU_SetFusionFilter(instance, IMU_DEFAULT_FUSION_FILTER_VALUE);
     if (state == IMU_OK)
     {
-        IMU_ConfigCacheSetField(IMU_CONFIG_VALID_FUSION_FILTER, IMU_DEFAULT_FUSION_FILTER_VALUE);
+        IMU_ConfigCacheSetField(instance, IMU_CONFIG_VALID_FUSION_FILTER, IMU_DEFAULT_FUSION_FILTER_VALUE);
     }
     IMU_DefaultConfigStepUpdate("fusion_filter", state, &result);
     if (result != IMU_OK) { return result; }
 
-    state = IMU_SetAccelerationFilter(IMU_DEFAULT_ACCEL_FILTER_VALUE);
+    state = IMU_SetAccelerationFilter(instance, IMU_DEFAULT_ACCEL_FILTER_VALUE);
     if (state == IMU_OK)
     {
-        IMU_ConfigCacheSetField(IMU_CONFIG_VALID_ACCEL_FILTER, IMU_DEFAULT_ACCEL_FILTER_VALUE);
+        IMU_ConfigCacheSetField(instance, IMU_CONFIG_VALID_ACCEL_FILTER, IMU_DEFAULT_ACCEL_FILTER_VALUE);
     }
     IMU_DefaultConfigStepUpdate("accel_filter", state, &result);
     if (result != IMU_OK) { return result; }
 
-    state = IMU_SetReturnContent(FC_IMU_RETURN_CONTENT_DEFAULT);
+    state = IMU_SetReturnContent(instance, FC_IMU_RETURN_CONTENT_DEFAULT);
     if (state == IMU_OK)
     {
-        IMU_ConfigCacheSetField(IMU_CONFIG_VALID_RETURN_CONTENT,
+        IMU_ConfigCacheSetField(instance, IMU_CONFIG_VALID_RETURN_CONTENT,
                                 FC_IMU_RETURN_CONTENT_DEFAULT);
     }
     IMU_DefaultConfigStepUpdate("return_content", state, &result);
     return result;
 }
 
-IMUState IMU_ApplyDefaultConfig(IMUOutputRate output_rate,
+IMUState IMU_ApplyDefaultConfig(uint8_t instance, IMUOutputRate output_rate,
                                 IMUAlgorithm algorithm)
 {
     IMUState result;
 
     SILVERSTAR_ASSERT_OBJECT(&s_config_cache, IMUConfig,
         SILVERSTAR_ASSERT_MODULE_DEVICE);
-    result = IMU_DefaultTransportAttitudeApply(output_rate, algorithm);
+    result = IMU_DefaultTransportAttitudeApply(instance, output_rate, algorithm);
     if (result != IMU_OK) { return result; }
-    result = IMU_DefaultSensorOutputApply();
+    result = IMU_DefaultSensorOutputApply(instance);
     if (result != IMU_OK) { return result; }
 
     /* Exactly one nonvolatile save closes the physical configuration. */
-    return IMU_SaveConfig();
+    return IMU_SaveConfig(instance);
 }
 
-IMUState IMU_LocalGravitySet(float gravity_mps2)
+IMUState IMU_LocalGravitySet(uint8_t instance, float gravity_mps2)
 {
     if ((!isfinite(gravity_mps2)) || (gravity_mps2 <= 0.0f))
     {
@@ -1046,21 +1097,21 @@ IMUState IMU_LocalGravitySet(float gravity_mps2)
     return IMU_OK;
 }
 
-IMUState IMU_Init(void)
+IMUState IMU_Init(uint8_t instance)
 {
     if ((!isfinite(s_local_gravity_mps2)) ||
         (s_local_gravity_mps2 <= 0.0f))
     {
         return IMU_RESP_INVALID;
     }
-    IMU_Reset();
+    IMU_Reset(instance);
     s_lastHardwareZeroZResult = IMU_RESP_INVALID;
-    return (PlatformUart_Init(PROJECT_RESOURCE_IMU_UART) == PLATFORM_OK) ?
+    return (PlatformUart_Init(Jy901bResource_UartGet(instance)) == PLATFORM_OK) ?
         IMU_OK : IMU_UART_INIT_ERROR;
     //仅修改波特率时打开该注释，单片机波特率需要同步修改
 }
 
-void IMU_Poll(void)
+void IMU_Poll(uint8_t instance)
 {
     uint8_t tempBuf[IMU_TEMP_BUF_LEN];
     PlatformUartDiagnostics port_diagnostics;
@@ -1071,7 +1122,7 @@ void IMU_Poll(void)
 
     SILVERSTAR_ASSERT_OBJECT(&s_imu, IMUData,
         SILVERSTAR_ASSERT_MODULE_DEVICE);
-    if (PlatformUart_DiagnosticsGet(PROJECT_RESOURCE_IMU_UART, &port_diagnostics) !=
+    if (PlatformUart_DiagnosticsGet(Jy901bResource_UartGet(instance), &port_diagnostics) !=
         PLATFORM_OK)
     {
         return;
@@ -1079,7 +1130,7 @@ void IMU_Poll(void)
     if (port_diagnostics.rx_discontinuity_count !=
         s_portDiscontinuitySequence)
     {
-        IMU_ParserReset();
+        IMU_ParserReset(instance);
         s_parserResyncCount++;
         s_portDiscontinuitySequence =
             port_diagnostics.rx_discontinuity_count;
@@ -1088,14 +1139,14 @@ void IMU_Poll(void)
     readLen = 0U;
     for (chunk = 0U; chunk < IMU_MAX_READ_CHUNKS_PER_PROCESS; chunk++)
     {
-        if (PlatformUart_Read(PROJECT_RESOURCE_IMU_UART, tempBuf, sizeof(tempBuf),
+        if (PlatformUart_Read(Jy901bResource_UartGet(instance), tempBuf, sizeof(tempBuf),
                               &readLen) != PLATFORM_OK)
         {
             return;
         }
         for (i = 0U; (i < readLen) && (i < IMU_TEMP_BUF_LEN); i++)
         {
-            IMU_ParseByte(tempBuf[i]);
+            IMU_ParseByte(instance, tempBuf[i]);
         }
         if (readLen == 0U) { break; }
     }
@@ -1111,22 +1162,22 @@ void IMU_Poll(void)
     }
 }
 
-uint8_t IMU_HasNewFrame(void)
+uint8_t IMU_HasNewFrame(uint8_t instance)
 {
     return s_imu.NewFrame;
 }
 
-void IMU_ClearNewFrame(void)
+void IMU_ClearNewFrame(uint8_t instance)
 {
     s_imu.NewFrame = 0U;
 }
 
-uint16_t IMU_GetConsecutiveLegalFrameCount(void)
+uint16_t IMU_GetConsecutiveLegalFrameCount(uint8_t instance)
 {
     return s_consecutiveLegalFrameCount;
 }
 
-uint8_t IMU_IsOnline(void)
+uint8_t IMU_IsOnline(uint8_t instance)
 {
     uint32_t now = PlatformTime_Ms();
 
@@ -1139,33 +1190,33 @@ uint8_t IMU_IsOnline(void)
     return 1U;
 }
 
-const IMUData *IMU_GetData(void)
+const IMUData *IMU_GetData(uint8_t instance)
 {
     return &s_imu;
 }
 
-int16_t IMU_AccelMps2ToRaw(float accel_mps2)
+int16_t IMU_AccelMps2ToRaw(uint8_t instance, float accel_mps2)
 {
     float scale_per_lsb;
 
     scale_per_lsb =
-        (IMU_AccelRangeValueToG(IMU_ConfigAccelRangeGet()) *
+        (IMU_AccelRangeValueToG(IMU_ConfigAccelRangeGet(instance)) *
          s_local_gravity_mps2) /
         32768.0f;
     return IMU_PhysicalToRawS16(accel_mps2, scale_per_lsb);
 }
 
-int16_t IMU_GyroRadpsToRaw(float gyro_radps)
+int16_t IMU_GyroRadpsToRaw(uint8_t instance, float gyro_radps)
 {
     float scale_per_lsb;
 
     scale_per_lsb =
-        (IMU_GyroRangeValueToDps(IMU_ConfigGyroRangeGet()) / 32768.0f) *
+        (IMU_GyroRangeValueToDps(IMU_ConfigGyroRangeGet(instance)) / 32768.0f) *
         (PI / 180.0f);
     return IMU_PhysicalToRawS16(gyro_radps, scale_per_lsb);
 }
 
-Jy901bImuSampleGetResult Jy901bImu_SampleGetNext(Jy901bImuSample *sample)
+Jy901bImuSampleGetResult Jy901bImu_SampleGetNext(uint8_t instance, Jy901bImuSample *sample)
 {
     uint32_t state;
 
@@ -1182,7 +1233,7 @@ Jy901bImuSampleGetResult Jy901bImu_SampleGetNext(Jy901bImuSample *sample)
     return JY901B_IMU_SAMPLE_GET_OK;
 }
 
-uint32_t Jy901bImu_OverflowCountTake(void)
+uint32_t Jy901bImu_OverflowCountTake(uint8_t instance)
 {
     uint32_t state = IMU_IrqLock();
     uint32_t count = s_sample_overflow_count;
@@ -1192,7 +1243,7 @@ uint32_t Jy901bImu_OverflowCountTake(void)
     return count;
 }
 
-void IMU_ConfigCacheGet(IMUConfig *config)
+void IMU_ConfigCacheGet(uint8_t instance, IMUConfig *config)
 {
     if (config == NULL)
     {
@@ -1202,7 +1253,7 @@ void IMU_ConfigCacheGet(IMUConfig *config)
     *config = s_config_cache;
 }
 
-void IMU_ConfigCacheSetField(uint16_t valid_mask, uint16_t value)
+void IMU_ConfigCacheSetField(uint8_t instance, uint16_t valid_mask, uint16_t value)
 {
     SILVERSTAR_ASSERT_OBJECT(&s_config_cache, IMUConfig,
         SILVERSTAR_ASSERT_MODULE_DEVICE);
@@ -1250,7 +1301,7 @@ void IMU_ConfigCacheSetField(uint16_t valid_mask, uint16_t value)
     s_config_cache.ValidMask |= (uint16_t)(valid_mask & IMU_CONFIG_VALID_ALL);
 }
 
-void IMU_ConfigCacheSetAll(const IMUConfig *config)
+void IMU_ConfigCacheSetAll(uint8_t instance, const IMUConfig *config)
 {
     uint8_t orientation_attempted;
     uint8_t orientation_ok;
@@ -1268,13 +1319,13 @@ void IMU_ConfigCacheSetAll(const IMUConfig *config)
     s_config_cache.OrientationConfigOk = orientation_ok;
 }
 
-static void IMU_OrientationConfigStatusSet(uint8_t attempted, uint8_t ok)
+static void IMU_OrientationConfigStatusSet(uint8_t instance, uint8_t attempted, uint8_t ok)
 {
     s_config_cache.OrientationConfigAttempted = attempted;
     s_config_cache.OrientationConfigOk = ok;
 }
 
-IMUState IMU_SetBaudrate(IMUBaudrate baudrate)
+IMUState IMU_SetBaudrate(uint8_t instance, IMUBaudrate baudrate)
 {
     IMUState state;
     uint16_t baud_value;
@@ -1288,32 +1339,32 @@ IMUState IMU_SetBaudrate(IMUBaudrate baudrate)
         return state;
     }
 
-    (void)PlatformUart_RxStop(PROJECT_RESOURCE_IMU_UART);
+    (void)PlatformUart_RxStop(Jy901bResource_UartGet(instance));
 
-    state = IMU_SendConfigFrame(IMU_REG_KEY, IMU_KEY_UNLOCK);
+    state = IMU_SendConfigFrame(instance, IMU_REG_KEY, IMU_KEY_UNLOCK);
     if (state != IMU_OK)
     {
-        (void)PlatformUart_RxRestart(PROJECT_RESOURCE_IMU_UART);
+        (void)PlatformUart_RxRestart(Jy901bResource_UartGet(instance));
         return state;
     }
     PlatformTime_DelayMs(IMU_CFG_UNLOCK_DELAY_MS);
 
-    state = IMU_SendConfigFrame(IMU_REG_BAUD, baud_value);
+    state = IMU_SendConfigFrame(instance, IMU_REG_BAUD, baud_value);
     if (state != IMU_OK)
     {
-        (void)PlatformUart_RxRestart(PROJECT_RESOURCE_IMU_UART);
+        (void)PlatformUart_RxRestart(Jy901bResource_UartGet(instance));
         return state;
     }
     PlatformTime_DelayMs(IMU_CFG_BAUD_SWITCH_DELAY_MS);
 
-    if (PlatformUart_BaudSet(PROJECT_RESOURCE_IMU_UART, uart_baudrate) != PLATFORM_OK)
+    if (PlatformUart_BaudSet(Jy901bResource_UartGet(instance), uart_baudrate) != PLATFORM_OK)
     {
         return IMU_UART_INIT_ERROR;
     }
     return IMU_OK;
 }
 
-IMUState IMU_SetOutputRate(IMUOutputRate output_rate)
+IMUState IMU_SetOutputRate(uint8_t instance, IMUOutputRate output_rate)
 {
     IMUState state;
     uint16_t value = 0U;
@@ -1324,10 +1375,10 @@ IMUState IMU_SetOutputRate(IMUOutputRate output_rate)
         return state;
     }
 
-    return IMU_WriteRegister(IMU_REG_RRATE, value, 0U);
+    return IMU_WriteRegister(instance, IMU_REG_RRATE, value, 0U);
 }
 
-IMUState IMU_SetBandwidth(IMUBandwidth bandwidth)
+IMUState IMU_SetBandwidth(uint8_t instance, IMUBandwidth bandwidth)
 {
     IMUState state;
     uint16_t value = 0U;
@@ -1338,10 +1389,10 @@ IMUState IMU_SetBandwidth(IMUBandwidth bandwidth)
         return state;
     }
 
-    return IMU_WriteRegister(IMU_REG_BANDWIDTH, value, 0U);
+    return IMU_WriteRegister(instance, IMU_REG_BANDWIDTH, value, 0U);
 }
 
-IMUState IMU_SetAlgorithm(IMUAlgorithm algorithm)
+IMUState IMU_SetAlgorithm(uint8_t instance, IMUAlgorithm algorithm)
 {
     IMUState state;
     uint16_t value;
@@ -1352,17 +1403,17 @@ IMUState IMU_SetAlgorithm(IMUAlgorithm algorithm)
         return state;
     }
 
-    return IMU_WriteRegister(IMU_REG_AXIS6, value, 0U);
+    return IMU_WriteRegister(instance, IMU_REG_AXIS6, value, 0U);
 }
 
-IMUState IMU_SetInstallationOrientation(uint16_t orient_value, uint32_t timeout_ms)
+IMUState IMU_SetInstallationOrientation(uint8_t instance, uint16_t orient_value, uint32_t timeout_ms)
 {
     IMUState state;
     uint32_t start_tick;
 
     SILVERSTAR_ASSERT_OBJECT(&s_config_cache, IMUConfig,
         SILVERSTAR_ASSERT_MODULE_DEVICE);
-    IMU_OrientationConfigStatusSet(1U, 0U);
+    IMU_OrientationConfigStatusSet(instance, 1U, 0U);
     if ((orient_value != IMU_ORIENT_HORIZONTAL_VALUE) &&
         (orient_value != IMU_ORIENT_VERTICAL_VALUE))
     {
@@ -1374,7 +1425,7 @@ IMUState IMU_SetInstallationOrientation(uint16_t orient_value, uint32_t timeout_
     }
 
     start_tick = PlatformTime_Ms();
-    state = IMU_WriteRegister(IMU_REG_ORIENT, orient_value, 0U);
+    state = IMU_WriteRegister(instance, IMU_REG_ORIENT, orient_value, 0U);
     if ((state == IMU_OK) &&
         ((PlatformTime_Ms() - start_tick) > timeout_ms))
     {
@@ -1382,14 +1433,14 @@ IMUState IMU_SetInstallationOrientation(uint16_t orient_value, uint32_t timeout_
     }
     if (state == IMU_OK)
     {
-        IMU_ConfigCacheSetField(IMU_CONFIG_VALID_ORIENTATION, orient_value);
-        IMU_OrientationConfigStatusSet(1U, 1U);
+        IMU_ConfigCacheSetField(instance, IMU_CONFIG_VALID_ORIENTATION, orient_value);
+        IMU_OrientationConfigStatusSet(instance, 1U, 1U);
     }
 
     return state;
 }
 
-IMUState IMU_SetGyroRange(IMUGyroRange range)
+IMUState IMU_SetGyroRange(uint8_t instance, IMUGyroRange range)
 {
     IMUState state;
     uint16_t value;
@@ -1400,10 +1451,10 @@ IMUState IMU_SetGyroRange(IMUGyroRange range)
         return state;
     }
 
-    return IMU_WriteRegister(IMU_REG_GYRORANGE, value, 0U);
+    return IMU_WriteRegister(instance, IMU_REG_GYRORANGE, value, 0U);
 }
 
-IMUState IMU_SetAccelRange(IMUAccelRange range)
+IMUState IMU_SetAccelRange(uint8_t instance, IMUAccelRange range)
 {
     IMUState state;
     uint16_t value;
@@ -1414,29 +1465,29 @@ IMUState IMU_SetAccelRange(IMUAccelRange range)
         return state;
     }
 
-    return IMU_WriteRegister(IMU_REG_ACCRANGE, value, 0U);
+    return IMU_WriteRegister(instance, IMU_REG_ACCRANGE, value, 0U);
 }
 
-IMUState IMU_EnsureAlgorithm6Axis(void)
+IMUState IMU_EnsureAlgorithm6Axis(uint8_t instance)
 {
     IMUState state;
     uint16_t value = 0U;
 
     SILVERSTAR_ASSERT_OBJECT(&s_config_cache, IMUConfig,
         SILVERSTAR_ASSERT_MODULE_DEVICE);
-    state = IMU_ReadAlgorithm(&value);
+    state = IMU_ReadAlgorithm(instance, &value);
     if ((state == IMU_OK) && (value == IMU_ALGORITHM_6_AXIS_VALUE))
     {
         return IMU_OK;
     }
 
-    state = IMU_SetAlgorithm(Algorithm_6Axis);
+    state = IMU_SetAlgorithm(instance, Algorithm_6Axis);
     if (state != IMU_OK)
     {
         return state;
     }
 
-    state = IMU_ReadAlgorithm(&value);
+    state = IMU_ReadAlgorithm(instance, &value);
     if (state != IMU_OK)
     {
         return state;
@@ -1445,11 +1496,11 @@ IMUState IMU_EnsureAlgorithm6Axis(void)
     return (value == IMU_ALGORITHM_6_AXIS_VALUE) ? IMU_OK : IMU_RESP_INVALID;
 }
 
-IMUState IMU_HardwareZeroZ(void)
+IMUState IMU_HardwareZeroZ(uint8_t instance)
 {
     IMUState state;
 
-    state = IMU_EnsureAlgorithm6Axis();
+    state = IMU_EnsureAlgorithm6Axis(instance);
     if (state != IMU_OK)
     {
         s_lastHardwareZeroZResult = state;
@@ -1460,32 +1511,32 @@ IMUState IMU_HardwareZeroZ(void)
      * JY901B/WitMotion CALSW register: 0x0004 resets heading/Z-axis angle.
      * The lower write helper already uses finite UART timeouts and restarts DMA RX.
      */
-    state = IMU_WriteRegister(IMU_REG_CALSW, IMU_CALSW_Z_AXIS_ZERO, 0U);
+    state = IMU_WriteRegister(instance, IMU_REG_CALSW, IMU_CALSW_Z_AXIS_ZERO, 0U);
     s_lastHardwareZeroZResult = state;
     return state;
 }
 
-IMUState IMU_GetLastHardwareZeroZResult(void)
+IMUState IMU_GetLastHardwareZeroZResult(uint8_t instance)
 {
     return s_lastHardwareZeroZResult;
 }
 
-IMUState IMU_SetFusionFilter(uint16_t filter_value)
+IMUState IMU_SetFusionFilter(uint8_t instance, uint16_t filter_value)
 {
-    return IMU_WriteFilterRegister(IMU_REG_FILTK, filter_value);
+    return IMU_WriteFilterRegister(instance, IMU_REG_FILTK, filter_value);
 }
 
-IMUState IMU_SetAccelerationFilter(uint16_t filter_value)
+IMUState IMU_SetAccelerationFilter(uint8_t instance, uint16_t filter_value)
 {
-    return IMU_WriteFilterRegister(IMU_REG_ACCFILT, filter_value);
+    return IMU_WriteFilterRegister(instance, IMU_REG_ACCFILT, filter_value);
 }
 
-IMUState IMU_SetReturnContent(uint16_t rsw)
+IMUState IMU_SetReturnContent(uint8_t instance, uint16_t rsw)
 {
-    return IMU_WriteRegister(IMU_REG_RSW, rsw, 0U);
+    return IMU_WriteRegister(instance, IMU_REG_RSW, rsw, 0U);
 }
 
-void IMU_StreamDiagnosticsGet(IMUStreamDiagnostics *diagnostics)
+void IMU_StreamDiagnosticsGet(uint8_t instance, IMUStreamDiagnostics *diagnostics)
 {
     if (diagnostics == NULL) { return; }
     diagnostics->valid_frame_count = s_validFrameCount;
@@ -1494,7 +1545,7 @@ void IMU_StreamDiagnosticsGet(IMUStreamDiagnostics *diagnostics)
     diagnostics->process_limit_count = s_processLimitCount;
 }
 
-IMUState IMU_EnsureQuaternionOutput(void)
+IMUState IMU_EnsureQuaternionOutput(uint8_t instance)
 {
     IMUState state;
     uint16_t rsw;
@@ -1502,7 +1553,7 @@ IMUState IMU_EnsureQuaternionOutput(void)
 
     SILVERSTAR_ASSERT_OBJECT(&s_config_cache, IMUConfig,
         SILVERSTAR_ASSERT_MODULE_DEVICE);
-    state = IMU_ReadReturnContent(&rsw);
+    state = IMU_ReadReturnContent(instance, &rsw);
     if (state != IMU_OK)
     {
         return state;
@@ -1511,70 +1562,70 @@ IMUState IMU_EnsureQuaternionOutput(void)
     if (((rsw & FC_IMU_RETURN_CONTENT_DEFAULT) == FC_IMU_RETURN_CONTENT_DEFAULT) &&
         ((rsw & FC_IMU_RETURN_CONTENT_QUAT_MASK) != 0U))
     {
-        IMU_ConfigCacheSetField(IMU_CONFIG_VALID_RETURN_CONTENT, rsw);
+        IMU_ConfigCacheSetField(instance, IMU_CONFIG_VALID_RETURN_CONTENT, rsw);
         return IMU_OK;
     }
 
     target_rsw = (uint16_t)(rsw |
                             FC_IMU_RETURN_CONTENT_DEFAULT |
                             FC_IMU_RETURN_CONTENT_QUAT_MASK);
-    state = IMU_SetReturnContent(target_rsw);
+    state = IMU_SetReturnContent(instance, target_rsw);
     if (state != IMU_OK)
     {
         return state;
     }
 
-    state = IMU_ReadReturnContent(&rsw);
+    state = IMU_ReadReturnContent(instance, &rsw);
     if (state != IMU_OK)
     {
         return state;
     }
 
-    IMU_ConfigCacheSetField(IMU_CONFIG_VALID_RETURN_CONTENT, rsw);
+    IMU_ConfigCacheSetField(instance, IMU_CONFIG_VALID_RETURN_CONTENT, rsw);
     return ((rsw & FC_IMU_RETURN_CONTENT_QUAT_MASK) != 0U) ? IMU_OK : IMU_RESP_INVALID;
 }
 
-IMUState IMU_SaveConfig(void)
+IMUState IMU_SaveConfig(uint8_t instance)
 {
     IMUState state;
 
-    (void)PlatformUart_RxStop(PROJECT_RESOURCE_IMU_UART);
+    (void)PlatformUart_RxStop(Jy901bResource_UartGet(instance));
 
-    state = IMU_SendConfigFrame(IMU_REG_KEY, IMU_KEY_UNLOCK);
+    state = IMU_SendConfigFrame(instance, IMU_REG_KEY, IMU_KEY_UNLOCK);
     if (state != IMU_OK)
     {
-        (void)PlatformUart_RxRestart(PROJECT_RESOURCE_IMU_UART);
+        (void)PlatformUart_RxRestart(Jy901bResource_UartGet(instance));
         return state;
     }
     PlatformTime_DelayMs(IMU_CFG_UNLOCK_DELAY_MS);
 
-    state = IMU_SendConfigFrame(IMU_REG_SAVE, 0x0000U);
+    state = IMU_SendConfigFrame(instance, IMU_REG_SAVE, 0x0000U);
     PlatformTime_DelayMs(IMU_CFG_SAVE_DELAY_MS);
-    (void)PlatformUart_RxRestart(PROJECT_RESOURCE_IMU_UART);
+    (void)PlatformUart_RxRestart(Jy901bResource_UartGet(instance));
     return state;
 }
 
-IMUState IMU_ReadBaudrate(uint16_t *value)
+IMUState IMU_ReadBaudrate(uint8_t instance, uint16_t *value)
 {
-    return IMU_ReadRegister(IMU_REG_BAUD, value);
+    return IMU_ReadRegister(instance, IMU_REG_BAUD, value);
 }
 
-IMUState IMU_ReadOutputRate(uint16_t *value)
+IMUState IMU_ReadOutputRate(uint8_t instance, uint16_t *value)
 {
-    return IMU_ReadRegister(IMU_REG_RRATE, value);
+    return IMU_ReadRegister(instance, IMU_REG_RRATE, value);
 }
 
-IMUState IMU_ReadBandwidth(uint16_t *value)
+IMUState IMU_ReadBandwidth(uint8_t instance, uint16_t *value)
 {
-    return IMU_ReadRegister(IMU_REG_BANDWIDTH, value);
+    return IMU_ReadRegister(instance, IMU_REG_BANDWIDTH, value);
 }
 
-IMUState IMU_ReadAlgorithm(uint16_t *value)
+IMUState IMU_ReadAlgorithm(uint8_t instance, uint16_t *value)
 {
-    return IMU_ReadRegister(IMU_REG_AXIS6, value);
+    return IMU_ReadRegister(instance, IMU_REG_AXIS6, value);
 }
 
-IMUState IMU_ReadInstallationOrientation(uint16_t *value, uint32_t timeout_ms)
+IMUState IMU_ReadInstallationOrientation(uint8_t instance, uint16_t *value, uint32_t timeout_ms)
 {
     IMUState state;
     uint32_t start_tick;
@@ -1591,7 +1642,7 @@ IMUState IMU_ReadInstallationOrientation(uint16_t *value, uint32_t timeout_ms)
     }
 
     start_tick = PlatformTime_Ms();
-    state = IMU_ReadRegister(IMU_REG_ORIENT, value);
+    state = IMU_ReadRegister(instance, IMU_REG_ORIENT, value);
     if ((state == IMU_OK) &&
         ((PlatformTime_Ms() - start_tick) > timeout_ms))
     {
@@ -1606,71 +1657,71 @@ IMUState IMU_ReadInstallationOrientation(uint16_t *value, uint32_t timeout_ms)
     return state;
 }
 
-IMUState IMU_ReadGyroRange(uint16_t *value)
+IMUState IMU_ReadGyroRange(uint8_t instance, uint16_t *value)
 {
-    return IMU_ReadRegister(IMU_REG_GYRORANGE, value);
+    return IMU_ReadRegister(instance, IMU_REG_GYRORANGE, value);
 }
 
-IMUState IMU_ReadAccelRange(uint16_t *value)
+IMUState IMU_ReadAccelRange(uint8_t instance, uint16_t *value)
 {
-    return IMU_ReadRegister(IMU_REG_ACCRANGE, value);
+    return IMU_ReadRegister(instance, IMU_REG_ACCRANGE, value);
 }
 
-IMUState IMU_ReadFusionFilter(uint16_t *value)
+IMUState IMU_ReadFusionFilter(uint8_t instance, uint16_t *value)
 {
-    return IMU_ReadRegister(IMU_REG_FILTK, value);
+    return IMU_ReadRegister(instance, IMU_REG_FILTK, value);
 }
 
-IMUState IMU_ReadAccelerationFilter(uint16_t *value)
+IMUState IMU_ReadAccelerationFilter(uint8_t instance, uint16_t *value)
 {
-    return IMU_ReadRegister(IMU_REG_ACCFILT, value);
+    return IMU_ReadRegister(instance, IMU_REG_ACCFILT, value);
 }
 
-IMUState IMU_ReadReturnContent(uint16_t *value)
+IMUState IMU_ReadReturnContent(uint8_t instance, uint16_t *value)
 {
-    return IMU_ReadRegister(IMU_REG_RSW, value);
+    return IMU_ReadRegister(instance, IMU_REG_RSW, value);
 }
 
-static IMUState IMU_CurrentConfigPrimaryRead(IMUConfig *config)
+static IMUState IMU_CurrentConfigPrimaryRead(uint8_t instance, IMUConfig *config)
 {
     IMUState state;
 
     if (config == NULL) { return IMU_NULL; }
     SILVERSTAR_ASSERT_OBJECT(config, IMUConfig,
         SILVERSTAR_ASSERT_MODULE_DEVICE);
-    state = IMU_ReadBaudrate(&config->BaudrateValue);
+    state = IMU_ReadBaudrate(instance, &config->BaudrateValue);
     if (state != IMU_OK) { return state; }
-    state = IMU_ReadOutputRate(&config->OutputRateValue);
+    state = IMU_ReadOutputRate(instance, &config->OutputRateValue);
     if (state != IMU_OK) { return state; }
-    state = IMU_ReadBandwidth(&config->BandwidthValue);
+    state = IMU_ReadBandwidth(instance, &config->BandwidthValue);
     if (state != IMU_OK) { return state; }
-    state = IMU_ReadAlgorithm(&config->AlgorithmValue);
+    state = IMU_ReadAlgorithm(instance, &config->AlgorithmValue);
     if (state != IMU_OK) { return state; }
-    state = IMU_ReadInstallationOrientation(&config->OrientationValue,
+    state = IMU_ReadInstallationOrientation(instance, &config->OrientationValue,
                                             IMU_ORIENT_READ_TIMEOUT_MS);
     return state;
 }
 
-static IMUState IMU_CurrentConfigSensorRead(IMUConfig *config)
+static IMUState IMU_CurrentConfigSensorRead(uint8_t instance, IMUConfig *config)
 {
     IMUState state;
 
     if (config == NULL) { return IMU_NULL; }
     SILVERSTAR_ASSERT_OBJECT(config, IMUConfig,
         SILVERSTAR_ASSERT_MODULE_DEVICE);
-    state = IMU_ReadGyroRange(&config->GyroRangeValue);
+    state = IMU_ReadGyroRange(instance, &config->GyroRangeValue);
     if (state != IMU_OK) { return state; }
-    state = IMU_ReadAccelRange(&config->AccelRangeValue);
+    state = IMU_ReadAccelRange(instance, &config->AccelRangeValue);
     if (state != IMU_OK) { return state; }
-    state = IMU_ReadFusionFilter(&config->FusionFilterValue);
+    state = IMU_ReadFusionFilter(instance, &config->FusionFilterValue);
     if (state != IMU_OK) { return state; }
-    state = IMU_ReadAccelerationFilter(&config->AccelerationFilterValue);
+    state = IMU_ReadAccelerationFilter(instance, &config->AccelerationFilterValue);
     if (state != IMU_OK) { return state; }
-    state = IMU_ReadReturnContent(&config->ReturnContentValue);
+    state = IMU_ReadReturnContent(instance, &config->ReturnContentValue);
     return state;
 }
 
-IMUState IMU_ReadCurrentConfig(IMUConfig *config)
+IMUState IMU_ReadCurrentConfig(uint8_t instance, IMUConfig *config)
 {
     IMUState state;
 
@@ -1681,16 +1732,16 @@ IMUState IMU_ReadCurrentConfig(IMUConfig *config)
     config->OrientationConfigAttempted =
         s_config_cache.OrientationConfigAttempted;
     config->OrientationConfigOk = s_config_cache.OrientationConfigOk;
-    state = IMU_CurrentConfigPrimaryRead(config);
+    state = IMU_CurrentConfigPrimaryRead(instance, config);
     if (state != IMU_OK) { return state; }
-    state = IMU_CurrentConfigSensorRead(config);
+    state = IMU_CurrentConfigSensorRead(instance, config);
     if (state != IMU_OK) { return state; }
     config->ValidMask = IMU_CONFIG_VALID_ALL;
-    IMU_ConfigCacheSetAll(config);
+    IMU_ConfigCacheSetAll(instance, config);
     return IMU_OK;
 }
 
-static void IMU_PartialFieldStore(IMUConfig *config,
+static void IMU_PartialFieldStore(uint8_t instance, IMUConfig *config,
                                   uint16_t *field,
                                   uint16_t valid_mask,
                                   uint16_t value,
@@ -1709,7 +1760,7 @@ static void IMU_PartialFieldStore(IMUConfig *config,
     {
         *field = value;
         config->ValidMask |= valid_mask;
-        IMU_ConfigCacheSetField(valid_mask, value);
+        IMU_ConfigCacheSetField(instance, valid_mask, value);
     }
     else
     {
@@ -1717,7 +1768,7 @@ static void IMU_PartialFieldStore(IMUConfig *config,
     }
 }
 
-IMUState IMU_ReadCurrentConfigPartial(IMUConfig *config, uint32_t *elapsed_ms)
+IMUState IMU_ReadCurrentConfigPartial(uint8_t instance, IMUConfig *config, uint32_t *elapsed_ms)
 {
     IMUState state;
     IMUState last_error = IMU_RESP_TIMEOUT;
@@ -1732,35 +1783,35 @@ IMUState IMU_ReadCurrentConfigPartial(IMUConfig *config, uint32_t *elapsed_ms)
     config->OrientationConfigAttempted = s_config_cache.OrientationConfigAttempted;
     config->OrientationConfigOk = s_config_cache.OrientationConfigOk;
 
-    state = IMU_ReadBaudrate(&value);
-    IMU_PartialFieldStore(config, &config->BaudrateValue,
+    state = IMU_ReadBaudrate(instance, &value);
+    IMU_PartialFieldStore(instance, config, &config->BaudrateValue,
         IMU_CONFIG_VALID_BAUD, value, state, &last_error);
-    state = IMU_ReadOutputRate(&value);
-    IMU_PartialFieldStore(config, &config->OutputRateValue,
+    state = IMU_ReadOutputRate(instance, &value);
+    IMU_PartialFieldStore(instance, config, &config->OutputRateValue,
         IMU_CONFIG_VALID_RATE, value, state, &last_error);
-    state = IMU_ReadBandwidth(&value);
-    IMU_PartialFieldStore(config, &config->BandwidthValue,
+    state = IMU_ReadBandwidth(instance, &value);
+    IMU_PartialFieldStore(instance, config, &config->BandwidthValue,
         IMU_CONFIG_VALID_BANDWIDTH, value, state, &last_error);
-    state = IMU_ReadAlgorithm(&value);
-    IMU_PartialFieldStore(config, &config->AlgorithmValue,
+    state = IMU_ReadAlgorithm(instance, &value);
+    IMU_PartialFieldStore(instance, config, &config->AlgorithmValue,
         IMU_CONFIG_VALID_ALGORITHM, value, state, &last_error);
-    state = IMU_ReadInstallationOrientation(&value, IMU_ORIENT_READ_TIMEOUT_MS);
-    IMU_PartialFieldStore(config, &config->OrientationValue,
+    state = IMU_ReadInstallationOrientation(instance, &value, IMU_ORIENT_READ_TIMEOUT_MS);
+    IMU_PartialFieldStore(instance, config, &config->OrientationValue,
         IMU_CONFIG_VALID_ORIENTATION, value, state, &last_error);
-    state = IMU_ReadGyroRange(&value);
-    IMU_PartialFieldStore(config, &config->GyroRangeValue,
+    state = IMU_ReadGyroRange(instance, &value);
+    IMU_PartialFieldStore(instance, config, &config->GyroRangeValue,
         IMU_CONFIG_VALID_GYRO_RANGE, value, state, &last_error);
-    state = IMU_ReadAccelRange(&value);
-    IMU_PartialFieldStore(config, &config->AccelRangeValue,
+    state = IMU_ReadAccelRange(instance, &value);
+    IMU_PartialFieldStore(instance, config, &config->AccelRangeValue,
         IMU_CONFIG_VALID_ACCEL_RANGE, value, state, &last_error);
-    state = IMU_ReadFusionFilter(&value);
-    IMU_PartialFieldStore(config, &config->FusionFilterValue,
+    state = IMU_ReadFusionFilter(instance, &value);
+    IMU_PartialFieldStore(instance, config, &config->FusionFilterValue,
         IMU_CONFIG_VALID_FUSION_FILTER, value, state, &last_error);
-    state = IMU_ReadAccelerationFilter(&value);
-    IMU_PartialFieldStore(config, &config->AccelerationFilterValue,
+    state = IMU_ReadAccelerationFilter(instance, &value);
+    IMU_PartialFieldStore(instance, config, &config->AccelerationFilterValue,
         IMU_CONFIG_VALID_ACCEL_FILTER, value, state, &last_error);
-    state = IMU_ReadReturnContent(&value);
-    IMU_PartialFieldStore(config, &config->ReturnContentValue,
+    state = IMU_ReadReturnContent(instance, &value);
+    IMU_PartialFieldStore(instance, config, &config->ReturnContentValue,
         IMU_CONFIG_VALID_RETURN_CONTENT, value, state, &last_error);
 
     if (elapsed_ms != NULL)

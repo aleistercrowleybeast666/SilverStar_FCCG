@@ -343,6 +343,7 @@ def _Component(
     docs: list[str] | None = None,
     overlay_files: dict[str, str] | None = None,
     fccg_owned_files: dict[str, str] | None = None,
+    fccg_owned_docs: dict[str, str] | None = None,
     reference_files: dict[str, str] | None = None,
     vendor_files: dict[str, str] | None = None,
     version: str = SILVERSTAR_PLATFORM_VERSION,
@@ -401,6 +402,7 @@ def _Component(
         "docs": docs or [],
         "overlay_files": dict(overlay_files or {}),
         "fccg_owned_files": dict(fccg_owned_files or {}),
+        "fccg_owned_docs": dict(fccg_owned_docs or {}),
         "reference_files": dict(reference_files or {}),
         "vendor_files": dict(vendor_files or {}),
     }
@@ -1001,6 +1003,8 @@ def _Components_Get(
         for source in core_sources
         if source not in conditional_protocol_sources
     ]
+    if "System/Src/system_source_selector.c" not in core_sources:
+        core_sources.append("System/Src/system_source_selector.c")
     core_source_root = _ExistingCorePackageRoot_Get()
     core_source_relative = core_source_root.relative_to(WORKSPACE_ROOT).as_posix()
     core_fccg_owned_files = {
@@ -1018,13 +1022,32 @@ def _Components_Get(
             "APP/Src/logger_task.c",
             "APP/Src/telemetry_task.c",
             "Common/Src/debug_log.c",
+            "Interfaces/Inc/system_telemetry_transport_if.h",
+            "System/Alignment/Src/system_alignment.c",
+            "System/Calibration/Src/system_calibration.c",
+            "System/Inc/system_source_selector.h",
             "System/Src/system_capabilities.c",
+            "System/Src/system_source_selector.c",
             "System/Src/system_startup.c",
+            "Tests/Host/Fixtures/MultiInstance/Inc/project_resources.h",
+            "Tests/Host/Fixtures/MultiInstance/multi_instance_resources.c",
+            "Tests/Host/Fixtures/source_selector_lock_stub.c",
             "Tests/Host/test_logger.c",
             "Tests/Host/test_console.c",
             "Tests/Host/test_imu_sample_bus.c",
+            "Tests/Host/test_jy901b_adapter.c",
+            "Tests/Host/test_jy901b_device.c",
+            "Tests/Host/test_jy901b_multi_instance.c",
             "Tests/Host/test_lifecycle_logging.c",
+            "Tests/Host/test_neo_m9n_adapter.c",
+            "Tests/Host/test_neo_m9n_device.c",
+            "Tests/Host/test_neo_m9n_multi_instance.c",
+            "Tests/Host/test_source_selector.c",
+            "Tests/Host/test_sx1280_hal_multi_instance.c",
+            "Tests/Host/test_sx1281_device.c",
+            "Tests/Host/test_sx1281_multi_instance.c",
             "Tests/Host/run_tests.ps1",
+            "Tools/check_architecture.ps1",
             "Tools/check_power_of_ten.ps1",
             "Tools/validate_sslog_record_catalog.py",
         )
@@ -1119,7 +1142,26 @@ def _Components_Get(
                 "source_origins": {
                     "default": "reference_base",
                     **{
-                        relative: "fccg_optional_protocol_gating"
+                        relative: (
+                            "fccg_multi_instance_failover"
+                            if relative.startswith(
+                                (
+                                    "Interfaces/Inc/system_telemetry_transport_if.h",
+                                    "System/Alignment/",
+                                    "System/Calibration/",
+                                    "System/Inc/system_source_selector.h",
+                                    "System/Src/system_source_selector.c",
+                                    "Tests/Host/Fixtures/MultiInstance/",
+                                    "Tests/Host/Fixtures/source_selector_lock_stub.c",
+                                    "Tests/Host/test_jy901b_",
+                                    "Tests/Host/test_neo_m9n_",
+                                    "Tests/Host/test_source_selector.c",
+                                    "Tests/Host/test_sx1281_",
+                                    "Tools/check_architecture.ps1",
+                                )
+                            )
+                            else "fccg_optional_protocol_gating"
+                        )
                         for relative in core_fccg_owned_files
                     },
                 },
@@ -1135,6 +1177,16 @@ def _Components_Get(
                 "VALIDATION.md",
             ],
             fccg_owned_files=core_fccg_owned_files,
+            fccg_owned_docs={
+                relative: f"{core_source_relative}/docs/{relative}"
+                for relative in (
+                    "ARCHITECTURE.md",
+                    "FCCG_COMPONENT_BOUNDARIES.md",
+                    "SilverStar_0_0_10.md",
+                    "VALIDATION.md",
+                    "VALIDATION_REQUIREMENTS.md",
+                )
+            },
         )
     )
     components.append(
@@ -1479,28 +1531,84 @@ def _Components_Get(
         device_metadata["build_feature_symbols"] = build_feature_symbols
         facade_bindings: dict[str, dict[str, Any]] = {
             "silverstar.device.imu.jy901b": {
-                "SYSTEM_DEVICE_CLASS_IMU": {"function_prefix": "SystemImu"},
+                "SYSTEM_DEVICE_CLASS_IMU": {
+                    "function_prefix": "Jy901bImuInstance",
+                    "headers": ["jy901b_instance.h"],
+                    "pass_instance": True,
+                },
                 "SYSTEM_DEVICE_CLASS_BAROMETER": {
-                    "function_prefix": "SystemBarometer"
+                    "function_prefix": "Jy901bBarometerInstance",
+                    "headers": ["jy901b_instance.h"],
+                    "pass_instance": True,
                 },
                 "SYSTEM_DEVICE_CLASS_MAGNETOMETER": {
-                    "function_prefix": "SystemMagnetometer"
+                    "function_prefix": "Jy901bMagnetometerInstance",
+                    "headers": ["jy901b_instance.h"],
+                    "pass_instance": True,
                 },
                 "SYSTEM_DEVICE_CLASS_HARDWARE_QUATERNION": {
-                    "function_prefix": "SystemHardwareQuaternion"
+                    "function_prefix": "Jy901bQuaternionInstance",
+                    "headers": ["jy901b_instance.h"],
+                    "pass_instance": True,
                 },
             },
             "silverstar.device.gnss.neo_m9n": {
-                "SYSTEM_DEVICE_CLASS_GNSS": {"function_prefix": "SystemGnss"}
+                "SYSTEM_DEVICE_CLASS_GNSS": {
+                    "function_prefix": "NeoM9nGnssInstance",
+                    "headers": ["neo_m9n_instance.h"],
+                    "pass_instance": True,
+                }
             },
             "silverstar.device.telemetry.sx1281": {
                 "SYSTEM_DEVICE_CLASS_TELEMETRY": {
-                    "function_prefix": "SystemTelemetry"
+                    "function_prefix": "Sx1281TelemetryInstance",
+                    "headers": ["sx1281_instance.h"],
+                    "pass_instance": True,
                 }
             },
         }.get(component_id, {})
         if facade_bindings:
             device_metadata["device_instance_bindings"] = facade_bindings
+        instance_resource_binding = {
+            "silverstar.device.imu.jy901b": {
+                "struct_type": "ProjectJy901bResources",
+                "accessor": "ProjectJy901bResources_Get",
+                "count_symbol": "PROJECT_JY901B_INSTANCE_COUNT",
+                "runtime_context_upper_bound": 4,
+                "fields": [
+                    {"requirement": "data", "member": "uart"},
+                    {"requirement": "time", "member": "time"},
+                ],
+            },
+            "silverstar.device.gnss.neo_m9n": {
+                "struct_type": "ProjectNeoM9nResources",
+                "accessor": "ProjectNeoM9nResources_Get",
+                "count_symbol": "PROJECT_NEO_M9N_INSTANCE_COUNT",
+                "runtime_context_upper_bound": 4,
+                "fields": [
+                    {"requirement": "data", "member": "uart"},
+                    {"requirement": "reset", "member": "reset"},
+                    {"requirement": "timepulse", "member": "timepulse"},
+                    {"requirement": "time", "member": "time"},
+                ],
+            },
+            "silverstar.device.telemetry.sx1281": {
+                "struct_type": "ProjectSx1281Resources",
+                "accessor": "ProjectSx1281Resources_Get",
+                "count_symbol": "PROJECT_SX1281_INSTANCE_COUNT",
+                "runtime_context_upper_bound": 4,
+                "fields": [
+                    {"requirement": "radio_bus", "member": "spi"},
+                    {"requirement": "radio_nss", "member": "nss"},
+                    {"requirement": "radio_reset", "member": "reset"},
+                    {"requirement": "radio_busy", "member": "busy"},
+                    {"requirement": "radio_dio1", "member": "dio1"},
+                    {"requirement": "time", "member": "time"},
+                ],
+            },
+        }.get(component_id)
+        if instance_resource_binding is not None:
+            device_metadata["instance_resource_binding"] = instance_resource_binding
         if component_id == "silverstar.device.imu.jy901b":
             device_metadata.update(
                 {
@@ -1556,21 +1664,63 @@ def _Components_Get(
         elif component_id == "silverstar.device.console.uart":
             transports = [{"capability": "transport.byte_stream", "kind": "byte_stream", "mtu": 1, "ordered": True, "bidirectional": True, "reliable": True, "mode": "stream"}]
         device_sources = _ManifestValues_Get(reference, module, "C_SOURCES")
-        device_fccg_owned_files: dict[str, str] = {}
-        if component_id == "silverstar.device.telemetry.sx1281":
-            adapter_source = (
-                "Devices/Telemetry/SX1281/Adapter/Src/"
-                "sx1281_telemetry_adapter.c"
+        if component_id == "silverstar.device.gnss.neo_m9n":
+            includes = list(dict.fromkeys(
+                [*includes, "Devices/GNSS/NEO_M9N/Adapter/Inc"]
+            ))
+        elif component_id == "silverstar.device.telemetry.sx1281":
+            includes = list(dict.fromkeys(
+                [*includes, "Devices/Telemetry/SX1281/Adapter/Inc"]
+            ))
+        device_context_files = {
+            "silverstar.device.imu.jy901b": (
+                "Devices/IMU/JY901B/Inc/jy901b_imu_build_capabilities.h",
+                "Devices/IMU/JY901B/Inc/jy901b_device.h",
+                "Devices/IMU/JY901B/Adapter/Inc/jy901b_sensor_adapter.h",
+                "Devices/IMU/JY901B/Adapter/Inc/jy901b_instance.h",
+                "Devices/IMU/JY901B/Src/jy901b_device.c",
+                "Devices/IMU/JY901B/Adapter/Src/jy901b_barometer_adapter.c",
+                "Devices/IMU/JY901B/Adapter/Src/jy901b_imu_adapter.c",
+                "Devices/IMU/JY901B/Adapter/Src/jy901b_magnetometer_adapter.c",
+                "Devices/IMU/JY901B/Adapter/Src/jy901b_quaternion_adapter.c",
+            ),
+            "silverstar.device.gnss.neo_m9n": (
+                "Devices/GNSS/NEO_M9N/Inc/neo_m9n_device.h",
+                "Devices/GNSS/NEO_M9N/Adapter/Inc/neo_m9n_instance.h",
+                "Devices/GNSS/NEO_M9N/Src/neo_m9n_device.c",
+                "Devices/GNSS/NEO_M9N/Adapter/Src/neo_m9n_system_adapter.c",
+            ),
+            "silverstar.device.telemetry.sx1281": (
+                "Devices/Telemetry/SX1281/Inc/sx1281_bus.h",
+                "Devices/Telemetry/SX1281/Inc/sx1281_device.h",
+                "Devices/Telemetry/SX1281/Adapter/Inc/sx1281_instance.h",
+                "Devices/Telemetry/SX1281/Src/sx1281_bus.c",
+                "Devices/Telemetry/SX1281/Src/sx1281_device.c",
+                "Devices/Telemetry/SX1281/Adapter/Src/sx1281_telemetry_adapter.c",
+                "Middlewares/Third_Party/SX1280lib/hw.h",
+                "Middlewares/Third_Party/SX1280lib/sx1280-hal.c",
+                "Middlewares/Third_Party/SX1280lib/sx1280-hal.h",
+                "Middlewares/Third_Party/SX1280lib/sx1280.c",
+                "Middlewares/Third_Party/SX1280lib/sx1280.h",
+            ),
+        }.get(component_id, ())
+        device_fccg_owned_files = {
+            relative: (
+                "plugins/builtin/"
+                + component_id.replace(".", "_")
+                + "/payload/"
+                + relative
             )
+            for relative in device_context_files
+        }
+        if device_context_files:
             device_metadata["source_origins"] = {
                 "default": "reference_base",
-                adapter_source: "fccg_optional_protocol_gating",
+                **{
+                    relative: "fccg_multi_instance_context"
+                    for relative in device_context_files
+                },
             }
-            device_fccg_owned_files[adapter_source] = (
-                "plugins/builtin/"
-                "silverstar_device_telemetry_sx1281/payload/"
-                + adapter_source
-            )
         components.append(
             _Component(
                 component_id,
@@ -1586,17 +1736,48 @@ def _Components_Get(
                 resources_required=requirements,
                 provides=provides,
                 instance_policy={
-                    "plugin_max": 1,
+                    "plugin_max": (
+                        4
+                        if component_id in {
+                            "silverstar.device.imu.jy901b",
+                            "silverstar.device.gnss.neo_m9n",
+                            "silverstar.device.telemetry.sx1281",
+                        }
+                        else 1
+                    ),
                     "class_max": (
                         4 if component_class in {"imu", "gnss", "telemetry"} else 1
                     ),
-                    "same_plugin_multiple": False,
-                    "multi_instance_ready": False,
+                    "same_plugin_multiple": component_id in {
+                        "silverstar.device.imu.jy901b",
+                        "silverstar.device.gnss.neo_m9n",
+                        "silverstar.device.telemetry.sx1281",
+                    },
+                    "multi_instance_ready": component_id in {
+                        "silverstar.device.imu.jy901b",
+                        "silverstar.device.gnss.neo_m9n",
+                        "silverstar.device.telemetry.sx1281",
+                    },
                 },
                 physical_device=details["physical_device"],
                 transports=transports,
                 metadata=device_metadata,
                 fccg_owned_files=device_fccg_owned_files,
+                fccg_owned_docs=(
+                    {
+                        relative: (
+                            "plugins/builtin/"
+                            "silverstar_device_imu_jy901b/docs/"
+                            + relative
+                        )
+                        for relative in (
+                            "DEVICE_INTERFACE.md",
+                            "IMU_INTERFACE.md",
+                        )
+                    }
+                    if component_id == "silverstar.device.imu.jy901b"
+                    else {}
+                ),
                 docs=(
                     docs
                     + [
@@ -2323,6 +2504,12 @@ def _Components_Get(
                 "source_origins": protocol_source_origin,
             },
             docs=["docs/details/AIR_PROTOCOL.md"],
+            fccg_owned_docs={
+                "AIR_PROTOCOL.md": (
+                    "plugins/builtin/silverstar_protocol_telemetry_air_m0/"
+                    "docs/AIR_PROTOCOL.md"
+                )
+            },
             overlay_files={
                 "Protocol/metadata/air_m0.json": "protocol/air_m0.json"
             },
@@ -2340,6 +2527,7 @@ def _Components_Get(
                     "parser_sources": ["Protocol/Src/air_protocol.c"],
                     "include_dirs": ["Protocol/Inc"], "defines": [],
                     "binding": "telemetry_transport",
+                    "transport_selection": "ordered_failover",
                     "transport": {"capability": "transport.packet", "kind": "packet", "minimum_mtu": 50, "ordered": True, "bidirectional": True, "reliable": False, "mode": "datagram"},
                     "decoder_metadata": "Protocol/metadata/air_m0.json",
                     "documentation": ["docs/AIR_PROTOCOL.md"],
@@ -2382,6 +2570,7 @@ def _Components_Get(
                     "parser_sources": ["System/Src/system_console.c"],
                     "include_dirs": ["System/Inc", "Interfaces/Inc"], "defines": [],
                     "binding": "maintenance_console",
+                    "transport_selection": "single",
                     "transport": {"capability": "transport.byte_stream", "kind": "byte_stream", "minimum_mtu": 1, "ordered": True, "bidirectional": True, "reliable": True, "mode": "stream"},
                     "decoder_metadata": "Protocol/metadata/maintenance_serial_0_0.json",
                     "documentation": ["docs/MAINTENANCE_PROTOCOL.md"],
@@ -2404,10 +2593,40 @@ def _Components_Get(
             provides=["protocol.sslog"],
             metadata={
                 "display_names": {"zh_CN": "飞行日志格式 0.0", "en_US": "Flight Log Format 0.0"},
-                "source_origins": protocol_source_origin,
+                "source_origins": {
+                    **protocol_source_origin,
+                    "Protocol/SSLOG/Inc/sslog_protocol.h": (
+                        "fccg_multi_instance_failover"
+                    ),
+                    "Protocol/SSLOG/schema/sslog_parser_metadata.json": (
+                        "fccg_multi_instance_failover"
+                    ),
+                    "Protocol/SSLOG/schema/sslog_schema.json": (
+                        "fccg_multi_instance_failover"
+                    ),
+                },
                 "container_decoder": {"id": "silverstar.sslog.container/0.0", "version": "0.0"},
             },
             docs=["docs/details/STORAGE_AND_FLIGHT_LOG.md"],
+            fccg_owned_docs={
+                "STORAGE_AND_FLIGHT_LOG.md": (
+                    "plugins/builtin/"
+                    "silverstar_protocol_logging_sslog_0_0/"
+                    "docs/STORAGE_AND_FLIGHT_LOG.md"
+                )
+            },
+            fccg_owned_files={
+                relative: (
+                    "plugins/builtin/"
+                    "silverstar_protocol_logging_sslog_0_0/payload/"
+                    + relative
+                )
+                for relative in (
+                    "Protocol/SSLOG/Inc/sslog_protocol.h",
+                    "Protocol/SSLOG/schema/sslog_parser_metadata.json",
+                    "Protocol/SSLOG/schema/sslog_schema.json",
+                )
+            },
             protocol={
                 "category": "logging",
                 "logging_metadata": "Protocol/SSLOG/schema/sslog_parser_metadata.json",
@@ -2422,6 +2641,7 @@ def _Components_Get(
                     "parser_sources": ["Protocol/SSLOG/Src/sslog_protocol.c"],
                     "include_dirs": ["Protocol/SSLOG/Inc"], "defines": [],
                     "binding": "flight_log_sink",
+                    "transport_selection": "single",
                     "transport": {"capability": "transport.sequential_file_sink", "kind": "sequential_file_sink", "minimum_mtu": 280, "ordered": True, "bidirectional": False, "reliable": True, "mode": "file"},
                     "decoder_metadata": "Protocol/SSLOG/schema/sslog_parser_metadata.json",
                     "documentation": ["docs/STORAGE_AND_FLIGHT_LOG.md"],
@@ -3363,80 +3583,28 @@ def _ProtocolProfileMetadata_Write(
 def _GeneratedFacadeTemplates_Copy(
     reference: Path, staged_builtin: Path, policy: WorkspacePolicy
 ) -> None:
+    _ = reference
     template_root = (
         staged_builtin
         / SILVERSTAR_CORE_PACKAGE_SLUG
         / "templates"
         / "generated"
     )
-    header_source = reference / "Generated" / "Inc" / "project_device_instances.h"
-    implementation_source = (
-        reference / "Generated" / "Src" / "project_device_instances.c"
-    )
-    decoder_header_source = (
-        reference / "Generated" / "Inc" / "project_log_decoder_profile.h"
-    )
     fccg_template_source_root = (
         _ExistingCorePackageRoot_Get() / "templates" / "generated"
     )
-    decoder_implementation_source = (
-        fccg_template_source_root / "project_log_decoder_profile.c"
-    )
-    semantics_source = fccg_template_source_root / "project_semantics.json"
-    log_config_source = reference / "Generated" / "Src" / "project_log_config.c"
-    header_text = header_source.read_text(encoding="utf-8")
-    implementation_text = implementation_source.read_text(encoding="utf-8")
-    legacy_validator = (
-        "    SystemDeviceDescriptor descriptor;\n\n"
-        "    switch (instance_id)\n"
-        "    {\n"
-        "        case 0U:\n"
-        "            return SystemDescriptor_DeviceFind(\n"
-        "                device_class, instance_id, &descriptor);\n"
-        "        default:\n"
-        "            return SYSTEM_DEVICE_NOT_PRESENT;\n"
-        "    }"
-    )
-    generic_validator = (
-        "    SystemDeviceDescriptor descriptor;\n\n"
-        "    return SystemDescriptor_DeviceFind(\n"
-        "        device_class, instance_id, &descriptor);"
-    )
-    compact_generic_validator = (
-        "    SystemDeviceDescriptor descriptor;\n\n"
-        "    return SystemDescriptor_DeviceFind(device_class, instance_id, &descriptor);"
-    )
-    if legacy_validator in implementation_text:
-        implementation_text = implementation_text.replace(
-            legacy_validator, generic_validator, 1
-        )
-    elif (
-        generic_validator not in implementation_text
-        and compact_generic_validator not in implementation_text
+    for relative in (
+        "project_device_instances.h",
+        "project_device_instances.c",
+        "project_log_config.c",
+        "project_log_decoder_profile.h",
+        "project_log_decoder_profile.c",
+        "project_semantics.json",
     ):
-        raise RuntimeError("Reference project-device facade validation changed")
-    policy.Text_AtomicWrite(
-        template_root / "project_device_instances.h", header_text
-    )
-    policy.Text_AtomicWrite(
-        template_root / "project_device_instances.c", implementation_text
-    )
-    policy.File_Copy(
-        log_config_source,
-        template_root / "project_log_config.c",
-    )
-    policy.File_Copy(
-        decoder_header_source,
-        template_root / "project_log_decoder_profile.h",
-    )
-    policy.File_Copy(
-        decoder_implementation_source,
-        template_root / "project_log_decoder_profile.c",
-    )
-    policy.File_Copy(
-        semantics_source,
-        template_root / "project_semantics.json",
-    )
+        policy.File_Copy(
+            fccg_template_source_root / relative,
+            template_root / relative,
+        )
 
 
 def _ProtocolMetadata_Adapt(
@@ -4225,6 +4393,7 @@ def Components_Import(reference: Path, *, force: bool = False) -> dict[str, Any]
             package_root.mkdir(parents=True)
             overlay_files = component.get("overlay_files", {})
             fccg_owned_files = component.get("fccg_owned_files", {})
+            fccg_owned_docs = component.get("fccg_owned_docs", {})
             reference_files = component.get("reference_files", {})
             vendor_files = component.get("vendor_files", {})
             for relative_text in manifest["payload"]["roots"]:
@@ -4289,6 +4458,11 @@ def Components_Import(reference: Path, *, force: bool = False) -> dict[str, Any]
                 source = reference / Path(*doc_text.split("/"))
                 if source.is_file():
                     policy.File_Copy(source, package_root / "docs" / source.name)
+            for target_text, workspace_text in sorted(fccg_owned_docs.items()):
+                policy.File_Copy(
+                    WORKSPACE_ROOT / Path(*workspace_text.split("/")),
+                    package_root / "docs" / Path(*target_text.split("/")),
+                )
             policy.Text_AtomicWrite(
                 package_root / "plugin.json",
                 json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",

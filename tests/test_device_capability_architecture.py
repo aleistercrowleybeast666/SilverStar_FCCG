@@ -744,39 +744,48 @@ def test_multiple_providers_default_to_instance_zero_and_save_only_override(
     }
 
 
-def test_current_devices_are_singleton_and_mcu_neutral(
+def test_current_physical_devices_have_declared_instance_limits_and_are_mcu_neutral(
     builtin_catalog: PluginCatalog,
 ) -> None:
     for component_id in (
         "silverstar.device.imu.jy901b",
         "silverstar.device.gnss.neo_m9n",
         "silverstar.device.telemetry.sx1281",
-        "silverstar.device.console.uart",
     ):
         manifest = builtin_catalog.Component_Get(component_id)
-        assert manifest.instance_policy.plugin_max == 1
-        assert manifest.instance_policy.class_max == (
-            1 if component_id == "silverstar.device.console.uart" else 4
-        )
-        assert not manifest.instance_policy.same_plugin_multiple
-        assert not manifest.instance_policy.multi_instance_ready
+        assert manifest.instance_policy.plugin_max == 4
+        assert manifest.instance_policy.class_max == 4
+        assert manifest.instance_policy.same_plugin_multiple
+        assert manifest.instance_policy.multi_instance_ready
         assert manifest.physical_device is not None
         assert "silverstar.mcu.stm32f407vet6" not in {
             dependency.component_id for dependency in manifest.dependencies
         }
 
+    console = builtin_catalog.Component_Get("silverstar.device.console.uart")
+    assert console.instance_policy.plugin_max == 1
+    assert console.instance_policy.class_max == 1
+    assert not console.instance_policy.same_plugin_multiple
+    assert not console.instance_policy.multi_instance_ready
+    assert console.physical_device is not None
+    assert "silverstar.mcu.stm32f407vet6" not in {
+        dependency.component_id for dependency in console.dependencies
+    }
 
-def test_singleton_device_plugin_cannot_be_instantiated_twice(
+
+def test_context_safe_device_plugin_rejects_fifth_instance(
     builtin_catalog: PluginCatalog,
 ) -> None:
-    model = ReferenceProject_Create("DuplicateSingleton")
-    model.device_instances.append(
-        DeviceInstance("imu1", "silverstar.device.imu.jy901b")
+    model = ReferenceProject_Create("BoundedMultiInstance")
+    model.device_instances.extend(
+        DeviceInstance(f"imu{index}", "silverstar.device.imu.jy901b")
+        for index in range(1, 5)
     )
     issue_codes = {issue.code for issue in Project_Validate(model, builtin_catalog).issues}
     assert "device_instance_limit" in issue_codes
-    assert "device_same_plugin_multiple" in issue_codes
-    assert "device_multi_instance_not_ready" in issue_codes
+    assert "device_class_instance_limit" in issue_codes
+    assert "device_same_plugin_multiple" not in issue_codes
+    assert "device_multi_instance_not_ready" not in issue_codes
 
 
 def test_distinct_singleton_plugins_can_share_one_capability_class(

@@ -59,6 +59,13 @@ environment, or any other repository. Project-local settings and logs belong bel
   require capabilities with a purpose, and the resolver stores a source override only when two or
   more physical instances can satisfy the same capability. Usage lifecycle stays in the consuming
   implementation; do not add a general PRE_START/ASCENT/RECOVERY phase policy.
+- Official JY901B, NEO-M9N, and SX1281 Device plugins are context-safe for at most four repeated
+  instances. Each instance owns independent generated resources and mutable driver/parser state;
+  source files still enter the graph once. The stable instance order after the configured primary
+  is the backup order. IMU selection locks before calibration/alignment and never changes in
+  flight; GNSS liveness and AIR M0 local TX-timeout failover are one-way with no automatic
+  failback. AIR uses one active transport, counts only real consecutive TX timeouts, switches at
+  ten, and keeps retrying the last source once per normal period when no backup remains.
 - Raw/Data capabilities only assert that data exists. Qualified capabilities ending in
   `_qualified` assert suitability for a specific implementation contract. A Strategy must require
   every qualification it needs; never infer qualification from a device model or related raw data.

@@ -5,40 +5,51 @@
 #include <stddef.h>
 #include <string.h>
 
+#include "project_resources.h"
+#include "jy901b_instance.h"
 #include "jy901b_sensor_adapter.h"
 #include "silverstar_assert.h"
 
-static SystemHardwareQuaternionConfig s_effective_config;
+static SystemHardwareQuaternionConfig
+    s_effective_configs[PROJECT_JY901B_INSTANCE_COUNT];
 
-static SystemDeviceResult Jy901bQuaternionAdapter_GetHealth(
+#define s_effective_config (s_effective_configs[instance])
+
+static SystemDeviceResult Jy901bQuaternionAdapter_GetHealth(uint8_t instance,
     SystemDeviceHealth *health)
 {
-    return Jy901bAdapter_FrameHealthGet(IMUFrameQuaternion, health);
+    (void)instance;
+    return Jy901bAdapter_FrameHealthGet(instance, IMUFrameQuaternion, health);
 }
 
-static SystemDeviceResult Jy901bQuaternionAdapter_Init(void)
+static SystemDeviceResult Jy901bQuaternionAdapter_Init(uint8_t instance)
 {
-    return Jy901bAdapter_SharedInit();
+    (void)instance;
+    return Jy901bAdapter_SharedInit(instance);
 }
 
-static SystemDeviceResult Jy901bQuaternionAdapter_Start(void)
+static SystemDeviceResult Jy901bQuaternionAdapter_Start(uint8_t instance)
 {
-    SystemDeviceResult result = Jy901bAdapter_SharedStart();
+    (void)instance;
+    SystemDeviceResult result = Jy901bAdapter_SharedStart(instance);
 
     return (result == SYSTEM_DEVICE_ALREADY_MATCHED) ? SYSTEM_DEVICE_OK : result;
 }
 
-static SystemDeviceResult Jy901bQuaternionAdapter_Stop(void)
+static SystemDeviceResult Jy901bQuaternionAdapter_Stop(uint8_t instance)
 {
+    (void)instance;
     return SYSTEM_DEVICE_OK;
 }
 
-static void Jy901bQuaternionAdapter_Process(void)
+static void Jy901bQuaternionAdapter_Process(uint8_t instance)
 {
+    (void)instance;
 }
 
-static SystemDeviceResult Jy901bQuaternionAdapter_GetInfo(SystemDeviceInfo *info)
+static SystemDeviceResult Jy901bQuaternionAdapter_GetInfo(uint8_t instance, SystemDeviceInfo *info)
 {
+    (void)instance;
     if (info == NULL) { return SYSTEM_DEVICE_INVALID_ARGUMENT; }
     info->device_name = "JY901B Hardware Quaternion Adapter";
     info->model_name = "JY901B";
@@ -51,8 +62,9 @@ static SystemDeviceResult Jy901bQuaternionAdapter_GetInfo(SystemDeviceInfo *info
     return SYSTEM_DEVICE_OK;
 }
 
-static SystemDeviceResult Jy901bQuaternionAdapter_GetCapabilities(uint32_t *mask)
+static SystemDeviceResult Jy901bQuaternionAdapter_GetCapabilities(uint8_t instance, uint32_t *mask)
 {
+    (void)instance;
     if (mask == NULL) { return SYSTEM_DEVICE_INVALID_ARGUMENT; }
     *mask = SYSTEM_HW_QUAT_CAP_OUTPUT |
             SYSTEM_HW_QUAT_CAP_6AXIS |
@@ -61,10 +73,11 @@ static SystemDeviceResult Jy901bQuaternionAdapter_GetCapabilities(uint32_t *mask
     return SYSTEM_DEVICE_OK;
 }
 
-static void Jy901bQuaternionAdapter_ModeResolve(
+static void Jy901bQuaternionAdapter_ModeResolve(uint8_t instance,
     const IMUConfig *config,
     SystemHardwareQuaternionSample *sample)
 {
+    (void)instance;
     SILVERSTAR_ASSERT_OBJECT(config, IMUConfig,
                              SILVERSTAR_ASSERT_MODULE_DEVICE);
     SILVERSTAR_ASSERT_OBJECT(sample, SystemHardwareQuaternionSample,
@@ -83,9 +96,10 @@ static void Jy901bQuaternionAdapter_ModeResolve(
     }
 }
 
-static SystemDeviceResult Jy901bQuaternionAdapter_GetSample(
+static SystemDeviceResult Jy901bQuaternionAdapter_GetSample(uint8_t instance,
     SystemHardwareQuaternionSample *sample)
 {
+    (void)instance;
     IMUData data;
     IMUConfig config;
     float norm;
@@ -95,10 +109,10 @@ static SystemDeviceResult Jy901bQuaternionAdapter_GetSample(
     if (sample == NULL) { return SYSTEM_DEVICE_INVALID_ARGUMENT; }
     SILVERSTAR_ASSERT_OBJECT(sample, SystemHardwareQuaternionSample,
                              SILVERSTAR_ASSERT_MODULE_DEVICE);
-    result = Jy901bAdapter_SharedSnapshotGet(&data);
+    result = Jy901bAdapter_SharedSnapshotGet(instance, &data);
     if (result != SYSTEM_DEVICE_OK) { return result; }
     if ((data.ValidMask & (1U << 5)) == 0U) { return SYSTEM_DEVICE_NOT_READY; }
-    IMU_ConfigCacheGet(&config);
+    IMU_ConfigCacheGet(instance, &config);
     (void)memset(sample, 0, sizeof(*sample));
     sample->sample_timestamp_us = data.QuaternionTimestampUs;
     sample->receive_timestamp_us = data.QuaternionTimestampUs;
@@ -120,7 +134,7 @@ static SystemDeviceResult Jy901bQuaternionAdapter_GetSample(
     {
         sample->quaternion_wxyz[index] /= norm;
     }
-    Jy901bQuaternionAdapter_ModeResolve(&config, sample);
+    Jy901bQuaternionAdapter_ModeResolve(instance, &config, sample);
     /* This is runtime mode/config health, not SilverStar Alignment
      * qualification. Authoritative eligibility is build-time metadata. */
     sample->algorithm_healthy = sample->mode_verified;
@@ -129,19 +143,21 @@ static SystemDeviceResult Jy901bQuaternionAdapter_GetSample(
     return SYSTEM_DEVICE_OK;
 }
 
-static SystemDeviceResult Jy901bQuaternionAdapter_SelfTest(
+static SystemDeviceResult Jy901bQuaternionAdapter_SelfTest(uint8_t instance,
     SystemDeviceSelfTestResult *result)
 {
+    (void)instance;
     if (result == NULL) { return SYSTEM_DEVICE_INVALID_ARGUMENT; }
     (void)memset(result, 0, sizeof(*result));
     result->unsupported_mask = 1U;
     return SYSTEM_DEVICE_UNSUPPORTED;
 }
 
-static SystemDeviceResult Jy901bQuaternionAdapter_ConfigCheck(
+static SystemDeviceResult Jy901bQuaternionAdapter_ConfigCheck(uint8_t instance,
     const SystemHardwareQuaternionConfig *config,
     SystemDeviceConfigReport *report)
 {
+    (void)instance;
     if ((config == NULL) || (report == NULL))
     {
         return SYSTEM_DEVICE_INVALID_ARGUMENT;
@@ -171,12 +187,13 @@ static SystemDeviceResult Jy901bQuaternionAdapter_ConfigCheck(
         SYSTEM_DEVICE_UNSUPPORTED : SYSTEM_DEVICE_OK;
 }
 
-static SystemDeviceResult Jy901bQuaternionAdapter_ApplyConfig(
+static SystemDeviceResult Jy901bQuaternionAdapter_ApplyConfig(uint8_t instance,
     const SystemHardwareQuaternionConfig *config,
     SystemDeviceConfigReport *report)
 {
+    (void)instance;
     SystemDeviceResult result =
-        Jy901bQuaternionAdapter_ConfigCheck(config, report);
+        Jy901bQuaternionAdapter_ConfigCheck(instance, config, report);
     IMUAlgorithm algorithm;
 
     if ((result != SYSTEM_DEVICE_OK) && (result != SYSTEM_DEVICE_UNSUPPORTED))
@@ -189,7 +206,7 @@ static SystemDeviceResult Jy901bQuaternionAdapter_ApplyConfig(
     {
         algorithm = (config->mode == SYSTEM_HW_QUAT_MODE_6AXIS) ?
             Algorithm_6Axis : Algorithm_9Axis;
-        if (Jy901bAdapter_AlgorithmStage(algorithm) !=
+        if (Jy901bAdapter_AlgorithmStage(instance, algorithm) !=
             SYSTEM_DEVICE_CONFIG_DELEGATED)
         {
             report->verify_failed_mask = SYSTEM_HW_QUAT_CAP_CONFIG_MODE;
@@ -205,15 +222,16 @@ static SystemDeviceResult Jy901bQuaternionAdapter_ApplyConfig(
         SYSTEM_DEVICE_CONFIG_DELEGATED : result;
 }
 
-static SystemDeviceResult Jy901bQuaternionAdapter_VerifyConfig(
+static SystemDeviceResult Jy901bQuaternionAdapter_VerifyConfig(uint8_t instance,
     const SystemHardwareQuaternionConfig *config,
     SystemDeviceConfigReport *report)
 {
+    (void)instance;
     uint16_t actual_value;
     uint16_t expected_value;
     IMUState state;
     SystemDeviceResult result =
-        Jy901bQuaternionAdapter_ConfigCheck(config, report);
+        Jy901bQuaternionAdapter_ConfigCheck(instance, config, report);
 
     if ((result != SYSTEM_DEVICE_OK) && (result != SYSTEM_DEVICE_UNSUPPORTED))
     {
@@ -225,13 +243,13 @@ static SystemDeviceResult Jy901bQuaternionAdapter_VerifyConfig(
     {
         return result;
     }
-    if (Jy901bAdapter_ConfigAccessCheck() != SYSTEM_DEVICE_OK)
+    if (Jy901bAdapter_ConfigAccessCheck(instance) != SYSTEM_DEVICE_OK)
     {
         return SYSTEM_DEVICE_BUSY;
     }
     expected_value = (config->mode == SYSTEM_HW_QUAT_MODE_6AXIS) ?
         IMU_ALGORITHM_6_AXIS_VALUE : IMU_ALGORITHM_9_AXIS_VALUE;
-    state = IMU_ReadAlgorithm(&actual_value);
+    state = IMU_ReadAlgorithm(instance, &actual_value);
     if ((state != IMU_OK) || (actual_value != expected_value))
     {
         report->matched_mask = 0U;
@@ -243,48 +261,62 @@ static SystemDeviceResult Jy901bQuaternionAdapter_VerifyConfig(
         return (state == IMU_RESP_TIMEOUT) ? SYSTEM_DEVICE_TIMEOUT :
                                              SYSTEM_DEVICE_VERIFY_FAILED;
     }
-    IMU_ConfigCacheSetField(IMU_CONFIG_VALID_ALGORITHM, actual_value);
+    IMU_ConfigCacheSetField(instance, IMU_CONFIG_VALID_ALGORITHM, actual_value);
     return result;
 }
 
-static SystemDeviceResult Jy901bQuaternionAdapter_GetConfig(
+static SystemDeviceResult Jy901bQuaternionAdapter_GetConfig(uint8_t instance,
     SystemHardwareQuaternionConfig *config)
 {
+    (void)instance;
     if (config == NULL) { return SYSTEM_DEVICE_INVALID_ARGUMENT; }
     *config = s_effective_config;
     return SYSTEM_DEVICE_OK;
 }
 
-const char *SystemHardwareQuaternion_NameGet(void)
-{ return "JY901B Hardware Quaternion"; }
-SystemDeviceResult SystemHardwareQuaternion_Init(void)
-{ return Jy901bQuaternionAdapter_Init(); }
-SystemDeviceResult SystemHardwareQuaternion_Start(void)
-{ return Jy901bQuaternionAdapter_Start(); }
-SystemDeviceResult SystemHardwareQuaternion_Stop(void)
-{ return Jy901bQuaternionAdapter_Stop(); }
-void SystemHardwareQuaternion_Process(void)
-{ Jy901bQuaternionAdapter_Process(); }
-SystemDeviceResult SystemHardwareQuaternion_InfoGet(SystemDeviceInfo *info)
-{ return Jy901bQuaternionAdapter_GetInfo(info); }
-SystemDeviceResult SystemHardwareQuaternion_CapabilitiesGet(uint32_t *mask)
-{ return Jy901bQuaternionAdapter_GetCapabilities(mask); }
-SystemDeviceResult SystemHardwareQuaternion_HealthGet(SystemDeviceHealth *health)
-{ return Jy901bQuaternionAdapter_GetHealth(health); }
-SystemDeviceResult SystemHardwareQuaternion_LatestSampleGet(
+const char *Jy901bQuaternionInstance_NameGet(uint8_t instance)
+{
+    (void)instance; return "JY901B Hardware Quaternion"; }
+SystemDeviceResult Jy901bQuaternionInstance_Init(uint8_t instance)
+{
+    (void)instance; return Jy901bQuaternionAdapter_Init(instance); }
+SystemDeviceResult Jy901bQuaternionInstance_Start(uint8_t instance)
+{
+    (void)instance; return Jy901bQuaternionAdapter_Start(instance); }
+SystemDeviceResult Jy901bQuaternionInstance_Stop(uint8_t instance)
+{
+    (void)instance; return Jy901bQuaternionAdapter_Stop(instance); }
+void Jy901bQuaternionInstance_Process(uint8_t instance)
+{
+    (void)instance; Jy901bQuaternionAdapter_Process(instance); }
+SystemDeviceResult Jy901bQuaternionInstance_InfoGet(uint8_t instance, SystemDeviceInfo *info)
+{
+    (void)instance; return Jy901bQuaternionAdapter_GetInfo(instance, info); }
+SystemDeviceResult Jy901bQuaternionInstance_CapabilitiesGet(uint8_t instance, uint32_t *mask)
+{
+    (void)instance; return Jy901bQuaternionAdapter_GetCapabilities(instance, mask); }
+SystemDeviceResult Jy901bQuaternionInstance_HealthGet(uint8_t instance, SystemDeviceHealth *health)
+{
+    (void)instance; return Jy901bQuaternionAdapter_GetHealth(instance, health); }
+SystemDeviceResult Jy901bQuaternionInstance_LatestSampleGet(uint8_t instance,
     SystemHardwareQuaternionSample *sample)
-{ return Jy901bQuaternionAdapter_GetSample(sample); }
-SystemDeviceResult SystemHardwareQuaternion_SelfTestRun(
+{
+    (void)instance; return Jy901bQuaternionAdapter_GetSample(instance, sample); }
+SystemDeviceResult Jy901bQuaternionInstance_SelfTestRun(uint8_t instance,
     SystemDeviceSelfTestResult *result)
-{ return Jy901bQuaternionAdapter_SelfTest(result); }
-SystemDeviceResult SystemHardwareQuaternion_ConfigApply(
+{
+    (void)instance; return Jy901bQuaternionAdapter_SelfTest(instance, result); }
+SystemDeviceResult Jy901bQuaternionInstance_ConfigApply(uint8_t instance,
     const SystemHardwareQuaternionConfig *config,
     SystemDeviceConfigReport *report)
-{ return Jy901bQuaternionAdapter_ApplyConfig(config, report); }
-SystemDeviceResult SystemHardwareQuaternion_ConfigVerify(
+{
+    (void)instance; return Jy901bQuaternionAdapter_ApplyConfig(instance, config, report); }
+SystemDeviceResult Jy901bQuaternionInstance_ConfigVerify(uint8_t instance,
     const SystemHardwareQuaternionConfig *config,
     SystemDeviceConfigReport *report)
-{ return Jy901bQuaternionAdapter_VerifyConfig(config, report); }
-SystemDeviceResult SystemHardwareQuaternion_EffectiveConfigGet(
+{
+    (void)instance; return Jy901bQuaternionAdapter_VerifyConfig(instance, config, report); }
+SystemDeviceResult Jy901bQuaternionInstance_EffectiveConfigGet(uint8_t instance,
     SystemHardwareQuaternionConfig *config)
-{ return Jy901bQuaternionAdapter_GetConfig(config); }
+{
+    (void)instance; return Jy901bQuaternionAdapter_GetConfig(instance, config); }

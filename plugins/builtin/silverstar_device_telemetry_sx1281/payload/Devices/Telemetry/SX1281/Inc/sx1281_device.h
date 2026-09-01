@@ -157,28 +157,28 @@ typedef struct
     int16_t rssi_inst;
 } LoraDiagSnapshot;
 
-LoraInitResult Lora_Init(void);
+LoraInitResult Lora_Init(uint8_t instance);
 /* Bootstrap or Transport-owner context only. */
-LoraConfigResult Lora_ApplyDefaultConfig(void);
-void Lora_Process(void);
-void Lora_StartRx(void);
+LoraConfigResult Lora_ApplyDefaultConfig(uint8_t instance);
+void Lora_Process(uint8_t instance);
+void Lora_StartRx(uint8_t instance);
 
-LoraTxEnqueueResult Lora_TxEnqueue(const uint8_t *data, uint8_t len);
-LoraTxEnqueueResult Lora_TxEnqueuePriority(const uint8_t *data, uint8_t len);
-LoraRxDequeueResult Lora_RxDequeue(uint8_t *data, uint8_t *len, int8_t *rssi, int8_t *snr);
+LoraTxEnqueueResult Lora_TxEnqueue(uint8_t instance, const uint8_t *data, uint8_t len);
+LoraTxEnqueueResult Lora_TxEnqueuePriority(uint8_t instance, const uint8_t *data, uint8_t len);
+LoraRxDequeueResult Lora_RxDequeue(uint8_t instance, uint8_t *data, uint8_t *len, int8_t *rssi, int8_t *snr);
 
-void Lora_GetStats(LoraStats *stats);
-void Lora_GetDebugSnapshot(LoraDebugSnapshot *snapshot);
-void Lora_GetDiagSnapshot(LoraDiagSnapshot *snapshot);
-LoraDiagResult Lora_IrqClear(uint16_t *raw_before);
-LoraDiagResult Lora_ForceRxContinuous(void);
-LoraControlSubmitResult Lora_ControlSubmit(LoraControlOperation operation,
+void Lora_GetStats(uint8_t instance, LoraStats *stats);
+void Lora_GetDebugSnapshot(uint8_t instance, LoraDebugSnapshot *snapshot);
+void Lora_GetDiagSnapshot(uint8_t instance, LoraDiagSnapshot *snapshot);
+LoraDiagResult Lora_IrqClear(uint8_t instance, uint16_t *raw_before);
+LoraDiagResult Lora_ForceRxContinuous(uint8_t instance);
+LoraControlSubmitResult Lora_ControlSubmit(uint8_t instance, LoraControlOperation operation,
                                            uint32_t timeout_ms,
                                            uint32_t *transaction_id);
-LoraControlGetResult Lora_ControlResultGet(uint32_t transaction_id,
+LoraControlGetResult Lora_ControlResultGet(uint8_t instance, uint32_t transaction_id,
                                            LoraControlResult *result);
-void Lora_ClearStats(void);
-LoraBusyState Lora_IsBusy(void);
-LoraDiagResult Lora_ChipStatusGet(LoraChipStatus *status);
+void Lora_ClearStats(uint8_t instance);
+LoraBusyState Lora_IsBusy(uint8_t instance);
+LoraDiagResult Lora_ChipStatusGet(uint8_t instance, LoraChipStatus *status);
 
 #endif /* __SX1281_DEVICE_H */

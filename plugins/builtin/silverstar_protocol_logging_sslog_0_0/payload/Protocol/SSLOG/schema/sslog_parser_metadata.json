@@ -27,7 +27,17 @@
   "sensor_source_change_event": {
     "event_id": "FLIGHT_LOG_EVENT_SENSOR_SOURCE_CHANGE",
     "arg0": "bits7:0 device_class, 15:8 old_instance, 23:16 new_instance, 31:24 reason",
-    "arg1": "bits15:0 old_descriptor_id, 31:16 new_descriptor_id"
+    "arg1": "bits15:0 old_descriptor_id, 31:16 new_descriptor_id",
+    "reasons": {
+      "1": "initial_selection",
+      "2": "failover",
+      "3": "recovery",
+      "4": "configuration",
+      "5": "prestart_primary_unavailable",
+      "6": "gnss_liveness_timeout",
+      "7": "telemetry_consecutive_tx_timeout",
+      "8": "telemetry_init_failure"
+    }
   },
   "records": [
     {

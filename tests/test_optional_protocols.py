@@ -32,6 +32,7 @@ from silverstar_fccg.project.model import (
 )
 from silverstar_fccg.project.protocols import (
     ProtocolProfileAvailabilities_Get,
+    ProtocolResolution_Resolve,
 )
 from silverstar_fccg.ui.main_window import MainWindow
 
@@ -248,7 +249,7 @@ def test_maintenance_endpoint_is_declaratively_added_and_removed(
     assert "System/Src/system_console.c" in graph.sources
 
 
-def test_protocol_availability_distinguishes_zero_one_and_multiple_transports(
+def test_protocol_availability_supports_ordered_telemetry_transports(
     workspace_root: Path,
 ) -> None:
     service = FccgService(workspace_root)
@@ -275,8 +276,15 @@ def test_protocol_availability_distinguishes_zero_one_and_multiple_transports(
     ambiguous = deepcopy(model)
     ambiguous.device_instances.append(DeviceInstance("telemetry1", TELEMETRY_DEVICE))
     availability = ProtocolProfileAvailabilities_Get(ambiguous, service.catalog)[key]
-    assert not availability.available
-    assert availability.reason_code == "protocol.unavailable.transport_ambiguous"
+    assert availability.available
+    assert availability.reason_code == ""
+    resolution = ProtocolResolution_Resolve(ambiguous, service.catalog)
+    assert resolution.valid
+    binding = next(
+        item for item in resolution.bindings if item.category == "telemetry"
+    )
+    assert binding.transport_selection == "ordered_failover"
+    assert binding.candidate_instances == ("telemetry0", "telemetry1")
 
 
 @pytest.mark.parametrize(

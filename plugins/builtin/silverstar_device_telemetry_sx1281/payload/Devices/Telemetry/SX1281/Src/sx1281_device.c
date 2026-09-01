@@ -44,61 +44,96 @@ typedef struct
     LoraControlResult result;
 } LoraControlTransaction;
 
-static volatile uint8_t s_tx_done_flag = 0U;
-static volatile uint8_t s_rx_done_flag = 0U;
-static volatile uint8_t s_tx_timeout_flag = 0U;
-static volatile uint8_t s_rx_timeout_flag = 0U;
-static volatile uint8_t s_rx_error_flag = 0U;
-static volatile IrqErrorCode_t s_rx_error_code = IRQ_HEADER_ERROR_CODE;
-
-static volatile uint8_t s_inited = 0U;
-static volatile uint8_t s_tx_busy = 0U;
-static volatile uint8_t s_radio_in_rx = 0U;
-
-static uint8_t s_rx_tmp_buf[LORA_MAX_PAYLOAD_LEN];
-static PacketStatus_t s_pkt_status;
-static ModulationParams_t s_mod_params;
-static PacketParams_t s_pkt_params;
-static LoraStats s_stats;
-static LoraDiagSnapshot s_diag;
-static uint16_t s_diag_counted_raw_irq = 0U;
-static LoraChipStatus s_chip_status;
-static LoraControlTransaction s_control_transaction;
-static uint32_t s_diag_last_refresh_ms;
-static uint8_t s_cached_busy_gpio;
-static uint8_t s_cached_dio1_gpio;
-
 #define LORA_DIAG_REFRESH_PERIOD_MS 100U
 #define LORA_CONTROL_DEFAULT_TIMEOUT_MS 250U
 
-static LoraTxPacket s_tx_queue[LORA_TX_QUEUE_DEPTH];
-static uint8_t s_tx_head = 0U;
-static uint8_t s_tx_tail = 0U;
-static uint8_t s_tx_count = 0U;
+typedef struct
+{
+    volatile uint8_t tx_done_flag;
+    volatile uint8_t rx_done_flag;
+    volatile uint8_t tx_timeout_flag;
+    volatile uint8_t rx_timeout_flag;
+    volatile uint8_t rx_error_flag;
+    volatile IrqErrorCode_t rx_error_code;
+    volatile uint8_t inited;
+    volatile uint8_t tx_busy;
+    volatile uint8_t radio_in_rx;
+    uint8_t rx_tmp_buf[LORA_MAX_PAYLOAD_LEN];
+    PacketStatus_t pkt_status;
+    ModulationParams_t mod_params;
+    PacketParams_t pkt_params;
+    LoraStats stats;
+    LoraDiagSnapshot diag;
+    uint16_t diag_counted_raw_irq;
+    LoraChipStatus chip_status;
+    LoraControlTransaction control_transaction;
+    uint32_t diag_last_refresh_ms;
+    uint8_t cached_busy_gpio;
+    uint8_t cached_dio1_gpio;
+    LoraTxPacket tx_queue[LORA_TX_QUEUE_DEPTH];
+    uint8_t tx_head;
+    uint8_t tx_tail;
+    uint8_t tx_count;
+    LoraRxPacket rx_queue[LORA_RX_QUEUE_DEPTH];
+    uint8_t rx_head;
+    uint8_t rx_tail;
+    uint8_t rx_count;
+} Sx1281Context;
 
-static LoraRxPacket s_rx_queue[LORA_RX_QUEUE_DEPTH];
-static uint8_t s_rx_head = 0U;
-static uint8_t s_rx_tail = 0U;
-static uint8_t s_rx_count = 0U;
+static Sx1281Context s_contexts[PROJECT_SX1281_INSTANCE_COUNT];
 
-static void Lora_OnTxDone(void);
-static void Lora_OnRxDone(void);
-static void Lora_OnTxTimeout(void);
-static void Lora_OnRxTimeout(void);
-static void Lora_OnRxError(IrqErrorCode_t errCode);
-static void Lora_DiagRecordIrq(uint16_t raw_irq);
-static void Lora_DiagSetDioIrqParams(uint16_t irq_mask,
+_Static_assert(PROJECT_SX1281_INSTANCE_COUNT <=
+               PROJECT_SX1281_INSTANCE_COUNT_MAX,
+               "SX1281 context count exceeds generated resource bound");
+
+#define s_tx_done_flag        (s_contexts[instance].tx_done_flag)
+#define s_rx_done_flag        (s_contexts[instance].rx_done_flag)
+#define s_tx_timeout_flag     (s_contexts[instance].tx_timeout_flag)
+#define s_rx_timeout_flag     (s_contexts[instance].rx_timeout_flag)
+#define s_rx_error_flag       (s_contexts[instance].rx_error_flag)
+#define s_rx_error_code       (s_contexts[instance].rx_error_code)
+#define s_inited              (s_contexts[instance].inited)
+#define s_tx_busy             (s_contexts[instance].tx_busy)
+#define s_radio_in_rx         (s_contexts[instance].radio_in_rx)
+#define s_rx_tmp_buf          (s_contexts[instance].rx_tmp_buf)
+#define s_pkt_status          (s_contexts[instance].pkt_status)
+#define s_mod_params          (s_contexts[instance].mod_params)
+#define s_pkt_params          (s_contexts[instance].pkt_params)
+#define s_stats               (s_contexts[instance].stats)
+#define s_diag                (s_contexts[instance].diag)
+#define s_diag_counted_raw_irq (s_contexts[instance].diag_counted_raw_irq)
+#define s_chip_status         (s_contexts[instance].chip_status)
+#define s_control_transaction (s_contexts[instance].control_transaction)
+#define s_diag_last_refresh_ms (s_contexts[instance].diag_last_refresh_ms)
+#define s_cached_busy_gpio    (s_contexts[instance].cached_busy_gpio)
+#define s_cached_dio1_gpio    (s_contexts[instance].cached_dio1_gpio)
+#define s_tx_queue            (s_contexts[instance].tx_queue)
+#define s_tx_head             (s_contexts[instance].tx_head)
+#define s_tx_tail             (s_contexts[instance].tx_tail)
+#define s_tx_count            (s_contexts[instance].tx_count)
+#define s_rx_queue            (s_contexts[instance].rx_queue)
+#define s_rx_head             (s_contexts[instance].rx_head)
+#define s_rx_tail             (s_contexts[instance].rx_tail)
+#define s_rx_count            (s_contexts[instance].rx_count)
+
+static void Lora_OnTxDone(uint8_t instance);
+static void Lora_OnRxDone(uint8_t instance);
+static void Lora_OnTxTimeout(uint8_t instance);
+static void Lora_OnRxTimeout(uint8_t instance);
+static void Lora_OnRxError(uint8_t instance, IrqErrorCode_t errCode);
+static void Lora_DiagRecordIrq(uint8_t instance, uint16_t raw_irq);
+static void Lora_DiagSetDioIrqParams(uint8_t instance, uint16_t irq_mask,
                                      uint16_t dio1_mask,
                                      uint16_t dio2_mask,
                                      uint16_t dio3_mask);
-static void Lora_ControlProcess(void);
-static void Lora_IrqProcess(uint16_t raw_irq);
-static LoraControlSubmitResult Lora_ControlSubmitInternal(
+static void Lora_ControlProcess(uint8_t instance);
+static void Lora_IrqProcess(uint8_t instance, uint16_t raw_irq);
+static LoraControlSubmitResult Lora_ControlSubmitInternal(uint8_t instance,
     LoraControlOperation operation,
     uint32_t timeout_ms,
     uint8_t auto_release,
     uint32_t *transaction_id);
-static LoraDiagResult Lora_ForceRxContinuousDirect(void);
+static LoraDiagResult Lora_ForceRxContinuousDirect(uint8_t instance);
 
 static PlatformCriticalState Lora_IrqLock(void)
 {
@@ -110,7 +145,7 @@ static void Lora_IrqUnlock(PlatformCriticalState state)
     PlatformCritical_Exit(state);
 }
 
-static void Lora_SetRadioState(LoraRadioState state)
+static void Lora_SetRadioState(uint8_t instance, LoraRadioState state)
 {
     uint32_t primask;
 
@@ -119,7 +154,7 @@ static void Lora_SetRadioState(LoraRadioState state)
     Lora_IrqUnlock(primask);
 }
 
-static void Lora_LastRxRecord(uint8_t len, int8_t rssi, int8_t snr)
+static void Lora_LastRxRecord(uint8_t instance, uint8_t len, int8_t rssi, int8_t snr)
 {
     uint32_t primask;
 
@@ -145,7 +180,7 @@ static void Lora_StatsIncrement(uint32_t *counter)
     Lora_IrqUnlock(primask);
 }
 
-static void Lora_DiagRecordSetRx(void)
+static void Lora_DiagRecordSetRx(uint8_t instance)
 {
     uint32_t primask;
     uint32_t tick_ms = PlatformTime_Ms();
@@ -157,7 +192,7 @@ static void Lora_DiagRecordSetRx(void)
     Lora_IrqUnlock(primask);
 }
 
-static void Lora_DiagRecordSetTx(void)
+static void Lora_DiagRecordSetTx(uint8_t instance)
 {
     uint32_t primask;
     uint32_t tick_ms = PlatformTime_Ms();
@@ -168,7 +203,7 @@ static void Lora_DiagRecordSetTx(void)
     Lora_IrqUnlock(primask);
 }
 
-static void Lora_DiagRecordTxStart(void)
+static void Lora_DiagRecordTxStart(uint8_t instance)
 {
     uint32_t primask;
 
@@ -177,7 +212,7 @@ static void Lora_DiagRecordTxStart(void)
     Lora_IrqUnlock(primask);
 }
 
-static void Lora_DiagTimeoutRecord(uint16_t raw_irq,
+static void Lora_DiagTimeoutRecord(uint8_t instance, uint16_t raw_irq,
                                    uint8_t *is_tx_irq,
                                    uint8_t *is_rx_irq)
 {
@@ -197,7 +232,7 @@ static void Lora_DiagTimeoutRecord(uint16_t raw_irq,
     }
 }
 
-static void Lora_DiagRecordIrq(uint16_t raw_irq)
+static void Lora_DiagRecordIrq(uint8_t instance, uint16_t raw_irq)
 {
     uint32_t primask;
     uint32_t tick_ms;
@@ -241,7 +276,7 @@ static void Lora_DiagRecordIrq(uint16_t raw_irq)
         s_diag.rx_error_count++;
         is_rx_irq = 1U;
     }
-    Lora_DiagTimeoutRecord(raw_irq, &is_tx_irq, &is_rx_irq);
+    Lora_DiagTimeoutRecord(instance, raw_irq, &is_tx_irq, &is_rx_irq);
 
     if (is_rx_irq != 0U)
     {
@@ -257,14 +292,14 @@ static void Lora_DiagRecordIrq(uint16_t raw_irq)
     Lora_IrqUnlock(primask);
 }
 
-static void Lora_DiagSetDioIrqParams(uint16_t irq_mask,
+static void Lora_DiagSetDioIrqParams(uint8_t instance, uint16_t irq_mask,
                                      uint16_t dio1_mask,
                                      uint16_t dio2_mask,
                                      uint16_t dio3_mask)
 {
     uint32_t primask;
 
-    SX1280SetDioIrqParams(irq_mask, dio1_mask, dio2_mask, dio3_mask);
+    SX1280SetDioIrqParams(instance, irq_mask, dio1_mask, dio2_mask, dio3_mask);
 
     primask = Lora_IrqLock();
     s_diag.irq_mask = irq_mask;
@@ -274,7 +309,7 @@ static void Lora_DiagSetDioIrqParams(uint16_t irq_mask,
     Lora_IrqUnlock(primask);
 }
 
-static void Lora_LoadDefaultConfig(void)
+static void Lora_LoadDefaultConfig(uint8_t instance)
 {
     memset(&s_mod_params, 0, sizeof(s_mod_params));
     memset(&s_pkt_params, 0, sizeof(s_pkt_params));
@@ -293,7 +328,7 @@ static void Lora_LoadDefaultConfig(void)
     s_pkt_params.Params.LoRa.PayloadLength = LORA_MAX_PAYLOAD_LEN;
 }
 
-static void Lora_ClearRuntimeState(void)
+static void Lora_ClearRuntimeState(uint8_t instance)
 {
     SILVERSTAR_ASSERT_OBJECT(&s_stats, LoraStats,
         SILVERSTAR_ASSERT_MODULE_DEVICE);
@@ -323,10 +358,10 @@ static void Lora_ClearRuntimeState(void)
     s_cached_busy_gpio = 0U;
     s_cached_dio1_gpio = 0U;
     s_diag_counted_raw_irq = 0U;
-    Lora_SetRadioState(LORA_RADIO_STATE_NOT_INIT);
+    Lora_SetRadioState(instance, LORA_RADIO_STATE_NOT_INIT);
 }
 
-static uint8_t Lora_TxQueuePush(const uint8_t *data, uint8_t len)
+static uint8_t Lora_TxQueuePush(uint8_t instance, const uint8_t *data, uint8_t len)
 {
     uint32_t primask;
 
@@ -360,7 +395,7 @@ static uint8_t Lora_TxQueuePush(const uint8_t *data, uint8_t len)
     return 1U;
 }
 
-static uint8_t Lora_TxQueuePushFront(const uint8_t *data, uint8_t len)
+static uint8_t Lora_TxQueuePushFront(uint8_t instance, const uint8_t *data, uint8_t len)
 {
     uint32_t primask;
 
@@ -397,7 +432,7 @@ static uint8_t Lora_TxQueuePushFront(const uint8_t *data, uint8_t len)
     return 1U;
 }
 
-static uint8_t Lora_TxQueuePop(LoraTxPacket *pkt)
+static uint8_t Lora_TxQueuePop(uint8_t instance, LoraTxPacket *pkt)
 {
     uint32_t primask;
 
@@ -430,7 +465,7 @@ static uint8_t Lora_TxQueuePop(LoraTxPacket *pkt)
     return 1U;
 }
 
-static uint8_t Lora_RxQueuePush(const uint8_t *data, uint8_t len, int8_t rssi, int8_t snr)
+static uint8_t Lora_RxQueuePush(uint8_t instance, const uint8_t *data, uint8_t len, int8_t rssi, int8_t snr)
 {
     uint32_t primask;
 
@@ -466,7 +501,7 @@ static uint8_t Lora_RxQueuePush(const uint8_t *data, uint8_t len, int8_t rssi, i
     return 1U;
 }
 
-static uint8_t Lora_RxQueuePop(LoraRxPacket *pkt)
+static uint8_t Lora_RxQueuePop(uint8_t instance, LoraRxPacket *pkt)
 {
     uint32_t primask;
 
@@ -499,7 +534,7 @@ static uint8_t Lora_RxQueuePop(LoraRxPacket *pkt)
     return 1U;
 }
 
-static void Lora_TryStartNextTx(void)
+static void Lora_TryStartNextTx(uint8_t instance)
 {
     LoraTxPacket pkt;
 
@@ -510,66 +545,66 @@ static void Lora_TryStartNextTx(void)
         return;
     }
 
-    if (Lora_TxQueuePop(&pkt) == 0)
+    if (Lora_TxQueuePop(instance, &pkt) == 0)
     {
         return;
     }
 
     s_pkt_params.Params.LoRa.PayloadLength = pkt.len;
-    SX1280SetPacketParams(&s_pkt_params);
-    Lora_DiagSetDioIrqParams(LORA_TX_IRQ_MASK, LORA_TX_IRQ_MASK, IRQ_RADIO_NONE, IRQ_RADIO_NONE);
-    Lora_DiagRecordTxStart();
-    SX1280SendPayload(pkt.data, pkt.len,
+    SX1280SetPacketParams(instance, &s_pkt_params);
+    Lora_DiagSetDioIrqParams(instance, LORA_TX_IRQ_MASK, LORA_TX_IRQ_MASK, IRQ_RADIO_NONE, IRQ_RADIO_NONE);
+    Lora_DiagRecordTxStart(instance);
+    SX1280SendPayload(instance, pkt.data, pkt.len,
                       (TickTime_t){ LORA_TX_TIMEOUT_STEP,
                                     LORA_TX_TIMEOUT_COUNT });
-    Lora_DiagRecordSetTx();
+    Lora_DiagRecordSetTx(instance);
 
     s_tx_busy = 1U;
     s_radio_in_rx = 0U;
-    Lora_SetRadioState(LORA_RADIO_STATE_TX);
+    Lora_SetRadioState(instance, LORA_RADIO_STATE_TX);
 }
 
-LoraConfigResult Lora_ApplyDefaultConfig(void)
+LoraConfigResult Lora_ApplyDefaultConfig(uint8_t instance)
 {
     Sx1281BusStatus before;
     Sx1281BusStatus after;
 
-    Sx1281Bus_StatusGet(&before);
-    SX1280SetPacketType(PACKET_TYPE_LORA);
-    SX1280SetModulationParams(&s_mod_params);
-    SX1280SetPacketParams(&s_pkt_params);
-    SX1280SetRfFrequency(LORA_RF_FREQUENCY_HZ);
-    SX1280SetBufferBaseAddresses(0x00, 0x00);
-    SX1280SetTxParams(LORA_TX_OUTPUT_POWER_DBM, RADIO_RAMP_02_US);
-    Sx1281Bus_StatusGet(&after);
+    Sx1281Bus_StatusGet(instance, &before);
+    SX1280SetPacketType(instance, PACKET_TYPE_LORA);
+    SX1280SetModulationParams(instance, &s_mod_params);
+    SX1280SetPacketParams(instance, &s_pkt_params);
+    SX1280SetRfFrequency(instance, LORA_RF_FREQUENCY_HZ);
+    SX1280SetBufferBaseAddresses(instance, 0x00, 0x00);
+    SX1280SetTxParams(instance, LORA_TX_OUTPUT_POWER_DBM, RADIO_RAMP_02_US);
+    Sx1281Bus_StatusGet(instance, &after);
     return ((after.spi_error_count != before.spi_error_count) ||
             (after.busy_timeout_count != before.busy_timeout_count)) ?
         LORA_CONFIG_PORT_ERROR : LORA_CONFIG_OK;
 }
 
-LoraInitResult Lora_Init(void)
+LoraInitResult Lora_Init(uint8_t instance)
 {
     RadioStatus_t radio_status;
     Sx1281BusStatus bus_status;
 
     SILVERSTAR_ASSERT_OBJECT(&s_chip_status, LoraChipStatus,
         SILVERSTAR_ASSERT_MODULE_DEVICE);
-    Sx1281Bus_Init();
-    Lora_LoadDefaultConfig();
-    Lora_ClearRuntimeState();
+    Sx1281Bus_Init(instance);
+    Lora_LoadDefaultConfig(instance);
+    Lora_ClearRuntimeState(instance);
 
-    SX1280Init();
-    SX1280SetRegulatorMode(USE_LDO);
-    SX1280SetStandby(STDBY_RC);
-    if (Lora_ApplyDefaultConfig() != LORA_CONFIG_OK)
+    SX1280Init(instance);
+    SX1280SetRegulatorMode(instance, USE_LDO);
+    SX1280SetStandby(instance, STDBY_RC);
+    if (Lora_ApplyDefaultConfig(instance) != LORA_CONFIG_OK)
     {
         return LORA_INIT_PORT_ERROR;
     }
 
-    s_chip_status.firmware_version = SX1280GetFirmwareVersion();
-    radio_status = SX1280GetStatus();
+    s_chip_status.firmware_version = SX1280GetFirmwareVersion(instance);
+    radio_status = SX1280GetStatus(instance);
     s_chip_status.status_value = radio_status.Value;
-    Sx1281Bus_StatusGet(&bus_status);
+    Sx1281Bus_StatusGet(instance, &bus_status);
     if ((bus_status.spi_error_count != 0U) ||
         (bus_status.busy_timeout_count != 0U))
     {
@@ -585,12 +620,12 @@ LoraInitResult Lora_Init(void)
     s_chip_status.verified = 1U;
 
     s_inited = 1U;
-    Lora_SetRadioState(LORA_RADIO_STATE_READY);
+    Lora_SetRadioState(instance, LORA_RADIO_STATE_READY);
 
     return LORA_INIT_OK;
 }
 
-void Lora_StartRx(void)
+void Lora_StartRx(uint8_t instance)
 {
     SILVERSTAR_ASSERT_OBJECT(&s_stats, LoraStats,
         SILVERSTAR_ASSERT_MODULE_DEVICE);
@@ -600,23 +635,23 @@ void Lora_StartRx(void)
     }
 
     s_pkt_params.Params.LoRa.PayloadLength = LORA_MAX_PAYLOAD_LEN;
-    SX1280SetPacketParams(&s_pkt_params);
-    Lora_DiagSetDioIrqParams(LORA_RX_IRQ_MASK, LORA_RX_IRQ_MASK, IRQ_RADIO_NONE, IRQ_RADIO_NONE);
-    SX1280SetRx(RX_TX_CONTINUOUS);
-    Lora_DiagRecordSetRx();
+    SX1280SetPacketParams(instance, &s_pkt_params);
+    Lora_DiagSetDioIrqParams(instance, LORA_RX_IRQ_MASK, LORA_RX_IRQ_MASK, IRQ_RADIO_NONE, IRQ_RADIO_NONE);
+    SX1280SetRx(instance, RX_TX_CONTINUOUS);
+    Lora_DiagRecordSetRx(instance);
 
     s_radio_in_rx = 1U;
     if (s_tx_busy != 0)
     {
-        Lora_SetRadioState(LORA_RADIO_STATE_TX);
+        Lora_SetRadioState(instance, LORA_RADIO_STATE_TX);
     }
     else
     {
-        Lora_SetRadioState(LORA_RADIO_STATE_RX);
+        Lora_SetRadioState(instance, LORA_RADIO_STATE_RX);
     }
 }
 
-LoraTxEnqueueResult Lora_TxEnqueue(const uint8_t *data, uint8_t len)
+LoraTxEnqueueResult Lora_TxEnqueue(uint8_t instance, const uint8_t *data, uint8_t len)
 {
     if (s_inited == 0)
     {
@@ -628,7 +663,7 @@ LoraTxEnqueueResult Lora_TxEnqueue(const uint8_t *data, uint8_t len)
         return LORA_TX_ENQUEUE_BAD_PARAM;
     }
 
-    if (Lora_TxQueuePush(data, len) == 0)
+    if (Lora_TxQueuePush(instance, data, len) == 0)
     {
         Lora_StatsIncrement(&s_stats.tx_dropped);
         return LORA_TX_ENQUEUE_QUEUE_FULL;
@@ -637,7 +672,7 @@ LoraTxEnqueueResult Lora_TxEnqueue(const uint8_t *data, uint8_t len)
     return LORA_TX_ENQUEUE_OK;
 }
 
-LoraTxEnqueueResult Lora_TxEnqueuePriority(const uint8_t *data, uint8_t len)
+LoraTxEnqueueResult Lora_TxEnqueuePriority(uint8_t instance, const uint8_t *data, uint8_t len)
 {
     if (s_inited == 0)
     {
@@ -649,7 +684,7 @@ LoraTxEnqueueResult Lora_TxEnqueuePriority(const uint8_t *data, uint8_t len)
         return LORA_TX_ENQUEUE_BAD_PARAM;
     }
 
-    if (Lora_TxQueuePushFront(data, len) == 0)
+    if (Lora_TxQueuePushFront(instance, data, len) == 0)
     {
         Lora_StatsIncrement(&s_stats.tx_dropped);
         return LORA_TX_ENQUEUE_QUEUE_FULL;
@@ -658,70 +693,70 @@ LoraTxEnqueueResult Lora_TxEnqueuePriority(const uint8_t *data, uint8_t len)
     return LORA_TX_ENQUEUE_OK;
 }
 
-static void Lora_IrqProcess(uint16_t raw_irq)
+static void Lora_IrqProcess(uint8_t instance, uint16_t raw_irq)
 {
     SILVERSTAR_ASSERT_OBJECT(&s_diag, LoraDiagSnapshot,
         SILVERSTAR_ASSERT_MODULE_DEVICE);
     if ((raw_irq & IRQ_TX_DONE) != 0U)
     {
-        Lora_OnTxDone();
+        Lora_OnTxDone(instance);
     }
     if ((raw_irq & IRQ_RX_DONE) != 0U)
     {
         if ((raw_irq & IRQ_CRC_ERROR) != 0U)
         {
-            Lora_OnRxError(IRQ_CRC_ERROR_CODE);
+            Lora_OnRxError(instance, IRQ_CRC_ERROR_CODE);
         }
         else if ((raw_irq & IRQ_HEADER_ERROR) != 0U)
         {
-            Lora_OnRxError(IRQ_HEADER_ERROR_CODE);
+            Lora_OnRxError(instance, IRQ_HEADER_ERROR_CODE);
         }
         else
         {
-            Lora_OnRxDone();
+            Lora_OnRxDone(instance);
         }
     }
     else if ((raw_irq & IRQ_CRC_ERROR) != 0U)
     {
-        Lora_OnRxError(IRQ_CRC_ERROR_CODE);
+        Lora_OnRxError(instance, IRQ_CRC_ERROR_CODE);
     }
     else if ((raw_irq & IRQ_HEADER_ERROR) != 0U)
     {
-        Lora_OnRxError(IRQ_HEADER_ERROR_CODE);
+        Lora_OnRxError(instance, IRQ_HEADER_ERROR_CODE);
     }
     if ((raw_irq & IRQ_RX_TX_TIMEOUT) != 0U)
     {
         if (s_tx_busy != 0U)
         {
-            Lora_OnTxTimeout();
+            Lora_OnTxTimeout(instance);
         }
         else
         {
-            Lora_OnRxTimeout();
+            Lora_OnRxTimeout(instance);
         }
     }
 }
 
-static void Lora_RawIrqProcess(void)
+static void Lora_RawIrqProcess(uint8_t instance)
 {
     uint16_t raw_irq = 0U;
     uint32_t primask;
 
     SILVERSTAR_ASSERT_OBJECT(&s_diag, LoraDiagSnapshot,
         SILVERSTAR_ASSERT_MODULE_DEVICE);
-    if ((PlatformGpio_IrqConsume(PROJECT_RESOURCE_RADIO_DIO1) != 0U) ||
+    if ((PlatformGpio_IrqConsume(Sx1281Bus_Dio1Get(instance)) != 0U) ||
         (s_tx_busy != 0U))
     {
-        raw_irq = SX1280GetIrqStatus();
+        raw_irq = SX1280GetIrqStatus(instance);
     }
     primask = Lora_IrqLock();
     s_diag.raw_irq = raw_irq;
     Lora_IrqUnlock(primask);
     if (raw_irq != 0U)
     {
-        Lora_DiagRecordIrq(raw_irq);
-        Lora_IrqProcess(raw_irq);
-        SX1280ClearIrqStatus(raw_irq);
+        Lora_DiagRecordIrq(instance, raw_irq);
+        Lora_IrqProcess(instance, raw_irq);
+        SX1280ClearIrqStatus(instance, raw_irq);
         s_diag_counted_raw_irq = raw_irq;
     }
     else
@@ -730,7 +765,7 @@ static void Lora_RawIrqProcess(void)
     }
 }
 
-static void Lora_DiagnosticsRefresh(void)
+static void Lora_DiagnosticsRefresh(uint8_t instance)
 {
     RadioStatus_t radio_status;
     uint8_t busy_gpio = 0U;
@@ -746,11 +781,11 @@ static void Lora_DiagnosticsRefresh(void)
     {
         return;
     }
-    radio_status = SX1280GetStatus();
-    packet_runtime = (uint8_t)SX1280GetPacketType();
-    rssi_inst = (int16_t)SX1280GetRssiInst();
-    (void)PlatformGpio_Read(PROJECT_RESOURCE_RADIO_BUSY, &busy_gpio);
-    (void)PlatformGpio_Read(PROJECT_RESOURCE_RADIO_DIO1, &dio1_gpio);
+    radio_status = SX1280GetStatus(instance);
+    packet_runtime = (uint8_t)SX1280GetPacketType(instance);
+    rssi_inst = (int16_t)SX1280GetRssiInst(instance);
+    (void)PlatformGpio_Read(Sx1281Bus_BusyGet(instance), &busy_gpio);
+    (void)PlatformGpio_Read(Sx1281Bus_Dio1Get(instance), &dio1_gpio);
     primask = Lora_IrqLock();
     s_chip_status.status_value = radio_status.Value;
     s_chip_status.verified = (uint8_t)((radio_status.Value != 0x00U) &&
@@ -764,25 +799,25 @@ static void Lora_DiagnosticsRefresh(void)
     Lora_IrqUnlock(primask);
 }
 
-static void Lora_TxCompletionProcess(void)
+static void Lora_TxCompletionProcess(uint8_t instance)
 {
     if (s_tx_done_flag != 0U)
     {
         s_tx_done_flag = 0U;
         s_tx_busy = 0U;
         Lora_StatsIncrement(&s_stats.tx_ok);
-        Lora_SetRadioState(LORA_RADIO_STATE_READY);
+        Lora_SetRadioState(instance, LORA_RADIO_STATE_READY);
     }
     if (s_tx_timeout_flag != 0U)
     {
         s_tx_timeout_flag = 0U;
         s_tx_busy = 0U;
         Lora_StatsIncrement(&s_stats.tx_timeout);
-        Lora_SetRadioState(LORA_RADIO_STATE_READY);
+        Lora_SetRadioState(instance, LORA_RADIO_STATE_READY);
     }
 }
 
-static void Lora_RxCompletionProcess(void)
+static void Lora_RxCompletionProcess(uint8_t instance)
 {
     uint8_t size = 0U;
     int8_t rssi;
@@ -795,13 +830,13 @@ static void Lora_RxCompletionProcess(void)
         return;
     }
     s_rx_done_flag = 0U;
-    if (SX1280GetPayload(s_rx_tmp_buf, &size, LORA_MAX_PAYLOAD_LEN) == 0)
+    if (SX1280GetPayload(instance, s_rx_tmp_buf, &size, LORA_MAX_PAYLOAD_LEN) == 0)
     {
-        SX1280GetPacketStatus(&s_pkt_status);
+        SX1280GetPacketStatus(instance, &s_pkt_status);
         rssi = s_pkt_status.Params.LoRa.RssiPkt;
         snr = s_pkt_status.Params.LoRa.SnrPkt;
-        Lora_LastRxRecord(size, rssi, snr);
-        if (Lora_RxQueuePush(s_rx_tmp_buf, size, rssi, snr) != 0U)
+        Lora_LastRxRecord(instance, size, rssi, snr);
+        if (Lora_RxQueuePush(instance, s_rx_tmp_buf, size, rssi, snr) != 0U)
         {
             Lora_StatsIncrement(&s_stats.rx_ok);
         }
@@ -814,10 +849,10 @@ static void Lora_RxCompletionProcess(void)
     {
         Lora_StatsIncrement(&s_stats.rx_dropped);
     }
-    Lora_SetRadioState(LORA_RADIO_STATE_READY);
+    Lora_SetRadioState(instance, LORA_RADIO_STATE_READY);
 }
 
-static void Lora_RxErrorProcess(void)
+static void Lora_RxErrorProcess(uint8_t instance)
 {
     SILVERSTAR_ASSERT_OBJECT(&s_stats, LoraStats,
         SILVERSTAR_ASSERT_MODULE_DEVICE);
@@ -825,7 +860,7 @@ static void Lora_RxErrorProcess(void)
     {
         s_rx_timeout_flag = 0U;
         Lora_StatsIncrement(&s_stats.rx_timeout);
-        Lora_SetRadioState(LORA_RADIO_STATE_READY);
+        Lora_SetRadioState(instance, LORA_RADIO_STATE_READY);
     }
     if (s_rx_error_flag != 0U)
     {
@@ -835,11 +870,11 @@ static void Lora_RxErrorProcess(void)
         {
             Lora_StatsIncrement(&s_stats.rx_crc_error);
         }
-        Lora_SetRadioState(LORA_RADIO_STATE_READY);
+        Lora_SetRadioState(instance, LORA_RADIO_STATE_READY);
     }
 }
 
-void Lora_Process(void)
+void Lora_Process(uint8_t instance)
 {
     if (s_inited == 0)
     {
@@ -848,23 +883,23 @@ void Lora_Process(void)
 
     SILVERSTAR_ASSERT_OBJECT(&s_stats, LoraStats,
         SILVERSTAR_ASSERT_MODULE_DEVICE);
-    Lora_ControlProcess();
-    Lora_RawIrqProcess();
-    Lora_DiagnosticsRefresh();
-    Lora_TxCompletionProcess();
-    Lora_RxCompletionProcess();
-    Lora_RxErrorProcess();
+    Lora_ControlProcess(instance);
+    Lora_RawIrqProcess(instance);
+    Lora_DiagnosticsRefresh(instance);
+    Lora_TxCompletionProcess(instance);
+    Lora_RxCompletionProcess(instance);
+    Lora_RxErrorProcess(instance);
     if (s_tx_busy == 0)
     {
-        Lora_TryStartNextTx();
+        Lora_TryStartNextTx(instance);
         if ((s_tx_busy == 0) && (s_radio_in_rx == 0))
         {
-            Lora_StartRx();
+            Lora_StartRx(instance);
         }
     }
 }
 
-LoraRxDequeueResult Lora_RxDequeue(uint8_t *data, uint8_t *len, int8_t *rssi, int8_t *snr)
+LoraRxDequeueResult Lora_RxDequeue(uint8_t instance, uint8_t *data, uint8_t *len, int8_t *rssi, int8_t *snr)
 {
     LoraRxPacket pkt;
 
@@ -876,7 +911,7 @@ LoraRxDequeueResult Lora_RxDequeue(uint8_t *data, uint8_t *len, int8_t *rssi, in
     SILVERSTAR_ASSERT_OBJECT(data, uint8_t,
         SILVERSTAR_ASSERT_MODULE_DEVICE);
 
-    if (Lora_RxQueuePop(&pkt) == 0)
+    if (Lora_RxQueuePop(instance, &pkt) == 0)
     {
         return LORA_RX_DEQUEUE_EMPTY;
     }
@@ -897,7 +932,7 @@ LoraRxDequeueResult Lora_RxDequeue(uint8_t *data, uint8_t *len, int8_t *rssi, in
     return LORA_RX_DEQUEUE_OK;
 }
 
-void Lora_GetStats(LoraStats *stats)
+void Lora_GetStats(uint8_t instance, LoraStats *stats)
 {
     uint32_t primask;
 
@@ -911,7 +946,7 @@ void Lora_GetStats(LoraStats *stats)
     Lora_IrqUnlock(primask);
 }
 
-void Lora_GetDebugSnapshot(LoraDebugSnapshot *snapshot)
+void Lora_GetDebugSnapshot(uint8_t instance, LoraDebugSnapshot *snapshot)
 {
     uint32_t primask;
 
@@ -930,7 +965,7 @@ void Lora_GetDebugSnapshot(LoraDebugSnapshot *snapshot)
     Lora_IrqUnlock(primask);
 }
 
-void Lora_GetDiagSnapshot(LoraDiagSnapshot *snapshot)
+void Lora_GetDiagSnapshot(uint8_t instance, LoraDiagSnapshot *snapshot)
 {
     uint32_t primask;
 
@@ -944,7 +979,7 @@ void Lora_GetDiagSnapshot(LoraDiagSnapshot *snapshot)
     Lora_IrqUnlock(primask);
 }
 
-LoraDiagResult Lora_IrqClear(uint16_t *raw_before)
+LoraDiagResult Lora_IrqClear(uint8_t instance, uint16_t *raw_before)
 {
     uint32_t transaction_id;
     LoraControlSubmitResult result;
@@ -953,7 +988,7 @@ LoraDiagResult Lora_IrqClear(uint16_t *raw_before)
     {
         *raw_before = 0U;
     }
-    result = Lora_ControlSubmitInternal(LORA_CONTROL_IRQ_CLEAR,
+    result = Lora_ControlSubmitInternal(instance, LORA_CONTROL_IRQ_CLEAR,
                                         LORA_CONTROL_DEFAULT_TIMEOUT_MS,
                                         1U,
                                         &transaction_id);
@@ -966,7 +1001,7 @@ LoraDiagResult Lora_IrqClear(uint16_t *raw_before)
                                                   LORA_DIAG_RESULT_NOT_INIT;
 }
 
-static LoraDiagResult Lora_ForceRxContinuousDirect(void)
+static LoraDiagResult Lora_ForceRxContinuousDirect(uint8_t instance)
 {
     uint32_t primask;
 
@@ -977,8 +1012,8 @@ static LoraDiagResult Lora_ForceRxContinuousDirect(void)
         return LORA_DIAG_RESULT_NOT_INIT;
     }
 
-    SX1280SetStandby(STDBY_RC);
-    SX1280ClearIrqStatus(IRQ_RADIO_ALL);
+    SX1280SetStandby(instance, STDBY_RC);
+    SX1280ClearIrqStatus(instance, IRQ_RADIO_ALL);
     s_diag_counted_raw_irq = 0U;
 
     primask = Lora_IrqLock();
@@ -992,20 +1027,20 @@ static LoraDiagResult Lora_ForceRxContinuousDirect(void)
     Lora_IrqUnlock(primask);
 
     s_pkt_params.Params.LoRa.PayloadLength = LORA_MAX_PAYLOAD_LEN;
-    SX1280SetPacketParams(&s_pkt_params);
-    Lora_DiagSetDioIrqParams(LORA_RX_IRQ_MASK, LORA_RX_IRQ_MASK, IRQ_RADIO_NONE, IRQ_RADIO_NONE);
-    SX1280SetRx(RX_TX_CONTINUOUS);
-    Lora_DiagRecordSetRx();
+    SX1280SetPacketParams(instance, &s_pkt_params);
+    Lora_DiagSetDioIrqParams(instance, LORA_RX_IRQ_MASK, LORA_RX_IRQ_MASK, IRQ_RADIO_NONE, IRQ_RADIO_NONE);
+    SX1280SetRx(instance, RX_TX_CONTINUOUS);
+    Lora_DiagRecordSetRx(instance);
 
     primask = Lora_IrqLock();
     s_radio_in_rx = 1U;
     Lora_IrqUnlock(primask);
-    Lora_SetRadioState(LORA_RADIO_STATE_RX);
+    Lora_SetRadioState(instance, LORA_RADIO_STATE_RX);
 
     return LORA_DIAG_RESULT_OK;
 }
 
-void Lora_ClearStats(void)
+void Lora_ClearStats(uint8_t instance)
 {
     LoraRadioState state;
     uint32_t primask;
@@ -1017,7 +1052,7 @@ void Lora_ClearStats(void)
     Lora_IrqUnlock(primask);
 }
 
-LoraBusyState Lora_IsBusy(void)
+LoraBusyState Lora_IsBusy(uint8_t instance)
 {
     uint8_t busy;
     uint32_t primask;
@@ -1034,7 +1069,7 @@ LoraBusyState Lora_IsBusy(void)
     return LORA_BUSY_IDLE;
 }
 
-LoraDiagResult Lora_ChipStatusGet(LoraChipStatus *status)
+LoraDiagResult Lora_ChipStatusGet(uint8_t instance, LoraChipStatus *status)
 {
     uint32_t primask;
 
@@ -1050,10 +1085,10 @@ LoraDiagResult Lora_ChipStatusGet(LoraChipStatus *status)
     return LORA_DIAG_RESULT_OK;
 }
 
-LoraDiagResult Lora_ForceRxContinuous(void)
+LoraDiagResult Lora_ForceRxContinuous(uint8_t instance)
 {
     uint32_t transaction_id;
-    LoraControlSubmitResult result = Lora_ControlSubmitInternal(
+    LoraControlSubmitResult result = Lora_ControlSubmitInternal(instance,
         LORA_CONTROL_FORCE_RX_CONTINUOUS,
         LORA_CONTROL_DEFAULT_TIMEOUT_MS,
         1U,
@@ -1068,15 +1103,15 @@ LoraDiagResult Lora_ForceRxContinuous(void)
                                                   LORA_DIAG_RESULT_NOT_INIT;
 }
 
-LoraControlSubmitResult Lora_ControlSubmit(LoraControlOperation operation,
+LoraControlSubmitResult Lora_ControlSubmit(uint8_t instance, LoraControlOperation operation,
                                            uint32_t timeout_ms,
                                            uint32_t *transaction_id)
 {
-    return Lora_ControlSubmitInternal(operation, timeout_ms, 0U,
+    return Lora_ControlSubmitInternal(instance, operation, timeout_ms, 0U,
                                       transaction_id);
 }
 
-static LoraControlSubmitResult Lora_ControlSubmitInternal(
+static LoraControlSubmitResult Lora_ControlSubmitInternal(uint8_t instance,
     LoraControlOperation operation,
     uint32_t timeout_ms,
     uint8_t auto_release,
@@ -1125,7 +1160,7 @@ static LoraControlSubmitResult Lora_ControlSubmitInternal(
     return LORA_CONTROL_SUBMIT_OK;
 }
 
-LoraControlGetResult Lora_ControlResultGet(uint32_t transaction_id,
+LoraControlGetResult Lora_ControlResultGet(uint8_t instance, uint32_t transaction_id,
                                            LoraControlResult *result)
 {
     uint32_t primask;
@@ -1163,7 +1198,7 @@ LoraControlGetResult Lora_ControlResultGet(uint32_t transaction_id,
     return LORA_CONTROL_GET_COMPLETE;
 }
 
-static void Lora_ControlProcess(void)
+static void Lora_ControlProcess(uint8_t instance)
 {
     LoraControlOperation operation;
     LoraControlResult result;
@@ -1198,14 +1233,14 @@ static void Lora_ControlProcess(void)
 
     if (operation == LORA_CONTROL_IRQ_CLEAR)
     {
-        result.raw_irq_before = SX1280GetIrqStatus();
-        SX1280ClearIrqStatus(IRQ_RADIO_ALL);
+        result.raw_irq_before = SX1280GetIrqStatus(instance);
+        SX1280ClearIrqStatus(instance, IRQ_RADIO_ALL);
         s_diag_counted_raw_irq = 0U;
         result.result = LORA_DIAG_RESULT_OK;
     }
     else
     {
-        result.result = Lora_ForceRxContinuousDirect();
+        result.result = Lora_ForceRxContinuousDirect(instance);
     }
 
     primask = Lora_IrqLock();
@@ -1216,35 +1251,35 @@ static void Lora_ControlProcess(void)
     Lora_IrqUnlock(primask);
 }
 
-static void Lora_OnTxDone(void)
+static void Lora_OnTxDone(uint8_t instance)
 {
     Lora_StatsIncrement(&s_stats.tx_irq_count);
     s_tx_done_flag = 1U;
     s_radio_in_rx = 0U;
 }
 
-static void Lora_OnRxDone(void)
+static void Lora_OnRxDone(uint8_t instance)
 {
     Lora_StatsIncrement(&s_stats.rx_irq_count);
     s_rx_done_flag = 1U;
     s_radio_in_rx = 0U;
 }
 
-static void Lora_OnTxTimeout(void)
+static void Lora_OnTxTimeout(uint8_t instance)
 {
     Lora_StatsIncrement(&s_stats.tx_timeout_irq_count);
     s_tx_timeout_flag = 1U;
     s_radio_in_rx = 0U;
 }
 
-static void Lora_OnRxTimeout(void)
+static void Lora_OnRxTimeout(uint8_t instance)
 {
     Lora_StatsIncrement(&s_stats.rx_timeout_irq_count);
     s_rx_timeout_flag = 1U;
     s_radio_in_rx = 0U;
 }
 
-static void Lora_OnRxError(IrqErrorCode_t errCode)
+static void Lora_OnRxError(uint8_t instance, IrqErrorCode_t errCode)
 {
     Lora_StatsIncrement(&s_stats.rx_error_irq_count);
     s_rx_error_code = errCode;

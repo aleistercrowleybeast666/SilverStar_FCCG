@@ -84,7 +84,8 @@
     ],
     "asm_sources": [],
     "include_dirs": [
-      "Devices/GNSS/NEO_M9N/Inc"
+      "Devices/GNSS/NEO_M9N/Inc",
+      "Devices/GNSS/NEO_M9N/Adapter/Inc"
     ],
     "defines": []
   },
@@ -122,9 +123,30 @@
     "build_feature_symbols": [
       "SYSTEM_USER_GNSS_ENABLE"
     ],
+    "instance_resource_binding": {
+      "struct_type": "ProjectNeoM9nResources",
+      "accessor": "ProjectNeoM9nResources_Get",
+      "count_symbol": "PROJECT_NEO_M9N_INSTANCE_COUNT",
+      "runtime_context_upper_bound": 4,
+      "fields": [
+        {"requirement": "data", "member": "uart"},
+        {"requirement": "reset", "member": "reset"},
+        {"requirement": "timepulse", "member": "timepulse"},
+        {"requirement": "time", "member": "time"}
+      ]
+    },
+    "source_origins": {
+      "default": "reference_base",
+      "Devices/GNSS/NEO_M9N/Inc/neo_m9n_device.h": "fccg_multi_instance_context",
+      "Devices/GNSS/NEO_M9N/Adapter/Inc/neo_m9n_instance.h": "fccg_multi_instance_context",
+      "Devices/GNSS/NEO_M9N/Src/neo_m9n_device.c": "fccg_multi_instance_context",
+      "Devices/GNSS/NEO_M9N/Adapter/Src/neo_m9n_system_adapter.c": "fccg_multi_instance_context"
+    },
     "device_instance_bindings": {
       "SYSTEM_DEVICE_CLASS_GNSS": {
-        "function_prefix": "SystemGnss"
+        "function_prefix": "NeoM9nGnssInstance",
+        "headers": ["neo_m9n_instance.h"],
+        "pass_instance": true
       }
     },
     "recordable_outputs": {
@@ -137,10 +159,10 @@
     }
   },
   "instance_policy": {
-    "plugin_max": 1,
+    "plugin_max": 4,
     "class_max": 4,
-    "same_plugin_multiple": false,
-    "multi_instance_ready": false
+    "same_plugin_multiple": true,
+    "multi_instance_ready": true
   },
   "physical_device": {
     "vendor": "u-blox",

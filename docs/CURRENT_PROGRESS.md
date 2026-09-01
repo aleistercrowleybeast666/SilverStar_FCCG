@@ -1,36 +1,40 @@
 # 当前进度
 
-日期：2026-08-31
+日期：2026-09-01
 
 状态：**SilverStar 0.0.10 Software Release Candidate / Pre-Hardware-Validation**。
-本轮没有创建 Release 或 Tag，也没有修改外部参考固件或 SilverStar_FLP。按用户最后指令，
-代码将以 `修改测试与文档，完成基础功能` 提交并推送；不可变 commit hash 在提交完成后由
-`git rev-parse HEAD` 获取并在最终交接中报告。
+本轮完成同型号多实例与最小故障切换基础，没有创建Release或Tag、没有推送，也没有修改
+外部参考固件或SilverStar_FLP。当前`main`基准HEAD为
+`f44f49e7e7163e4260a186d409fd1cdaa6f1ec1b`；本轮变更仍在工作区中。
 
-## 已冻结
+## 本轮完成
 
-- FCCG应用、新工程平台身份、生成固件、Embedded Core和官方SilverStar builtin发布列车
-  统一为0.0.10；AIR M0、维护/日志0.0、`.ssdecoder`/project-semantics 1.1、FreeRTOS 11.3.0、
-  SS0.5和STM32F407VET6保持独立版本。
-- 纯相对路径校验不再依赖进程cwd；真实文件写入仍禁止以文件系统根为授权区。
-- Build Target Profile由匹配的MCU/Platform插件声明并作为工程完整性锁保存；当前已验证值为
-  `SilverStar_F407`。合成H743仅用于架构测试，不构成产品支持。
-- 校准只显示单面/六面且默认空选；空选确定性进入NONE/READY单位校正。启用日志时
-  `CALIBRATION_RESULT`仍为必须快照，Record ID/layout和SSLOG 0.0不变。
-- 三协议8种组合、校准4种选择、默认F407生成/增量、`.ssdecoder` 1.1与统一Source Graph已复核。
+- 官方JY901B、NEO-M9N、SX1281插件各支持最多4个同型号实例；GUI可新增/删除实例，稳定
+  Device Instance顺序形成默认备用顺序，显式Canonical Source/Source Override仍决定主源。
+- Manifest以通用`instance_resource_binding`声明每实例静态资源结构、accessor、数量符号和
+  有界runtime context；每个实例的UART/SPI/GPIO/IRQ/时间资源独立解析，独占资源不可复用。
+- JY901B、M9N与SX1281驱动及SX1280 HAL已context化，mutable parser/FIFO/状态/缓存不再
+  singleton；生成代码仍只编译一份驱动源码，通过静态instance facade分派。
+- 所有IMU/GNSS实例持续写Native日志。IMU只在校准/对准前选择并随后锁定；GNSS按基础
+  liveness单向切换；AIR仅因当前本地transport连续10次真实TX timeout单向切换。成功发送
+  清零计数，备用耗尽后仍在每个正常周期重试最后source，不做单次无限重试。
+- Source-change继续复用现有EVENT Record，仅增加可恢复的old/new/reason语义；AIR M0、维护
+  0.0、SSLOG 0.0、Record ID/layout、`.ssdecoder`/Project Semantics 1.1均未升级。
 
 ## 本轮实际验收摘要
 
-- `python -m pytest -q`：276 passed in 478.64s（0:07:58）。
+- `python -m pytest -q`：289 passed in 524.38s（0:08:44）。
 - `python -m compileall -q src main.py tools`：通过。
-- 默认工程首次生成504个文件；二次生成0新增、0修改、472个工程自有文件保持，Ready且无
-  missing/stale；Source Graph为136个C源文件+1个ASM。
-- 默认`.ssdecoder`：102390 bytes，SHA-256
-  `696d09226fc8a574602514e342667b46e7cf4e707c1f580740b62640927482d3`。
-- Release/Debug、Host Tests、Architecture、Power of Ten、GCC `-fanalyzer` Static Analysis和
-  Artifact Check全部通过；精确命令、内存、计数和哈希见根目录`VALIDATION.md`。
-- 8种Telemetry/Maintenance/Logging组合的16个Release/Debug构建及任务函数/栈/TCB符号审计
-  全部通过；4种校准选择完成代表性编译，默认空选另完成完整Host Tests。
+- 最终单实例与2×IMU+2×GNSS+2×Telemetry工程各生成518个文件；多实例Source Graph为
+  138个C源文件+1个ASM。
+- 多实例`.ssdecoder`：114272 bytes，SHA-256
+  `cb735adfe49221ac61f3c3d35bd950668ab2c0f2634769222d98fdb91fb066c0`。
+- 单实例/多实例Release与Debug均通过。Release多实例相对单实例增加592 bytes FLASH与
+  14600 bytes data+bss；Debug增加1064 bytes FLASH与14600 bytes data+bss。
+- Host Tests：56个可执行文件、9139项检查、0失败、8个compile-pass和16个预期拒绝；
+  Architecture 255/255；Power of Ten 5895项；GCC `-fanalyzer`和Artifact Check均通过。
+- 多实例Release产物：FLASH 261072/524288，main SRAM 91864/131072，CCMRAM
+  42872/65536，heap为0。精确构建表和质量门禁见根目录`VALIDATION.md`。
 
 ## 只读参考
 
@@ -40,6 +44,7 @@
 
 ## 尚未完成
 
+- 双IMU、双GNSS、双radio真实冗余硬件的电气、EMC、射频、HIL与飞行验证。
 - I²C外部上拉及PWM波形、极性、安全电平的真实电气测试。
 - 第二套真实硬件平台的双平台内部测试；当前合成H743 fixture不等于H7支持。
 - 烧录、SD介质耐久、射频、执行器台架、HIL与飞行验证。

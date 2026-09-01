@@ -111,6 +111,7 @@
     "asm_sources": [],
     "include_dirs": [
       "Devices/Telemetry/SX1281/Inc",
+      "Devices/Telemetry/SX1281/Adapter/Inc",
       "Middlewares/Third_Party/SX1280lib"
     ],
     "defines": []
@@ -150,21 +151,47 @@
     "build_feature_symbols": [
       "SYSTEM_USER_TELEMETRY_ENABLE"
     ],
+    "instance_resource_binding": {
+      "struct_type": "ProjectSx1281Resources",
+      "accessor": "ProjectSx1281Resources_Get",
+      "count_symbol": "PROJECT_SX1281_INSTANCE_COUNT",
+      "runtime_context_upper_bound": 4,
+      "fields": [
+        {"requirement": "radio_bus", "member": "spi"},
+        {"requirement": "radio_nss", "member": "nss"},
+        {"requirement": "radio_reset", "member": "reset"},
+        {"requirement": "radio_busy", "member": "busy"},
+        {"requirement": "radio_dio1", "member": "dio1"},
+        {"requirement": "time", "member": "time"}
+      ]
+    },
     "device_instance_bindings": {
       "SYSTEM_DEVICE_CLASS_TELEMETRY": {
-        "function_prefix": "SystemTelemetry"
+        "function_prefix": "Sx1281TelemetryInstance",
+        "headers": ["sx1281_instance.h"],
+        "pass_instance": true
       }
     },
     "source_origins": {
       "default": "reference_base",
-      "Devices/Telemetry/SX1281/Adapter/Src/sx1281_telemetry_adapter.c": "fccg_optional_protocol_gating"
+      "Devices/Telemetry/SX1281/Inc/sx1281_bus.h": "fccg_multi_instance_context",
+      "Devices/Telemetry/SX1281/Inc/sx1281_device.h": "fccg_multi_instance_context",
+      "Devices/Telemetry/SX1281/Adapter/Inc/sx1281_instance.h": "fccg_multi_instance_context",
+      "Devices/Telemetry/SX1281/Src/sx1281_bus.c": "fccg_multi_instance_context",
+      "Devices/Telemetry/SX1281/Src/sx1281_device.c": "fccg_multi_instance_context",
+      "Devices/Telemetry/SX1281/Adapter/Src/sx1281_telemetry_adapter.c": "fccg_multi_instance_context",
+      "Middlewares/Third_Party/SX1280lib/hw.h": "fccg_multi_instance_context",
+      "Middlewares/Third_Party/SX1280lib/sx1280-hal.c": "fccg_multi_instance_context",
+      "Middlewares/Third_Party/SX1280lib/sx1280-hal.h": "fccg_multi_instance_context",
+      "Middlewares/Third_Party/SX1280lib/sx1280.c": "fccg_multi_instance_context",
+      "Middlewares/Third_Party/SX1280lib/sx1280.h": "fccg_multi_instance_context"
     }
   },
   "instance_policy": {
-    "plugin_max": 1,
+    "plugin_max": 4,
     "class_max": 4,
-    "same_plugin_multiple": false,
-    "multi_instance_ready": false
+    "same_plugin_multiple": true,
+    "multi_instance_ready": true
   },
   "physical_device": {
     "vendor": "Ebyte",

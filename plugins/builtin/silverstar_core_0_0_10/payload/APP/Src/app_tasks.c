@@ -16,6 +16,7 @@
 #include "system_alignment.h"
 #include "system_calibration.h"
 #include "system_inertial.h"
+#include "system_source_selector.h"
 #include "task.h"
 
 typedef struct
@@ -195,6 +196,7 @@ AppTasksInitResult AppTasks_Init(void)
     {
         return AppTasksInitResult_BusInitFailed;
     }
+    SystemSourceSelector_PendingEventsFlush();
 
     if ((AppTasks_DeviceCreate() == NULL) ||
         (AppTasks_InsCreate() == NULL) ||

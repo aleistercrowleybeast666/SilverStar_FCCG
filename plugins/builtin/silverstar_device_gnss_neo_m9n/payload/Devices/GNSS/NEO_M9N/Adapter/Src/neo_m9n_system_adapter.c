@@ -8,17 +8,30 @@
 #include "neo_m9n_build_capabilities.h"
 #include "neo_m9n_config.h"
 #include "neo_m9n_device.h"
+#include "neo_m9n_instance.h"
 #include "platform_critical.h"
 #include "platform_time.h"
 #include "platform_uart.h"
 #include "system_gnss_quality.h"
 #include "silverstar_assert.h"
 
-static volatile uint8_t s_initialized;
-static volatile uint8_t s_started;
-static SystemDeviceHealth s_health;
-static SystemGnssConfig s_effective_config;
-static SystemGnssConfigTransactionReport s_config_transaction;
+typedef struct
+{
+    volatile uint8_t initialized;
+    volatile uint8_t started;
+    SystemDeviceHealth health;
+    SystemGnssConfig effective_config;
+    SystemGnssConfigTransactionReport config_transaction;
+} NeoM9nAdapterContext;
+
+static NeoM9nAdapterContext
+    s_contexts[PROJECT_NEO_M9N_INSTANCE_COUNT];
+
+#define s_initialized        (s_contexts[instance].initialized)
+#define s_started            (s_contexts[instance].started)
+#define s_health             (s_contexts[instance].health)
+#define s_effective_config   (s_contexts[instance].effective_config)
+#define s_config_transaction (s_contexts[instance].config_transaction)
 
 typedef enum
 {
@@ -87,8 +100,25 @@ typedef struct
     uint8_t abandoned;
 } NeoM9nRuntimeTransactionSnapshot;
 
-static volatile uint8_t s_runtime_owner_active;
-static NeoM9nRuntimeTransaction s_runtime_transaction;
+static volatile uint8_t
+    s_runtime_owner_active_contexts[PROJECT_NEO_M9N_INSTANCE_COUNT];
+static NeoM9nRuntimeTransaction
+    s_runtime_transactions[PROJECT_NEO_M9N_INSTANCE_COUNT];
+
+#define s_runtime_owner_active \
+    (s_runtime_owner_active_contexts[instance])
+#define s_runtime_transaction (s_runtime_transactions[instance])
+
+static PlatformUartId NeoM9nAdapter_UartGet(uint8_t instance)
+{
+    ProjectNeoM9nResources resources;
+
+    if (ProjectNeoM9nResources_Get(instance, &resources) != SYSTEM_DEVICE_OK)
+    {
+        return (PlatformUartId)PLATFORM_UART_COUNT;
+    }
+    return resources.uart;
+}
 
 #define NEO_M9N_RUNTIME_TRANSACTION_TIMEOUT_MS \
     (2U * GNSS_CONFIG_READ_TIMEOUT_MS)
@@ -109,15 +139,15 @@ static void NeoM9nGnssAdapter_IrqUnlock(uint32_t primask)
     PlatformCritical_Exit(primask);
 }
 
-static SystemDeviceResult NeoM9nGnssAdapter_ReadHardwareConfigDirect(
+static SystemDeviceResult NeoM9nGnssAdapter_ReadHardwareConfigDirect(uint8_t instance,
     SystemGnssHardwareConfig *config);
-static SystemDeviceResult NeoM9nGnssAdapter_ReadSatelliteDiagnosticsDirect(
+static SystemDeviceResult NeoM9nGnssAdapter_ReadSatelliteDiagnosticsDirect(uint8_t instance,
     SystemGnssSatelliteDiagnostics *diagnostics);
-static SystemDeviceResult NeoM9nGnssAdapter_ReadRfDiagnosticsDirect(
+static SystemDeviceResult NeoM9nGnssAdapter_ReadRfDiagnosticsDirect(uint8_t instance,
     SystemGnssRfDiagnostics *diagnostics);
-static void NeoM9nGnssAdapter_RuntimeTransactionProcess(void);
+static void NeoM9nGnssAdapter_RuntimeTransactionProcess(uint8_t instance);
 
-static void NeoM9nGnssAdapter_TransactionReset(void)
+static void NeoM9nGnssAdapter_TransactionReset(uint8_t instance)
 {
     (void)memset(&s_config_transaction, 0, sizeof(s_config_transaction));
     s_config_transaction.uart_baudrate_result = SYSTEM_DEVICE_NOT_EXECUTED;
@@ -133,7 +163,7 @@ static void NeoM9nGnssAdapter_TransactionReset(void)
         SYSTEM_GNSS_CONFIG_READ_NOT_READY;
 }
 
-static SystemDeviceResult NeoM9nGnssAdapter_Init(void)
+static SystemDeviceResult NeoM9nGnssAdapter_Init(uint8_t instance)
 {
     SILVERSTAR_ASSERT_OBJECT(&s_health, SystemDeviceHealth,
         SILVERSTAR_ASSERT_MODULE_DEVICE);
@@ -143,7 +173,7 @@ static SystemDeviceResult NeoM9nGnssAdapter_Init(void)
     (void)memset(&s_runtime_transaction, 0,
                  sizeof(s_runtime_transaction));
     s_runtime_owner_active = 0U;
-    NeoM9nGnssAdapter_TransactionReset();
+    NeoM9nGnssAdapter_TransactionReset(instance);
     s_effective_config.navigation_rate_hz = GNSS_DEFAULT_RATE_HZ;
     s_effective_config.constellation_mask = SYSTEM_GNSS_CONSTELLATION_GPS |
         SYSTEM_GNSS_CONSTELLATION_BDS | SYSTEM_GNSS_CONSTELLATION_GALILEO;
@@ -151,7 +181,7 @@ static SystemDeviceResult NeoM9nGnssAdapter_Init(void)
     s_effective_config.output_protocol = SYSTEM_GNSS_OUTPUT_PROTOCOL_UBX;
     s_effective_config.enabled_message_mask = 0U;
     s_effective_config.requested_mask = NEO_M9N_SUPPORTED_CONFIG_MASK;
-    if (GnssNeoM9n_Init() != GnssNeoM9n_InitOk)
+    if (GnssNeoM9n_Init(instance) != GnssNeoM9n_InitOk)
     {
         s_health.error_count++;
         return SYSTEM_DEVICE_IO_ERROR;
@@ -161,7 +191,7 @@ static SystemDeviceResult NeoM9nGnssAdapter_Init(void)
     return SYSTEM_DEVICE_OK;
 }
 
-static SystemDeviceResult NeoM9nGnssAdapter_Start(void)
+static SystemDeviceResult NeoM9nGnssAdapter_Start(uint8_t instance)
 {
     uint32_t primask;
 
@@ -174,7 +204,7 @@ static SystemDeviceResult NeoM9nGnssAdapter_Start(void)
     return SYSTEM_DEVICE_OK;
 }
 
-static SystemDeviceResult NeoM9nGnssAdapter_Stop(void)
+static SystemDeviceResult NeoM9nGnssAdapter_Stop(uint8_t instance)
 {
     uint32_t primask = NeoM9nGnssAdapter_IrqLock();
 
@@ -184,7 +214,7 @@ static SystemDeviceResult NeoM9nGnssAdapter_Stop(void)
     return SYSTEM_DEVICE_OK;
 }
 
-static SystemDeviceResult NeoM9nGnssAdapter_RuntimeOwnerActivate(void)
+static SystemDeviceResult NeoM9nGnssAdapter_RuntimeOwnerActivate(uint8_t instance)
 {
     uint32_t primask;
 
@@ -200,7 +230,7 @@ static SystemDeviceResult NeoM9nGnssAdapter_RuntimeOwnerActivate(void)
     return SYSTEM_DEVICE_OK;
 }
 
-static void NeoM9nGnssAdapter_Process(void)
+static void NeoM9nGnssAdapter_Process(uint8_t instance)
 {
     GnssNeoM9nData data;
     GnssNeoM9nStatusSnapshot status;
@@ -217,11 +247,11 @@ static void NeoM9nGnssAdapter_Process(void)
     if (s_started == 0U) { return; }
     now_us = PlatformTime_Us();
     now_ms = (uint32_t)(now_us / 1000ULL);
-    (void)GnssNeoM9n_Process(now_ms);
-    NeoM9nGnssAdapter_RuntimeTransactionProcess();
-    (void)GnssNeoM9n_GetData(&data);
-    GnssNeoM9n_GetStatusSnapshot(&status);
-    (void)PlatformUart_DiagnosticsGet(PROJECT_RESOURCE_GNSS_UART, &io_diagnostics);
+    (void)GnssNeoM9n_Process(instance, now_ms);
+    NeoM9nGnssAdapter_RuntimeTransactionProcess(instance);
+    (void)GnssNeoM9n_GetData(instance, &data);
+    GnssNeoM9n_GetStatusSnapshot(instance, &status);
+    (void)PlatformUart_DiagnosticsGet(NeoM9nAdapter_UartGet(instance), &io_diagnostics);
     primask = NeoM9nGnssAdapter_IrqLock();
     health = s_health;
     NeoM9nGnssAdapter_IrqUnlock(primask);
@@ -275,7 +305,7 @@ static SystemDeviceResult NeoM9nGnssAdapter_GetCapabilities(uint32_t *mask)
     return SYSTEM_DEVICE_OK;
 }
 
-static SystemDeviceResult NeoM9nGnssAdapter_GetHealth(SystemDeviceHealth *health)
+static SystemDeviceResult NeoM9nGnssAdapter_GetHealth(uint8_t instance, SystemDeviceHealth *health)
 {
     uint32_t primask;
 
@@ -321,7 +351,7 @@ static void NeoM9nGnssAdapter_SampleValiditySet(
     }
 }
 
-static SystemDeviceResult NeoM9nGnssAdapter_GetSample(SystemGnssSample *sample)
+static SystemDeviceResult NeoM9nGnssAdapter_GetSample(uint8_t instance, SystemGnssSample *sample)
 {
     GnssNeoM9nData data;
     float speed_std_mps;
@@ -331,7 +361,7 @@ static SystemDeviceResult NeoM9nGnssAdapter_GetSample(SystemGnssSample *sample)
     if (sample == NULL) { return SYSTEM_DEVICE_INVALID_ARGUMENT; }
     SILVERSTAR_ASSERT_OBJECT(sample, SystemGnssSample,
         SILVERSTAR_ASSERT_MODULE_DEVICE);
-    if (GnssNeoM9n_GetData(&data) == 0U) { return SYSTEM_DEVICE_NOT_READY; }
+    if (GnssNeoM9n_GetData(instance, &data) == 0U) { return SYSTEM_DEVICE_NOT_READY; }
     (void)memset(sample, 0, sizeof(*sample));
     sample->sample_timestamp_us = data.lastUpdate_us;
     sample->receive_timestamp_us = data.lastUpdate_us;
@@ -361,7 +391,7 @@ static SystemDeviceResult NeoM9nGnssAdapter_GetSample(SystemGnssSample *sample)
     return SystemGnssQuality_Evaluate(sample, PlatformTime_Us());
 }
 
-static SystemDeviceResult NeoM9nGnssAdapter_GetIoDiagnostics(
+static SystemDeviceResult NeoM9nGnssAdapter_GetIoDiagnostics(uint8_t instance,
     SystemDeviceIoDiagnostics *diagnostics)
 {
     PlatformUartDiagnostics source;
@@ -369,7 +399,7 @@ static SystemDeviceResult NeoM9nGnssAdapter_GetIoDiagnostics(
     if (diagnostics == NULL) { return SYSTEM_DEVICE_INVALID_ARGUMENT; }
     SILVERSTAR_ASSERT_OBJECT(diagnostics, SystemDeviceIoDiagnostics,
         SILVERSTAR_ASSERT_MODULE_DEVICE);
-    (void)PlatformUart_DiagnosticsGet(PROJECT_RESOURCE_GNSS_UART, &source);
+    (void)PlatformUart_DiagnosticsGet(NeoM9nAdapter_UartGet(instance), &source);
     (void)memset(diagnostics, 0, sizeof(*diagnostics));
     diagnostics->supported_mask = SYSTEM_DEVICE_IO_VALID_TRANSPORT |
         SYSTEM_DEVICE_IO_VALID_RX_BYTES |
@@ -413,13 +443,13 @@ static SystemDeviceResult NeoM9nGnssAdapter_GetIoDiagnostics(
     return SYSTEM_DEVICE_OK;
 }
 
-static SystemDeviceResult NeoM9nGnssAdapter_GetIoDetail(
+static SystemDeviceResult NeoM9nGnssAdapter_GetIoDetail(uint8_t instance,
     SystemGnssIoDetail *detail)
 {
     GnssNeoM9nStreamDiagnostics source;
 
     if (detail == NULL) { return SYSTEM_DEVICE_INVALID_ARGUMENT; }
-    GnssNeoM9n_StreamDiagnosticsGet(&source);
+    GnssNeoM9n_StreamDiagnosticsGet(instance, &source);
     detail->ubx_frame_count = source.ubx_frame_count;
     detail->ubx_checksum_error_count = source.ubx_checksum_error_count;
     detail->nmea_sentence_count = source.nmea_sentence_count;
@@ -430,14 +460,14 @@ static SystemDeviceResult NeoM9nGnssAdapter_GetIoDetail(
     return SYSTEM_DEVICE_OK;
 }
 
-static SystemDeviceResult NeoM9nGnssAdapter_GetTime(SystemGnssTime *time)
+static SystemDeviceResult NeoM9nGnssAdapter_GetTime(uint8_t instance, SystemGnssTime *time)
 {
     GnssNeoM9nData data;
 
     if (time == NULL) { return SYSTEM_DEVICE_INVALID_ARGUMENT; }
     SILVERSTAR_ASSERT_OBJECT(time, SystemGnssTime,
         SILVERSTAR_ASSERT_MODULE_DEVICE);
-    if (GnssNeoM9n_GetData(&data) == 0U) { return SYSTEM_DEVICE_NOT_READY; }
+    if (GnssNeoM9n_GetData(instance, &data) == 0U) { return SYSTEM_DEVICE_NOT_READY; }
     (void)memset(time, 0, sizeof(*time));
     time->sample_timestamp_us = data.lastUpdate_us;
     time->receive_timestamp_us = data.lastUpdate_us;
@@ -528,7 +558,7 @@ static uint8_t NeoM9nGnssAdapter_DynamicModelGet(
     }
 }
 
-static uint32_t NeoM9nGnssAdapter_ConstellationMaskGet(uint32_t mask)
+static uint32_t NeoM9nGnssAdapter_ConstellationMaskGet(uint8_t instance, uint32_t mask)
 {
     uint32_t device_mask = 0U;
 
@@ -560,7 +590,7 @@ static SystemDeviceResult NeoM9nGnssAdapter_DeviceResultMap(int result)
     return SYSTEM_DEVICE_IO_ERROR;
 }
 
-static SystemGnssConfigReadResult NeoM9nGnssAdapter_ConfigReadResultMap(
+static SystemGnssConfigReadResult NeoM9nGnssAdapter_ConfigReadResultMap(uint8_t instance,
     GnssNeoM9nConfigReadResult result)
 {
     SILVERSTAR_ASSERT_OBJECT(&s_config_transaction,
@@ -658,7 +688,7 @@ static SystemDeviceResult NeoM9nGnssAdapter_ConfigFailureMap(
     return SYSTEM_DEVICE_IO_ERROR;
 }
 
-static void NeoM9nGnssAdapter_TransportConfigApply(
+static void NeoM9nGnssAdapter_TransportConfigApply(uint8_t instance,
     const SystemGnssConfig *config,
     NeoM9nConfigApplyContext *context)
 {
@@ -669,14 +699,14 @@ static void NeoM9nGnssAdapter_TransportConfigApply(
         SILVERSTAR_ASSERT_MODULE_DEVICE);
     context->step_id = SYSTEM_GNSS_CONFIG_STAGE_UART;
     context->failed_mask = config->requested_mask;
-    context->device_result = GnssNeoM9n_ConfigUartBaudrate(
+    context->device_result = GnssNeoM9n_ConfigUartBaudrate(instance,
         context->layers, GNSS_DEFAULT_BAUDRATE);
     s_config_transaction.uart_baudrate_result =
         NeoM9nGnssAdapter_DeviceResultMap(context->device_result);
     if (context->device_result == 0)
     {
         context->step_id = SYSTEM_GNSS_CONFIG_STAGE_UART_SETTLE;
-        context->device_result = GnssNeoM9n_WaitUartConfigSettle(
+        context->device_result = GnssNeoM9n_WaitUartConfigSettle(instance,
             GNSS_UART_CONFIG_SETTLE_MS,
             GNSS_SIGNAL_STREAM_RECOVERY_TIMEOUT_MS);
         s_config_transaction.uart_settle_result =
@@ -692,7 +722,7 @@ static void NeoM9nGnssAdapter_TransportConfigApply(
                 GnssOutputProtocolUbxNmea : GnssOutputProtocolUbxOnly;
         context->step_id = SYSTEM_GNSS_CONFIG_STAGE_PROTOCOL;
         context->failed_mask = SYSTEM_GNSS_CFG_OUTPUT_PROTOCOL;
-        context->device_result = GnssNeoM9n_ConfigOutputProtocol(
+        context->device_result = GnssNeoM9n_ConfigOutputProtocol(instance,
             context->layers, protocol);
         s_config_transaction.protocol_result =
             NeoM9nGnssAdapter_DeviceResultMap(context->device_result);
@@ -702,7 +732,7 @@ static void NeoM9nGnssAdapter_TransportConfigApply(
     {
         context->step_id = SYSTEM_GNSS_CONFIG_STAGE_NAV_PVT;
         context->failed_mask = SYSTEM_GNSS_CFG_ENABLED_MESSAGES;
-        context->device_result = GnssNeoM9n_ConfigNavPvtOutput(
+        context->device_result = GnssNeoM9n_ConfigNavPvtOutput(instance,
             context->layers,
             ((config->enabled_message_mask & SYSTEM_GNSS_MESSAGE_NAV_PVT) !=
              0U) ? 1U : 0U);
@@ -711,7 +741,7 @@ static void NeoM9nGnssAdapter_TransportConfigApply(
     }
 }
 
-static void NeoM9nGnssAdapter_NavigationConfigApply(
+static void NeoM9nGnssAdapter_NavigationConfigApply(uint8_t instance,
     const SystemGnssConfig *config,
     NeoM9nConfigApplyContext *context)
 {
@@ -727,7 +757,7 @@ static void NeoM9nGnssAdapter_NavigationConfigApply(
     {
         context->step_id = SYSTEM_GNSS_CONFIG_STAGE_RATE;
         context->failed_mask = SYSTEM_GNSS_CFG_NAVIGATION_RATE;
-        context->device_result = GnssNeoM9n_ConfigNavRate(
+        context->device_result = GnssNeoM9n_ConfigNavRate(instance,
             context->layers, (uint8_t)config->navigation_rate_hz);
         s_config_transaction.rate_result =
             NeoM9nGnssAdapter_DeviceResultMap(context->device_result);
@@ -737,7 +767,7 @@ static void NeoM9nGnssAdapter_NavigationConfigApply(
     {
         context->step_id = SYSTEM_GNSS_CONFIG_STAGE_DYNAMIC_MODEL;
         context->failed_mask = SYSTEM_GNSS_CFG_DYNAMIC_MODEL;
-        context->device_result = GnssNeoM9n_ConfigDynamicModel(
+        context->device_result = GnssNeoM9n_ConfigDynamicModel(instance,
             context->layers,
             NeoM9nGnssAdapter_DynamicModelGet(config->dynamic_model));
         s_config_transaction.dynamic_model_result =
@@ -746,12 +776,12 @@ static void NeoM9nGnssAdapter_NavigationConfigApply(
     if ((context->device_result == 0) &&
         ((config->requested_mask & SYSTEM_GNSS_CFG_CONSTELLATIONS) != 0U))
     {
-        (void)GnssNeoM9n_GetData(&data);
+        (void)GnssNeoM9n_GetData(instance, &data);
         s_config_transaction.baseline_pvt_sequence = data.pvtSequence;
         context->step_id = SYSTEM_GNSS_CONFIG_STAGE_SIGNALS;
         context->failed_mask = SYSTEM_GNSS_CFG_CONSTELLATIONS;
-        context->device_result = GnssNeoM9n_ConfigSignals(context->layers,
-            NeoM9nGnssAdapter_ConstellationMaskGet(
+        context->device_result = GnssNeoM9n_ConfigSignals(instance, context->layers,
+            NeoM9nGnssAdapter_ConstellationMaskGet(instance,
                 config->constellation_mask));
         s_config_transaction.signals_result =
             NeoM9nGnssAdapter_DeviceResultMap(context->device_result);
@@ -760,19 +790,19 @@ static void NeoM9nGnssAdapter_NavigationConfigApply(
             s_config_transaction.signal_complete_timestamp_us =
                 PlatformTime_Us();
             context->step_id = SYSTEM_GNSS_CONFIG_STAGE_PVT_RECOVERY;
-            context->device_result = GnssNeoM9n_WaitForNewNavPvt(
+            context->device_result = GnssNeoM9n_WaitForNewNavPvt(instance,
                 s_config_transaction.baseline_pvt_sequence,
                 s_config_transaction.signal_complete_timestamp_us,
                 GNSS_SIGNAL_STREAM_RECOVERY_TIMEOUT_MS);
             s_config_transaction.pvt_recovery_result =
                 NeoM9nGnssAdapter_DeviceResultMap(context->device_result);
-            (void)GnssNeoM9n_GetData(&data);
+            (void)GnssNeoM9n_GetData(instance, &data);
             s_config_transaction.recovered_pvt_sequence = data.pvtSequence;
         }
     }
 }
 
-static void NeoM9nGnssAdapter_EffectiveConfigUpdate(
+static void NeoM9nGnssAdapter_EffectiveConfigUpdate(uint8_t instance,
     const SystemGnssConfig *config,
     const SystemDeviceConfigReport *report)
 {
@@ -799,7 +829,7 @@ static void NeoM9nGnssAdapter_EffectiveConfigUpdate(
     }
 }
 
-static SystemDeviceResult NeoM9nGnssAdapter_ApplyConfig(
+static SystemDeviceResult NeoM9nGnssAdapter_ApplyConfig(uint8_t instance,
     const SystemGnssConfig *config,
     SystemDeviceConfigReport *report)
 {
@@ -815,14 +845,14 @@ static SystemDeviceResult NeoM9nGnssAdapter_ApplyConfig(
     SILVERSTAR_ASSERT_OBJECT(report, SystemDeviceConfigReport,
         SILVERSTAR_ASSERT_MODULE_DEVICE);
     if (s_runtime_owner_active != 0U) { return SYSTEM_DEVICE_BUSY; }
-    NeoM9nGnssAdapter_TransactionReset();
+    NeoM9nGnssAdapter_TransactionReset(instance);
     (void)memset(&context, 0, sizeof(context));
     context.layers = GNSS_CFG_LAYER_ALL;
     context.failed_mask = config->requested_mask;
     s_config_transaction.write_layers = context.layers;
-    NeoM9nGnssAdapter_TransportConfigApply(config, &context);
-    NeoM9nGnssAdapter_NavigationConfigApply(config, &context);
-    s_config_transaction.ack_result = (uint8_t)GnssNeoM9n_GetLastAck();
+    NeoM9nGnssAdapter_TransportConfigApply(instance, config, &context);
+    NeoM9nGnssAdapter_NavigationConfigApply(instance, config, &context);
+    s_config_transaction.ack_result = (uint8_t)GnssNeoM9n_GetLastAck(instance);
     if (context.device_result != 0)
     {
         s_config_transaction.failed_stage =
@@ -835,11 +865,11 @@ static SystemDeviceResult NeoM9nGnssAdapter_ApplyConfig(
                            NEO_M9N_SUPPORTED_CONFIG_MASK;
     report->persisted = 1U;
     report->success = 1U;
-    NeoM9nGnssAdapter_EffectiveConfigUpdate(config, report);
+    NeoM9nGnssAdapter_EffectiveConfigUpdate(instance, config, report);
     return validation;
 }
 
-static SystemDeviceResult NeoM9nGnssAdapter_GetConfig(SystemGnssConfig *config)
+static SystemDeviceResult NeoM9nGnssAdapter_GetConfig(uint8_t instance, SystemGnssConfig *config)
 {
     if (config == NULL) { return SYSTEM_DEVICE_INVALID_ARGUMENT; }
     *config = s_effective_config;
@@ -864,7 +894,7 @@ static SystemDeviceResult NeoM9nGnssAdapter_NoiseCharacteristicsGet(
     return SYSTEM_DEVICE_OK;
 }
 
-static SystemDeviceResult NeoM9nGnssAdapter_HardwareConfigMap(
+static SystemDeviceResult NeoM9nGnssAdapter_HardwareConfigMap(uint8_t instance,
     const GnssNeoM9nConfigSnapshot *snapshot,
     uint32_t elapsed_ms,
     const GnssNeoM9nConfigReadDiagnostics *diagnostics,
@@ -893,7 +923,7 @@ static SystemDeviceResult NeoM9nGnssAdapter_HardwareConfigMap(
     config->nav_pvt_rate = snapshot->nav_pvt_rate;
     config->nav_pvt_known = snapshot->nav_pvt_known;
     config->read_result =
-        NeoM9nGnssAdapter_ConfigReadResultMap(result);
+        NeoM9nGnssAdapter_ConfigReadResultMap(instance, result);
     config->failed_group = NeoM9nGnssAdapter_ConfigReadGroupMap(
         diagnostics->failed_group);
     config->failed_key = diagnostics->failed_key;
@@ -910,7 +940,7 @@ static SystemDeviceResult NeoM9nGnssAdapter_HardwareConfigMap(
     return NeoM9nGnssAdapter_ConfigReadDeviceResultMap(result);
 }
 
-static SystemDeviceResult NeoM9nGnssAdapter_ReadHardwareConfigDirect(
+static SystemDeviceResult NeoM9nGnssAdapter_ReadHardwareConfigDirect(uint8_t instance,
     SystemGnssHardwareConfig *config)
 {
     GnssNeoM9nConfigSnapshot snapshot;
@@ -921,13 +951,13 @@ static SystemDeviceResult NeoM9nGnssAdapter_ReadHardwareConfigDirect(
     if (config == NULL) { return SYSTEM_DEVICE_INVALID_ARGUMENT; }
     (void)memset(&snapshot, 0, sizeof(snapshot));
     (void)memset(&diagnostics, 0, sizeof(diagnostics));
-    result = GnssNeoM9n_ReadHardwareConfig(&snapshot, &elapsed_ms,
+    result = GnssNeoM9n_ReadHardwareConfig(instance, &snapshot, &elapsed_ms,
                                             &diagnostics);
-    return NeoM9nGnssAdapter_HardwareConfigMap(
+    return NeoM9nGnssAdapter_HardwareConfigMap(instance,
         &snapshot, elapsed_ms, &diagnostics, result, config);
 }
 
-static SystemDeviceResult NeoM9nGnssAdapter_GetLastConfigReport(
+static SystemDeviceResult NeoM9nGnssAdapter_GetLastConfigReport(uint8_t instance,
     SystemGnssConfigTransactionReport *report)
 {
     if (report == NULL) { return SYSTEM_DEVICE_INVALID_ARGUMENT; }
@@ -944,7 +974,7 @@ static SystemDeviceResult NeoM9nGnssAdapter_DiagnosticResultMap(int result)
     return SYSTEM_DEVICE_IO_ERROR;
 }
 
-static SystemDeviceResult NeoM9nGnssAdapter_SatelliteDiagnosticsMap(
+static SystemDeviceResult NeoM9nGnssAdapter_SatelliteDiagnosticsMap(uint8_t instance,
     const GnssNeoM9nSatelliteDiagnostics *source,
     SystemGnssSatelliteDiagnostics *destination)
 {
@@ -971,7 +1001,7 @@ static SystemDeviceResult NeoM9nGnssAdapter_SatelliteDiagnosticsMap(
     destination->average_cno_dbhz = source->average_cno_dbhz;
     destination->maximum_cno_dbhz = source->maximum_cno_dbhz;
     destination->average_quality = source->average_quality;
-    destination->read_result = NeoM9nGnssAdapter_ConfigReadResultMap(
+    destination->read_result = NeoM9nGnssAdapter_ConfigReadResultMap(instance,
         source->read_result);
     destination->detailed_result = NeoM9nGnssAdapter_DetailMap(
         source->detailed_result);
@@ -995,7 +1025,7 @@ static SystemDeviceResult NeoM9nGnssAdapter_SatelliteDiagnosticsMap(
         SYSTEM_DEVICE_OK : SYSTEM_DEVICE_NOT_READY;
 }
 
-static SystemDeviceResult NeoM9nGnssAdapter_RfDiagnosticsMap(
+static SystemDeviceResult NeoM9nGnssAdapter_RfDiagnosticsMap(uint8_t instance,
     const GnssNeoM9nRfDiagnostics *source,
     SystemGnssRfDiagnostics *destination)
 {
@@ -1026,7 +1056,7 @@ static SystemDeviceResult NeoM9nGnssAdapter_RfDiagnosticsMap(
     destination->jamming_state = source->jamming_state;
     destination->cw_suppression = source->cw_suppression;
     destination->jamming_indicator = source->jamming_indicator;
-    destination->read_result = NeoM9nGnssAdapter_ConfigReadResultMap(
+    destination->read_result = NeoM9nGnssAdapter_ConfigReadResultMap(instance,
         source->read_result);
     destination->detailed_result = NeoM9nGnssAdapter_DetailMap(
         source->detailed_result);
@@ -1042,17 +1072,17 @@ static SystemDeviceResult NeoM9nGnssAdapter_RfDiagnosticsMap(
         SYSTEM_DEVICE_OK : SYSTEM_DEVICE_NOT_READY;
 }
 
-static SystemDeviceResult NeoM9nGnssAdapter_ReadSatelliteDiagnosticsDirect(
+static SystemDeviceResult NeoM9nGnssAdapter_ReadSatelliteDiagnosticsDirect(uint8_t instance,
     SystemGnssSatelliteDiagnostics *diagnostics)
 {
     GnssNeoM9nSatelliteDiagnostics source;
     int result;
 
     if (diagnostics == NULL) { return SYSTEM_DEVICE_INVALID_ARGUMENT; }
-    result = GnssNeoM9n_ReadSatelliteDiagnostics(&source);
+    result = GnssNeoM9n_ReadSatelliteDiagnostics(instance, &source);
     if (result != 0)
     {
-        (void)NeoM9nGnssAdapter_SatelliteDiagnosticsMap(&source,
+        (void)NeoM9nGnssAdapter_SatelliteDiagnosticsMap(instance, &source,
                                                          diagnostics);
         diagnostics->supported_fields =
             SYSTEM_GNSS_SAT_DIAG_FIELD_COUNTS |
@@ -1060,16 +1090,16 @@ static SystemDeviceResult NeoM9nGnssAdapter_ReadSatelliteDiagnosticsDirect(
             SYSTEM_GNSS_SAT_DIAG_FIELD_QUALITY;
         return NeoM9nGnssAdapter_DiagnosticResultMap(result);
     }
-    return NeoM9nGnssAdapter_SatelliteDiagnosticsMap(&source, diagnostics);
+    return NeoM9nGnssAdapter_SatelliteDiagnosticsMap(instance, &source, diagnostics);
 }
 
-static SystemDeviceResult NeoM9nGnssAdapter_GetSatelliteDiagnostics(
+static SystemDeviceResult NeoM9nGnssAdapter_GetSatelliteDiagnostics(uint8_t instance,
     SystemGnssSatelliteDiagnostics *diagnostics)
 {
     GnssNeoM9nSatelliteDiagnostics source;
 
     if (diagnostics == NULL) { return SYSTEM_DEVICE_INVALID_ARGUMENT; }
-    if (GnssNeoM9n_GetSatelliteDiagnostics(&source) == 0U)
+    if (GnssNeoM9n_GetSatelliteDiagnostics(instance, &source) == 0U)
     {
         (void)memset(diagnostics, 0, sizeof(*diagnostics));
         diagnostics->supported_fields =
@@ -1078,20 +1108,20 @@ static SystemDeviceResult NeoM9nGnssAdapter_GetSatelliteDiagnostics(
             SYSTEM_GNSS_SAT_DIAG_FIELD_QUALITY;
         return SYSTEM_DEVICE_NOT_READY;
     }
-    return NeoM9nGnssAdapter_SatelliteDiagnosticsMap(&source, diagnostics);
+    return NeoM9nGnssAdapter_SatelliteDiagnosticsMap(instance, &source, diagnostics);
 }
 
-static SystemDeviceResult NeoM9nGnssAdapter_ReadRfDiagnosticsDirect(
+static SystemDeviceResult NeoM9nGnssAdapter_ReadRfDiagnosticsDirect(uint8_t instance,
     SystemGnssRfDiagnostics *diagnostics)
 {
     GnssNeoM9nRfDiagnostics source;
     int result;
 
     if (diagnostics == NULL) { return SYSTEM_DEVICE_INVALID_ARGUMENT; }
-    result = GnssNeoM9n_ReadRfDiagnostics(&source);
+    result = GnssNeoM9n_ReadRfDiagnostics(instance, &source);
     if (result != 0)
     {
-        (void)NeoM9nGnssAdapter_RfDiagnosticsMap(&source, diagnostics);
+        (void)NeoM9nGnssAdapter_RfDiagnosticsMap(instance, &source, diagnostics);
         diagnostics->supported_fields =
             SYSTEM_GNSS_RF_DIAG_FIELD_ANTENNA |
             SYSTEM_GNSS_RF_DIAG_FIELD_JAMMING |
@@ -1099,7 +1129,7 @@ static SystemDeviceResult NeoM9nGnssAdapter_ReadRfDiagnosticsDirect(
             SYSTEM_GNSS_RF_DIAG_FIELD_AGC;
         return NeoM9nGnssAdapter_DiagnosticResultMap(result);
     }
-    return NeoM9nGnssAdapter_RfDiagnosticsMap(&source, diagnostics);
+    return NeoM9nGnssAdapter_RfDiagnosticsMap(instance, &source, diagnostics);
 }
 
 static void NeoM9nGnssAdapter_RuntimeOutputIdSet(
@@ -1168,7 +1198,7 @@ static void NeoM9nGnssAdapter_RuntimeOutputErrorSet(
     }
 }
 
-static SystemDeviceResult NeoM9nGnssAdapter_RuntimeRequestSubmit(
+static SystemDeviceResult NeoM9nGnssAdapter_RuntimeRequestSubmit(uint8_t instance,
     NeoM9nRuntimeRequest request,
     NeoM9nRuntimeTransactionOutput *output,
     uint32_t start_ms,
@@ -1226,7 +1256,7 @@ static SystemDeviceResult NeoM9nGnssAdapter_RuntimeRequestSubmit(
     return SYSTEM_DEVICE_OK;
 }
 
-static uint8_t NeoM9nGnssAdapter_RuntimeCompletionTake(
+static uint8_t NeoM9nGnssAdapter_RuntimeCompletionTake(uint8_t instance,
     uint32_t transaction_id,
     NeoM9nRuntimeTransactionOutput *output,
     SystemDeviceResult *result)
@@ -1253,7 +1283,7 @@ static uint8_t NeoM9nGnssAdapter_RuntimeCompletionTake(
     return 0U;
 }
 
-static void NeoM9nGnssAdapter_RuntimeRequestAbandon(uint32_t transaction_id)
+static void NeoM9nGnssAdapter_RuntimeRequestAbandon(uint8_t instance, uint32_t transaction_id)
 {
     uint32_t primask = NeoM9nGnssAdapter_IrqLock();
 
@@ -1271,7 +1301,7 @@ static void NeoM9nGnssAdapter_RuntimeRequestAbandon(uint32_t transaction_id)
     NeoM9nGnssAdapter_IrqUnlock(primask);
 }
 
-static SystemDeviceResult NeoM9nGnssAdapter_RuntimeRequestWait(
+static SystemDeviceResult NeoM9nGnssAdapter_RuntimeRequestWait(uint8_t instance,
     NeoM9nRuntimeRequest request,
     NeoM9nRuntimeTransactionOutput *output)
 {
@@ -1289,7 +1319,7 @@ static SystemDeviceResult NeoM9nGnssAdapter_RuntimeRequestWait(
     timeout_ms = (request == NeoM9nRuntimeRequestHardwareConfig) ?
         NEO_M9N_RUNTIME_TRANSACTION_TIMEOUT_MS : GNSS_CONFIG_READ_TIMEOUT_MS;
     wait_timeout_ms = timeout_ms + GNSS_CONFIG_READ_KEY_TIMEOUT_MS;
-    result = NeoM9nGnssAdapter_RuntimeRequestSubmit(
+    result = NeoM9nGnssAdapter_RuntimeRequestSubmit(instance,
         request, output, start_ms, timeout_ms, &transaction_id);
     if (result != SYSTEM_DEVICE_OK) { return result; }
 
@@ -1299,26 +1329,26 @@ static SystemDeviceResult NeoM9nGnssAdapter_RuntimeRequestWait(
         {
             break;
         }
-        if (NeoM9nGnssAdapter_RuntimeCompletionTake(
+        if (NeoM9nGnssAdapter_RuntimeCompletionTake(instance,
                 transaction_id, output, &result) != 0U)
         {
             return result;
         }
         PlatformTime_DelayMs(1U);
     }
-    if (NeoM9nGnssAdapter_RuntimeCompletionTake(
+    if (NeoM9nGnssAdapter_RuntimeCompletionTake(instance,
             transaction_id, output, &result) != 0U)
     {
         return result;
     }
-    NeoM9nGnssAdapter_RuntimeRequestAbandon(transaction_id);
+    NeoM9nGnssAdapter_RuntimeRequestAbandon(instance, transaction_id);
     NeoM9nGnssAdapter_RuntimeOutputErrorSet(
         request, output, transaction_id,
         SYSTEM_GNSS_TRANSACTION_DETAIL_TIMEOUT);
     return SYSTEM_DEVICE_TIMEOUT;
 }
 
-static void NeoM9nGnssAdapter_RuntimeTransactionCancel(
+static void NeoM9nGnssAdapter_RuntimeTransactionCancel(uint8_t instance,
     NeoM9nRuntimeRequest request,
     SystemGnssTransactionDetail detail)
 {
@@ -1335,15 +1365,15 @@ static void NeoM9nGnssAdapter_RuntimeTransactionCancel(
         NeoM9nRuntimeTransaction, SILVERSTAR_ASSERT_MODULE_DEVICE);
     if (request == NeoM9nRuntimeRequestHardwareConfig)
     {
-        GnssNeoM9n_ConfigReadAsyncCancel(result, device_detail);
+        GnssNeoM9n_ConfigReadAsyncCancel(instance, result, device_detail);
     }
     else if (request == NeoM9nRuntimeRequestNavSat)
     {
-        GnssNeoM9n_SatelliteDiagnosticsAsyncCancel(result, device_detail);
+        GnssNeoM9n_SatelliteDiagnosticsAsyncCancel(instance, result, device_detail);
     }
     else if (request == NeoM9nRuntimeRequestMonRf)
     {
-        GnssNeoM9n_RfDiagnosticsAsyncCancel(result, device_detail);
+        GnssNeoM9n_RfDiagnosticsAsyncCancel(instance, result, device_detail);
     }
 }
 
@@ -1363,7 +1393,7 @@ static SystemDeviceResult NeoM9nGnssAdapter_RuntimeStartResultMap(
     return SYSTEM_DEVICE_INVALID_ARGUMENT;
 }
 
-static uint8_t NeoM9nGnssAdapter_RuntimeSnapshotGet(
+static uint8_t NeoM9nGnssAdapter_RuntimeSnapshotGet(uint8_t instance,
     NeoM9nRuntimeTransactionSnapshot *snapshot)
 {
     uint32_t primask;
@@ -1384,7 +1414,7 @@ static uint8_t NeoM9nGnssAdapter_RuntimeSnapshotGet(
         (snapshot->state != NeoM9nRuntimeTransactionFailed));
 }
 
-static uint8_t NeoM9nGnssAdapter_RuntimeAbandonedProcess(
+static uint8_t NeoM9nGnssAdapter_RuntimeAbandonedProcess(uint8_t instance,
     const NeoM9nRuntimeTransactionSnapshot *snapshot)
 {
     uint32_t primask;
@@ -1392,7 +1422,7 @@ static uint8_t NeoM9nGnssAdapter_RuntimeAbandonedProcess(
     if ((snapshot == NULL) || (snapshot->abandoned == 0U)) { return 0U; }
     SILVERSTAR_ASSERT_OBJECT(snapshot, NeoM9nRuntimeTransactionSnapshot,
         SILVERSTAR_ASSERT_MODULE_DEVICE);
-    NeoM9nGnssAdapter_RuntimeTransactionCancel(
+    NeoM9nGnssAdapter_RuntimeTransactionCancel(instance,
         snapshot->request, SYSTEM_GNSS_TRANSACTION_DETAIL_TIMEOUT);
     primask = NeoM9nGnssAdapter_IrqLock();
     if (s_runtime_transaction.transaction_id == snapshot->transaction_id)
@@ -1403,7 +1433,7 @@ static uint8_t NeoM9nGnssAdapter_RuntimeAbandonedProcess(
     return 1U;
 }
 
-static uint8_t NeoM9nGnssAdapter_RuntimeTimeoutProcess(
+static uint8_t NeoM9nGnssAdapter_RuntimeTimeoutProcess(uint8_t instance,
     const NeoM9nRuntimeTransactionSnapshot *snapshot)
 {
     NeoM9nRuntimeTransactionOutput output;
@@ -1414,7 +1444,7 @@ static uint8_t NeoM9nGnssAdapter_RuntimeTimeoutProcess(
         SILVERSTAR_ASSERT_MODULE_DEVICE);
     if ((PlatformTime_Ms() - snapshot->start_ms) < snapshot->timeout_ms)
     { return 0U; }
-    NeoM9nGnssAdapter_RuntimeTransactionCancel(
+    NeoM9nGnssAdapter_RuntimeTransactionCancel(instance,
         snapshot->request, SYSTEM_GNSS_TRANSACTION_DETAIL_TIMEOUT);
     (void)memset(&output, 0, sizeof(output));
     NeoM9nGnssAdapter_RuntimeOutputErrorSet(
@@ -1431,7 +1461,7 @@ static uint8_t NeoM9nGnssAdapter_RuntimeTimeoutProcess(
     return 1U;
 }
 
-static uint8_t NeoM9nGnssAdapter_RuntimeSubmittedProcess(
+static uint8_t NeoM9nGnssAdapter_RuntimeSubmittedProcess(uint8_t instance,
     const NeoM9nRuntimeTransactionSnapshot *snapshot)
 {
     uint32_t primask;
@@ -1451,19 +1481,19 @@ static uint8_t NeoM9nGnssAdapter_RuntimeSubmittedProcess(
     return 1U;
 }
 
-static GnssNeoM9nAsyncStartResult NeoM9nGnssAdapter_RuntimeRequestStart(
+static GnssNeoM9nAsyncStartResult NeoM9nGnssAdapter_RuntimeRequestStart(uint8_t instance,
     NeoM9nRuntimeRequest request)
 {
     if (request == NeoM9nRuntimeRequestHardwareConfig)
-    { return GnssNeoM9n_ConfigReadAsyncStart(); }
+    { return GnssNeoM9n_ConfigReadAsyncStart(instance); }
     if (request == NeoM9nRuntimeRequestNavSat)
-    { return GnssNeoM9n_SatelliteDiagnosticsAsyncStart(); }
+    { return GnssNeoM9n_SatelliteDiagnosticsAsyncStart(instance); }
     if (request == NeoM9nRuntimeRequestMonRf)
-    { return GnssNeoM9n_RfDiagnosticsAsyncStart(); }
+    { return GnssNeoM9n_RfDiagnosticsAsyncStart(instance); }
     return GnssNeoM9nAsyncStartInvalidArgument;
 }
 
-static uint8_t NeoM9nGnssAdapter_RuntimeSendProcess(
+static uint8_t NeoM9nGnssAdapter_RuntimeSendProcess(uint8_t instance,
     const NeoM9nRuntimeTransactionSnapshot *snapshot)
 {
     SystemDeviceResult result;
@@ -1475,7 +1505,7 @@ static uint8_t NeoM9nGnssAdapter_RuntimeSendProcess(
     SILVERSTAR_ASSERT_OBJECT(snapshot, NeoM9nRuntimeTransactionSnapshot,
         SILVERSTAR_ASSERT_MODULE_DEVICE);
     result = NeoM9nGnssAdapter_RuntimeStartResultMap(
-        NeoM9nGnssAdapter_RuntimeRequestStart(snapshot->request));
+        NeoM9nGnssAdapter_RuntimeRequestStart(instance, snapshot->request));
     primask = NeoM9nGnssAdapter_IrqLock();
     if (s_runtime_transaction.transaction_id == snapshot->transaction_id)
     {
@@ -1499,7 +1529,7 @@ static uint8_t NeoM9nGnssAdapter_RuntimeSendProcess(
     return 1U;
 }
 
-static GnssNeoM9nAsyncPollResult NeoM9nGnssAdapter_RuntimeResponsePoll(
+static GnssNeoM9nAsyncPollResult NeoM9nGnssAdapter_RuntimeResponsePoll(uint8_t instance,
     NeoM9nRuntimeRequest request,
     NeoM9nRuntimeTransactionOutput *output,
     SystemDeviceResult *result)
@@ -1514,14 +1544,14 @@ static GnssNeoM9nAsyncPollResult NeoM9nGnssAdapter_RuntimeResponsePoll(
         SILVERSTAR_ASSERT_MODULE_DEVICE);
     if (request == NeoM9nRuntimeRequestHardwareConfig)
     {
-        poll_result = GnssNeoM9n_ConfigReadAsyncPoll(
+        poll_result = GnssNeoM9n_ConfigReadAsyncPoll(instance,
             &s_runtime_transaction.device_config,
             &s_runtime_transaction.device_config_elapsed_ms,
             &s_runtime_transaction.device_config_diagnostics,
             &s_runtime_transaction.device_config_result);
         if (poll_result == GnssNeoM9nAsyncPollComplete)
         {
-            *result = NeoM9nGnssAdapter_HardwareConfigMap(
+            *result = NeoM9nGnssAdapter_HardwareConfigMap(instance,
                 &s_runtime_transaction.device_config,
                 s_runtime_transaction.device_config_elapsed_ms,
                 &s_runtime_transaction.device_config_diagnostics,
@@ -1531,11 +1561,11 @@ static GnssNeoM9nAsyncPollResult NeoM9nGnssAdapter_RuntimeResponsePoll(
     }
     else if (request == NeoM9nRuntimeRequestNavSat)
     {
-        poll_result = GnssNeoM9n_SatelliteDiagnosticsAsyncPoll(
+        poll_result = GnssNeoM9n_SatelliteDiagnosticsAsyncPoll(instance,
             &s_runtime_transaction.device_satellite);
         if (poll_result == GnssNeoM9nAsyncPollComplete)
         {
-            (void)NeoM9nGnssAdapter_SatelliteDiagnosticsMap(
+            (void)NeoM9nGnssAdapter_SatelliteDiagnosticsMap(instance,
                 &s_runtime_transaction.device_satellite, &output->satellite);
             *result = NeoM9nGnssAdapter_ConfigReadDeviceResultMap(
                 s_runtime_transaction.device_satellite.read_result);
@@ -1543,11 +1573,11 @@ static GnssNeoM9nAsyncPollResult NeoM9nGnssAdapter_RuntimeResponsePoll(
     }
     else
     {
-        poll_result = GnssNeoM9n_RfDiagnosticsAsyncPoll(
+        poll_result = GnssNeoM9n_RfDiagnosticsAsyncPoll(instance,
             &s_runtime_transaction.device_rf);
         if (poll_result == GnssNeoM9nAsyncPollComplete)
         {
-            (void)NeoM9nGnssAdapter_RfDiagnosticsMap(
+            (void)NeoM9nGnssAdapter_RfDiagnosticsMap(instance,
                 &s_runtime_transaction.device_rf, &output->rf);
             *result = NeoM9nGnssAdapter_ConfigReadDeviceResultMap(
                 s_runtime_transaction.device_rf.read_result);
@@ -1556,7 +1586,7 @@ static GnssNeoM9nAsyncPollResult NeoM9nGnssAdapter_RuntimeResponsePoll(
     return poll_result;
 }
 
-static uint8_t NeoM9nGnssAdapter_RuntimeWaitResponseProcess(
+static uint8_t NeoM9nGnssAdapter_RuntimeWaitResponseProcess(uint8_t instance,
     const NeoM9nRuntimeTransactionSnapshot *snapshot)
 {
     NeoM9nRuntimeTransactionOutput output;
@@ -1570,7 +1600,7 @@ static uint8_t NeoM9nGnssAdapter_RuntimeWaitResponseProcess(
     SILVERSTAR_ASSERT_OBJECT(snapshot, NeoM9nRuntimeTransactionSnapshot,
         SILVERSTAR_ASSERT_MODULE_DEVICE);
     (void)memset(&output, 0, sizeof(output));
-    poll_result = NeoM9nGnssAdapter_RuntimeResponsePoll(
+    poll_result = NeoM9nGnssAdapter_RuntimeResponsePoll(instance,
         snapshot->request, &output, &result);
     if (poll_result == GnssNeoM9nAsyncPollPending) { return 1U; }
     NeoM9nGnssAdapter_RuntimeOutputIdSet(
@@ -1587,7 +1617,7 @@ static uint8_t NeoM9nGnssAdapter_RuntimeWaitResponseProcess(
     return 1U;
 }
 
-static void NeoM9nGnssAdapter_RuntimeResponseFinalize(
+static void NeoM9nGnssAdapter_RuntimeResponseFinalize(uint8_t instance,
     const NeoM9nRuntimeTransactionSnapshot *snapshot)
 {
     uint32_t primask;
@@ -1610,27 +1640,27 @@ static void NeoM9nGnssAdapter_RuntimeResponseFinalize(
     NeoM9nGnssAdapter_IrqUnlock(primask);
 }
 
-static void NeoM9nGnssAdapter_RuntimeTransactionProcess(void)
+static void NeoM9nGnssAdapter_RuntimeTransactionProcess(uint8_t instance)
 {
     NeoM9nRuntimeTransactionSnapshot snapshot;
 
     SILVERSTAR_ASSERT_OBJECT(&s_runtime_transaction,
         NeoM9nRuntimeTransaction, SILVERSTAR_ASSERT_MODULE_DEVICE);
-    if (NeoM9nGnssAdapter_RuntimeSnapshotGet(&snapshot) == 0U) { return; }
-    if (NeoM9nGnssAdapter_RuntimeAbandonedProcess(&snapshot) != 0U)
+    if (NeoM9nGnssAdapter_RuntimeSnapshotGet(instance, &snapshot) == 0U) { return; }
+    if (NeoM9nGnssAdapter_RuntimeAbandonedProcess(instance, &snapshot) != 0U)
     { return; }
-    if (NeoM9nGnssAdapter_RuntimeTimeoutProcess(&snapshot) != 0U)
+    if (NeoM9nGnssAdapter_RuntimeTimeoutProcess(instance, &snapshot) != 0U)
     { return; }
-    if (NeoM9nGnssAdapter_RuntimeSubmittedProcess(&snapshot) != 0U)
+    if (NeoM9nGnssAdapter_RuntimeSubmittedProcess(instance, &snapshot) != 0U)
     { return; }
-    if (NeoM9nGnssAdapter_RuntimeSendProcess(&snapshot) != 0U)
+    if (NeoM9nGnssAdapter_RuntimeSendProcess(instance, &snapshot) != 0U)
     { return; }
-    if (NeoM9nGnssAdapter_RuntimeWaitResponseProcess(&snapshot) != 0U)
+    if (NeoM9nGnssAdapter_RuntimeWaitResponseProcess(instance, &snapshot) != 0U)
     { return; }
-    NeoM9nGnssAdapter_RuntimeResponseFinalize(&snapshot);
+    NeoM9nGnssAdapter_RuntimeResponseFinalize(instance, &snapshot);
 }
 
-static SystemDeviceResult NeoM9nGnssAdapter_ReadHardwareConfig(
+static SystemDeviceResult NeoM9nGnssAdapter_ReadHardwareConfig(uint8_t instance,
     SystemGnssHardwareConfig *config)
 {
     NeoM9nRuntimeTransactionOutput output;
@@ -1639,15 +1669,15 @@ static SystemDeviceResult NeoM9nGnssAdapter_ReadHardwareConfig(
     if (config == NULL) { return SYSTEM_DEVICE_INVALID_ARGUMENT; }
     if (s_runtime_owner_active == 0U)
     {
-        return NeoM9nGnssAdapter_ReadHardwareConfigDirect(config);
+        return NeoM9nGnssAdapter_ReadHardwareConfigDirect(instance, config);
     }
-    result = NeoM9nGnssAdapter_RuntimeRequestWait(
+    result = NeoM9nGnssAdapter_RuntimeRequestWait(instance,
         NeoM9nRuntimeRequestHardwareConfig, &output);
     *config = output.hardware_config;
     return result;
 }
 
-static SystemDeviceResult NeoM9nGnssAdapter_ReadSatelliteDiagnostics(
+static SystemDeviceResult NeoM9nGnssAdapter_ReadSatelliteDiagnostics(uint8_t instance,
     SystemGnssSatelliteDiagnostics *diagnostics)
 {
     NeoM9nRuntimeTransactionOutput output;
@@ -1656,15 +1686,15 @@ static SystemDeviceResult NeoM9nGnssAdapter_ReadSatelliteDiagnostics(
     if (diagnostics == NULL) { return SYSTEM_DEVICE_INVALID_ARGUMENT; }
     if (s_runtime_owner_active == 0U)
     {
-        return NeoM9nGnssAdapter_ReadSatelliteDiagnosticsDirect(diagnostics);
+        return NeoM9nGnssAdapter_ReadSatelliteDiagnosticsDirect(instance, diagnostics);
     }
-    result = NeoM9nGnssAdapter_RuntimeRequestWait(
+    result = NeoM9nGnssAdapter_RuntimeRequestWait(instance,
         NeoM9nRuntimeRequestNavSat, &output);
     *diagnostics = output.satellite;
     return result;
 }
 
-static SystemDeviceResult NeoM9nGnssAdapter_ReadRfDiagnostics(
+static SystemDeviceResult NeoM9nGnssAdapter_ReadRfDiagnostics(uint8_t instance,
     SystemGnssRfDiagnostics *diagnostics)
 {
     NeoM9nRuntimeTransactionOutput output;
@@ -1673,21 +1703,21 @@ static SystemDeviceResult NeoM9nGnssAdapter_ReadRfDiagnostics(
     if (diagnostics == NULL) { return SYSTEM_DEVICE_INVALID_ARGUMENT; }
     if (s_runtime_owner_active == 0U)
     {
-        return NeoM9nGnssAdapter_ReadRfDiagnosticsDirect(diagnostics);
+        return NeoM9nGnssAdapter_ReadRfDiagnosticsDirect(instance, diagnostics);
     }
-    result = NeoM9nGnssAdapter_RuntimeRequestWait(
+    result = NeoM9nGnssAdapter_RuntimeRequestWait(instance,
         NeoM9nRuntimeRequestMonRf, &output);
     *diagnostics = output.rf;
     return result;
 }
 
-static SystemDeviceResult NeoM9nGnssAdapter_GetRfDiagnostics(
+static SystemDeviceResult NeoM9nGnssAdapter_GetRfDiagnostics(uint8_t instance,
     SystemGnssRfDiagnostics *diagnostics)
 {
     GnssNeoM9nRfDiagnostics source;
 
     if (diagnostics == NULL) { return SYSTEM_DEVICE_INVALID_ARGUMENT; }
-    if (GnssNeoM9n_GetRfDiagnostics(&source) == 0U)
+    if (GnssNeoM9n_GetRfDiagnostics(instance, &source) == 0U)
     {
         (void)memset(diagnostics, 0, sizeof(*diagnostics));
         diagnostics->supported_fields =
@@ -1697,10 +1727,10 @@ static SystemDeviceResult NeoM9nGnssAdapter_GetRfDiagnostics(
             SYSTEM_GNSS_RF_DIAG_FIELD_AGC;
         return SYSTEM_DEVICE_NOT_READY;
     }
-    return NeoM9nGnssAdapter_RfDiagnosticsMap(&source, diagnostics);
+    return NeoM9nGnssAdapter_RfDiagnosticsMap(instance, &source, diagnostics);
 }
 
-static void NeoM9nGnssAdapter_VerifyDiagnosticsCapture(
+static void NeoM9nGnssAdapter_VerifyDiagnosticsCapture(uint8_t instance,
     const GnssNeoM9nConfigSnapshot *snapshot,
     const GnssNeoM9nConfigReadDiagnostics *diagnostics,
     GnssNeoM9nConfigReadResult result)
@@ -1711,7 +1741,7 @@ static void NeoM9nGnssAdapter_VerifyDiagnosticsCapture(
     SILVERSTAR_ASSERT_OBJECT(diagnostics, GnssNeoM9nConfigReadDiagnostics,
         SILVERSTAR_ASSERT_MODULE_DEVICE);
     s_config_transaction.verify_read_result =
-        NeoM9nGnssAdapter_ConfigReadResultMap(result);
+        NeoM9nGnssAdapter_ConfigReadResultMap(instance, result);
     s_config_transaction.verify_failed_group =
         NeoM9nGnssAdapter_ConfigReadGroupMap(
             diagnostics->failed_group);
@@ -1733,7 +1763,7 @@ static void NeoM9nGnssAdapter_VerifyDiagnosticsCapture(
         diagnostics->response_version;
 }
 
-static uint32_t NeoM9nGnssAdapter_VerifyMismatchGet(
+static uint32_t NeoM9nGnssAdapter_VerifyMismatchGet(uint8_t instance,
     const SystemGnssConfig *config,
     const GnssNeoM9nConfigSnapshot *snapshot)
 {
@@ -1765,7 +1795,7 @@ static uint32_t NeoM9nGnssAdapter_VerifyMismatchGet(
     {
         if (((snapshot->valid_mask & GNSS_CONFIG_VALID_CONSTELLATIONS) == 0U) ||
             (snapshot->constellations_mask !=
-             NeoM9nGnssAdapter_ConstellationMaskGet(
+             NeoM9nGnssAdapter_ConstellationMaskGet(instance,
                  config->constellation_mask)))
         { mismatch_mask |= GNSS_CONFIG_VALID_CONSTELLATIONS; }
     }
@@ -1793,7 +1823,7 @@ static uint32_t NeoM9nGnssAdapter_VerifyMismatchGet(
     return mismatch_mask;
 }
 
-static SystemDeviceResult NeoM9nGnssAdapter_VerifyReadFailureSet(
+static SystemDeviceResult NeoM9nGnssAdapter_VerifyReadFailureSet(uint8_t instance,
     const SystemGnssConfig *config,
     SystemDeviceConfigReport *report,
     GnssNeoM9nConfigReadResult result)
@@ -1817,7 +1847,7 @@ static SystemDeviceResult NeoM9nGnssAdapter_VerifyReadFailureSet(
     return mapped_result;
 }
 
-static SystemDeviceResult NeoM9nGnssAdapter_VerifyMismatchSet(
+static SystemDeviceResult NeoM9nGnssAdapter_VerifyMismatchSet(uint8_t instance,
     const SystemGnssConfig *config,
     SystemDeviceConfigReport *report,
     uint32_t mismatch_mask)
@@ -1836,7 +1866,7 @@ static SystemDeviceResult NeoM9nGnssAdapter_VerifyMismatchSet(
     return SYSTEM_DEVICE_VERIFY_FAILED;
 }
 
-static SystemDeviceResult NeoM9nGnssAdapter_VerifyConfig(
+static SystemDeviceResult NeoM9nGnssAdapter_VerifyConfig(uint8_t instance,
     const SystemGnssConfig *config,
     SystemDeviceConfigReport *report)
 {
@@ -1867,16 +1897,16 @@ static SystemDeviceResult NeoM9nGnssAdapter_VerifyConfig(
     }
     (void)memset(&snapshot, 0, sizeof(snapshot));
     (void)memset(&read_diagnostics, 0, sizeof(read_diagnostics));
-    result = GnssNeoM9n_ReadHardwareConfig(&snapshot, &elapsed_ms,
+    result = GnssNeoM9n_ReadHardwareConfig(instance, &snapshot, &elapsed_ms,
                                             &read_diagnostics);
-    NeoM9nGnssAdapter_VerifyDiagnosticsCapture(
+    NeoM9nGnssAdapter_VerifyDiagnosticsCapture(instance,
         &snapshot, &read_diagnostics, result);
     report->retry_count = 0U;
     if (result != GnssNeoM9nConfigReadResponseOk)
-    { return NeoM9nGnssAdapter_VerifyReadFailureSet(config, report, result); }
-    mismatch_mask = NeoM9nGnssAdapter_VerifyMismatchGet(config, &snapshot);
+    { return NeoM9nGnssAdapter_VerifyReadFailureSet(instance, config, report, result); }
+    mismatch_mask = NeoM9nGnssAdapter_VerifyMismatchGet(instance, config, &snapshot);
     if (mismatch_mask != 0U)
-    { return NeoM9nGnssAdapter_VerifyMismatchSet(
+    { return NeoM9nGnssAdapter_VerifyMismatchSet(instance,
         config, report, mismatch_mask); }
     report->detail_code = elapsed_ms;
     report->success = 1U;
@@ -1884,56 +1914,79 @@ static SystemDeviceResult NeoM9nGnssAdapter_VerifyConfig(
     return validation;
 }
 
-const char *SystemGnss_NameGet(void) { return "NEO-M9N GNSS"; }
-SystemDeviceResult SystemGnss_Init(void) { return NeoM9nGnssAdapter_Init(); }
-SystemDeviceResult SystemGnss_Start(void) { return NeoM9nGnssAdapter_Start(); }
-SystemDeviceResult SystemGnss_Stop(void) { return NeoM9nGnssAdapter_Stop(); }
-SystemDeviceResult SystemGnss_RuntimeOwnerActivate(void)
-{ return NeoM9nGnssAdapter_RuntimeOwnerActivate(); }
-void SystemGnss_Process(void) { NeoM9nGnssAdapter_Process(); }
-SystemDeviceResult SystemGnss_InfoGet(SystemDeviceInfo *info)
-{ return NeoM9nGnssAdapter_GetInfo(info); }
-SystemDeviceResult SystemGnss_CapabilitiesGet(uint32_t *mask)
-{ return NeoM9nGnssAdapter_GetCapabilities(mask); }
-SystemDeviceResult SystemGnss_HealthGet(SystemDeviceHealth *health)
-{ return NeoM9nGnssAdapter_GetHealth(health); }
-SystemDeviceResult SystemGnss_IoDiagnosticsGet(
+const char *NeoM9nGnssInstance_NameGet(uint8_t instance)
+{
+    (void)instance;
+    return "NEO-M9N GNSS";
+}
+SystemDeviceResult NeoM9nGnssInstance_Init(uint8_t instance) { return NeoM9nGnssAdapter_Init(instance); }
+SystemDeviceResult NeoM9nGnssInstance_Start(uint8_t instance) { return NeoM9nGnssAdapter_Start(instance); }
+SystemDeviceResult NeoM9nGnssInstance_Stop(uint8_t instance) { return NeoM9nGnssAdapter_Stop(instance); }
+SystemDeviceResult NeoM9nGnssInstance_RuntimeOwnerActivate(uint8_t instance)
+{ return NeoM9nGnssAdapter_RuntimeOwnerActivate(instance); }
+SystemDeviceResult NeoM9nGnssInstance_Process(uint8_t instance)
+{
+    NeoM9nGnssAdapter_Process(instance);
+    return SYSTEM_DEVICE_OK;
+}
+SystemDeviceResult NeoM9nGnssInstance_InfoGet(
+    uint8_t instance, SystemDeviceInfo *info)
+{
+    (void)instance;
+    return NeoM9nGnssAdapter_GetInfo(info);
+}
+SystemDeviceResult NeoM9nGnssInstance_CapabilitiesGet(
+    uint8_t instance, uint32_t *mask)
+{
+    (void)instance;
+    return NeoM9nGnssAdapter_GetCapabilities(mask);
+}
+SystemDeviceResult NeoM9nGnssInstance_HealthGet(uint8_t instance, SystemDeviceHealth *health)
+{ return NeoM9nGnssAdapter_GetHealth(instance, health); }
+SystemDeviceResult NeoM9nGnssInstance_IoDiagnosticsGet(uint8_t instance,
     SystemDeviceIoDiagnostics *diagnostics)
-{ return NeoM9nGnssAdapter_GetIoDiagnostics(diagnostics); }
-SystemDeviceResult SystemGnss_IoDetailGet(SystemGnssIoDetail *detail)
-{ return NeoM9nGnssAdapter_GetIoDetail(detail); }
-SystemDeviceResult SystemGnss_LatestSampleGet(SystemGnssSample *sample)
-{ return NeoM9nGnssAdapter_GetSample(sample); }
-SystemDeviceResult SystemGnss_TimeGet(SystemGnssTime *time)
-{ return NeoM9nGnssAdapter_GetTime(time); }
-SystemDeviceResult SystemGnss_SelfTestRun(SystemDeviceSelfTestResult *result)
-{ return NeoM9nGnssAdapter_SelfTest(result); }
-SystemDeviceResult SystemGnss_ConfigApply(
+{ return NeoM9nGnssAdapter_GetIoDiagnostics(instance, diagnostics); }
+SystemDeviceResult NeoM9nGnssInstance_IoDetailGet(uint8_t instance, SystemGnssIoDetail *detail)
+{ return NeoM9nGnssAdapter_GetIoDetail(instance, detail); }
+SystemDeviceResult NeoM9nGnssInstance_LatestSampleGet(uint8_t instance, SystemGnssSample *sample)
+{ return NeoM9nGnssAdapter_GetSample(instance, sample); }
+SystemDeviceResult NeoM9nGnssInstance_TimeGet(uint8_t instance, SystemGnssTime *time)
+{ return NeoM9nGnssAdapter_GetTime(instance, time); }
+SystemDeviceResult NeoM9nGnssInstance_SelfTestRun(
+    uint8_t instance, SystemDeviceSelfTestResult *result)
+{
+    (void)instance;
+    return NeoM9nGnssAdapter_SelfTest(result);
+}
+SystemDeviceResult NeoM9nGnssInstance_ConfigApply(uint8_t instance,
     const SystemGnssConfig *config, SystemDeviceConfigReport *report)
-{ return NeoM9nGnssAdapter_ApplyConfig(config, report); }
-SystemDeviceResult SystemGnss_ConfigVerify(
+{ return NeoM9nGnssAdapter_ApplyConfig(instance, config, report); }
+SystemDeviceResult NeoM9nGnssInstance_ConfigVerify(uint8_t instance,
     const SystemGnssConfig *config, SystemDeviceConfigReport *report)
-{ return NeoM9nGnssAdapter_VerifyConfig(config, report); }
-SystemDeviceResult SystemGnss_EffectiveConfigGet(SystemGnssConfig *config)
-{ return NeoM9nGnssAdapter_GetConfig(config); }
-SystemDeviceResult SystemGnss_NoiseCharacteristicsGet(
-    SystemGnssNoiseCharacteristics *noise)
-{ return NeoM9nGnssAdapter_NoiseCharacteristicsGet(noise); }
-SystemDeviceResult SystemGnss_HardwareConfigRead(
+{ return NeoM9nGnssAdapter_VerifyConfig(instance, config, report); }
+SystemDeviceResult NeoM9nGnssInstance_EffectiveConfigGet(uint8_t instance, SystemGnssConfig *config)
+{ return NeoM9nGnssAdapter_GetConfig(instance, config); }
+SystemDeviceResult NeoM9nGnssInstance_NoiseCharacteristicsGet(
+    uint8_t instance, SystemGnssNoiseCharacteristics *noise)
+{
+    (void)instance;
+    return NeoM9nGnssAdapter_NoiseCharacteristicsGet(noise);
+}
+SystemDeviceResult NeoM9nGnssInstance_HardwareConfigRead(uint8_t instance,
     SystemGnssHardwareConfig *config)
-{ return NeoM9nGnssAdapter_ReadHardwareConfig(config); }
-SystemDeviceResult SystemGnss_LastConfigReportGet(
+{ return NeoM9nGnssAdapter_ReadHardwareConfig(instance, config); }
+SystemDeviceResult NeoM9nGnssInstance_LastConfigReportGet(uint8_t instance,
     SystemGnssConfigTransactionReport *report)
-{ return NeoM9nGnssAdapter_GetLastConfigReport(report); }
-SystemDeviceResult SystemGnss_SatelliteDiagnosticsRead(
+{ return NeoM9nGnssAdapter_GetLastConfigReport(instance, report); }
+SystemDeviceResult NeoM9nGnssInstance_SatelliteDiagnosticsRead(uint8_t instance,
     SystemGnssSatelliteDiagnostics *diagnostics)
-{ return NeoM9nGnssAdapter_ReadSatelliteDiagnostics(diagnostics); }
-SystemDeviceResult SystemGnss_LatestSatelliteDiagnosticsGet(
+{ return NeoM9nGnssAdapter_ReadSatelliteDiagnostics(instance, diagnostics); }
+SystemDeviceResult NeoM9nGnssInstance_LatestSatelliteDiagnosticsGet(uint8_t instance,
     SystemGnssSatelliteDiagnostics *diagnostics)
-{ return NeoM9nGnssAdapter_GetSatelliteDiagnostics(diagnostics); }
-SystemDeviceResult SystemGnss_RfDiagnosticsRead(
+{ return NeoM9nGnssAdapter_GetSatelliteDiagnostics(instance, diagnostics); }
+SystemDeviceResult NeoM9nGnssInstance_RfDiagnosticsRead(uint8_t instance,
     SystemGnssRfDiagnostics *diagnostics)
-{ return NeoM9nGnssAdapter_ReadRfDiagnostics(diagnostics); }
-SystemDeviceResult SystemGnss_LatestRfDiagnosticsGet(
+{ return NeoM9nGnssAdapter_ReadRfDiagnostics(instance, diagnostics); }
+SystemDeviceResult NeoM9nGnssInstance_LatestRfDiagnosticsGet(uint8_t instance,
     SystemGnssRfDiagnostics *diagnostics)
-{ return NeoM9nGnssAdapter_GetRfDiagnostics(diagnostics); }
+{ return NeoM9nGnssAdapter_GetRfDiagnostics(instance, diagnostics); }

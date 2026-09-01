@@ -51,7 +51,7 @@ Generated/project_resources + platform_resources
 - 维护协议`LIST`所需的device/model/共享物理metadata；
 - Native log的`source_descriptor_id + instance_id`来源metadata。
 
-同一个物理JY901B应生成`IMU 0 + BARO 0 + ATTITUDE 0`，以及显式启用时的`MAG 0`，这些端点共享一个`physical_device_id`，不是三个或四个JY901B插件实例。不同Device插件可以分别提供IMU 0和IMU 1；同一个插件只有在其manifest/build capability明确`multi_instance_ready=true`时才可重复实例化。当前`JY901B_BUILD_MULTI_INSTANCE_READY=0U`，FCCG不得创建第二个JY901B context。Generated facade必须为每类生成Count和有界`switch(instance_id)` direct case，不得使用function pointer registry、vtable、heap或动态注册。当前reference Target只生成instance 0；Host双实例fixture不进入Source Graph。未来增加case不自动引入Sensor Selection、Voting、Multi-INS或Multi-EKF，Canonical默认仍绑定instance 0。AIR M0继续使用既有`sensor_id + instance_id`，FCCG不得为多传感器扩展增加M0 wire字段。
+JY901B、NEO-M9N和SX1281现由manifest和实际静态Driver context明确支持最多4个同插件实例；每个physical instance拥有独立resource binding、mutable state和descriptor identity，同一插件源码仍只编译一次。同一物理JY901B的IMU/BARO/MAG/ATTITUDE端点共享相同source context。Generated facade必须保持有界static direct case，无registry、vtable、heap或动态注册。仅实现pre-start IMU锁定、GNSS liveness与AIR本地TX-timeout的单向切换，不加入Voting或Multi-EKF；AIR M0 wire继续使用既有`sensor_id + instance_id`且只经一个active transport收发。
 
 ## 日志可用性生成责任
 

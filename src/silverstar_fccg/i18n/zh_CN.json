@@ -436,6 +436,7 @@
   "error.save_as_symlink": "工程源码中含符号链接，无法安全另存：{path}",
   "error.device_instance_limit": "无法为{device}分配更多实例编号。",
   "device.plugin_instance_limit": "该型号最多允许 {count} 个实例",
+  "device.instance_order_failover_note": "实例顺序作为默认备用顺序；主源由当前 Canonical Source / Source Override 决定。",
   "group.primary_devices": "主要传感器",
   "group.other_sensors": "其他传感器",
   "group.actuators": "执行器",

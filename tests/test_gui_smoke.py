@@ -21,6 +21,7 @@ from silverstar_fccg.app.service import FccgService
 from silverstar_fccg.app.version import PRODUCT_NAME, __version__
 from silverstar_fccg.core.settings import SettingsStore
 from silverstar_fccg.generator.assembler import ApplyResult, GenerationPlan
+from silverstar_fccg.project.protocols import ProtocolResolution_Resolve
 from silverstar_fccg.project.validation import ProjectValidationResult
 from silverstar_fccg.ui.dialogs import NewProjectWizard
 from silverstar_fccg.ui.main_window import MainWindow
@@ -430,7 +431,15 @@ def test_devices_page_is_physical_and_capabilities_are_on_flight_page(
             assert isinstance(actuator, StandardCheckBox)
             assert not isinstance(actuator, LockedCheckBox)
         assert not hasattr(window.devices_page, "requirement_table")
-        assert not window.devices_page.add_buttons
+        assert set(window.devices_page.add_buttons) == {
+            "imu",
+            "gnss",
+            "telemetry",
+        }
+        assert all(
+            button.isEnabled()
+            for button in window.devices_page.add_buttons.values()
+        )
         assert "maintenance0" in {
             instance.instance_id for instance in window._model.device_instances
         }
@@ -582,6 +591,64 @@ def test_devices_page_is_physical_and_capabilities_are_on_flight_page(
         assert window._model.hardware.mode == "board_plugin"
         assert not hardware_page.auto_button.isEnabled()
         assert not hardware_page.manual_validation_button.isEnabled()
+    finally:
+        window.close()
+
+
+def test_official_repeated_device_rows_add_to_limit_and_remove_atomically(
+    tmp_path: Path, qapp
+) -> None:
+    window = _Window_Create(tmp_path, qapp)
+    try:
+        for component_class, prefix in (
+            ("imu", "imu"),
+            ("gnss", "gnss"),
+            ("telemetry", "telemetry"),
+        ):
+            window.devices_page.add_buttons[component_class].click()
+            qapp.processEvents()
+            instances = [
+                item
+                for item in window._model.device_instances
+                if item.instance_id.startswith(prefix)
+            ]
+            assert [item.instance_id for item in instances] == [
+                f"{prefix}0",
+                f"{prefix}1",
+            ]
+            assert instances[0].plugin == instances[1].plugin
+
+        for expected_index in (2, 3):
+            window.devices_page.add_buttons["imu"].click()
+            qapp.processEvents()
+            assert f"imu{expected_index}" in window.devices_page.device_combos
+        assert "imu" not in window.devices_page.add_buttons
+
+        window.devices_page.remove_buttons["imu0"].click()
+        qapp.processEvents()
+        assert window._model.DeviceInstance_Get("imu0") is None
+        assert window._model.DeviceInstance_Get("imu1") is not None
+        assert all(
+            not key.startswith("imu0:")
+            for key in window._model.resource_assignments
+        )
+        assert "imu0" not in window._model.capability_source_overrides.values()
+        assert "imu" in window.devices_page.add_buttons
+
+        window.devices_page.remove_buttons["telemetry0"].click()
+        qapp.processEvents()
+        telemetry_binding = next(
+            binding
+            for binding in ProtocolResolution_Resolve(
+                window._model, window._service.catalog
+            ).bindings
+            if binding.category == "telemetry"
+        )
+        assert telemetry_binding.candidate_instances == ("telemetry1",)
+        assert all(
+            not key.startswith("telemetry0:")
+            for key in window._model.resource_assignments
+        )
     finally:
         window.close()
 

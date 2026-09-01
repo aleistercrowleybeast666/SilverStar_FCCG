@@ -4,10 +4,23 @@
 #include "host_platform_mock.h"
 #include "jy901b_config.h"
 #include "jy901b_device.h"
+#include "jy901b_instance.h"
 #include "project_resources.h"
 #include "system_imu_if.h"
 #include "system_user_config.h"
 #include "test_common.h"
+
+#ifndef PROJECT_RESOURCE_IMU_UART
+#define PROJECT_RESOURCE_IMU_UART PLATFORM_UART_1
+#endif
+#define SystemImu_Init() Jy901bImuInstance_Init(0U)
+#define SystemImu_Start() Jy901bImuInstance_Start(0U)
+#define SystemImu_Stop() Jy901bImuInstance_Stop(0U)
+#define SystemImu_Process() ((void)Jy901bImuInstance_Process(0U))
+#define SystemImu_LatestSampleGet(sample) \
+    Jy901bImuInstance_LatestSampleGet(0U, (sample))
+#define SystemImu_NextSampleGet(sample) \
+    Jy901bImuInstance_NextSampleGet(0U, (sample))
 
 static uint8_t Test_ChecksumGet(const uint8_t *frame)
 {

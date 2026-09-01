@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased — bounded same-model multi-instance foundation
+
+- Added context-safe repetition (maximum four per class/plugin) for JY901B, NEO-M9N, and SX1281,
+  including independent generated resource tables, physical/endpoint identities, parser/FIFO/radio
+  state, and actual-driver Host isolation tests. Sources remain deduplicated in one Source Graph.
+- Added a narrow static source selector: pre-calibration/alignment IMU selection then run-long lock,
+  one-way GNSS basic-liveness failover, and one-way AIR transport failover after ten consecutive
+  true local TX timeouts. AIR still uses only one active TX/RX transport, and an exhausted final
+  source keeps retrying once per normal period.
+- Reused the existing Sensor Source Change EVENT packing for runtime old/new instance and reason;
+  `.ssdecoder` package/project semantics remain 1.1 and AIR M0, maintenance 0.0, SSLOG 0.0, and
+  Record layouts are unchanged. No voting, Multi-EKF, RF end-to-end health, failback, tag, release,
+  or external firmware/FLP modification was introduced.
+
 ## Unreleased — 2026-08-31
 
 - Froze the SilverStar_FCCG application, new-project identity, generated firmware, embedded Core,

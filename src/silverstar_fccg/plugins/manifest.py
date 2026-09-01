@@ -128,6 +128,21 @@ class DeviceInstancePolicy:
 
 
 @dataclass(frozen=True, slots=True)
+class InstanceResourceField:
+    requirement: str
+    member: str
+
+
+@dataclass(frozen=True, slots=True)
+class InstanceResourceBinding:
+    struct_type: str
+    accessor: str
+    count_symbol: str
+    runtime_context_upper_bound: int
+    fields: tuple[InstanceResourceField, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class PhysicalDeviceContribution:
     vendor: str
     model: str
@@ -245,6 +260,7 @@ class ProtocolProfileContribution:
     include_dirs: tuple[str, ...] = ()
     defines: tuple[str, ...] = ()
     binding: str = ""
+    transport_selection: str = "single"
     transport: ProtocolTransportConstraint | None = None
     decoder_metadata: str = ""
     documentation: tuple[str, ...] = ()
@@ -409,6 +425,7 @@ class PluginManifest:
     metadata: dict[str, Any]
     manifest_path: Path
     instance_policy: DeviceInstancePolicy = DeviceInstancePolicy()
+    instance_resource_binding: InstanceResourceBinding | None = None
     physical_device: PhysicalDeviceContribution | None = None
     selection: SelectionContribution | None = None
     board: BoardContribution | None = None
@@ -643,6 +660,93 @@ def _InstancePolicy_Parse(
         )
     return DeviceInstancePolicy(
         plugin_max, class_max, same_plugin_multiple, multi_instance_ready
+    )
+
+
+def _InstanceResourceBinding_Parse(
+    value: Any,
+    *,
+    component_type: str,
+    requirements: tuple[ResourceRequirement, ...],
+    instance_policy: DeviceInstancePolicy,
+) -> InstanceResourceBinding | None:
+    if value is None:
+        return None
+    if component_type != "device":
+        raise PluginManifestError(
+            "only device plugins may declare metadata.instance_resource_binding"
+        )
+    required_fields = {
+        "struct_type",
+        "accessor",
+        "count_symbol",
+        "runtime_context_upper_bound",
+        "fields",
+    }
+    if not isinstance(value, dict) or set(value) != required_fields:
+        raise PluginManifestError(
+            "metadata.instance_resource_binding has invalid fields"
+        )
+    identifier = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+    macro = re.compile(r"^[A-Z][A-Z0-9_]*$")
+    struct_type = value.get("struct_type")
+    accessor = value.get("accessor")
+    count_symbol = value.get("count_symbol")
+    upper_bound = value.get("runtime_context_upper_bound")
+    if (
+        not isinstance(struct_type, str)
+        or identifier.fullmatch(struct_type) is None
+        or not isinstance(accessor, str)
+        or identifier.fullmatch(accessor) is None
+        or not isinstance(count_symbol, str)
+        or macro.fullmatch(count_symbol) is None
+        or isinstance(upper_bound, bool)
+        or not isinstance(upper_bound, int)
+        or upper_bound != instance_policy.plugin_max
+    ):
+        raise PluginManifestError(
+            "metadata.instance_resource_binding contains unsafe C tokens or bounds"
+        )
+    fields_value = value.get("fields")
+    if not isinstance(fields_value, list) or not fields_value:
+        raise PluginManifestError(
+            "metadata.instance_resource_binding.fields must be non-empty"
+        )
+    requirement_names = {requirement.name for requirement in requirements}
+    fields: list[InstanceResourceField] = []
+    seen_requirements: set[str] = set()
+    seen_members: set[str] = set()
+    for entry in fields_value:
+        if not isinstance(entry, dict) or set(entry) != {"requirement", "member"}:
+            raise PluginManifestError(
+                "metadata.instance_resource_binding field is invalid"
+            )
+        requirement = entry.get("requirement")
+        member = entry.get("member")
+        if (
+            not isinstance(requirement, str)
+            or requirement not in requirement_names
+            or requirement in seen_requirements
+            or not isinstance(member, str)
+            or identifier.fullmatch(member) is None
+            or member in seen_members
+        ):
+            raise PluginManifestError(
+                "metadata.instance_resource_binding field is invalid"
+            )
+        seen_requirements.add(requirement)
+        seen_members.add(member)
+        fields.append(InstanceResourceField(requirement, member))
+    if seen_requirements != requirement_names:
+        raise PluginManifestError(
+            "metadata.instance_resource_binding must map every resource requirement"
+        )
+    return InstanceResourceBinding(
+        struct_type=struct_type,
+        accessor=accessor,
+        count_symbol=count_symbol,
+        runtime_context_upper_bound=upper_bound,
+        fields=tuple(fields),
     )
 
 
@@ -2155,6 +2259,7 @@ def _Protocol_Parse(value: Any) -> ProtocolContribution | None:
                 "include_dirs",
                 "defines",
                 "binding",
+                "transport_selection",
                 "transport",
                 "decoder_metadata",
                 "documentation",
@@ -2171,6 +2276,7 @@ def _Protocol_Parse(value: Any) -> ProtocolContribution | None:
             service = entry_value.get("service")
             slot = entry_value.get("slot")
             binding = entry_value.get("binding")
+            transport_selection = entry_value.get("transport_selection")
             decoder_metadata = entry_value.get("decoder_metadata")
             if (
                 not isinstance(profile_id, str)
@@ -2196,6 +2302,7 @@ def _Protocol_Parse(value: Any) -> ProtocolContribution | None:
                 or slot != PROTOCOL_PROFILE_SLOTS.get(category)
                 or not isinstance(binding, str)
                 or not PLUGIN_ID_PATTERN.fullmatch(binding)
+                or transport_selection not in {"single", "ordered_failover"}
                 or not isinstance(decoder_metadata, str)
                 or not decoder_metadata
             ):
@@ -2309,6 +2416,7 @@ def _Protocol_Parse(value: Any) -> ProtocolContribution | None:
                     include_dirs=include_dirs,
                     defines=defines,
                     binding=binding,
+                    transport_selection=transport_selection,
                     transport=ProtocolTransportConstraint(
                         capability=transport_capability,
                         kind=transport_kind,
@@ -2716,6 +2824,12 @@ def PluginManifest_Parse(
         component_type=component_type,
         legacy_cardinality=data.get("cardinality"),
     )
+    instance_resource_binding = _InstanceResourceBinding_Parse(
+        metadata.get("instance_resource_binding"),
+        component_type=component_type,
+        requirements=resource_requirements,
+        instance_policy=instance_policy,
+    )
     physical_device = _PhysicalDevice_Parse(
         data.get("physical_device"), component_type=component_type
     )
@@ -2806,6 +2920,7 @@ def PluginManifest_Parse(
         metadata=dict(metadata),
         manifest_path=manifest_path.resolve(),
         instance_policy=instance_policy,
+        instance_resource_binding=instance_resource_binding,
         physical_device=physical_device,
         selection=selection,
         board=board,

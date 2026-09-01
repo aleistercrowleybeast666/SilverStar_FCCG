@@ -87,6 +87,7 @@
           ],
           "defines": [],
           "binding": "telemetry_transport",
+          "transport_selection": "ordered_failover",
           "transport": {
             "capability": "transport.packet",
             "kind": "packet",

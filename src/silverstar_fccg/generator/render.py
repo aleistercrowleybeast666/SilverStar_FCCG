@@ -228,8 +228,10 @@ def _ProjectSemanticsWithoutLogging_Render(
                 "profile_id": binding.profile_id,
                 "binding": binding.binding,
                 "transport_capability": binding.transport_capability,
+                "transport_selection": binding.transport_selection,
                 "physical_device_instance": binding.provider_instance,
                 "physical_device_plugin": binding.provider_component,
+                "candidate_instances": list(binding.candidate_instances),
             }
             for binding in protocol_resolution.bindings
         ],
@@ -290,6 +292,9 @@ def GeneratedFiles_Render(
             model, catalog
         ),
         "Generated/Src/project_device_instances.c": _DeviceInstancesSource_Render(
+            model, catalog
+        ),
+        "Generated/Src/project_resources.c": _InstanceResourcesSource_Render(
             model, catalog
         ),
         "Generated/Src/project_metadata.c": _MetadataSource_Render(model, catalog),
@@ -380,6 +385,7 @@ def _GeneratedModule_Render(model: ProjectModel) -> str:
         "Generated/Src/platform_resources.c",
         "Generated/Src/project_capability_routes.c",
         "Generated/Src/project_device_instances.c",
+        "Generated/Src/project_resources.c",
     ]
     if model.protocols.get("logging") is not None:
         sources.extend(
@@ -671,7 +677,17 @@ def _ResourceHeader_Render(model: ProjectModel, catalog: PluginCatalog) -> str:
     includes = set()
     values: dict[str, str] = {}
     assigned_macros: set[str] = set()
+    instance_plugins = {
+        instance.instance_id: catalog.Component_Get(instance.plugin)
+        for instance in model.device_instances
+    }
     for assignment in result.assignments:
+        owner_manifest = instance_plugins.get(assignment.component_id)
+        if (
+            owner_manifest is not None
+            and owner_manifest.instance_resource_binding is not None
+        ):
+            continue
         macro = assignment.requirement.binding_macro
         if not macro:
             continue
@@ -736,6 +752,7 @@ def _ResourceHeader_Render(model: ProjectModel, catalog: PluginCatalog) -> str:
     define_text = "\n".join(
         f"#define {macro:<42} {value}" for macro, value in values.items()
     )
+    instance_declarations = _InstanceResourceDeclarations_Render(model, catalog)
     return f"""#ifndef __PROJECT_RESOURCES_H
 #define __PROJECT_RESOURCES_H
 
@@ -743,9 +760,134 @@ def _ResourceHeader_Render(model: ProjectModel, catalog: PluginCatalog) -> str:
 
 {include_text}
 
+#include "{catalog.Component_Get(model.mcu).platform.resource_header}"
+#include "system_device_types.h"
+
 {define_text}
 
+{instance_declarations}
+
 #endif /* __PROJECT_RESOURCES_H */
+"""
+
+
+def _InstanceResourceDeclarations_Render(
+    model: ProjectModel, catalog: PluginCatalog
+) -> str:
+    sections: list[str] = []
+    for manifest in catalog.Type_Get("device"):
+        binding = manifest.instance_resource_binding
+        instances = tuple(
+            instance
+            for instance in model.device_instances
+            if instance.plugin == manifest.component_id
+        )
+        if binding is None or not instances:
+            continue
+        requirement_by_name = {
+            requirement.name: requirement
+            for requirement in manifest.resource_requirements
+        }
+        fields = []
+        for field in binding.fields:
+            requirement = requirement_by_name[field.requirement]
+            platform_kind = (
+                "gpio" if requirement.kind.startswith("gpio_") else requirement.kind
+            )
+            platform_binding = catalog.Component_Get(
+                model.mcu
+            ).platform.resource_bindings.get(platform_kind)
+            if platform_binding is None:
+                raise ValueError(
+                    f"Platform has no typed resource binding for {requirement.kind}"
+                )
+            fields.append(f"    {platform_binding.id_type} {field.member};")
+        sections.append(
+            f"#define {binding.count_symbol:<42} {len(instances)}U\n"
+            f"#define {binding.count_symbol}_MAX{' ' * max(1, 38 - len(binding.count_symbol))} "
+            f"{binding.runtime_context_upper_bound}U\n\n"
+            f"typedef struct\n{{\n" + "\n".join(fields) + "\n"
+            f"}} {binding.struct_type};\n\n"
+            f"SystemDeviceResult {binding.accessor}(\n"
+            f"    uint8_t source_instance, {binding.struct_type} *resources);"
+        )
+    return "\n\n".join(sections)
+
+
+def _InstanceResourcesSource_Render(
+    model: ProjectModel, catalog: PluginCatalog
+) -> str:
+    resolution = ResourceAssignments_Resolve(model, catalog)
+    if not resolution.valid:
+        raise ValueError(
+            "Cannot generate instance resource tables: "
+            + "; ".join(resolution.errors)
+        )
+    assignments = {
+        (assignment.component_id, assignment.requirement.name): assignment
+        for assignment in resolution.assignments
+    }
+    sections: list[str] = []
+    resource_value = re.compile(
+        r"(?:[A-Za-z_][A-Za-z0-9_]*|"
+        r"\(\([A-Za-z_][A-Za-z0-9_]*\)[0-9]+U\))"
+    )
+    for manifest in catalog.Type_Get("device"):
+        binding = manifest.instance_resource_binding
+        instances = tuple(
+            instance
+            for instance in model.device_instances
+            if instance.plugin == manifest.component_id
+        )
+        if binding is None or not instances:
+            continue
+        rows: list[str] = []
+        for instance in instances:
+            values: list[str] = []
+            for field in binding.fields:
+                assignment = assignments.get((instance.instance_id, field.requirement))
+                if assignment is None:
+                    raise ValueError(
+                        f"Missing instance resource assignment: "
+                        f"{instance.instance_id}:{field.requirement}"
+                    )
+                c_id = str(
+                    assignment.provision.metadata.get(
+                        "c_id", assignment.provision.resource_id
+                    )
+                )
+                if resource_value.fullmatch(c_id) is None:
+                    raise ValueError(
+                        f"Instance resource C identifier is unsafe: {c_id}"
+                    )
+                values.append(f".{field.member} = {c_id}")
+            rows.append("    { " + ", ".join(values) + " }")
+        table_symbol = f"s_{binding.accessor.removesuffix('_Get')}"
+        sections.append(
+            f"_Static_assert({binding.count_symbol} <= {binding.count_symbol}_MAX,\n"
+            f"    \"{manifest.component_id} instance count exceeds context bound\");\n\n"
+            f"static const {binding.struct_type} {table_symbol}[{binding.count_symbol}] =\n"
+            "{\n" + ",\n".join(rows) + "\n};\n\n"
+            f"SystemDeviceResult {binding.accessor}(\n"
+            f"    uint8_t source_instance, {binding.struct_type} *resources)\n"
+            "{\n"
+            "    if (resources == NULL) { return SYSTEM_DEVICE_INVALID_ARGUMENT; }\n"
+            f"    if (source_instance >= {binding.count_symbol})\n"
+            "    {\n"
+            "        return SYSTEM_DEVICE_NOT_PRESENT;\n"
+            "    }\n"
+            f"    *resources = {table_symbol}[source_instance];\n"
+            "    return SYSTEM_DEVICE_OK;\n"
+            "}"
+        )
+    body = "\n\n".join(sections)
+    return f"""#include "project_resources.h"
+
+{AUTOGEN_C_COMMENT}
+
+#include <stddef.h>
+
+{body}
 """
 
 
@@ -1251,8 +1393,10 @@ def LogDecoderProfile_Render(
                 "profile_id": binding.profile_id,
                 "binding": binding.binding,
                 "transport_capability": binding.transport_capability,
+                "transport_selection": binding.transport_selection,
                 "physical_device_instance": binding.provider_instance,
                 "physical_device_plugin": binding.provider_component,
+                "candidate_instances": list(binding.candidate_instances),
             }
             for binding in protocol_resolution.bindings
         ],
@@ -1853,6 +1997,31 @@ def _DeviceDescriptorEntries_Get(
         entry["_descriptor_symbol"] = _DescriptorSymbol_Get(
             device_class, instance_id
         )
+    primary_by_class: dict[str, str] = {}
+    resolution = CapabilityResolution_Resolve(model, catalog)
+    for route in resolution.routes:
+        device_class = _CapabilityDeviceClass_Get(route.requirement.capability)
+        if device_class and device_class not in primary_by_class:
+            primary_by_class[device_class] = route.provider.instance_id
+    entries_by_class: dict[str, list[dict[str, Any]]] = {}
+    for entry in entries:
+        entries_by_class.setdefault(str(entry.get("class", "")), []).append(entry)
+    for device_class, class_entries in entries_by_class.items():
+        if len(class_entries) <= 1:
+            continue
+        primary_instance = primary_by_class.get(
+            device_class, str(class_entries[0].get("_source_instance_id", ""))
+        )
+        for entry in class_entries:
+            flag_tokens = [
+                token.strip()
+                for token in str(entry.get("flags", "0U")).split("|")
+                if token.strip()
+                and token.strip() != "SYSTEM_DESCRIPTOR_FLAG_PRIMARY"
+            ]
+            if str(entry.get("_source_instance_id", "")) == primary_instance:
+                flag_tokens.append("SYSTEM_DESCRIPTOR_FLAG_PRIMARY")
+            entry["flags"] = " | ".join(flag_tokens) if flag_tokens else "0U"
     return entries
 
 

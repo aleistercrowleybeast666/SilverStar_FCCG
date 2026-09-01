@@ -226,18 +226,18 @@ generation_profile_hash = SHA-256(generation_input)
 
 ## 9. Sensor Source Change事件
 
-为未来Sensor Selection预留`EVENT.event_id=FLIGHT_LOG_EVENT_SENSOR_SOURCE_CHANGE`。当前没有动态选择，固件不得伪造该事件。发生真实切换时编码为：
+`EVENT.event_id=FLIGHT_LOG_EVENT_SENSOR_SOURCE_CHANGE`记录真实运行时source切换；没有发生old/new变化时不得伪造。编码为：
 
 | 字段 | 位 | 语义 |
 |---|---|---|
 | `arg0` | 7:0 | `SystemDeviceClass` |
 | `arg0` | 15:8 | old instance |
 | `arg0` | 23:16 | new instance |
-| `arg0` | 31:24 | reason：1 initial selection、2 failover、3 recovery、4 configuration |
+| `arg0` | 31:24 | reason：1 initial selection、2 failover、3 recovery、4 configuration、5 pre-start primary unavailable、6 GNSS liveness timeout、7 telemetry consecutive TX timeout、8 telemetry init failure |
 | `arg1` | 15:0 | old descriptor ID |
 | `arg1` | 31:16 | new descriptor ID |
 
-实例或descriptor不存在的端值由未来Selection规范分配，不能在当前单源工程中推断。该事件复用既有12-byte EVENT payload，不改变飞行日志格式0.0文件头、Record header、CRC、endianness或容器magic。
+old/new instance必须均对应现有descriptor，未使用位保持0。IMU在Calibration/Alignment前选中备用时先写reason 5；GNSS基础liveness切换使用reason 6；AIR连续10次真实本地TX timeout后真实切换使用reason 7，初始化跳过失败primary使用reason 8。无backup而继续重试不伪造source-change。该事件复用既有12-byte EVENT payload，不改变飞行日志格式0.0文件头、Record header、CRC、endianness或容器magic。
 
 ## 10. 离线重放
 

@@ -65,6 +65,14 @@ class DevicesPage(ScrollableLocalizedPage):
 
     def __init__(self, translator: Translator) -> None:
         super().__init__(translator, "page.devices", "page.devices.description")
+        self.instance_order_note = QLabel()
+        self.instance_order_note.setObjectName("deviceInstanceOrderNote")
+        self.instance_order_note.setWordWrap(True)
+        self.instance_order_note.setProperty("muted", True)
+        self.Text_Register(
+            self.instance_order_note, "device.instance_order_failover_note"
+        )
+        self.root_layout.addWidget(self.instance_order_note)
         self.primary_form = QFormLayout()
         self.primary_group = self.Group_Create("group.primary_devices", self.primary_form)
         self.root_layout.addWidget(self.primary_group)

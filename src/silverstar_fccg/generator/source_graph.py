@@ -400,6 +400,7 @@ def SourceGraph_Resolve(model: ProjectModel, catalog: PluginCatalog) -> SourceGr
         "Generated/Src/platform_resources.c",
         "Generated/Src/project_capability_routes.c",
         "Generated/Src/project_device_instances.c",
+        "Generated/Src/project_resources.c",
         "Generated/Src/project_metadata.c",
     ]
     if model.protocols.get("logging") is not None:

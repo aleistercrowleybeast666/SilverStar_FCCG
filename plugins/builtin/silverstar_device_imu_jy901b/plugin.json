@@ -142,18 +142,48 @@
       "SYSTEM_USER_BAROMETER_ENABLE",
       "SYSTEM_USER_HARDWARE_QUATERNION_ENABLE"
     ],
+    "instance_resource_binding": {
+      "struct_type": "ProjectJy901bResources",
+      "accessor": "ProjectJy901bResources_Get",
+      "count_symbol": "PROJECT_JY901B_INSTANCE_COUNT",
+      "runtime_context_upper_bound": 4,
+      "fields": [
+        {"requirement": "data", "member": "uart"},
+        {"requirement": "time", "member": "time"}
+      ]
+    },
+    "source_origins": {
+      "default": "reference_base",
+      "Devices/IMU/JY901B/Inc/jy901b_imu_build_capabilities.h": "fccg_multi_instance_context",
+      "Devices/IMU/JY901B/Inc/jy901b_device.h": "fccg_multi_instance_context",
+      "Devices/IMU/JY901B/Adapter/Inc/jy901b_sensor_adapter.h": "fccg_multi_instance_context",
+      "Devices/IMU/JY901B/Adapter/Inc/jy901b_instance.h": "fccg_multi_instance_context",
+      "Devices/IMU/JY901B/Src/jy901b_device.c": "fccg_multi_instance_context",
+      "Devices/IMU/JY901B/Adapter/Src/jy901b_barometer_adapter.c": "fccg_multi_instance_context",
+      "Devices/IMU/JY901B/Adapter/Src/jy901b_imu_adapter.c": "fccg_multi_instance_context",
+      "Devices/IMU/JY901B/Adapter/Src/jy901b_magnetometer_adapter.c": "fccg_multi_instance_context",
+      "Devices/IMU/JY901B/Adapter/Src/jy901b_quaternion_adapter.c": "fccg_multi_instance_context"
+    },
     "device_instance_bindings": {
       "SYSTEM_DEVICE_CLASS_IMU": {
-        "function_prefix": "SystemImu"
+        "function_prefix": "Jy901bImuInstance",
+        "headers": ["jy901b_instance.h"],
+        "pass_instance": true
       },
       "SYSTEM_DEVICE_CLASS_BAROMETER": {
-        "function_prefix": "SystemBarometer"
+        "function_prefix": "Jy901bBarometerInstance",
+        "headers": ["jy901b_instance.h"],
+        "pass_instance": true
       },
       "SYSTEM_DEVICE_CLASS_MAGNETOMETER": {
-        "function_prefix": "SystemMagnetometer"
+        "function_prefix": "Jy901bMagnetometerInstance",
+        "headers": ["jy901b_instance.h"],
+        "pass_instance": true
       },
       "SYSTEM_DEVICE_CLASS_HARDWARE_QUATERNION": {
-        "function_prefix": "SystemHardwareQuaternion"
+        "function_prefix": "Jy901bQuaternionInstance",
+        "headers": ["jy901b_instance.h"],
+        "pass_instance": true
       }
     },
     "capability_qualifications": {
@@ -205,10 +235,10 @@
     }
   },
   "instance_policy": {
-    "plugin_max": 1,
+    "plugin_max": 4,
     "class_max": 4,
-    "same_plugin_multiple": false,
-    "multi_instance_ready": false
+    "same_plugin_multiple": true,
+    "multi_instance_ready": true
   },
   "physical_device": {
     "vendor": "WitMotion",

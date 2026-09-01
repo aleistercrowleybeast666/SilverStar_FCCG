@@ -60,6 +60,20 @@ Apply compares bytes before replacement. An unchanged managed file is not rewrit
 
 Raw-log availability is resolved before rendering from Protocol `recordable_capabilities` and Device `recordable_outputs`; it is not inferred from generated capability routes. BARO_NATIVE therefore stays available without an Estimator while BARO_MEASUREMENT does not. MAG_NATIVE is generic to any compatible selected recordable magnetic source, not a JY901B-only record. A Record schema/codec describes a wire format, not proof that the selected component graph emits it. Optional Protocol `producer_components` metadata can therefore require a real selected producer in addition to normal capability availability; older metadata without that field retains its prior behavior.
 
+Repeated context-safe Devices add typed arrays to `Generated/Inc/project_resources.h` and
+`Generated/Src/project_resources.c`. Their manifest declares the C struct/accessor/count contract,
+so rendering stays model-independent. The table length is the selected instance count, the compile
+time maximum remains four, accessors reject out-of-range indices, and static assertions tie table
+sizes to generated counts. Capability facade cases pass the physical source-instance index into
+the driver adapter. One plugin's C sources still appear only once in `project_sources.mk`.
+
+`Generated/project_semantics.json` and the deterministic `.ssdecoder` package enumerate every
+physical Device, capability endpoint, resource assignment, native source identity, initial
+Canonical route, and ordered AIR transport candidate. Runtime changes do not rewrite generated
+state; the existing SSLOG EVENT records old/new instance and reason. Package schema and project
+semantics remain 1.1, and the EVENT, AIR M0, maintenance 0.0, and SSLOG 0.0 binary layouts are
+unchanged.
+
 For the verified reference composition, imported Device/Telemetry tasks call the shared diagnostic
 log implementation. The Core manifest contributes `silverstar.core.device_task` and
 `silverstar.core.telemetry_task`; SSLOG metadata requires those identities for STATS and

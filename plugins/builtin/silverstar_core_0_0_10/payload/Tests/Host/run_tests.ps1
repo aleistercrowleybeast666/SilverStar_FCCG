@@ -23,6 +23,10 @@ $script:hostCompilerPath = ''
 $script:hostCompilerVersion = ''
 $script:hostCompilerTarget = ''
 $silverstarAssertSource = "$repoRoot\Common\Src\silverstar_assert.c"
+$multiInstanceFixtureInclude = `
+    "-I$repoRoot\Tests\Host\Fixtures\MultiInstance\Inc"
+$multiInstanceResourceFixture = `
+    "$repoRoot\Tests\Host\Fixtures\MultiInstance\multi_instance_resources.c"
 $detailLogPath = Join-Path $outputDir 'host-tests-detail.log'
 if (Test-Path -LiteralPath $detailLogPath) {
     Remove-Item -LiteralPath $detailLogPath -Force
@@ -58,10 +62,13 @@ $includeArgs = @(
     "-I$repoRoot\FlightLogic\Deployment\MultiTrigger\Inc",
     "-I$repoRoot\FlightLogic\Landing\BarometerImuWindow\Inc",
     "-I$repoRoot\Platform\Inc",
+    "-I$repoRoot\Platform\STM32F4\Inc",
     "-I$repoRoot\Devices\IMU\JY901B\Inc",
     "-I$repoRoot\Devices\IMU\JY901B\Adapter\Inc",
     "-I$repoRoot\Devices\GNSS\NEO_M9N\Inc",
+    "-I$repoRoot\Devices\GNSS\NEO_M9N\Adapter\Inc",
     "-I$repoRoot\Devices\Telemetry\SX1281\Inc",
+    "-I$repoRoot\Devices\Telemetry\SX1281\Adapter\Inc",
     "-I$repoRoot\Middlewares\Third_Party\SX1280lib"
 )
 
@@ -477,6 +484,7 @@ Invoke-HostTest -Name 'alignment_strategy_hardware_quat9' `
 
 Invoke-HostTest -Name 'system_alignment' -Sources @(
     "$repoRoot\Tests\Host\test_system_alignment.c",
+    "$repoRoot\Tests\Host\Fixtures\source_selector_lock_stub.c",
     $hostPlatformMock,
     "$repoRoot\Common\Src\common_format.c",
     "$repoRoot\System\Alignment\Src\system_alignment.c",
@@ -507,6 +515,7 @@ Invoke-HostTest -Name 'system_indicator' -ExtraCompilerArgs @(
 
 $calibrationSources = @(
     "$repoRoot\Tests\Host\test_system_calibration.c",
+    "$repoRoot\Tests\Host\Fixtures\source_selector_lock_stub.c",
     $hostPlatformMock,
     "$repoRoot\System\Calibration\Src\system_calibration.c",
     "$repoRoot\System\Calibration\Src\system_calibration_correction.c",
@@ -648,6 +657,7 @@ Invoke-HostTest -Name 'air_kf' -Sources @(
 Invoke-HostTest -Name 'jy901b_device' -Sources @(
     "$repoRoot\Tests\Host\test_jy901b_device.c",
     $hostPlatformMock,
+    "$repoRoot\Generated\Src\project_resources.c",
     "$repoRoot\Devices\IMU\JY901B\Src\jy901b_device.c"
 )
 Invoke-HostTest -Name 'jy901b_adapter' -ExtraCompilerArgs @(
@@ -655,23 +665,57 @@ Invoke-HostTest -Name 'jy901b_adapter' -ExtraCompilerArgs @(
 ) -Sources @(
     "$repoRoot\Tests\Host\test_jy901b_adapter.c",
     $hostPlatformMock,
+    "$repoRoot\Generated\Src\project_resources.c",
     "$repoRoot\Devices\IMU\JY901B\Src\jy901b_device.c",
     "$repoRoot\Devices\IMU\JY901B\Adapter\Src\jy901b_imu_adapter.c"
 )
 Invoke-HostTest -Name 'neo_m9n_device' -Sources @(
     "$repoRoot\Tests\Host\test_neo_m9n_device.c",
+    "$repoRoot\Generated\Src\project_resources.c",
     "$repoRoot\Devices\GNSS\NEO_M9N\Src\neo_m9n_device.c"
 )
 Invoke-HostTest -Name 'neo_m9n_adapter' -Sources @(
     "$repoRoot\Tests\Host\test_neo_m9n_adapter.c",
     $hostPlatformMock,
+    "$repoRoot\Generated\Src\project_resources.c",
     "$repoRoot\Devices\GNSS\NEO_M9N\Src\neo_m9n_device.c",
     "$repoRoot\Devices\GNSS\NEO_M9N\Adapter\Src\neo_m9n_system_adapter.c",
     "$repoRoot\System\Src\system_gnss_quality.c"
 )
 Invoke-HostTest -Name 'sx1281_device' -Sources @(
     "$repoRoot\Tests\Host\test_sx1281_device.c",
+    "$repoRoot\Generated\Src\project_resources.c",
     "$repoRoot\Devices\Telemetry\SX1281\Src\sx1281_device.c"
+)
+Invoke-HostTest -Name 'jy901b_multi_instance' `
+    -ExtraCompilerArgs @($multiInstanceFixtureInclude) -Sources @(
+    "$repoRoot\Tests\Host\test_jy901b_multi_instance.c",
+    $hostPlatformMock,
+    $multiInstanceResourceFixture,
+    "$repoRoot\Devices\IMU\JY901B\Src\jy901b_device.c"
+)
+Invoke-HostTest -Name 'neo_m9n_multi_instance' `
+    -ExtraCompilerArgs @($multiInstanceFixtureInclude) -Sources @(
+    "$repoRoot\Tests\Host\test_neo_m9n_multi_instance.c",
+    $multiInstanceResourceFixture,
+    "$repoRoot\Devices\GNSS\NEO_M9N\Src\neo_m9n_device.c"
+)
+Invoke-HostTest -Name 'sx1280_hal_multi_instance' `
+    -ExtraCompilerArgs @($multiInstanceFixtureInclude) -Sources @(
+    "$repoRoot\Tests\Host\test_sx1280_hal_multi_instance.c",
+    "$repoRoot\Middlewares\Third_Party\SX1280lib\sx1280-hal.c"
+)
+Invoke-HostTest -Name 'sx1281_multi_instance' `
+    -ExtraCompilerArgs @($multiInstanceFixtureInclude) -Sources @(
+    "$repoRoot\Tests\Host\test_sx1281_multi_instance.c",
+    $multiInstanceResourceFixture,
+    "$repoRoot\Devices\Telemetry\SX1281\Src\sx1281_device.c"
+)
+Invoke-HostTest -Name 'source_selector' -ExtraCompilerArgs @(
+    '-ffunction-sections', '-fdata-sections', '-Wl,--gc-sections'
+) -Sources @(
+    "$repoRoot\Tests\Host\test_source_selector.c",
+    "$repoRoot\System\Src\system_source_selector.c"
 )
 Invoke-HostTest -Name 'board_power_service' -Sources @(
     "$repoRoot\Tests\Host\test_board_power_service.c",
@@ -802,6 +846,7 @@ Invoke-ExpectedCompileFailure -Name 'impact_capability_guard' `
 
 Invoke-HostTest -Name 'lifecycle_logging' -Sources @(
     "$repoRoot\Tests\Host\test_lifecycle_logging.c",
+    "$repoRoot\Tests\Host\Fixtures\source_selector_lock_stub.c",
     $hostPlatformMock,
     "$repoRoot\APP\Src\flight_task.c",
     "$repoRoot\APP\Src\logger_task.c",
