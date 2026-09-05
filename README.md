@@ -1,5 +1,14 @@
 # SilverStar Flight Controller Code Generator
 
+## Documentation authority
+
+Start with [FCCG documentation](docs/README.md) and the [current SilverStar platform specification](docs/platform/README.md).
+The [shared Calibration contract](docs/AIR_CALIBRATION_CONTRACT.md) owns cross-component behavior;
+[runtime safety](docs/platform/details/RUNTIME_SAFETY.md) owns platform runtime rules.
+Imported builtin documents are package-local implementation notes. Reference re-import must never
+overwrite `docs/platform/`; historical documents keep their original semantics. Exact test, hash,
+FLASH/RAM and acceptance snapshots belong only in [VALIDATION.md](VALIDATION.md).
+
 ## Runtime safety repair — 2026-09-05
 
 Production App initialization now initializes the System Indicator before any task, preserving
@@ -20,7 +29,7 @@ an existing generated project.
 
 SilverStar_FCCG (FCCG) is the central configuration, assembly, interface-freeze, and version authority for the SilverStar platform. It is a PySide6 flight-controller configurator, declarative component manager, safe project assembler, thin glue generator, STM32 hardware-import front end, and development-environment generator.
 
-The FCCG application, new-project platform identity, generated firmware, embedded Core, and official SilverStar builtin release train are frozen at **0.0.10**. Protocol and upstream identities remain independent: AIR stays M0, Serial Maintenance and Flight Log stay 0.0, `.ssdecoder` and project semantics stay 1.1, FreeRTOS stays 11.3.0, and SS0.5/STM32F407VET6 retain their hardware identities. The current internal software release candidate validates the real STM32F407VET6 + SS0.5 combination with JY901B, NEO-M9N, E28-2G4M12SX/SX1281, and the selected Alignment/INS/KF6/Landing components. The 36 builtin packages retain read-only provenance from reference commit `cc0b377ded690556d037a412a55f87fe334c42d0` (`完善同能力多实例与日志配置契约`) while clearly identifying FCCG-owned overlays. This is a **Software Release Candidate / Pre-Hardware-Validation** milestone, not a public release or a claim of electrical, flight, flash, or alternate-MCU validation.
+The FCCG application, new-project platform identity, generated firmware, embedded Core, and official SilverStar builtin release train are frozen at **0.0.10**. Protocol and upstream identities remain independent: AIR stays M0, Serial Maintenance and Flight Log stay 0.0, `.ssdecoder` and project semantics stay 1.1, FreeRTOS stays 11.3.0, and SS0.5/STM32F407VET6 retain their hardware identities. The current internal software release candidate validates the real STM32F407VET6 + SS0.5 combination with JY901B, NEO-M9N, E28-2G4M12SX/SX1281, and the selected Alignment/INS/KF6/Landing components. Builtin packages retain read-only reference provenance while identifying FCCG-owned overlays; exact snapshot evidence is recorded in `VALIDATION.md`. This is a **Software Release Candidate / Pre-Hardware-Validation** milestone, not a public release or a claim of electrical, flight, flash, or alternate-MCU validation.
 
 The matched MCU/Platform manifest owns the generated build Target Profile; the current verified plugin declares `SilverStar_F407`. Calibration exposes only One-face and Six-face procedures and defaults to an empty selection. Empty means no sampling procedure: firmware deterministically starts `SYSTEM_CALIBRATION_MODE_NONE`, establishes READY identity correction, and still emits the Required `CALIBRATION_RESULT` snapshot whenever logging is enabled.
 
@@ -107,9 +116,7 @@ means “not used,” never a zero-period continuous stream. Protocol metadata o
 the GUI contains no Record-ID timing table.
 
 Record availability may additionally require a declared producer in the selected component set.
-Metadata without producer declarations retains the pre-release permissive behavior. After the
-read-only firmware reference was verified clean at pushed commit
-`cc0b377ded690556d037a412a55f87fe334c42d0` (`完善同能力多实例与日志配置契约`), FCCG synchronized the real
+Metadata without producer declarations retains the pre-release permissive behavior. FCCG synchronizes the real
 STATS producer (`silverstar.core.device_task`) and TELEMETRY_DIAG producer
 (`silverstar.core.telemetry_task`). Both are available and enabled by default in the reference
 composition, with Cadence values of 1 s and 200 ms respectively.

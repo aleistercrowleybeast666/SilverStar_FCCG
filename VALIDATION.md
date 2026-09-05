@@ -1,3 +1,87 @@
+# Validation — 2026-09-05 final documentation alignment
+
+本节是按19号prompt校对FCCG文档的实际验收快照。工作基准HEAD为
+`5997babf0025a377f7bb9184da73a6da9e3f05c8`（修改栈大小，初始化灯等问题）。
+采用用户替换后的docs作为基线，没有从Git恢复旧docs；没有commit、push、Tag或Release。
+
+## 范围与结果
+
+- FCCG应用规范入口：[docs/README.md](docs/README.md)；完整平台规范入口：
+  [docs/platform/README.md](docs/platform/README.md)。平台当前为0.0.10，AIR M0、
+  Maintenance/SSLOG 0.0、decoder package/project-semantics 1.1保持独立版本。
+- 修正文档正文中的固定NOT_SELECTED/0x07、Reset后灯状态、仅instance 0、未来FCCG、
+  Board通用storage/power/action归属、手工EIDE、默认Debug和旧构建路径等过期描述。
+- 新增平台RUNTIME_SAFETY规范，根README/AGENTS/TARGETS链接统一入口；
+  DOCUMENT_LIST包含详细规范与两组PDF/TEX。
+- 代码仅修改`tools/import_reference_components.py`的包文档标注流程：通过WorkspacePolicy
+  限定builtin根、拒绝文档越界、幂等标注package-local implementation note，指向当前平台规范。
+  组件包文档不是第二套平台authority；Core包VALIDATION仅索引本根文件。
+- 新增`tests/test_documentation.py`，检查内部相对链接、当前版本/Calibration旧说法、
+  共同契约与索引、公式配对、包文档归属及重复标注不改时间戳。
+- 没有修改固件C/H、AIR字段/命令/CRC、SSLOG Record或decoder schema。
+  既有Calibration实现已经符合NONE常驻、四种mask、build门禁与真实事务语义，未做重构。
+
+## 本轮实际执行
+
+| 检查 | 实际结果 |
+| --- | --- |
+| `pytest tests/test_documentation.py tests/test_runtime_safety.py tests/test_stack_budget.py -q` | 26 passed，57.47 s |
+| `pytest -q` | 324 passed，1 skipped，667.22 s |
+| 最后文档/快照整理后，`pytest tests/test_documentation.py tests/test_runtime_safety.py::test_runtime_sources_survive_reference_import -q` | 7 passed，6.56 s |
+| `compileall`：由`rg --files src tools tests -g '*.py'`列出受维护Python文件后逐文件编译 | passed，缓存仅在`tests/.pycache-docs19/` |
+| `git diff --check` | passed |
+| 文档链接、清单、公式检查 | passed；当前docs共52份Markdown，两组PDF/TEX；无网络依赖 |
+| 共同Calibration契约 | 与GSHC同名文件逐字节一致 |
+| 三份用户提供的历史文档 | SHA-256与本轮开始保存的基线一致，未改写历史版本 |
+
+唯一skip为`test_reference_payload_sync_and_environment_templates_are_read_only`：
+外部只读参考固件的working tree非clean，测试按现有规则报告
+`read-only reference firmware task is still active`。本轮未修改、清理或重新导入该外部工作区。
+
+完整pytest包含现有PySide6 offscreen GUI、生成/decoder、构建配置与安全回归。
+定向runtime测试实际以Host GCC运行四种Calibration procedure mask及真实Telemetry命令路径，
+并覆盖生产Indicator初始化与栈分析工具。没有单独重新运行生成固件的完整Host/SSLOG Golden、
+ARM Release/Debug、EIDE构建、static-analysis/artifact或真实ELF stack-report门；
+本轮没有运行时C变更，不能把下方历史结果当成本轮新执行结果。
+
+日志保存在忽略的`tests/artifacts/docs19/pytest-full.log`及`pytest-final-docs.log`。
+初次对整个tests树进行compileall遍历时遇到旧临时目录无法枚举提示，随后限定到
+`rg --files`列出的受维护源码重新执行并通过；不将历史测试产物作为源码验收对象。
+
+## 契约与保留证据
+
+共同契约SHA-256：`ffb8013cb9e1f254872255f8e4dc86abd374af5199ece39963fc90a0301f1f40`。
+
+| AIR calibration mask | 本次构建与运行行为 |
+| --- | --- |
+| 0x01 | 无采样procedure；boot/成功RESET自动NONE/Identity/READY，无需GSHC发送NONE |
+| 0x03 | 默认NONE + OneFace；boot等待显式事务 |
+| 0x05 | 默认NONE + SixFace；boot等待显式事务 |
+| 0x07 | 默认NONE + OneFace + SixFace；boot等待显式事务 |
+
+有采样procedure时，默认NONE通过真实CAL_START(NONE)选择/锁定active IMU、失效旧Alignment
+并发布READY。非法mode为BAD_PARAM，合法但未编入为REJECTED，状态不允许为BAD_STATE，
+互斥占用为BUSY，接受为OK；具体契约正文只由[共同文档](docs/AIR_CALIBRATION_CONTRACT.md)维护。
+
+历史文件SHA-256：
+
+- 0.0.7：`684a28da6d39b36f3aa5b660eca5cdb9e8b1ec91856b8d62545e1f3af57c4f02`
+- 0.0.8：`96a45150466b79d9fd77d2df5045c736c7ea69b284f697145469c85164ec03d5`
+- 0.0.9：`cf9d2a4df6e79a3ed9e644de2f594baef49e52fe6ea484e04c7eec968ae678a8`
+
+## 仍待实机与Git状态
+
+SS0.5冷启动/指示灯极性、反复AIR/Serial校准与对准/Reset、全部任务HWM、MSP与中断嵌套、
+真实多设备失效切换、SD长写/掉电恢复、I2C/PWM电气路径和实际飞行验证仍待实测。
+没有修改外部固件、GSHC或FLP，没有烧录或硬件结果声明。
+
+变更保留在FCCG工作区：用户提供的新docs树、根文档、builtin文档备注、导入器及文档测试。
+测试缓存/日志/编译产物均被忽略，未进入待提交文件。
+
+---
+
+以下保留此前runtime修复验收快照，执行范围和基准属于各自当时记录。
+
 # Validation — 2026-09-05 runtime indicator, stack and calibration repair
 
 本节记录本轮实际验证。仍为 **0.0.10 Software Release Candidate / Pre-Hardware-Validation**，

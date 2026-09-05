@@ -1,5 +1,14 @@
 # SilverStar_FCCG agent guidance
 
+## Documentation authority
+
+Start with [FCCG documentation](docs/README.md) and the [current SilverStar platform specification](docs/platform/README.md).
+The [shared Calibration contract](docs/AIR_CALIBRATION_CONTRACT.md) owns cross-component behavior;
+[runtime safety](docs/platform/details/RUNTIME_SAFETY.md) owns platform runtime rules.
+Imported builtin documents are package-local implementation notes. Reference re-import must never
+overwrite `docs/platform/`; historical documents keep their original semantics. Exact test, hash,
+FLASH/RAM and acceptance snapshots belong only in [VALIDATION.md](VALIDATION.md).
+
 SilverStar_FCCG is the SilverStar Flight Controller Code Generator: a graphical project
 configurator, declarative component-plugin manager, project assembler, minimal glue generator,
 and build/toolchain front end.

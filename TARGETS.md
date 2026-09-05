@@ -1,5 +1,14 @@
 # Development targets
 
+## Documentation authority
+
+Start with [FCCG documentation](docs/README.md) and the [current SilverStar platform specification](docs/platform/README.md).
+The [shared Calibration contract](docs/AIR_CALIBRATION_CONTRACT.md) owns cross-component behavior;
+[runtime safety](docs/platform/details/RUNTIME_SAFETY.md) owns platform runtime rules.
+Imported builtin documents are package-local implementation notes. Reference re-import must never
+overwrite `docs/platform/`; historical documents keep their original semantics. Exact test, hash,
+FLASH/RAM and acceptance snapshots belong only in [VALIDATION.md](VALIDATION.md).
+
 ## 2026-09-05 runtime indicator, stack and calibration repair
 
 - [x] production indicator initialization and Host startup/GPIO integration coverage
@@ -195,7 +204,7 @@
 - F407 I²C is blocking 7-bit master plus memory-register access and does not claim generic repeated-start; Classic CAN is bxCAN only and single-owner per peripheral; PWM is ordinary fixed-frequency, non-complementary output with CubeMX-owned timing.
 - FLP does not yet import `.ssdecoder`; this round defines and emits the safe profile contract without modifying FLP.
 - **Export Log Decoder Profile** writes a verified data-only package; this round still does not implement a log parser, executable decoder plugin, or version-plugin system.
-- [x] Final multi-instance Facade, 29-record catalog, decoder descriptor, and STATS/TELEMETRY_DIAG producer declarations were imported only after clean reference HEAD `cc0b377ded690556d037a412a55f87fe334c42d0` matched GitHub main and named `完善同能力多实例与日志配置契约`; no older firmware was used to infer state.
+- [x] Final multi-instance facade, Record Catalog, decoder descriptor and STATS/TELEMETRY_DIAG producers are imported from verified read-only provenance; exact source evidence belongs in `VALIDATION.md`.
 - The GUI exposes add/remove controls when class capacity and another legal model/instance remain; same-model repetition still requires a context-safe manifest. Firmware-backed builtin limits are synchronized only after the specified reference commit passes the dependency gate.
 - Full health-managed voting, in-flight IMU failover, Multi-EKF, GNSS quality comparison, RF
   end-to-end health, and automatic failback are not implemented. The only runtime switching is the

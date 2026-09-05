@@ -1,36 +1,32 @@
-# SilverStar_FCCG GUI style guide
+# GUI Style Guide
 
-The normative, domain-agnostic specification copied read-only from the reference GUI is [`CXYL_Python_GUI_STYLE_GUIDE.md`](CXYL_Python_GUI_STYLE_GUIDE.md). This file defines FCCG-specific product/workflow invariants only.
+> SilverStar Python/PySide6 工具的精简规范。完整设计原则以仓库 `AGENTS.md` 和实现测试为准。
 
-- The native product title remains `SilverStar_FCCG`; the current project summary belongs in the header/status area.
-- The deep-blue header/left navigation, restrained engineering tables, custom tabs/controls, Light/Dark themes, Simplified Chinese/English catalogs, and bottom task status/progress remain stable.
-- Left navigation has exactly four normal pages, in configuration order: Devices, Flight Configuration, Hardware Connection, Code Generation & Build.
-- File contains New/Open/Save/Save As/Exit. The one-step New Project dialog asks only for name/output; MCU/Platform is detected from the selected Board or imported CubeMX hardware and is never a Devices-page choice.
-- Plugins contains Manager/Install/Refresh. Technical IDs, digest, provenance, manifest, and ownership details stay in the manager dialog rather than normal navigation.
-- Devices shows physical `DeviceInstance` choices only. Add controls appear only when a real manifest allows another instance. Other Sensors is always visible and uses `StandardCheckBox` for boolean selections; no MCU selector or synthetic CAN-bus Device is shown.
-- Devices is grouped as Main Controller, Primary Devices, Other Sensors, and Actuators. Multi-capable primary classes use numbered instance rows with a model combo, explicit Remove, and one Add action governed by manifest class/model capacity; they are not rendered as independent capability checkboxes. It displays Raw/Data, Qualified, and explicitly unqualified-use summaries. Logical input-voltage and mission-action controls are Devices; raw ADC/GPIO resources are not. Launch ignition and parachute pyro are independently optional `StandardCheckBox` entries; downstream Modes may become unavailable, but never force an actuator back on.
-- Flight Configuration displays derived consumption and ambiguity-only provider choices; neither page exposes per-capability enable switches or exclusive/shared resource controls. Unavailable Strategy/Mode choices retain their normal names, use explicit muted foreground plus a gray background, and explain the exact missing contract in a tooltip.
-- Logging stays directly visible and distinguishes enabled/record, policy, extraction factor, Cadence, and description with balanced stretch columns. Periodic Cadence is unit-aware and editable while source/measurement/event/one-shot Cadence is declarative text; a non-periodic `period_us = 0` is never rendered as `0 us`. Only `DECIMATION` exposes “record once per N updates”; other policies show an em dash. Required streams use locked checkboxes. Record availability follows Device-declared Recordable outputs, not merely current Algorithm consumption, and honors optional Protocol-declared producer components without hard-coding Record IDs in the page.
-- The secondary **Export Log Decoder Profile** action belongs with the visible Logging table. It is available only for a saved, non-stale project, writes the user-selected `.ssdecoder` atomically after hash verification, starts no worker, and causes no project mutation or dirty-state change.
-- Hardware Connection auto-assigns first and initially shows Board, detected MCU, CubeMX/Firmware Package/source-policy, matched Platform lock, generated HAL timebase, FatFs/SDIO storage facts, and valid/invalid status. Advanced resources and custom CubeMX controls are progressive disclosure. **Auto Assign** and **Complete Manual Assignment and Check** are primary actions inside Advanced Resources and are disabled for an existing Board plugin. A bus-specific external-I²C-pull-up confirmation group appears only for selected required custom I²C resources using Open Drain/NOPULL; it names the bus and pins and binds the confirmation to the current snapshot. The resource table does not select rows, uses pixel-level scrolling without row snapping, balances contract/connection/detail columns, and shows technical constraint failures. Manual checking records a fingerprint only after strict resolution succeeds.
-- Flight Configuration renders Strategy/Mode slots, numeric Mode parameters, and independent protocol-profile categories dynamically, with Logging directly visible and enabled. A category with one real profile is a read-only value with no dropdown arrow; it becomes a selector only after multiple complete protocol implementations are installed. Future slots/profiles appear only when real manifests exist.
-- Code Generation & Build initially shows Generate Code, Open VS Code Workspace, Open Project Folder, target, and development environment—no duplicate tool-status pill/table. Firmware Build, Clean, quality checks, firmware-output access, Arm GNU/GNU Make, Host GCC, and manual installation guidance remain collapsed in Advanced. Firmware-output access is enabled only after an ELF/HEX/BIN/MAP exists. There is no separate Build Release button or unvalidated flash action.
-- Generate Code and Save materialize and verify files only; they do not compile, clean, or run quality checks. The generated VS Code/EIDE project defaults to Release and retains Debug. FCCG's advanced Build Firmware in FCCG uses Release.
-- Ordinary changes do not require Preview. Only dangerous operations show a concise diff and Continue/Cancel decision.
-- Resource incompatibility, validation failure, custom-hardware risk, tool absence, and unavailable provider states always have textual explanations in addition to color/icons.
-- Advanced resources and advanced build use `CollapsibleSection`; toggling changes body visibility only and never child enabled state. Boolean/multiple controls use `StandardCheckBox` with a visible empty border and blue/white checked state in both themes. Required logs use enabled-looking `LockedCheckBox`; log enables are cell widgets, not item check-state flags.
-- Header language/theme controls use `HeaderComboBox`; both the field and popup list retain readable deep-blue header colors in Light and Dark themes.
-- Message text, file filters, statuses, tool/configuration labels, and standard dialog buttons use the current translation catalog. Technical diagnostics belong in expandable details rather than the primary localized error message.
-- Concrete Device names and Strategy/Mode slots are not branched on in page code. Widgets consume localized view models derived from manifests.
-- Every user-visible nontechnical phrase uses a translation key. Technical proper names such as STM32F407, JY901B, KF6, FreeRTOS, SSLOG, GCC, Debug, and Release may remain unchanged.
-- GUI classes signal requests or call application services. They do not extract archives, copy payloads, render build files, import hardware directly, or invoke tools.
-- Long scans, installs, generation, tool detection, builds, and checks use QRunnable/QThreadPool plus the shared bottom progress state. Structured tasks PLAN their real work, BEGIN without advancing, and advance only on DONE. Success reaches 100%; failure and cancellation retain the last real position. Generated-project cleanup is also determinate: FCCG cleanup is 1/1 and all-output cleanup is 1/3 through 3/3.
-- Development/test settings stay repository-local; no user/global GUI settings location is modified.
+## 1. 目标
+- 工程信息清晰优先于装饰。
+- 简体中文 / English 全量运行时切换；内部 ID 永远稳定且语言无关。
+- Light/Dark 必须同时覆盖 Qt、2D Plot、OpenGL/3D、Matplotlib/GIF 导出。
+- GUI 不包含协议二进制解析、导航数学或控制算法。
+- 长任务后台执行，UI 线程只渲染状态。
 
-## Current dynamic controls
+## 2. 主窗口
+推荐：菜单栏 → 深蓝品牌栏 → 左侧导航/主工作区 → 底部状态/进度。产品名和版本稳定显示，打开文件不改变 OS 窗口标题。
 
-- Device groups and controls are created from installed manifest metadata; valid entries stay enabled regardless of current Board/IOC resource sufficiency.
-- Telemetry, maintenance, and log-format selectors are always `StandardComboBox` controls, even when each currently has one complete profile.
-- The tool area is one compact group with firmware Arm/Make and Host GCC status plus only Detect Toolchain and Installation Guide on the main surface; per-tool browse lives in the results dialog.
-- Quality tasks show persistent status pills. Success is nonmodal; failure expands the log and uses a localized task summary. Expected Host compile rejections use neutral summaries while raw compiler diagnostics remain in the detailed log. Firmware Build and other structured tasks render their real planned progress.
-- Tables scroll per pixel without item snapping, disabled combo options receive disabled foreground and background colors, and spin controls use theme-specific visible plus/minus assets.
+## 3. 交互
+- 危险操作需要明确确认；普通信息使用非模态状态。
+- ComboBox、CheckBox、Table、Dialog 的浅/深色都必须可读。
+- 页面重建时阻塞信号，避免在控件自身 signal stack 中销毁父控件。
+- 进度必须反映真实已完成工作；失败/取消不能强行显示 100%。
+
+## 4. 数据与绘图
+- 实时显示使用有界缓冲；持久化与 GUI 显示生命周期分离。
+- 一次数据更新尽量只触发一次绘制 revision。
+- 3D 世界坐标、机体坐标、相机和标签含义稳定；主题切换不重建数据模型。
+
+## 5. i18n
+- 所有用户可见字符串使用 translation key。
+- IMU/GNSS/INS/KF/ENU/CRC/WXYZ 等技术缩写可保留。
+- JSON、协议字段、项目 schema、日志 enum 使用规范英文 ID，不随 UI 语言变化。
+
+## 6. 测试
+至少覆盖：浅/深主题、中文/英文、窗口尺寸、对话框、长任务进度、取消、异常恢复、图表与 3D smoke test，以及 signal/rebuild 回归。

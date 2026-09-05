@@ -1,4 +1,16 @@
+<!-- FCCG package-local documentation -->
+> Package-local implementation note. This file may describe its reference
+> snapshot; it is not the current platform specification. In the FCCG
+> workspace, `docs/platform/README.md` and `docs/AIR_CALIBRATION_CONTRACT.md`
+> are authoritative. Runtime rules: `docs/platform/details/RUNTIME_SAFETY.md`.
+> Actual acceptance snapshots: root `VALIDATION.md`.
+
 # FCCG 0.0.10 runtime safety
+
+Package-local implementation note for the FCCG-owned overlay. Current platform
+rules live in `docs/platform/details/RUNTIME_SAFETY.md` in the FCCG workspace;
+cross-component behavior lives in `docs/AIR_CALIBRATION_CONTRACT.md`.
+Actual acceptance snapshots belong to the workspace root `VALIDATION.md`.
 
 This document and `check_task_stacks.py` are FCCG-owned overlays. The importer also
 registers the changed Core C/H, Host fixtures and OS hook as FCCG-owned source of

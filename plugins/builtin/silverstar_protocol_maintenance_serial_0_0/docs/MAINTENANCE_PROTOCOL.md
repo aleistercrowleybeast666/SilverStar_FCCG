@@ -1,3 +1,10 @@
+<!-- FCCG package-local documentation -->
+> Package-local implementation note. This file may describe its reference
+> snapshot; it is not the current platform specification. In the FCCG
+> workspace, `docs/platform/README.md` and `docs/AIR_CALIBRATION_CONTRACT.md`
+> are authoritative. Runtime rules: `docs/platform/details/RUNTIME_SAFETY.md`.
+> Actual acceptance snapshots: root `VALIDATION.md`.
+
 # SilverStar 串口维护协议 0.0
 
 > **项目：SilverStar**

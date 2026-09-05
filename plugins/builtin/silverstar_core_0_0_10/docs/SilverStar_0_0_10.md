@@ -1,3 +1,10 @@
+<!-- FCCG package-local documentation -->
+> Package-local implementation note. This file may describe its reference
+> snapshot; it is not the current platform specification. In the FCCG
+> workspace, `docs/platform/README.md` and `docs/AIR_CALIBRATION_CONTRACT.md`
+> are authoritative. Runtime rules: `docs/platform/details/RUNTIME_SAFETY.md`.
+> Actual acceptance snapshots: root `VALIDATION.md`.
+
 # SilverStar 0.0.10 平台规范
 
 SilverStar 0.0.10是首次发布前的FCCG-ready reference firmware。本版把System、具体Device与MCU实现分离，引入独立Interfaces、Device Adapter、Device-owned service、内部硬件服务与FlightLogic组件、vendor无关Platform契约、薄Generated glue、显式Target manifest和官方FreeRTOS-Kernel V11.3.0。当前真实实现和编译目标仍只有STM32F407VET6；“可移植”表示依赖边界成立，不表示其他MCU已经受支持或上板验证。

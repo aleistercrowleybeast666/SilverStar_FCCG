@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-09-05 — Final documentation alignment
+
+Adopted the user-provided FCCG/platform documentation tree without restoring the replaced docs.
+Aligned calibration transactions, source selection, indicator startup, storage ownership and generated
+build descriptions with the current implementation. Retained the shared Calibration contract and
+historical semantics; imported package notes defer to the platform authority. Added local documentation
+and importer ownership regression checks. This change does not alter firmware runtime or protocol layouts.
+Actual validation results are recorded only in `VALIDATION.md`.
+
 ## Unreleased — runtime safety repair (2026-09-05)
 
 - Fixed omitted production `SystemIndicator_Init()` and removed the premature boot CAL_START

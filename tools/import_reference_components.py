@@ -4249,6 +4249,30 @@ FCCG将本协议作为可独立启用或设为`不使用`的单一`{category}`�
             policy.Text_AtomicWrite(path, adapted)
 
 
+def _PackageDocumentation_Annotate(
+    staged_builtin: Path, policy: WorkspacePolicy
+) -> None:
+    """Keep imported implementation notes subordinate to workspace platform docs."""
+    package_root = policy.Path_Resolve(staged_builtin, allow_root=False)
+    platform_docs = policy.Path_Resolve("docs")
+    if package_root.name != "builtin" or package_root.is_relative_to(platform_docs):
+        raise ValueError("Documentation annotation requires a builtin package root")
+    notice = (
+        "<!-- FCCG package-local documentation -->\n"
+        "> Package-local implementation note. This file may describe its reference\n"
+        "> snapshot; it is not the current platform specification. In the FCCG\n"
+        "> workspace, `docs/platform/README.md` and `docs/AIR_CALIBRATION_CONTRACT.md`\n"
+        "> are authoritative. Runtime rules: `docs/platform/details/RUNTIME_SAFETY.md`.\n"
+        "> Actual acceptance snapshots: root `VALIDATION.md`.\n\n"
+    )
+    for path in sorted(package_root.glob("*/docs/**/*.md")):
+        if not policy.Path_Resolve(path).is_relative_to(package_root):
+            raise ValueError("Package documentation escapes the builtin package root")
+        content = path.read_text(encoding="utf-8")
+        if not content.startswith(notice):
+            policy.Text_AtomicWrite(path, notice + content)
+
+
 def _RuntimeSafetyDocs_Adapt(staged_builtin: Path, policy: WorkspacePolicy) -> None:
     source = (REFERENCE_OVERLAY_ROOT / "RUNTIME_SAFETY.md").read_text(encoding="utf-8")
     policy.Text_AtomicWrite(
@@ -4603,6 +4627,7 @@ def Components_Import(reference: Path, *, force: bool = False) -> dict[str, Any]
         _GeneratedFacadeTemplates_Copy(reference, staged_builtin, policy)
         _PlatformRelease_Adapt(staged_builtin, policy)
         _RuntimeSafetyDocs_Adapt(staged_builtin, policy)
+        _PackageDocumentation_Annotate(staged_builtin, policy)
         _ProtocolProfileMetadata_Write(staged_builtin, policy)
         _ProtocolMetadata_Adapt(
             staged_builtin

@@ -1,3 +1,10 @@
+<!-- FCCG package-local documentation -->
+> Package-local implementation note. This file may describe its reference
+> snapshot; it is not the current platform specification. In the FCCG
+> workspace, `docs/platform/README.md` and `docs/AIR_CALIBRATION_CONTRACT.md`
+> are authoritative. Runtime rules: `docs/platform/details/RUNTIME_SAFETY.md`.
+> Actual acceptance snapshots: root `VALIDATION.md`.
+
 # FCCG组件边界
 
 本文定义SilverStar 0.0.10 reference firmware未来拆入独立`SilverStar_FCCG`工程时的payload边界。本仓库没有实现GUI、插件管理器、`.ssplugin`、JSON驱动构建或代码生成器。

@@ -1,5 +1,10 @@
 # FCCG 0.0.10 runtime safety
 
+Package-local implementation note for the FCCG-owned overlay. Current platform
+rules live in `docs/platform/details/RUNTIME_SAFETY.md` in the FCCG workspace;
+cross-component behavior lives in `docs/AIR_CALIBRATION_CONTRACT.md`.
+Actual acceptance snapshots belong to the workspace root `VALIDATION.md`.
+
 This document and `check_task_stacks.py` are FCCG-owned overlays. The importer also
 registers the changed Core C/H, Host fixtures and OS hook as FCCG-owned source of
 truth. Importing the read-only reference must preserve these repairs. Current

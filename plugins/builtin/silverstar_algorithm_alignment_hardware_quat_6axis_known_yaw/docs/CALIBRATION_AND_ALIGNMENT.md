@@ -1,3 +1,10 @@
+<!-- FCCG package-local documentation -->
+> Package-local implementation note. This file may describe its reference
+> snapshot; it is not the current platform specification. In the FCCG
+> workspace, `docs/platform/README.md` and `docs/AIR_CALIBRATION_CONTRACT.md`
+> are authoritative. Runtime rules: `docs/platform/details/RUNTIME_SAFETY.md`.
+> Actual acceptance snapshots: root `VALIDATION.md`.
+
 # Calibration 与 Initial Alignment
 
 本文是 SilverStar 0.0.10 的 Sensor Calibration、Initial Alignment 和任务初始姿态契约。坐标系定义以 [COORDINATE_FRAMES.md](COORDINATE_FRAMES.md) 为准，运行期导航以 [NAVIGATION_AND_ESTIMATION.md](NAVIGATION_AND_ESTIMATION.md) 为准。
