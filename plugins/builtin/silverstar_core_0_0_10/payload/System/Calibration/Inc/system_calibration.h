@@ -13,6 +13,18 @@
 #define SYSTEM_CALIBRATION_CAPABILITY_ONE_FACE  (1U << 1)
 #define SYSTEM_CALIBRATION_CAPABILITY_SIX_FACE  (1U << 2)
 #define SYSTEM_CALIBRATION_CAPABILITY_MASK_ALL   0x07U
+#define SYSTEM_CALIBRATION_CAPABILITY_PROCEDURE_MASK \
+    (SYSTEM_CALIBRATION_CAPABILITY_ONE_FACE | \
+     SYSTEM_CALIBRATION_CAPABILITY_SIX_FACE)
+
+/* Standalone component tests may select both procedures explicitly. FCCG
+ * force-includes the actual project selection before this header. */
+#ifndef SYSTEM_CALIBRATION_BUILD_PROCEDURE_MASK
+#define SYSTEM_CALIBRATION_BUILD_PROCEDURE_MASK 0U
+#endif
+_Static_assert((SYSTEM_CALIBRATION_BUILD_PROCEDURE_MASK &
+                ~SYSTEM_CALIBRATION_CAPABILITY_PROCEDURE_MASK) == 0U,
+               "Calibration build procedure mask contains unknown bits");
 
 typedef enum
 {

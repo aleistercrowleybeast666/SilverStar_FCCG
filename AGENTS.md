@@ -36,6 +36,18 @@ environment, or any other repository. Project-local settings and logs belong bel
   correction, not raw-data bypass; logging-enabled projects must retain the Required
   `CALIBRATION_RESULT` snapshot.
 
+- Production App initialization must initialize System Indicator before task creation. Empty
+  calibration builds initialize/reset to NONE identity READY without requiring pre-scheduler IMU
+  samples. Calibration capability is NONE OR the known build-procedure bits; the shared Start
+  gate rejects unsupported procedures before source locking or calibration/alignment invalidation.
+- ALIGN_START validates and initializes synchronously; full Alignment Process belongs to FlightTask.
+  Calibration command paths must not run the solve or wait on another task's origin collector.
+- All generated static tasks, including Idle, require Release/Debug `.su` plus linked-ELF stack
+  budgets and RAM checks. Keep overflow/assert/HardFault protection. Overflow context must use
+  trusted bounded task identity and explicitly valid cached HWM, never scan a damaged TCB/name.
+- Runtime fixes in Core/OS and Host fixtures are registered by the reference importer as FCCG-owned
+  source of truth; stack tooling and runtime documentation also live in `tools/reference_overlays/`.
+
 - Plugins are declarative source packages. Installing a plugin must never execute plugin code.
 - Component payloads copied into an embedded project become ordinary project-owned source and
   normal Apply Configuration operations must not overwrite them.

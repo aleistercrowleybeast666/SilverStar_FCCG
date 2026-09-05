@@ -37,6 +37,15 @@ typedef enum
     SILVERSTAR_ASSERT_REASON_POSTCONDITION
 } SilverStarAssertReasonId;
 
+#define SILVERSTAR_FAULT_TASK_NAME_SIZE 16U
+#define SILVERSTAR_FAULT_TASK_UNKNOWN UINT32_MAX
+
+typedef enum
+{
+    SILVERSTAR_FAULT_ASSERT = 0U,
+    SILVERSTAR_FAULT_STACK_OVERFLOW
+} SilverStarFaultType;
+
 typedef struct
 {
     const char *file_name;
@@ -45,6 +54,14 @@ typedef struct
     uint32_t sequence;
     SilverStarAssertModuleId module_id;
     SilverStarAssertReasonId reason_id;
+    SilverStarFaultType fault_type;
+    uintptr_t task_handle;
+    uintptr_t task_name_address;
+    uint32_t task_id;
+    uint32_t system_state;
+    uint32_t high_water_mark_words;
+    char task_name[SILVERSTAR_FAULT_TASK_NAME_SIZE];
+    uint8_t high_water_mark_valid;
     uint8_t timestamp_valid;
     uint8_t active;
 } SilverStarAssertFaultRecord;
@@ -76,6 +93,10 @@ SILVERSTAR_NORETURN void SilverStarAssert_Fail(
     uint32_t line,
     SilverStarAssertReasonId reason_id);
 uint8_t SilverStarAssert_FaultedGet(void);
+void SilverStarAssert_StackOverflowContextSet(
+    uintptr_t task_handle, uintptr_t task_name_address,
+    uint32_t task_id, const char *stable_name, uint32_t system_state,
+    uint32_t high_water_mark_words, uint8_t high_water_mark_valid);
 SILVERSTAR_WARN_UNUSED_RESULT uint8_t SilverStarAssert_FaultRecordGet(
     SilverStarAssertFaultRecord *record);
 

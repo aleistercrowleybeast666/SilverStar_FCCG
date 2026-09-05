@@ -223,3 +223,26 @@ START 前也不持续积分软件陀螺：attitude component 尚无有效冻结�
 - Calibration 现有算法阈值继续由 `System/User/system_user_config.h` 管理，本轮只记录和验证，不重写成熟校准逻辑。
 - Deploy、tilt reference 和 landing 参数集中在 `System/User/system_user_flight_config.h`。
 - 所有流程静态分配、非阻塞推进；不得新增 FreeRTOS task、动态内存或 delay/busy wait。
+
+## FCCG runtime safety contract (2026-09-05)
+
+FCCG initializes the System Indicator before task creation; SS0.5 retains
+logical GPIO 6 (`IMU_CAL_LED`/PA1), active-low ON. Calibration capability is
+build-derived: empty/OneFace/SixFace/both advertise `0x01/0x03/0x05/0x07`.
+`SystemCalibration_Start()` rejects unsupported procedures before invalidating
+state. Empty builds initialize and reset to NONE identity READY, retaining the
+Required effective `CALIBRATION_RESULT` snapshot.
+
+ALIGN_START retains immediate parameter/state/capability checks and existing ACK
+mapping; the full Alignment Process runs periodically in FlightTask. Calibration
+solve work also stays in FlightTask, and origin reset returns BUSY without waiting
+in Telemetry/Serial. Task stacks are checked with real Release/Debug `.su` and ELF
+call graphs using `make CONFIG=Release stack-report` and `make CONFIG=Debug
+stack-report`; the JSON report records configured bytes, estimates and margins.
+Overflow diagnostics retain stable task identity, state and valid cached HWM with
+no heap/I/O or unsafe TCB/name traversal; fail-stop protections remain enabled.
+
+AIR M0, Maintenance 0.0, SSLOG 0.0 and `.ssdecoder` 1.1 retain their versions and
+wire/Record layouts. Continuous SS0.5 testing is still required for boot/blink
+polarity, repeated AIR/Serial calibration/alignment/reset commands, all task HWMs,
+MSP/interrupt nesting, source locks and effective calibration log snapshots.

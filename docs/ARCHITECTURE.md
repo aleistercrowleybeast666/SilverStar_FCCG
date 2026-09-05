@@ -1,5 +1,25 @@
 # SilverStar_FCCG architecture
 
+## Runtime safety contract — 2026-09-05
+
+Production `AppTasks_Init()` initializes Calibration, Alignment and Indicator before task creation.
+Empty calibration selection is implemented in `SystemCalibration_Init()` as identity READY; it
+requires no fresh IMU or uninitialized Alignment backend. Explicit procedures and ALIGN_START
+still acquire the existing physical IMU lock. The shared Start gate rejects uncompiled procedures
+before changing either calibration or alignment. CAL_RESET restores NONE identity READY in empty
+builds and advances the effective snapshot sequence.
+
+ALIGN_START performs immediate lifecycle/readiness/capability/action checks and bounded runtime
+reset, then ACKs through the existing mapping. `SystemAlignment_Process()` is deferred to the
+existing FlightTask period. Calibration sampling remains in the IMU path and solving in FlightTask;
+origin reset returns BUSY atomically instead of delaying Telemetry/Serial. Indicator GPIO logical
+ID 6, PA1 and active-low polarity are unchanged.
+
+Generated `.su` and linked ELF call graphs provide all-task Release/Debug budgets through
+`stack-report`. Fault context uses only trusted task registry names and cached valid HWM, with
+assert/HardFault fail-stop intact. AIR M0, Maintenance/SSLOG 0.0 and decoder 1.1 retain their layouts.
+See the builtin `RUNTIME_SAFETY.md` and root `VALIDATION.md`; continuous SS0.5 testing remains open.
+
 FCCG is a component-based embedded-project assembler. It copies real implementations from declarative plugins, resolves one explicit build graph, generates a small connection surface, and never loads plugins inside the firmware.
 
 ## Application layers

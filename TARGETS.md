@@ -1,5 +1,15 @@
 # Development targets
 
+## 2026-09-05 runtime indicator, stack and calibration repair
+
+- [x] production indicator initialization and Host startup/GPIO integration coverage
+- [x] build-derived `0x01/03/05/07` calibration capability and shared C procedure gate
+- [x] NONE identity READY on empty-build init/reset with effective result logging retained
+- [x] deferred full ALIGN_START processing in FlightTask and bounded command-side origin reset
+- [x] reproducible Release/Debug stack report for every static task, including Idle
+- [x] bounded static overflow record with stable task identity and valid cached HWM
+- [ ] continuous SS0.5 startup, repeated AIR/Serial commands, task HWM, MSP nesting and log verification
+
 ## 2026-09-02 verified Board fixed-resource mapping repair
 
 - [x] verified Board `connections.json` is the sole logical-ID mapping authority; CubeMX inventory

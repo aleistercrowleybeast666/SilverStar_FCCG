@@ -636,12 +636,13 @@ def test_none_calibration_initialization_and_required_record_contract(
     app_tasks = (core / "APP" / "Src" / "app_tasks.c").read_text(
         encoding="utf-8"
     )
-    assert "SYSTEM_CALIBRATION_BUILD_PROCEDURE_MASK == 0U" in app_tasks
-    assert "SystemCalibration_Start(" in app_tasks
-    assert "SYSTEM_CALIBRATION_MODE_NONE" in app_tasks
-    assert app_tasks.index("SystemCalibration_Start(") < app_tasks.index(
-        "SystemAlignment_Init();"
+    assert "SystemCalibration_Init();" in app_tasks
+    calibration = (core / "System/Calibration/Src/system_calibration.c").read_text(
+        encoding="utf-8"
     )
+    assert "SYSTEM_CALIBRATION_BUILD_PROCEDURE_MASK == 0U" in calibration
+    assert "SystemCalibration_NoneReadySet();" in calibration
+    assert "SystemIndicator_Init();" in app_tasks
     assert "AppTasksInitResult_CalibrationInitFailed" in (
         core / "APP" / "Inc" / "app_tasks.h"
     ).read_text(encoding="utf-8")

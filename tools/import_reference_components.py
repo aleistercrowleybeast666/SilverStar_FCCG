@@ -34,6 +34,20 @@ from silverstar_fccg.plugins.catalog import PluginCatalog  # noqa: E402
 
 BUILTIN_ROOT = WORKSPACE_ROOT / "plugins" / "builtin"
 REFERENCE_OVERLAY_ROOT = WORKSPACE_ROOT / "tools" / "reference_overlays"
+RUNTIME_SAFETY_CORE_FILES = (
+    "APP/Inc/app_task_config.h", "APP/Src/app_tasks.c", "APP/Src/estimator_task.c",
+    "Common/Inc/silverstar_assert.h", "Common/Src/silverstar_assert.c",
+    "System/Inc/system_task_stack.h", "System/Alignment/Src/system_alignment.c",
+    "System/Calibration/Inc/system_calibration.h",
+    "System/Calibration/Src/system_calibration.c",
+    "System/Calibration/Src/system_calibration_correction.c",
+    "Tests/Host/FreeRTOS.h", "Tests/Host/task.h", "Tests/Host/run_tests.ps1",
+    "Tests/Host/test_telemetry.c", "Tests/Host/test_system_alignment.c",
+    "Tests/Host/test_runtime_startup.c", "Tests/Host/test_runtime_commands.c",
+    "Tests/Host/test_fault_hook.c", "Tests/Host/test_calibration_build_gate.c",
+    "Tools/check_task_stacks.py", "Tools/check_architecture.ps1",
+)
+
 STM32CUBE_F4_PACKAGE = "STM32Cube_FW_F4_V1.28.3"
 STM32CUBE_F4_VENDOR_HASHES = {
     "Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_i2c.c": (
@@ -1012,6 +1026,20 @@ def _Components_Get(
             f"{core_source_relative}/payload/{relative}"
         )
         for relative in (
+            "APP/Inc/app_task_config.h",
+            "Common/Inc/silverstar_assert.h",
+            "Common/Src/silverstar_assert.c",
+            "System/Inc/system_task_stack.h",
+            "System/Calibration/Inc/system_calibration.h",
+            "System/Calibration/Src/system_calibration_correction.c",
+            "Tests/Host/FreeRTOS.h",
+            "Tests/Host/task.h",
+            "Tests/Host/test_telemetry.c",
+            "Tests/Host/test_system_alignment.c",
+            "Tests/Host/test_fault_hook.c",
+            "Tests/Host/test_runtime_commands.c",
+            "Tests/Host/test_runtime_startup.c",
+            "Tests/Host/test_calibration_build_gate.c",
             "APP/Src/app_tasks.c",
             "APP/Inc/app_tasks.h",
             "APP/Src/device_task.c",
@@ -1177,6 +1205,7 @@ def _Components_Get(
                 "VALIDATION.md",
             ],
             fccg_owned_files=core_fccg_owned_files,
+            overlay_files={"Tools/check_task_stacks.py": "check_task_stacks.py"},
             fccg_owned_docs={
                 relative: f"{core_source_relative}/docs/{relative}"
                 for relative in (
@@ -1188,6 +1217,9 @@ def _Components_Get(
                 )
             },
         )
+    )
+    components[-1]["manifest"]["metadata"]["source_origins"].update(
+        {relative: "fccg_runtime_safety" for relative in RUNTIME_SAFETY_CORE_FILES}
     )
     components.append(
         _Component(
@@ -2466,8 +2498,11 @@ def _Components_Get(
         _Component(
             "silverstar.os.freertos_11_3_0", "FreeRTOS Kernel 11.3.0", "os", "rtos", ["OS/FreeRTOS", "ThirdParty/FreeRTOS-Kernel/list.c", "ThirdParty/FreeRTOS-Kernel/queue.c", "ThirdParty/FreeRTOS-Kernel/tasks.c", "ThirdParty/FreeRTOS-Kernel/include", "ThirdParty/FreeRTOS-Kernel/portable/GCC/ARM_CM4F", "ThirdParty/FreeRTOS-Kernel/LICENSE.md", "ThirdParty/FreeRTOS-Kernel/README.md", "ThirdParty/FreeRTOS-Kernel/FreeRTOS-Kernel-V11.3.0-repository-SPDX2.3.spdx", "BuildSystem/freertos.mk", "Targets/SilverStar_F407/Inc/freertos_target_config.h", "Targets/SilverStar_F407/Src/freertos_target_irq.c"],
             description="Official FreeRTOS 11.3.0 static kernel subset and SilverStar hooks.", provenance=provenance,
+            fccg_owned_files={
+                "OS/FreeRTOS/freertos_hooks.c": "plugins/builtin/silverstar_os_freertos_11_3_0/payload/OS/FreeRTOS/freertos_hooks.c",
+            },
             sources=os_sources, includes=["OS/FreeRTOS", "ThirdParty/FreeRTOS-Kernel/include", "ThirdParty/FreeRTOS-Kernel/portable/GCC/ARM_CM4F"], dependencies=[core_id, mcu_id], provides=["os.freertos", "os.static_allocation"],
-            build_extra={"virtual_sources": ["ThirdParty/FreeRTOS-Kernel/list.c", "ThirdParty/FreeRTOS-Kernel/queue.c", "ThirdParty/FreeRTOS-Kernel/tasks.c"]}, metadata={"display_names": {"zh_CN": "FreeRTOS Kernel 11.3.0", "en_US": "FreeRTOS Kernel 11.3.0"}}, docs=["docs/details/BUILD_AND_TARGETS.md"], version="11.3.0",
+            build_extra={"virtual_sources": ["ThirdParty/FreeRTOS-Kernel/list.c", "ThirdParty/FreeRTOS-Kernel/queue.c", "ThirdParty/FreeRTOS-Kernel/tasks.c"]}, metadata={"display_names": {"zh_CN": "FreeRTOS Kernel 11.3.0", "en_US": "FreeRTOS Kernel 11.3.0"}, "source_origins": {"default": "reference_base", "OS/FreeRTOS/freertos_hooks.c": "fccg_runtime_safety"}}, docs=["docs/details/BUILD_AND_TARGETS.md"], version="11.3.0",
         )
     )
     protocol_source_origin = {
@@ -2666,6 +2701,20 @@ def _Components_Get(
             environment={"renderer": "vscode_eide_gcc", "toolchain": "arm-none-eabi-gcc", "outputs": ["Makefile", ".vscode/tasks.json", ".vscode/settings.json", ".vscode/extensions.json", ".eide/eide.yml", ".eide/files.options.yml", "SilverStar.code-workspace"], "tasks": ["build", "clean", "host_tests", "architecture_check", "power10_check", "static_analysis", "artifact_check"], "eide_native": True}, docs=["docs/details/BUILD_AND_TARGETS.md"],
         )
     )
+    # These FCCG documentation changes postdate the read-only reference snapshot.
+    owned_documentation = {
+        "silverstar.board.silverstar_0_5": ("BUILD_AND_TARGETS.md",),
+        "silverstar.device.storage.sd_sdio_fatfs": ("STORAGE_AND_FLIGHT_LOG.md",),
+        "silverstar.flight_logic.indicator.gpio_status_service": ("FCCG_COMPONENT_BOUNDARIES.md",),
+        "silverstar.flight_logic.mission_action.gpio_output_service": ("FCCG_COMPONENT_BOUNDARIES.md",),
+    }
+    for component in components:
+        component_id = component["manifest"]["id"]
+        slug = component_id.replace(".", "_")
+        component["fccg_owned_docs"].update({
+            name: f"plugins/builtin/{slug}/docs/{name}"
+            for name in owned_documentation.get(component_id, ())
+        })
     return components
 
 
@@ -4104,6 +4153,7 @@ def _ImportedDocumentation_Adapt(
         if (
             package_name == "silverstar_mcu_stm32f407vet6"
             and path.name == "PLATFORM_INTERFACE.md"
+            and "## 8. FCCG Platform插件扩展与所有权" not in adapted
         ):
             adapted = adapted.replace(
                 "- `PlatformI2c_Write/Read/WriteRead`保留未来设备所需的通用地址事务；当前F407目标没有选中I2C设备，但backend必须可编译；",
@@ -4135,17 +4185,17 @@ HAL/CMSIS采用单一来源政策`plugin_payload_authoritative`：HAL、CMSIS、
                 "`Board/SilverStar_0_5/Services`，因为它们是板级/FatFs glue。"
                 "未来换介质只替换Board Service和Target选择，不改变System、LoggerBus或Maintenance命令。"
             )
-            if stale_ownership not in adapted:
-                raise RuntimeError("Reference Storage ownership documentation changed")
-            adapted = adapted.replace(
-                stale_ownership,
+            current_ownership = (
                 "当前TF/SDIO Storage和文件Log Sink由存储Device插件拥有，生成到"
                 "`Devices/Storage/SdSdioFatFs`；Board只提供已验证的物理资源映射，"
                 "CubeMX快照提供SDIO与FatFs App/Target glue，MCU/Platform插件提供受控FatFs core。"
-                "因此换介质只替换存储Device及其硬件契约，不改变System、LoggerBus或Maintenance命令。",
-                1,
+                "因此换介质只替换存储Device及其硬件契约，不改变System、LoggerBus或Maintenance命令。"
             )
-            adapted += """
+            if stale_ownership not in adapted and current_ownership not in adapted:
+                raise RuntimeError("Reference Storage ownership documentation changed")
+            adapted = adapted.replace(stale_ownership, current_ownership, 1)
+            if "## CALIBRATION_RESULT 生效快照语义" not in adapted:
+                adapted += """
 
 ## CALIBRATION_RESULT 生效快照语义
 
@@ -4158,6 +4208,7 @@ ready/correction_valid为1。启用Logging时该Record保持required，并由Fli
         if (
             package_name == "silverstar_mcu_stm32f407vet6"
             and path.name == "BUILD_AND_TARGETS.md"
+            and "## 11. FCCG自定义CubeMX来源边界" not in adapted
         ):
             adapted += """
 
@@ -4184,7 +4235,7 @@ I²C和PWM后端仅在真实Device consumer已分配相应资源时加入。Clas
                 "日志", "`flight_log.0_0`", "本插件独立拥有SSLOG 0.0容器、Record Catalog和decoder metadata"
             ),
         }
-        if package_name in protocol_notes:
+        if package_name in protocol_notes and "## FCCG独立协议插件归属" not in adapted:
             category, profile, ownership = protocol_notes[package_name]
             adapted += f"""
 
@@ -4196,6 +4247,23 @@ FCCG将本协议作为可独立启用或设为`不使用`的单一`{category}`�
 """
         if adapted != content:
             policy.Text_AtomicWrite(path, adapted)
+
+
+def _RuntimeSafetyDocs_Adapt(staged_builtin: Path, policy: WorkspacePolicy) -> None:
+    source = (REFERENCE_OVERLAY_ROOT / "RUNTIME_SAFETY.md").read_text(encoding="utf-8")
+    policy.Text_AtomicWrite(
+        staged_builtin / SILVERSTAR_CORE_PACKAGE_SLUG / "docs/RUNTIME_SAFETY.md", source
+    )
+    marker = "## FCCG runtime safety contract (2026-09-05)"
+    summary = source.split("<!-- imported-summary -->", 1)[1].strip()
+    for path in staged_builtin.glob("*/docs/*.md"):
+        if path.name not in {
+            "CALIBRATION_AND_ALIGNMENT.md", "AIR_PROTOCOL.md",
+            "SYSTEM_LIFECYCLE.md", "BUILD_AND_TARGETS.md",
+        }:
+            continue
+        text = path.read_text(encoding="utf-8").split(marker, 1)[0].rstrip()
+        policy.Text_AtomicWrite(path, text + "\n\n" + marker + "\n\n" + summary + "\n")
 
 
 def _PlatformRelease_Adapt(
@@ -4250,7 +4318,9 @@ def _PlatformRelease_Adapt(
     core_docs = staged_builtin / SILVERSTAR_CORE_PACKAGE_SLUG / "docs"
     legacy_doc = core_docs / "SilverStar_0_0_9.md"
     current_doc = core_docs / f"SilverStar_{SILVERSTAR_PLATFORM_ID_SUFFIX}.md"
-    if legacy_doc.is_file():
+    if legacy_doc.is_file() and current_doc.is_file():
+        policy.Tree_Remove(legacy_doc)
+    elif legacy_doc.is_file():
         policy.Path_Replace(legacy_doc, current_doc)
     for path in staged_builtin.rglob("*.md"):
         doc = path.read_text(encoding="utf-8")
@@ -4468,6 +4538,10 @@ def Components_Import(reference: Path, *, force: bool = False) -> dict[str, Any]
                 json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
             )
             readme = _BuiltinReadme_Render(manifest, provenance)
+            if manifest["id"] == "silverstar.board.silverstar_0_5":
+                previous_readme = builtin_root / slug / "README.md"
+                if previous_readme.is_file():
+                    readme = previous_readme.read_text(encoding="utf-8")
             policy.Text_AtomicWrite(package_root / "README.md", readme)
         _ArchitectureChecker_Adapt(
             staged_builtin
@@ -4528,6 +4602,7 @@ def Components_Import(reference: Path, *, force: bool = False) -> dict[str, Any]
         _EnvironmentTemplates_Copy(reference, staged_builtin, policy)
         _GeneratedFacadeTemplates_Copy(reference, staged_builtin, policy)
         _PlatformRelease_Adapt(staged_builtin, policy)
+        _RuntimeSafetyDocs_Adapt(staged_builtin, policy)
         _ProtocolProfileMetadata_Write(staged_builtin, policy)
         _ProtocolMetadata_Adapt(
             staged_builtin

@@ -973,6 +973,10 @@ SystemDeviceResult SystemAlignment_Start(void)
     {
         return SYSTEM_DEVICE_NOT_READY;
     }
+    if (s_status.config_result != SYSTEM_ALIGNMENT_CONFIG_OK)
+    {
+        return SYSTEM_DEVICE_UNSUPPORTED;
+    }
     result = SystemSourceSelector_ImuSelectAndLock();
     if (result != SYSTEM_DEVICE_OK)
     {
@@ -1008,7 +1012,9 @@ SystemDeviceResult SystemAlignment_Start(void)
         return result;
     }
     SystemAlignment_PreflightStateRestore();
-    return SystemAlignment_Process();
+    /* FlightTask owns status refresh and motion-guard work. The ACK reports
+     * accepted initialization, not completion of alignment. */
+    return SYSTEM_DEVICE_OK;
 }
 
 SystemDeviceResult SystemAlignment_Stop(void)

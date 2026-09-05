@@ -1,5 +1,22 @@
 # Generated code and imported hardware
 
+## Runtime safety contract — 2026-09-05
+
+`Generated/Inc/project_flight_config.h` owns the selected calibration procedure mask (`0/2/4/6`).
+The shared calibration header rejects unknown bits and the capability getter always adds NONE,
+producing `0x01/03/05/07`. Empty-build startup/reset establish identity READY without a command;
+Required `CALIBRATION_RESULT` still describes the active correction. Production App initializes
+Indicator before creating tasks, retaining verified SS0.5 logical GPIO 6 / PA1 active-low mapping.
+
+`ALIGN_START` initializes after immediate checks; the full Process is called by periodic FlightTask.
+The generated Makefile emits `-fstack-usage` reports beside each object and provides
+`make CONFIG=Release stack-report` plus Debug. `Tools/check_task_stacks.py` combines `.su`, real ELF
+call chains and static stack symbols into `build/FCCG/<target>/<config>/stack-budget.json`. Normal
+Generate remains compile-free. Ordinary Apply still preserves project-owned runtime sources;
+fresh generation or a deliberate source port is needed to adopt these runtime repairs in old projects.
+Fault diagnostics retain bounded task identity and explicitly valid cached HWM. AIR M0,
+Maintenance/SSLOG 0.0 and decoder 1.1 layouts are unchanged; real SS0.5 stress testing remains open.
+
 FCCG intentionally generates a small surface:
 
 ```text
@@ -41,7 +58,7 @@ ID), firmware metadata, and log header. AIR M0, maintenance/log format 0.0, deco
 directory and Make/EIDE/VS Code profile come from the selected MCU/Platform manifest lock.
 
 Calibration procedure selection generates a mask for OneFace/SixFace. An empty list emits mask zero;
-startup then calls the existing `SYSTEM_CALIBRATION_MODE_NONE` path to establish READY identity
+`SystemCalibration_Init()` directly establishes `SYSTEM_CALIBRATION_MODE_NONE` with READY identity
 correction before corrected IMU is consumed. It does not remove the calibration component. With
 logging enabled, `CALIBRATION_RESULT` remains Required and describes the active NONE or measured
 correction snapshot without changing Record ID, 72-byte layout, SSLOG 0.0, or CRC behavior.

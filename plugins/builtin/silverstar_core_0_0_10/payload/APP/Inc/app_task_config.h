@@ -3,13 +3,15 @@
 
 #include "FreeRTOS.h"
 
-#define APP_TASK_STACK_DEVICE_WORDS       384U
-#define APP_TASK_STACK_INS_WORDS          512U
+/* Bytes and call-chain margins are verified by make stack-report in both
+ * Release and Debug. Keep overflow detection and runtime HWM enabled. */
+#define APP_TASK_STACK_DEVICE_WORDS       512U
+#define APP_TASK_STACK_INS_WORDS          768U
 #define APP_TASK_STACK_ESTIMATOR_WORDS   1024U
 #define APP_TASK_STACK_FLIGHT_WORDS      1024U
 #define APP_TASK_STACK_LOGGER_WORDS       768U
-#define APP_TASK_STACK_SERIAL_WORDS       512U
-#define APP_TASK_STACK_TELEMETRY_WORDS    384U
+#define APP_TASK_STACK_SERIAL_WORDS      1536U
+#define APP_TASK_STACK_TELEMETRY_WORDS   1024U
 
 #define APP_PRIORITY_DEVICE       ((UBaseType_t)7U)
 #define APP_PRIORITY_INS          ((UBaseType_t)7U)

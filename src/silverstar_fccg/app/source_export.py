@@ -41,7 +41,7 @@ _EXCLUDED_TEST_ROOTS = frozenset(
     }
 )
 _EXCLUDED_SUFFIXES = frozenset(
-    {".o", ".d", ".lst", ".elf", ".bin", ".hex", ".map", ".exe", ".pyc"}
+    {".o", ".d", ".lst", ".elf", ".bin", ".hex", ".map", ".exe", ".pyc", ".su"}
 )
 
 

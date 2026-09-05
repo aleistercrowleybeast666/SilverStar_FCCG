@@ -2721,7 +2721,7 @@ FORCED_INCLUDE_FLAGS := $(addprefix -include ,$(TARGET_FORCED_INCLUDES))
 
 ASFLAGS := $(MCU) $(INCLUDE_FLAGS) $(OPT) $(DEBUG_FLAGS) -Wall $(SECTION_FLAGS)
 CFLAGS := $(MCU) $(DEFINE_FLAGS) $(INCLUDE_FLAGS) $(OPT) $(DEBUG_FLAGS) \\
-          $(FORCED_INCLUDE_FLAGS) -std=c11 $(SECTION_FLAGS) -MMD -MP
+          $(FORCED_INCLUDE_FLAGS) -std=c11 $(SECTION_FLAGS) -MMD -MP -fstack-usage
 ifeq ($(LISTING),1)
 LISTING_FLAGS = -Wa,-a,-ad,-alms=$(BUILD_ROOT)/$*.lst
 else
@@ -2744,7 +2744,7 @@ $(FIRST_PARTY_C_OBJECTS): SOURCE_WARNINGS := $(FIRST_PARTY_WARNINGS)
 $(THIRD_PARTY_C_OBJECTS): SOURCE_WARNINGS := $(THIRD_PARTY_WARNINGS)
 $(VENDOR_C_OBJECTS): SOURCE_WARNINGS := $(VENDOR_WARNINGS)
 
-.PHONY: all clean clean-all rebuild list-sources list-build-config host-tests architecture-check power10-check static-analysis artifact-check memory-report
+.PHONY: all clean clean-all rebuild list-sources list-build-config host-tests architecture-check power10-check static-analysis artifact-check memory-report stack-report
 
 # FCCG cleanup contract: determinate-v1
 
@@ -2806,6 +2806,9 @@ list-sources:
 list-build-config:
 \t@$(foreach include,$(C_INCLUDES),echo INCLUDE:$(include) & ) echo CONFIG-INCLUDES-END
 \t@$(foreach define,$(C_DEFS),echo DEFINE:$(define) & ) echo CONFIG-DEFINES-END
+
+stack-report: all
+\tpython Tools/check_task_stacks.py --config $(CONFIG) --prefix "$(if $(GCC_PATH),$(GCC_PATH)/,)$(TOOLCHAIN_PREFIX)"
 
 HOST_CC ?= gcc
 host-tests:

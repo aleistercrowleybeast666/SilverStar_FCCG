@@ -1,5 +1,24 @@
 # User guide
 
+## Runtime safety contract — 2026-09-05
+
+For Calibration, no procedure means NONE identity correction and READY immediately after boot or
+CAL_RESET. OneFace, SixFace and both advertise capability masks `0x03`, `0x05`, `0x07`; empty
+advertises `0x01`. A firmware build rejects procedures it does not contain, through the same gate
+for AIR and Serial. Required calibration logging still records the effective correction.
+
+ALIGN_START acknowledges valid initialization and FlightTask completes the periodic processing.
+The System Indicator is initialized before tasks; SS0.5 keeps PA1 active-low blinking. To validate
+stack budgets, build the generated project with `mingw32-make CONFIG=Release stack-report` and
+`mingw32-make CONFIG=Debug stack-report`, then read `build/FCCG/<target>/<config>/stack-budget.json`.
+The overflow record includes task identity, lifecycle state and valid cached high-water marks.
+
+Use a fresh output directory to adopt the repaired component sources. Normal Apply preserves
+source files owned by an existing project, so it cannot silently patch those copies. AIR M0,
+Maintenance/SSLOG 0.0 and decoder 1.1 keep their formats. Before hardware acceptance, continuously
+test SS0.5 boot/LED, repeated AIR/Serial calibration/alignment/reset operations, task and interrupt
+stack margins, source locks and effective log snapshots.
+
 ## Create a project
 
 Run `python main.py` and choose **File → New Project**. The compact one-step dialog uses the native title bar and asks only for project name and output directory. The sole current firmware/Core/OS/Environment defaults are automatic. The official SS0.5 reference draft starts with all three official protocols enabled, but each protocol can later be set to **None**. MCU is derived from the selected Board/imported CubeMX data and is never selected on Devices. Configuration continues through exactly four main pages:

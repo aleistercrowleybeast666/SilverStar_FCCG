@@ -312,10 +312,21 @@ Assert-NoArchitecturePattern -Name `
     -Paths $manifestFiles -Extensions @('.mk', '') `
     -Pattern '(?i)Core[/\\]Src[/\\]sysmem\.c|heap_[1-5]\.c'
 
-Assert-NoArchitecturePattern -Name `
-    'Authoritative build manifests invoke Python or the removed SSLOG generator.' `
-    -Paths $manifestFiles -Extensions @('.mk', '') `
-    -Pattern '(?i)\bpython(?:3)?(?:\.exe)?\b|\bpy(?:\.exe)?\b|generate_sslog'
+# The standalone stack report reads an already linked ELF. It is not a source
+# generator and no compilation target may depend on it. Permit only its exact
+# recipe; continue rejecting every other Python invocation in build manifests.
+$stackReportBlock = 'stack-report: all' + "`n`t" +
+    'python Tools/check_task_stacks.py --config $(CONFIG) --prefix "$(if $(GCC_PATH),$(GCC_PATH)/,)$(TOOLCHAIN_PREFIX)"' + "`n"
+foreach ($manifestFile in $manifestFiles) {
+    $buildContent = (Get-Content -Raw -LiteralPath (Join-Path $repoRoot $manifestFile)).Replace("`r`n", "`n")
+    if ($manifestFile -eq 'Makefile') {
+        $buildContent = $buildContent.Replace($stackReportBlock, '')
+        $buildContent = [regex]::Replace($buildContent, '(?m)^\.PHONY:.*$', '')
+    }
+    Assert-ArchitectureCondition `
+        -Condition ($buildContent -notmatch '(?i)\bpython(?:3)?(?:\.exe)?\b|\bpy(?:\.exe)?\b|generate_sslog|stack-report') `
+        -Message "Build manifest invokes a generator or depends on the offline stack report: $manifestFile"
+}
 
 Assert-NoArchitecturePattern -Name `
     'FatFs retains a dynamic allocation hook.' `

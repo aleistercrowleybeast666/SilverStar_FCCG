@@ -1,5 +1,18 @@
 # Build and development-environment integration
 
+## Runtime safety contract — 2026-09-05
+
+Every generated Arm GNU Make C compilation emits `-fstack-usage`; `.su` files stay beside objects
+inside `build/FCCG/`. `make CONFIG=Release stack-report` and the Debug equivalent build normally,
+then check every enabled static task against linked stack-symbol sizes. The report combines `.su`
+frames with ELF calls/branches and conservative assembly-library stack decrements; unresolved
+indirect calls, recursion and unbounded frames fail the gate. Verified SD_Driver callback edges
+are explicit. Estimates include a 256-byte Cortex-M4F context reserve and require 256 bytes of
+remaining task margin. `stack-budget.json` includes ELF SHA-256 and per-task paths. Root
+`VALIDATION.md` records current Release/Debug results and RAM occupancy. Runtime HWM and nested
+MSP/interrupt margins still require continuous SS0.5 testing. No EIDE-native compile or hardware
+measurement is implied by a successful Make report.
+
 ## One resolved graph
 
 The selected components and project model resolve to explicit C/ASM sources, includes, defines, forced includes, exclusions, linker script, CPU/FPU flags, specs, libraries, and toolchain prefix. No renderer scans the project with wildcards.

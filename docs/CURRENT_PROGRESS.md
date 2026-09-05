@@ -1,5 +1,24 @@
 # 当前进度
 
+日期：2026-09-05。状态仍为 **0.0.10 Software Release Candidate / Pre-Hardware-Validation**。
+本轮修复生产指示灯初始化遗漏、空选校准启动顺序、校准 build capability/中心门禁、
+ALIGN_START 同步大栈处理与通信任务栈预算。新增的运行时 C/Host 修改已登记 FCCG importer
+归属；栈检查工具和运行时文档保存在 `tools/reference_overlays/`。
+
+空选/OneFace/SixFace/两者的 capability 为 `0x01/03/05/07`；空选初始化与 RESET 均为
+NONE identity READY，Required CALIBRATION_RESULT 保留。Alignment 完整 Process 与校准
+solve 由 FlightTask 推进。SS0.5 GPIO6 / PA1 低电平点亮映射保持不变。
+
+Release/Debug 栈检查覆盖全部静态任务，包含 Idle；溢出故障记录保存稳定任务身份、系统状态
+及带有效标志的缓存 HWM。AIR M0、Maintenance/SSLOG 0.0、decoder 1.1 版本与 layout 不变。
+本轮最终 pytest 318 passed，Host 67 executables / 12415 checks / 0 failures；
+Release/Debug、Architecture、Power of Ten、-fanalyzer、Artifact 和 stack report 均通过。
+完整 ELF 闭包及 RAM/stack 数值见根目录 `VALIDATION.md`。
+仍需真实 SS0.5 连续运行、重复 AIR/Serial 命令、HWM/MSP、电气与日志验证。
+外部参考固件、GSHC 和 FLP 保持只读；没有 commit/push/tag。
+
+# 前轮进度（历史记录）
+
 日期：2026-09-02
 
 状态：**SilverStar 0.0.10 Software Release Candidate / Pre-Hardware-Validation**。

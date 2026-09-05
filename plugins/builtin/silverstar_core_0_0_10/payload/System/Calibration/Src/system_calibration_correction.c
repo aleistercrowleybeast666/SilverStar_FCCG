@@ -58,5 +58,6 @@ SystemDeviceResult SystemCalibration_ImuCorrectionApply(
 
 uint8_t SystemCalibration_CapabilityMaskGet(void)
 {
-    return SYSTEM_CALIBRATION_CAPABILITY_MASK_ALL;
+    return (uint8_t)(SYSTEM_CALIBRATION_CAPABILITY_NONE |
+                     SYSTEM_CALIBRATION_BUILD_PROCEDURE_MASK);
 }

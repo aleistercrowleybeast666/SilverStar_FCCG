@@ -1,3 +1,27 @@
+# FCCG runtime safety validation — 2026-09-05
+
+This is a software validation result for the SS0.5 default composition, not a hardware qualification.
+The FCCG repository `VALIDATION.md` records complete commands, task budgets, ELF hashes and logs.
+
+- Final Python suite: 318 passed; focused frozen-source validation: 21 passed.
+- Real generated firmware Host suite: 67 executables, 12415 checks, 0 failures,
+  8 compile-pass cases and 16 expected compile rejections.
+- Arm GNU 14.3.Rel1 Release and Debug, architecture (270 checks), Power of Ten
+  (6008 checks), first-party -fanalyzer, artifact and stack-report gates passed.
+- Both ELF reports cover all 7 application tasks and Idle. Each build has 138 GCC .su files.
+  Production init includes Indicator Init; communication tasks exclude the full Alignment Process;
+  FlightTask includes it. Release Telemetry/Serial margins are 2116/1944 bytes after context reserve.
+- Current mask values are 0x01/03/05/07; empty calibration initializes/resets to NONE identity READY.
+  Required CALIBRATION_RESULT, protocol versions and wire layouts remain unchanged.
+- Final reference import replay preserved all 629 file hashes; fresh generation and reload are Ready.
+  No external firmware/GUI writes, commits, pushes, flashes or runtime HWM measurements were made.
+- Continuous SS0.5 boot/indicator, command repetition, all-task HWM, MSP/interrupt nesting,
+  source locking and effective calibration log snapshots remain hardware acceptance work.
+
+The historical reference validation below is not the result of this FCCG repair.
+
+---
+
 # SilverStar Validation Record
 
 正式验收要求见`docs/details/VALIDATION_REQUIREMENTS.md`，正式AIR协议见`docs/details/AIR_PROTOCOL.md`。本文保留已经完成的历史测试事实和后续上板记录；旧命令名与旧架构描述不再构成SilverStar正式接口。

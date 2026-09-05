@@ -1,5 +1,19 @@
 # Builtin reference components
 
+## Runtime safety contract — 2026-09-05
+
+The FCCG-owned Core runtime and OS overflow hook are preserved explicitly by
+`tools/import_reference_components.py`; they are source of truth, not disposable reference imports.
+`tools/reference_overlays/check_task_stacks.py` and `RUNTIME_SAFETY.md` are replayed into builtin
+packages. The Core initializes the System Indicator before tasks, while its selected GPIO service
+preserves SS0.5 logical ID 6 / PA1 active-low behavior.
+
+Calibration always retains identity correction. Build procedure masks `0/2/4/6` advertise AIR masks
+`1/3/5/7`, with a shared C command gate and NONE identity READY for empty init/reset. FlightTask owns
+full alignment processing and calibration solving. All static tasks have an explicit Release/Debug
+stack budget and overflow identity/HWM diagnostics. Protocol layouts remain AIR M0, Maintenance/
+SSLOG 0.0 and decoder 1.1; continuous SS0.5 validation is still required.
+
 The current catalog contains 36 strict declarative packages in the SilverStar 0.0.10 release train, synchronized and adapted from clean read-only reference commit `cc0b377ded690556d037a412a55f87fe334c42d0` (`完善同能力多实例与日志配置契约`), together with FCCG's declarative selectors, physical and logical Devices, internal service owners, three independent Protocol packages, and official Platform overlays. `plugins/builtin/reference_provenance.json` records the read-only reference path, commit, branch, clean status, snapshot digest, deterministic commit-derived import time, audited groups, and protocol-source hashes. Per-manifest `source_origins` distinguishes the reference base from FCCG extensions replayed by the importer. The synchronized SSLOG catalog contains 29 records, including the decoder-profile descriptor.
 
 | Type | Builtins |

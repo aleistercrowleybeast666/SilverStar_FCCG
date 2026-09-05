@@ -29,6 +29,10 @@ typedef struct
     uint32_t valid_mask;
 } SystemTaskStackSnapshot;
 
+/* Uses only registered handles, trusted names and a cached normal-task HWM.
+ * Never dereferences a potentially damaged TCB or the supplied name. */
+void SystemTaskStack_OverflowContextSet(uintptr_t task, uintptr_t task_name);
+
 SYSTEM_WARN_UNUSED_RESULT SystemDeviceResult SystemTaskStack_SnapshotGet(
     SystemTaskStackSnapshot *snapshot);
 

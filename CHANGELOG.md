@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased — runtime safety repair (2026-09-05)
+
+- Fixed omitted production `SystemIndicator_Init()` and removed the premature boot CAL_START
+  dependency on Alignment initialization/fresh IMU samples. Empty calibration builds establish
+  identity READY directly and CAL_RESET restores it with a new effective result snapshot.
+- Made calibration capability build-derived (`0x01/03/05/07`), reject unknown procedure bits at
+  compile time, and gate unsupported modes before source locking or state invalidation.
+- Removed synchronous full Alignment Process from ALIGN_START. FlightTask retains periodic work;
+  communication-side origin reset returns BUSY immediately instead of waiting on the estimator.
+- Sized Device/INS/Telemetry/Serial stacks from real Arm GNU budgets; generated Make emits `.su`
+  and provides a fail-closed ELF/call-chain stack report for Release and Debug.
+- Retained overflow task identity, lifecycle state and valid cached HWM in the static fault record;
+  stack-overflow level 2, assert and HardFault fail-stop remain enabled.
+- Added production startup, real telemetry command, fault-hook, build-mask and stack-report tests,
+  with importer ownership for lasting source changes. AIR M0, Maintenance/SSLOG 0.0 and decoder
+  1.1 keep their layouts and versions; no external reference or FLP/GSHC source was modified.
+
 ## Unreleased — verified Board fixed-resource mapping repair
 
 - Fixed generated `platform_resources.c` for verified Boards so the Board's fixed `c_id` from

@@ -16,6 +16,8 @@
 #include "system_alignment.h"
 #include "system_calibration.h"
 #include "system_inertial.h"
+#include "system_indicator.h"
+#include "system_lifecycle.h"
 #include "system_source_selector.h"
 #include "task.h"
 
@@ -23,6 +25,8 @@ typedef struct
 {
     uint32_t stack_words;
     TaskHandle_t handle;
+    volatile uint32_t high_water_mark_words;
+    volatile uint8_t high_water_mark_valid;
 } AppTaskStorage;
 
 static StaticTask_t s_device_task_control;
@@ -175,17 +179,8 @@ AppTasksInitResult AppTasks_Init(void)
                       SILVERSTAR_ASSERT_REASON_STATE_INVARIANT);
 #endif
     SystemCalibration_Init();
-    if (SYSTEM_CALIBRATION_BUILD_PROCEDURE_MASK == 0U)
-    {
-        const SystemDeviceResult calibration_result =
-            SystemCalibration_Start(SYSTEM_CALIBRATION_MODE_NONE);
-
-        if (calibration_result != SYSTEM_DEVICE_OK)
-        {
-            return AppTasksInitResult_CalibrationInitFailed;
-        }
-    }
     SystemAlignment_Init();
+    SystemIndicator_Init();
     if ((SystemInertial_Init() != SYSTEM_DEVICE_OK) ||
         (ImuSampleBus_Init() != IMU_SAMPLE_BUS_RESULT_OK) ||
         (EstimatorBus_Init() != ESTIMATOR_BUS_RESULT_OK)
@@ -230,7 +225,7 @@ SystemDeviceResult SystemTaskStack_SnapshotGet(
     (void)memset(snapshot, 0, sizeof(*snapshot));
     for (index = 0U; index < (uint32_t)SYSTEM_TASK_STACK_COUNT; index++)
     {
-        const AppTaskStorage *storage = &s_tasks[index];
+        AppTaskStorage *storage = &s_tasks[index];
 
         SILVERSTAR_ASSERT_OBJECT(snapshot, SystemTaskStackSnapshot,
                                  SILVERSTAR_ASSERT_MODULE_APP);
@@ -240,7 +235,43 @@ SystemDeviceResult SystemTaskStack_SnapshotGet(
             snapshot->task[index].high_water_mark_words =
                 (uint32_t)uxTaskGetStackHighWaterMark(storage->handle);
             snapshot->valid_mask |= (1UL << index);
+            storage->high_water_mark_words =
+                snapshot->task[index].high_water_mark_words;
+            storage->high_water_mark_valid = 1U;
         }
     }
     return SYSTEM_DEVICE_OK;
+}
+
+static uint32_t AppTasks_FaultTaskIdGet(uintptr_t task)
+{
+    uint32_t index;
+
+    for (index = 0U; index < (uint32_t)SYSTEM_TASK_STACK_COUNT; index++)
+    {
+        if ((task != 0U) && (task == (uintptr_t)s_tasks[index].handle))
+        {
+            return index;
+        }
+    }
+    return SILVERSTAR_FAULT_TASK_UNKNOWN;
+}
+
+void SystemTaskStack_OverflowContextSet(uintptr_t task, uintptr_t task_name)
+{
+    static const char *const task_names[SYSTEM_TASK_STACK_COUNT] = {
+        "Device", "INS", "Estimator", "Flight", "Logger", "Serial", "Telemetry"
+    };
+    const uint32_t index = AppTasks_FaultTaskIdGet(task);
+    if (index != SILVERSTAR_FAULT_TASK_UNKNOWN)
+    {
+        const AppTaskStorage *storage = &s_tasks[index];
+        SilverStarAssert_StackOverflowContextSet(task, task_name,
+            index, task_names[index], (uint32_t)SystemLifecycle_GetState(),
+            storage->high_water_mark_words, storage->high_water_mark_valid);
+        return;
+    }
+    SilverStarAssert_StackOverflowContextSet(task, task_name,
+        SILVERSTAR_FAULT_TASK_UNKNOWN, NULL,
+        (uint32_t)SystemLifecycle_GetState(), 0U, 0U);
 }

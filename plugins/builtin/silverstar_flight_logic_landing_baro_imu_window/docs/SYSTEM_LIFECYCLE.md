@@ -129,3 +129,26 @@ RECOVERY + landing condition confirmed（可选）
 上述运行期逻辑之前还存在集中构建资格门：TILT要求selected gyro和软件姿态传播资格，APOGEE_VZ要求导航垂直速度，DELAY要求mission monotonic time；非零deploy mask要求Board Mission Action Service支持PARACHUTE_DEPLOY，当前profile始终要求START action。Landing的三种模式都校验所需IMU静止资格；IMPACT额外校验impact资格，BARO_IMU_WINDOW额外校验qualified direct Barometer。任何不满足的组合必须构建失败，不在运行期fallback。
 
 Lifecycle不拥有执行器、GPIO、Telemetry或日志。FlightRecovery通过`SystemMissionAction_Execute()`直接接口请求动作，通过只读sequence快照发布事件；Telemetry、Logger与Console交付失败均不改变Lifecycle或动作锁存。
+
+## FCCG runtime safety contract (2026-09-05)
+
+FCCG initializes the System Indicator before task creation; SS0.5 retains
+logical GPIO 6 (`IMU_CAL_LED`/PA1), active-low ON. Calibration capability is
+build-derived: empty/OneFace/SixFace/both advertise `0x01/0x03/0x05/0x07`.
+`SystemCalibration_Start()` rejects unsupported procedures before invalidating
+state. Empty builds initialize and reset to NONE identity READY, retaining the
+Required effective `CALIBRATION_RESULT` snapshot.
+
+ALIGN_START retains immediate parameter/state/capability checks and existing ACK
+mapping; the full Alignment Process runs periodically in FlightTask. Calibration
+solve work also stays in FlightTask, and origin reset returns BUSY without waiting
+in Telemetry/Serial. Task stacks are checked with real Release/Debug `.su` and ELF
+call graphs using `make CONFIG=Release stack-report` and `make CONFIG=Debug
+stack-report`; the JSON report records configured bytes, estimates and margins.
+Overflow diagnostics retain stable task identity, state and valid cached HWM with
+no heap/I/O or unsafe TCB/name traversal; fail-stop protections remain enabled.
+
+AIR M0, Maintenance 0.0, SSLOG 0.0 and `.ssdecoder` 1.1 retain their versions and
+wire/Record layouts. Continuous SS0.5 testing is still required for boot/blink
+polarity, repeated AIR/Serial calibration/alignment/reset commands, all task HWMs,
+MSP/interrupt nesting, source locks and effective calibration log snapshots.

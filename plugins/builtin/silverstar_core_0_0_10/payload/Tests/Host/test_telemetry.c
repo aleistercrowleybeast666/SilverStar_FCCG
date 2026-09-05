@@ -850,7 +850,8 @@ static uint8_t Test_InitialCapabilitySend(void)
     TEST_CHECK(frame->length == AIR_CAPABILITY_LEN);
     TEST_CHECK(frame->data[2] == AIR_PROFILE_COMPACT_V0);
     TEST_CHECK(frame->data[3] == AIR_COMMAND_POLICY_PREFLIGHT_ONLY);
-    TEST_CHECK(frame->data[4] == AIR_CALIBRATION_MODE_MASK_ALL);
+    TEST_CHECK(frame->data[4] == (SYSTEM_CALIBRATION_CAPABILITY_NONE |
+        SYSTEM_CALIBRATION_BUILD_PROCEDURE_MASK));
     TEST_CHECK(frame->data[6] == AIR_ACCEL_FULL_SCALE_G);
     TEST_CHECK(frame->data[7] == 0xD0U && frame->data[8] == 0x07U);
     return frame->data[1];

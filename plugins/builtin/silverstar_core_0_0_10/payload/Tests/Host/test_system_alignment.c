@@ -749,9 +749,9 @@ int main(void)
     TEST_CHECK(SystemCalibration_Reset() == SYSTEM_DEVICE_OK);
     TEST_CHECK(SystemCalibration_Start(SYSTEM_CALIBRATION_MODE_NONE) ==
                SYSTEM_DEVICE_OK);
-    TEST_CHECK(SystemAlignment_Start() == SYSTEM_DEVICE_OK);
+    TEST_CHECK(SystemAlignment_Start() == SYSTEM_DEVICE_UNSUPPORTED);
     TEST_CHECK(SystemAlignment_StatusGet(&status) == SYSTEM_DEVICE_OK);
-    TEST_CHECK(status.state == SYSTEM_ALIGNMENT_STATE_FAILED);
+    TEST_CHECK(status.state == SYSTEM_ALIGNMENT_STATE_IDLE);
     TEST_CHECK(status.ready == 0U);
     TEST_CHECK(status.component[SYSTEM_ALIGNMENT_SOURCE_BARO_ORIGIN].state ==
         SYSTEM_ALIGNMENT_COMPONENT_DISABLED);

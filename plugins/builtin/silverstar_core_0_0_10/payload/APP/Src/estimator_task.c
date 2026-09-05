@@ -2815,16 +2815,14 @@ SystemDeviceResult EstimatorTask_OriginsReset(void)
         return SYSTEM_DEVICE_BAD_STATE;
     }
     primask = EstimatorTask_IrqLock();
-    s_estimator.origin_collection_frozen = 1U;
-    EstimatorTask_IrqUnlock(primask);
-    if (Estimator_OriginCollectionWait() != SYSTEM_DEVICE_OK)
+    if (s_origin_collection_busy != 0U)
     {
-        primask = EstimatorTask_IrqLock();
-        s_estimator.origin_collection_frozen = 0U;
         EstimatorTask_IrqUnlock(primask);
-        return SYSTEM_DEVICE_TIMEOUT;
+        return SYSTEM_DEVICE_BUSY;
     }
-    primask = EstimatorTask_IrqLock();
+    /* Command callers must not wait on the estimator task. The short reset
+     * and idle check are atomic with respect to origin collection. */
+    s_estimator.origin_collection_frozen = 1U;
     Estimator_OriginWindowReset();
     EstimatorTask_IrqUnlock(primask);
     return SYSTEM_DEVICE_OK;

@@ -365,6 +365,16 @@ static void SystemCalibration_WindowComplete(void)
     }
 }
 
+static void SystemCalibration_NoneReadySet(void)
+{
+    s_status.start_sequence++;
+    s_status.mode = SYSTEM_CALIBRATION_MODE_NONE;
+    SystemCalibration_IdentitySet(SYSTEM_CALIBRATION_MODE_NONE, 1U);
+    SystemCalibration_DiagnosticSet(SYSTEM_CALIBRATION_FACE_NONE,
+        SYSTEM_CALIBRATION_WAIT_NONE);
+    SystemCalibration_StateSet(SYSTEM_CALIBRATION_STATE_READY);
+}
+
 void SystemCalibration_Init(void)
 {
     uint32_t primask = SystemCalibration_IrqLock();
@@ -377,6 +387,12 @@ void SystemCalibration_Init(void)
     s_latest_sample_valid = 0U;
     s_action_active = 0U;
     SystemCalibration_StatusReset();
+    if (SYSTEM_CALIBRATION_BUILD_PROCEDURE_MASK == 0U)
+    {
+        /* Identity needs no sample or source lock during pre-scheduler boot.
+         * ALIGN_START still selects and locks the physical IMU before use. */
+        SystemCalibration_NoneReadySet();
+    }
     SystemCalibration_IrqUnlock(primask);
 }
 
@@ -667,6 +683,22 @@ static SystemDeviceResult SystemCalibration_FaceCorrectionInvalidate(
     return SYSTEM_DEVICE_OK;
 }
 
+static SystemDeviceResult SystemCalibration_ModeValidate(SystemCalibrationMode mode)
+{
+    if ((uint32_t)mode > (uint32_t)SYSTEM_CALIBRATION_MODE_SIX_FACE)
+    {
+        return SYSTEM_DEVICE_INVALID_ARGUMENT;
+    }
+    if (((SYSTEM_CALIBRATION_CAPABILITY_NONE |
+          SYSTEM_CALIBRATION_BUILD_PROCEDURE_MASK) &
+         (1UL << (uint32_t)mode)) == 0U)
+    {
+        /* Reject before locking a source or invalidating either subsystem. */
+        return SYSTEM_DEVICE_UNSUPPORTED;
+    }
+    return SYSTEM_DEVICE_OK;
+}
+
 SystemDeviceResult SystemCalibration_Start(SystemCalibrationMode mode)
 {
     SystemDeviceResult invalidate_result;
@@ -679,10 +711,8 @@ SystemDeviceResult SystemCalibration_Start(SystemCalibrationMode mode)
     }
     SILVERSTAR_ASSERT_OBJECT(&s_status, SystemCalibrationStatus,
         SILVERSTAR_ASSERT_MODULE_SYSTEM);
-    if (mode > SYSTEM_CALIBRATION_MODE_SIX_FACE)
-    {
-        return SYSTEM_DEVICE_INVALID_ARGUMENT;
-    }
+    selector_result = SystemCalibration_ModeValidate(mode);
+    if (selector_result != SYSTEM_DEVICE_OK) { return selector_result; }
     selector_result = SystemSourceSelector_ImuSelectAndLock();
     if (selector_result != SYSTEM_DEVICE_OK)
     {
@@ -838,6 +868,10 @@ SystemDeviceResult SystemCalibration_Reset(void)
     s_sampling_active = 0U;
     s_compute_pending = 0U;
     SystemCalibration_StatusReset();
+    if (SYSTEM_CALIBRATION_BUILD_PROCEDURE_MASK == 0U)
+    {
+        SystemCalibration_NoneReadySet();
+    }
     SystemCalibration_IrqUnlock(primask);
     SystemCalibration_ActionEnd();
     return SYSTEM_DEVICE_OK;

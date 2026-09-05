@@ -1,5 +1,23 @@
 # SilverStar Flight Controller Code Generator
 
+## Runtime safety repair — 2026-09-05
+
+Production App initialization now initializes the System Indicator before any task, preserving
+SS0.5 PA1 active-low mapping. Calibration capability comes from the build: empty, OneFace,
+SixFace and both advertise `0x01`, `0x03`, `0x05` and `0x07`. The central command gate rejects
+unsupported procedures without invalidating state. Empty builds boot and reset to NONE identity
+READY, retaining Required `CALIBRATION_RESULT` logging. ALIGN_START performs immediate validation
+and initialization; FlightTask owns the full periodic Alignment Process.
+
+Generated Make emits `.su` files. Run `mingw32-make CONFIG=Release stack-report` and the Debug
+equivalent to check all static tasks against the real ELF. The fault record preserves task identity,
+lifecycle state and valid cached high-water marks. AIR M0, Maintenance/SSLOG 0.0 and `.ssdecoder`
+1.1 have no wire/layout breaking change. See [validation](VALIDATION.md) and the builtin
+[runtime contract](plugins/builtin/silverstar_core_0_0_10/docs/RUNTIME_SAFETY.md).
+Continuous SS0.5 hardware testing is still required. Existing project-owned sources are preserved
+by normal Apply; use a fresh output directory or deliberately port the listed source repairs into
+an existing generated project.
+
 SilverStar_FCCG (FCCG) is the central configuration, assembly, interface-freeze, and version authority for the SilverStar platform. It is a PySide6 flight-controller configurator, declarative component manager, safe project assembler, thin glue generator, STM32 hardware-import front end, and development-environment generator.
 
 The FCCG application, new-project platform identity, generated firmware, embedded Core, and official SilverStar builtin release train are frozen at **0.0.10**. Protocol and upstream identities remain independent: AIR stays M0, Serial Maintenance and Flight Log stay 0.0, `.ssdecoder` and project semantics stay 1.1, FreeRTOS stays 11.3.0, and SS0.5/STM32F407VET6 retain their hardware identities. The current internal software release candidate validates the real STM32F407VET6 + SS0.5 combination with JY901B, NEO-M9N, E28-2G4M12SX/SX1281, and the selected Alignment/INS/KF6/Landing components. The 36 builtin packages retain read-only provenance from reference commit `cc0b377ded690556d037a412a55f87fe334c42d0` (`完善同能力多实例与日志配置契约`) while clearly identifying FCCG-owned overlays. This is a **Software Release Candidate / Pre-Hardware-Validation** milestone, not a public release or a claim of electrical, flight, flash, or alternate-MCU validation.

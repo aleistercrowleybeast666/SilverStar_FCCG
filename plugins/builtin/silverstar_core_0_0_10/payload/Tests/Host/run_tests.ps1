@@ -482,7 +482,9 @@ Invoke-HostTest -Name 'alignment_strategy_hardware_quat9' `
         "$repoRoot\Algorithm\Alignment\HardwareQuat9Axis\Src\alignment_strategy_binding.c"
     ))
 
-Invoke-HostTest -Name 'system_alignment' -Sources @(
+Invoke-HostTest -Name 'system_alignment' -ExtraCompilerArgs @(
+    '-DSYSTEM_CALIBRATION_BUILD_PROCEDURE_MASK=6U'
+) -Sources @(
     "$repoRoot\Tests\Host\test_system_alignment.c",
     "$repoRoot\Tests\Host\Fixtures\source_selector_lock_stub.c",
     $hostPlatformMock,
@@ -522,7 +524,8 @@ $calibrationSources = @(
     "$repoRoot\Algorithm\Calibration\Src\imu_six_face_calibration.c"
 )
 Invoke-HostTest -Name 'system_calibration_default' -ExtraCompilerArgs @(
-    '-DTEST_EXPECT_DEFAULT_Y_POSITIVE=1'
+    '-DTEST_EXPECT_DEFAULT_Y_POSITIVE=1',
+    '-DSYSTEM_CALIBRATION_BUILD_PROCEDURE_MASK=6U'
 ) -Sources $calibrationSources
 foreach ($direction in @(
     'SYSTEM_AXIS_DIRECTION_X_POSITIVE',
@@ -532,8 +535,66 @@ foreach ($direction in @(
     'SYSTEM_AXIS_DIRECTION_Z_POSITIVE',
     'SYSTEM_AXIS_DIRECTION_Z_NEGATIVE')) {
     Invoke-HostTest -Name ("system_calibration_" + $direction.ToLower()) `
-        -ExtraCompilerArgs @("-DSYSTEM_IMU_STARTUP_GRAVITY_DIRECTION=$direction") `
+        -ExtraCompilerArgs @("-DSYSTEM_IMU_STARTUP_GRAVITY_DIRECTION=$direction",
+            '-DSYSTEM_CALIBRATION_BUILD_PROCEDURE_MASK=6U') `
         -Sources $calibrationSources
+}
+
+Invoke-HostTest -Name 'runtime_commands' -ExtraCompilerArgs @(
+    '-DSYSTEM_CALIBRATION_BUILD_PROCEDURE_MASK=0U',
+    '-DSILVERSTAR_PROTOCOL_LOGGING_ENABLED=0U'
+) -Sources @(
+    "$repoRoot\Tests\Host\test_runtime_commands.c",
+    "$repoRoot\Common\Src\common_format.c",
+    "$repoRoot\APP\Src\telemetry_task.c",
+    "$repoRoot\Modules\Src\telemetry_service.c",
+    "$repoRoot\System\Alignment\Src\system_alignment.c",
+    "$repoRoot\System\Alignment\Src\system_alignment_source.c",
+    "$repoRoot\System\Calibration\Src\system_calibration.c",
+    "$repoRoot\System\Calibration\Src\system_calibration_correction.c",
+    "$repoRoot\Algorithm\Calibration\Src\imu_six_face_calibration.c",
+    "$repoRoot\Protocol\Src\air_protocol.c"
+)
+Invoke-HostTest -Name 'runtime_startup' -ExtraCompilerArgs @(
+    '-DSYSTEM_CALIBRATION_BUILD_PROCEDURE_MASK=0U'
+) -Sources @(
+    "$repoRoot\Tests\Host\test_runtime_startup.c",
+    "$repoRoot\APP\Src\app_tasks.c",
+    "$repoRoot\System\Calibration\Src\system_calibration.c",
+    "$repoRoot\System\Calibration\Src\system_calibration_correction.c",
+    "$repoRoot\System\Indicator\Src\system_indicator.c",
+    "$repoRoot\FlightLogic\Indicator\GpioStatus\Src\indicator_service.c",
+    "$repoRoot\Algorithm\Calibration\Src\imu_six_face_calibration.c"
+)
+Invoke-HostTest -Name 'fault_hook' -ExtraCompilerArgs @(
+    '-DSYSTEM_CALIBRATION_BUILD_PROCEDURE_MASK=0U'
+) -Sources @(
+    "$repoRoot\Tests\Host\test_fault_hook.c",
+    "$repoRoot\APP\Src\app_tasks.c",
+    "$repoRoot\System\Calibration\Src\system_calibration.c",
+    "$repoRoot\System\Calibration\Src\system_calibration_correction.c",
+    "$repoRoot\System\Indicator\Src\system_indicator.c",
+    "$repoRoot\FlightLogic\Indicator\GpioStatus\Src\indicator_service.c",
+    "$repoRoot\Algorithm\Calibration\Src\imu_six_face_calibration.c"
+)
+foreach ($mask in @(0, 2, 4, 6)) {
+    Invoke-HostTest -Name "calibration_build_gate_$mask" -ExtraCompilerArgs @(
+        "-DSYSTEM_CALIBRATION_BUILD_PROCEDURE_MASK=$mask"
+    ) -Sources @(
+        "$repoRoot\Tests\Host\test_calibration_build_gate.c",
+        "$repoRoot\System\Calibration\Src\system_calibration.c",
+        "$repoRoot\System\Calibration\Src\system_calibration_correction.c",
+        "$repoRoot\Algorithm\Calibration\Src\imu_six_face_calibration.c",
+        "$repoRoot\Protocol\Src\air_protocol.c"
+    )
+    Invoke-HostTest -Name "telemetry_build_mask_$mask" -ExtraCompilerArgs @(
+        "-DSYSTEM_CALIBRATION_BUILD_PROCEDURE_MASK=$mask"
+    ) -Sources @(
+        "$repoRoot\Tests\Host\test_telemetry.c",
+        "$repoRoot\Modules\Src\telemetry_service.c",
+        "$repoRoot\System\Calibration\Src\system_calibration_correction.c",
+        "$repoRoot\Protocol\Src\air_protocol.c"
+    )
 }
 
 $capabilitySource = "$repoRoot\Tests\Host\test_build_capability_contract.c"
