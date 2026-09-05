@@ -20,6 +20,7 @@ from silverstar_fccg.generator.log_decoder_profile import (
 from silverstar_fccg.generator.source_graph import SourceGraph
 from silverstar_fccg.generator.hardware_preparation import (
     HardwarePreparationMetadata_Render,
+    HardwareResourceBindingFingerprint_Get,
 )
 from silverstar_fccg.plugins.catalog import PluginCatalog
 from silverstar_fccg.plugins.manifest import PluginManifest
@@ -43,6 +44,7 @@ from silverstar_fccg.project.logging import (
 from silverstar_fccg.project.resources import (
     BoardResourceProvisions_Get,
     ResourceAssignments_Resolve,
+    VERIFIED_BOARD_BINDING_ORIGIN,
 )
 from silverstar_fccg.project.protocols import ProtocolResolution_Resolve
 from silverstar_fccg.project.record_catalog import (
@@ -960,6 +962,9 @@ def _PlatformResources_Render(model: ProjectModel, catalog: PluginCatalog) -> st
         collections = _BoardPlatformResources_Get(
             board, active_resource_ids
         )
+        _BoardPlatformResourceClosure_Validate(
+            board, resolution.assignments, collections, contract.resource_bindings
+        )
     raw_capacities = manifest.metadata.get("resource_capacities", {})
     if not isinstance(raw_capacities, dict):
         raise ValueError("Platform resource_capacities must be an object")
@@ -972,7 +977,7 @@ def _PlatformResources_Render(model: ProjectModel, catalog: PluginCatalog) -> st
                 f"Platform resource capacity is invalid: {collection}"
             )
         for fallback_index, entry in enumerate(entries):
-            logical_index = entry.get("logical_index", fallback_index)
+            logical_index = _PlatformLogicalIndex_Get(entry, fallback_index)
             if (
                 not isinstance(logical_index, int)
                 or isinstance(logical_index, bool)
@@ -1014,13 +1019,92 @@ def _CIdentifier_Require(value: Any, field_name: str) -> str:
     return value
 
 
+def _PlatformLogicalIndex_Get(entry: dict[str, Any], fallback_index: int) -> Any:
+    if entry.get("binding_origin") == VERIFIED_BOARD_BINDING_ORIGIN:
+        return entry.get("fixed_logical_index")
+    return entry.get("logical_index", fallback_index)
+
+
+def _PlatformEntryResolvedSymbol_Get(entry: dict[str, Any]) -> str:
+    port = entry.get("port")
+    pin = entry.get("pin")
+    if isinstance(port, str) and port and isinstance(pin, str) and pin:
+        return f"{port}/{pin}"
+    handle = entry.get("handle")
+    channel = entry.get("channel_token")
+    if isinstance(handle, str) and handle:
+        return (
+            f"{handle}/{channel}"
+            if isinstance(channel, str) and channel
+            else handle
+        )
+    return str(entry.get("physical_alias", "<unresolved>"))
+
+
+def _BoardPlatformResourceClosure_Validate(
+    board: PluginManifest,
+    assignments: tuple[Any, ...],
+    collections: dict[str, list[dict[str, Any]]],
+    bindings: dict[str, Any],
+) -> None:
+    if board.board is None or not board.board.verified:
+        return
+    entries_by_id: dict[str, dict[str, Any]] = {}
+    for entries in collections.values():
+        for entry in entries:
+            resource_id = entry.get("id")
+            if not isinstance(resource_id, str) or not resource_id:
+                continue
+            if resource_id in entries_by_id:
+                raise ValueError(
+                    "Platform Resource Closure Check failed: "
+                    f"duplicate logical ID {resource_id}, Board plugin "
+                    f"{board.component_id}"
+                )
+            entries_by_id[resource_id] = entry
+    binding_kinds = set(bindings)
+    for assignment in assignments:
+        provision = assignment.provision
+        metadata = provision.metadata
+        if metadata.get("binding_origin") != VERIFIED_BOARD_BINDING_ORIGIN:
+            continue
+        platform_kind = (
+            "gpio" if provision.kind.startswith("gpio_") else provision.kind
+        )
+        if platform_kind not in binding_kinds:
+            continue
+        logical_id = provision.resource_id
+        expected_alias = str(metadata.get("physical_alias", ""))
+        entry = entries_by_id.get(logical_id)
+        actual_symbol = (
+            _PlatformEntryResolvedSymbol_Get(entry)
+            if entry is not None
+            else "<missing table entry>"
+        )
+        expected_symbol = _PlatformEntryResolvedSymbol_Get(metadata)
+        if (
+            entry is None
+            or entry.get("c_id") != logical_id
+            or entry.get("physical_alias") != expected_alias
+            or actual_symbol != expected_symbol
+        ):
+            raise ValueError(
+                "Platform Resource Closure Check failed: "
+                f"logical ID {logical_id}, expected alias {expected_alias}, "
+                f"actual symbol {actual_symbol}, Board plugin "
+                f"{board.component_id}"
+            )
+
+
 def _PlatformBinding_Render(binding, entries: list[dict[str, Any]]) -> str:
     values: list[str] = []
     valid_values: list[str] = []
     declarations: list[str] = []
     for entry in entries:
         logical_index = entry.get("logical_index")
-        if isinstance(logical_index, int) and 0 <= logical_index <= 0xFFFF:
+        if entry.get("binding_origin") == VERIFIED_BOARD_BINDING_ORIGIN:
+            designator = _CIdentifier_Require(entry.get("c_id"), "c_id")
+        elif isinstance(logical_index, int) and 0 <= logical_index <= 0xFFFF:
             designator = f"{logical_index}U"
         else:
             designator = _CIdentifier_Require(entry.get("c_id"), "c_id")
@@ -1157,9 +1241,15 @@ def _CustomPlatformResources_Get(
         ):
             continue
         if destination is not None and isinstance(metadata.get("handle"), str):
-            platform[destination].append({"id": resource.resource_id, **metadata})
+            entry = {"id": resource.resource_id, **metadata}
+            entry.pop("binding_origin", None)
+            entry.pop("fixed_logical_index", None)
+            platform[destination].append(entry)
         elif resource.kind.startswith("gpio_") and isinstance(metadata.get("port"), str):
-            platform["gpios"].append({"id": resource.resource_id, **metadata})
+            entry = {"id": resource.resource_id, **metadata}
+            entry.pop("binding_origin", None)
+            entry.pop("fixed_logical_index", None)
+            platform["gpios"].append(entry)
     for values in platform.values():
         values.sort(key=lambda entry: int(entry.get("logical_index", 0)))
     return platform
@@ -1231,7 +1321,12 @@ def _BoardPlatformResources_Get(
                 {"id": provision.resource_id, **metadata}
             )
     for values in platform.values():
-        values.sort(key=lambda entry: str(entry.get("c_id", "")))
+        values.sort(
+            key=lambda entry: (
+                int(entry.get("fixed_logical_index", 0)),
+                str(entry.get("c_id", "")),
+            )
+        )
     return platform
 
 
@@ -3109,6 +3204,8 @@ def _Configuration_Render(model: ProjectModel, catalog: PluginCatalog, graph: So
             f"- CubeMX version: `{model.hardware.cubemx_version}`",
             f"- STM32Cube firmware package: `{model.hardware.firmware_package}`",
             f"- HAL/CMSIS source policy: `{model.hardware.hal_cmsis_source_policy}`",
+            "- Resource binding fingerprint: "
+            f"`{HardwareResourceBindingFingerprint_Get(model, catalog)}`",
         )
     )
     if model.hardware.mode == "custom":

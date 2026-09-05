@@ -1,13 +1,48 @@
 # 当前进度
 
-日期：2026-09-01
+日期：2026-09-02
 
 状态：**SilverStar 0.0.10 Software Release Candidate / Pre-Hardware-Validation**。
-本轮完成同型号多实例与最小故障切换基础，没有创建Release或Tag、没有推送，也没有修改
-外部参考固件或SilverStar_FLP。当前`main`基准HEAD为
-`f44f49e7e7163e4260a186d409fd1cdaa6f1ec1b`；本轮变更仍在工作区中。
+本轮完成SS0.5已验证板卡固定资源映射修复，没有创建Release或Tag、没有提交或推送，也
+没有修改外部参考固件或SilverStar_FLP。当前`main`基准HEAD为
+`533b4aa091d37bc6f6980a27f470e053fcbd49f5`；本轮变更仍在工作区中。
 
 ## 本轮完成
+
+- 修复了已验证Board资源被CubeMX inventory扫描顺序覆盖的问题。SS0.5现在只从Board插件
+  `connections.json`取得固定logical ID、`c_id`、索引和用途；`.ioc`与生成符号只负责解析、
+  交叉验证物理alias，不再决定逻辑序号。
+- SS0.5 GPIO固定映射已验证为：0 `RADIO_NSS`、1 `RADIO_RST`、2 `RADIO_BUSY`、
+  3 `RADIO_DIO1`、4 `P_CONTROL1`、5 `P_CONTROL2`、6 `IMU_CAL_LED`、7 `GNSS_RST`、
+  8 `GNSS_TIMEPULSE`。UART/SPI/ADC/TIME同样使用Board声明的稳定逻辑ID。
+- 增加严格Platform Resource Closure Check：拒绝重复JSON key、重复固定物理alias、缺失alias、
+  resource kind或生成符号漂移，以及Requirement→Assignment→Board logical ID→physical alias→
+  generated symbol→最终C表不闭合；错误会报告逻辑ID、期望alias、实际符号和Board插件来源。
+- 自定义CubeMX硬件保持原有manual/imported `logical_index`语义，不套用SS0.5固定映射。
+- resource-binding fingerprint覆盖Board ID/版本/manifest hash、logical ID、physical alias、生成
+  符号和renderer contract，并写入hardware-preparation与ownership元数据；变化会正确使工程
+  进入Dirty/stale，而展示性provenance仍不参与generation fingerprint。
+
+## 本轮实际验收摘要
+
+- `python -m compileall -q src main.py tools`：通过。
+- 完整`pytest`：298 passed in 577.04s（0:09:37）；固定资源focused suite为9 passed，最终组合
+  mapping/lifecycle slice为15 passed。
+- 新鲜SS0.5工程首轮生成518个文件，Source Graph为138个C源文件+1个ASM；二次生成added 0、
+  modified 0、preserved 485，生成、重载和二次应用后均为Ready。
+- `.ssdecoder`为103122 bytes，SHA-256
+  `df885c2b48a62baa2cac15fb780797c1e90895d913d26a9ea2c462f701f9d657`；resource-binding
+  fingerprint为`b8af03e219b3412f1f7d42331a954bb1f7533e092e474dddcd8e8af80343991d`。
+- Release与Debug均通过：Release `text/data/bss=259408/1072/119064`，Debug为
+  `275656/1072/119088`。
+- Host Tests：56个可执行文件、9123项检查、0失败、8个compile-pass和16个预期拒绝；
+  Architecture 255/255；Power of Ten 5895项；GCC `-fanalyzer`与Artifact Check均通过。
+- Release产物：FLASH 260480/524288，main SRAM 77264/131072，CCMRAM 42872/65536，heap为0。
+
+本轮没有改变AIR M0 wire、校准、GSHC、FLP、日志容器/decoder schema或多实例语义。真实GPIO
+电气、I²C/PWM电气、烧录、HIL、第二硬件平台和飞行验证仍未完成。
+
+## 上一轮完成：同型号多实例与最小故障切换
 
 - 官方JY901B、NEO-M9N、SX1281插件各支持最多4个同型号实例；GUI可新增/删除实例，稳定
   Device Instance顺序形成默认备用顺序，显式Canonical Source/Source Override仍决定主源。
@@ -21,7 +56,7 @@
 - Source-change继续复用现有EVENT Record，仅增加可恢复的old/new/reason语义；AIR M0、维护
   0.0、SSLOG 0.0、Record ID/layout、`.ssdecoder`/Project Semantics 1.1均未升级。
 
-## 本轮实际验收摘要
+## 上一轮实际验收摘要
 
 - `python -m pytest -q`：289 passed in 524.38s（0:08:44）。
 - `python -m compileall -q src main.py tools`：通过。

@@ -47,6 +47,12 @@ environment, or any other repository. Project-local settings and logs belong bel
 - For STM32 Boards, the bundled/imported `.ioc` is the physical truth. Board manifests retain
   semantic aliases, legal choices, verification state, services, and provenance rather than a
   second physical-resource database.
+- For a verified Board, `connections.json` is the sole logical-ID-to-physical-alias authority.
+  CubeMX inventory order and its derived `logical_index` may resolve and validate aliases, but may
+  never choose generated Platform table designators. Generation must close every selected binding
+  through Board logical ID → fixed alias → snapshot symbol → generated table entry, and mapping or
+  snapshot drift must invalidate the resource-binding fingerprint. Custom CubeMX projects retain
+  their existing manual assignment and inventory-index semantics.
 - GUI widgets call application/domain services; they do not copy files, parse plugin archives,
   modify build files, or run toolchains directly.
 - All copy, extraction, replacement, and deletion operations pass through the workspace/path

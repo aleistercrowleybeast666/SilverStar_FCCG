@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased — verified Board fixed-resource mapping repair
+
+- Fixed generated `platform_resources.c` for verified Boards so the Board's fixed `c_id` from
+  `connections.json`, rather than CubeMX inventory scan order, selects every Platform table slot.
+  SS0.5 now deterministically renders SX1281 GPIOs at 0–3, launch/parachute outputs at 4/5, the
+  system indicator at 6, and GNSS reset/timepulse at 7/8.
+- Added strict duplicate/missing/drift checks, generated-symbol resolution, a selected-resource
+  closure check, and a deterministic Board/alias/symbol/manifest/renderer binding fingerprint used
+  by hardware-preparation and ownership readiness metadata.
+- Preserved custom CubeMX manual assignments and inventory `logical_index` rendering. AIR M0,
+  calibration, multi-instance/failover, `.ssdecoder`/project-semantics 1.1, SSLOG 0.0, external
+  firmware, and SilverStar_FLP were not changed.
+
 ## Unreleased — bounded same-model multi-instance foundation
 
 - Added context-safe repetition (maximum four per class/plugin) for JY901B, NEO-M9N, and SX1281,

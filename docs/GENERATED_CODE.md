@@ -24,7 +24,7 @@ Generated/
 
 - `project_resources.h` binds semantic Device/Board requirements to resolved typed Platform IDs. For SS0.5 this includes logical input-voltage, launch-ignition, and parachute-pyro Device requirements mapped to ADC, P_CONTROL1, and P_CONTROL2; it never presents those physical IDs as user Devices.
 - `project_storage_binding.h` binds the selected storage Device to the unique CubeMX FatFs object, path, and disk-driver symbols after SDIO/DMA/IRQ/App/Target/version checks. A non-storage Board cannot satisfy the logging sink merely by containing a codec.
-- `platform_resources.c` binds those logical IDs to Board or imported hardware handles/GPIO metadata using the matched MCU/Platform manifest's header/table/getter/struct contract. Python validates tokens but does not contain F4 symbols.
+- `platform_resources.c` binds those logical IDs to Board or imported hardware handles/GPIO metadata using the matched MCU/Platform manifest's header/table/getter/struct contract. For a verified Board its array designators come only from fixed Board `c_id` values; CubeMX inventory order cannot renumber them. Custom CubeMX retains imported numeric indices. Python validates tokens but does not contain F4 pin values or MCU-specific table code.
 - `project_capability_routes.*` is a static, heap-free table of capability/provider-instance/provider-plugin/consumer/purpose hashes. A sole provider is marked automatic; unresolved ambiguity prevents generation.
 - `project_flight_config.h` emits selected software-Indicator enable symbols, stable telemetry/maintenance/logging 0/1 macros, the 8-byte logging compatibility tag, plus the deployment trigger mask and validated thresholds. Time values such as Delay are scaled from manifest/UI seconds to a bounded `uint32` millisecond constant.
 - `project_log_config.*` contains only logging enable/policy/decimation/period selection.
@@ -137,6 +137,14 @@ HardwareGenerated/
 The snapshot is copied, never referenced in place. It is classified as a controlled vendor/tool-generated Power-of-Ten deviation. SilverStar-written adapters, services, Devices, Algorithms, and generated glue remain strict.
 
 The `.ioc` inside a Board or imported snapshot is the physical source of truth. FCCG's persisted `HardwareInventory` records MCU/package/core, pins/AF/GPIO/EXTI, UART/SPI/I²C/ADC/Timer/PWM/Classic-CAN/FDCAN, DMA, NVIC and useful clocks. `connections.json` stores only semantic alias-to-physical-resource bindings; it is not a duplicate pin/peripheral database. Inventory presence alone is insufficient: an assigned resource must also be supported by the matched Platform contract, and only then does Source Graph add its conditional backend/provider sources.
+
+For a verified Board, semantic ownership is strict: `connections.json` selects the logical table ID,
+while the snapshot only resolves the declared alias to actual handle/port/pin/channel symbols. Before
+rendering, Platform Resource Closure Check verifies every selected chain through the generated table.
+SS0.5 emits `RADIO_NSS/RST/BUSY/DIO1` at `PLATFORM_GPIO_0..3`, P_CONTROL1/2 at 4/5,
+IMU_CAL_LED at 6, and GNSS_RST/TIMEPULSE at 7/8, including matching validity-table entries. The
+generated `.fccg` metadata records a binding fingerprint so mapping, snapshot, manifest, or renderer
+drift cannot remain Ready silently.
 
 Ordinary Save preserves this tree. Importing a different snapshot produces a dangerous `REPLACE_TREE` plan and requires explicit confirmation, including when the current tree was manually edited. The generated README warns that CubeMX regeneration may overwrite the tree and that clocks, DMA, interrupts, GPIO electrical levels, and power must be revalidated.
 

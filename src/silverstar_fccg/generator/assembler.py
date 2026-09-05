@@ -21,6 +21,9 @@ from silverstar_fccg.generator.eide_ownership import (
     EideOwnedFields_Normalize,
     EideOwnedFingerprint_Get,
 )
+from silverstar_fccg.generator.hardware_preparation import (
+    HardwareResourceBindingFingerprint_Get,
+)
 from silverstar_fccg.project.generation_state import (
     ProjectGenerationFingerprint_Get,
 )
@@ -430,6 +433,9 @@ class ProjectAssembler:
                     model.hardware.snapshot_id
                     if model.hardware.mode == "custom"
                     else ""
+                ),
+                "resource_binding_fingerprint": (
+                    HardwareResourceBindingFingerprint_Get(model, self.catalog)
                 ),
                 "files": hardware_hashes,
             },

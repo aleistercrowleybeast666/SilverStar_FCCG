@@ -133,6 +133,17 @@ An MCU/Platform plugin describes chip-family capabilities, Platform backend, one
 
 A Board plugin describes one PCB profile: compatible MCUs, an immutable `.ioc`/vendor snapshot, semantic aliases and connections, legal alternatives, fixed/reserved roles, provenance, verification state, and `source_kind` (`verified_builtin`, `manual_import`, or `third_party`). Physical pins, peripheral settings, DMA, IRQ, and clocks are parsed from `.ioc`; they are not duplicated in manifest metadata. A Board does not own generic storage, log-sink, mission-action, indicator, or voltage-monitor implementations. The same MCU plugin is reused unchanged by multiple Boards.
 
+For `verified = true`, this split is directional rather than a merge of two competing numbering
+systems. `connections.json` owns each `PLATFORM_UART_*`, `PLATFORM_SPI_*`, `PLATFORM_GPIO_*`, ADC,
+SDIO, and Time logical ID plus its fixed physical alias and purpose. The `.ioc` and generated
+headers resolve that alias to a handle or port/pin/channel and validate compatibility; their scan
+order and derived `logical_index` are retained only as diagnostics. The Platform Resource Closure
+Check requires selected requirement → assignment → Board logical ID → fixed alias → snapshot symbol
+→ generated table entry. Missing aliases, duplicate fixed aliases, symbol drift, or a changed table
+entry are fatal before generation, with no first-resource fallback. SS0.5 therefore binds radio
+GPIOs 0–3, P_CONTROL1/2 to 4/5, IMU_CAL_LED to 6, and GNSS reset/timepulse to 7/8 regardless of pin
+enumeration order.
+
 Logical Device plugins give user meaning to raw resources and explicit internal service components. The input-voltage monitor appears under Other Sensors and binds to an ADC-backed power service; launch ignition and parachute pyro appear as independently optional Power Outputs bound to P_CONTROL1/P_CONTROL2. Dependencies are one-way: a deployment Mode requires parachute output, but reconciliation never auto-adds a cancelled actuator. Removing parachute clears dependent Modes; removing launch selects external-ignition behavior and leaves START legal without a GPIO.
 
 Physical storage is an ordinary single-instance Device, not a Board capability shortcut. The
@@ -199,6 +210,13 @@ The selected DevelopmentEnvironment plugin chooses a trusted renderer. The curre
 New projects are assembled in workspace-local staging. Existing projects are validated and planned before writes. The public lifecycle is Draft/Dirty → Materializing → Ready, plus Building/Error while a long operation runs or fails. Save and every build/check entry re-plan current managed output, so an FCCG renderer upgrade cannot be hidden by hashes from an older installation.
 
 A project is Ready only when its descriptor, Make targets, selected component/Board payloads, hardware-preparation fingerprint, Generated/Target trees, ownership hashes, EIDE, VS Code tasks, and workspace exist and agree with the in-memory model. Stale comparison, embedded project digest, decoder metadata, and ownership metadata share `ProjectGenerationState_Normalize()` / `ProjectGenerationFingerprint_Get()`. The normalized state includes MCU/Board/hardware source, Devices (including Indicators), Strategies, Modes/parameters, capability overrides, protocols, logging, resource assignments, environment, and source-graph configuration. It excludes Arm GNU/Make/Host GCC paths, tool-detection cache, provenance/display-only hardware fields, manual-confirmation state, and GUI preferences. Renderer functions deep-copy before adding provenance; after a successful apply the exact descriptor written to disk is reloaded and becomes the live model, so generation immediately reaches Ready.
+
+Verified Board preparation also records a separate resource-binding fingerprint over Board
+ID/version/manifest hash, logical ID, fixed alias, resolved handle/port/pin/channel and physical pin,
+plus the renderer contract. It is stored in both hardware-preparation and ownership metadata.
+Changing `connections.json`, the snapshot/generated defines, Board manifest, or binding-renderer
+contract makes the saved project Dirty even when the user project JSON did not change. Custom
+CubeMX continues to fingerprint and render its manual assignments and imported inventory indices.
 
 New-project and Save-As publication order places `SilverStar.ssproject` last. Generate Code performs no compile or quality task. Advanced Build Firmware in FCCG, Clean, Host Tests, Architecture Check, Power of Ten, Static Analysis, and Firmware Artifact Check call `Project_EnsureBuildable`; dirty or incomplete material is saved before Make runs with the project root as explicit `cwd`.
 

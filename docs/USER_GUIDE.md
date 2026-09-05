@@ -35,6 +35,15 @@ The Board selector keeps incompatible entries identifiable and marks them in mut
 
 The page is named **Hardware Connection** because it resolves Device needs against real hardware. For an STM32 Board, FCCG reads the Board `.ioc`, inventories pins/peripherals/DMA/IRQ/clocks, validates requirement constraints, and then applies the Board's semantic `connections.json`. A fixed connection is shown as text with its physical peripheral, pins, baud, DMA and IRQ details; only genuinely selectable roles use a dropdown. **Complete Manual Assignment and Check** performs strict resolution and stores a fingerprint; changing Devices, Modes, IOC content, or assignments clears the confirmation.
 
+On an official verified Board, these fixed rows are not user-configurable and CubeMX discovery order
+does not assign their Platform numbers. `connections.json` is authoritative; the `.ioc` and generated
+headers only prove that each alias still resolves. Generation stops with a Platform Resource Closure
+Check error naming the logical ID, expected alias, actual/missing symbol, and Board plugin if the
+snapshot drifts. SS0.5's visible behavior is fixed: radio NSS/reset/busy/DIO1 use GPIO 0–3, launch
+and parachute outputs use 4/5, the System Status Indicator uses 6/IMU_CAL_LED, and GNSS reset/
+timepulse use 7/8. Re-save after a legitimate Board-plugin update to refresh the binding fingerprint.
+The following custom CubeMX flow remains manually assignable and uses its imported inventory index.
+
 ## STM32 custom hardware flow
 
 The current real custom-hardware provider is STM32CubeMX. A new project draft selects **Custom STM32 Hardware** by default, without asking the user to choose an MCU. This is a manual import workflow, so it does not show or run **Prepare Hardware Files**; Save/Build remains unavailable until a valid `.ioc` or generated CubeMX directory has been imported and its detected MCU has matched one installed Platform plugin.

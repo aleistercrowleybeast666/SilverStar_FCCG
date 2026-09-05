@@ -1,4 +1,93 @@
-# Validation — 2026-09-01 SilverStar 0.0.10 bounded multi-instance follow-up
+# Validation — 2026-09-02 SS0.5 verified Board fixed-resource mapping repair
+
+This section records validation actually performed for the verified-Board fixed-resource mapping
+repair. The result remains an internal **Software Release Candidate / Pre-Hardware-Validation**
+result. It is not a flash, electrical, HIL, dual-platform, or flight qualification.
+
+## Current commit and worktree identity
+
+- Branch: `main`
+- Base `HEAD`: `533b4aa091d37bc6f6980a27f470e053fcbd49f5`
+- Base subject: `新增IMU，GNSS，遥测的新增接口`
+- Worktree at validation time: intentionally dirty with this repair, tests, and documentation. No
+  commit, push, Release, or Tag was requested or performed.
+- External reference firmware and SilverStar_FLP remained read-only and were not built, modified,
+  formatted, committed, or pushed.
+
+## Root cause and repaired contract
+
+The verified SS0.5 Board `connections.json` mapping was merged with imported CubeMX inventory
+metadata, and the renderer then consumed the inventory `logical_index`. Inventory enumeration order
+could therefore override the Board plugin's stable ABI and place correct physical aliases into the
+wrong `PlatformGpioId` slots.
+
+For a verified Board, `connections.json` is now the sole authority for logical ID, `c_id`, fixed
+index, and purpose. The bundled `.ioc` and generated STM32 symbols only resolve and validate the
+declared physical alias. Duplicate JSON keys, duplicate fixed aliases, missing aliases, kind drift,
+symbol drift, and selected-requirement closure failures are rejected before publication. Custom
+CubeMX projects retain their existing imported/manual `logical_index` behavior and do not inherit
+the verified-Board contract.
+
+The validated SS0.5 GPIO mapping is:
+
+| Logical ID | Physical alias |
+| ---: | --- |
+| 0 | `RADIO_NSS` |
+| 1 | `RADIO_RST` |
+| 2 | `RADIO_BUSY` |
+| 3 | `RADIO_DIO1` |
+| 4 | `P_CONTROL1` |
+| 5 | `P_CONTROL2` |
+| 6 | `IMU_CAL_LED` |
+| 7 | `GNSS_RST` |
+| 8 | `GNSS_TIMEPULSE` |
+
+## Python and generation validation
+
+- `python -m compileall -q src main.py tools`: passed.
+- `python -m pytest -q --basetemp=tests/.pytest-prompt15-full`: **298 passed in 577.04 s
+  (0:09:37)**.
+- Focused fixed-resource suite: **9 passed in 9.31 s**; the final combined mapping/lifecycle slice
+  was **15 passed in 13.02 s**.
+- A broader resource/generator regression slice was **73 passed in 189.41 s**.
+- Fresh SS0.5 acceptance project: first apply added **518 files**; the second deterministic apply
+  added 0, modified 0, and preserved 485 project-owned files. Readiness was `Ready` after generate,
+  reload, and second apply.
+- Source Graph: **138 C + 1 ASM source**. Optional platform sources: none.
+- Generated decoder: **103122 bytes**, SHA-256
+  `df885c2b48a62baa2cac15fb780797c1e90895d913d26a9ea2c462f701f9d657`.
+- Resource-binding fingerprint in both hardware-preparation and ownership metadata:
+  `b8af03e219b3412f1f7d42331a954bb1f7533e092e474dddcd8e8af80343991d`.
+
+Focused tests cover the exact golden mapping, shuffled/wrong inventory indexes, verified-versus-
+custom index authority, missing-alias rejection without fallback, duplicate fixed-alias rejection,
+generated-table closure rejection, binding-fingerprint inputs, readiness invalidation, and custom
+CubeMX compatibility.
+
+## Generated-project builds and quality gates
+
+Both Arm GNU configurations returned 0 and produced ELF, MAP, HEX, and BIN artifacts:
+
+| Config | text | data | bss | text + data (FLASH) | data + bss |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Release | 259408 | 1072 | 119064 | 260480 | 120136 |
+| Debug | 275656 | 1072 | 119088 | 276728 | 120160 |
+
+- Host Tests: **56 executables, 9123 checks, 0 failures**, 8 compile-pass cases, and 16 expected
+  compile rejections.
+- Architecture Check: **255 checks, 0 failures**.
+- Power of Ten: **5895 checks** over 94 first-party C files and 2206 functions.
+- Arm GCC `-fanalyzer` Static Analysis: passed first-party analysis, dependency compilation, link,
+  size, HEX, and BIN stages; `text=259408`, `data=1072`, `bss=119064`.
+- Artifact Check: passed; ELF **2781544 bytes**, BIN/FLASH **260480 bytes**, main SRAM
+  **77264/131072**, CCMRAM **42872/65536**, heap reserved 0, runtime allocator symbols 0.
+
+This repair changes resource binding and validation only. AIR M0 wire values, maintenance and SSLOG
+containers, calibration behavior, GSHC semantics, FLP behavior, decoder schemas, and multi-instance
+semantics were not changed. Real GPIO electrical behavior, I2C/PWM electrical validation, hardware
+flashing, HIL, dual-platform testing, and flight validation remain not done.
+
+## Prior validation — 2026-09-01 bounded multi-instance follow-up
 
 This document records validation actually performed for the bounded same-model multi-instance and
 minimal failover follow-up on FCCG 0.0.10. The result remains an internal **Software Release

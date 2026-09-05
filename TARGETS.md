@@ -1,5 +1,20 @@
 # Development targets
 
+## 2026-09-02 verified Board fixed-resource mapping repair
+
+- [x] verified Board `connections.json` is the sole logical-ID mapping authority; CubeMX inventory
+  order is validation data and cannot override generated Platform table designators
+- [x] SS0.5 GPIO 0–8 golden mapping covers SX1281, launch/parachute outputs, system indicator, and
+  GNSS reset/timepulse with exact generated validity entries
+- [x] Platform Resource Closure Check rejects missing/drifted aliases and corrupted generated table
+  entries without scan-order or first-resource fallback
+- [x] deterministic resource-binding fingerprint covers Board ID/version/manifest, fixed aliases,
+  resolved handle/port/pin/channel facts, physical pin, and renderer contract; readiness detects
+  drift in hardware-preparation and ownership metadata
+- [x] custom CubeMX manual assignment and imported `logical_index` behavior remain unchanged
+- [ ] physical SS0.5 actuator/indicator/radio pin verification remains hardware qualification work;
+  this repair validates generation semantics and firmware builds, not electrical behavior
+
 ## 2026-08-31 bounded same-model multi-instance and minimal failover
 
 - [x] JY901B, NEO-M9N, and E28-2G4M12SX/SX1281 allow up to four context-safe repeated instances,

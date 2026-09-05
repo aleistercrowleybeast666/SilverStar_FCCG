@@ -10,6 +10,7 @@ from pathlib import Path
 from silverstar_fccg.core.workspace import WorkspacePolicy
 from silverstar_fccg.generator.hardware_preparation import (
     HardwarePreparationFingerprint_Get,
+    HardwareResourceBindingFingerprint_Get,
 )
 from silverstar_fccg.generator.eide_ownership import (
     EideOwnershipError,
@@ -208,12 +209,21 @@ def ProjectReadiness_Inspect(
             expected_fingerprint = HardwarePreparationFingerprint_Get(model, catalog)
             if actual_fingerprint != expected_fingerprint:
                 stale.append(".fccg/hardware-preparation.json")
+            actual_binding_fingerprint = preparation.get(
+                "resource_binding_fingerprint"
+            )
+            expected_binding_fingerprint = (
+                HardwareResourceBindingFingerprint_Get(model, catalog)
+            )
+            if actual_binding_fingerprint != expected_binding_fingerprint:
+                stale.append(".fccg/hardware-preparation.json:resource-binding")
         except (
             OSError,
             UnicodeError,
             json.JSONDecodeError,
             AttributeError,
             EideOwnershipError,
+            ValueError,
         ) as error:
             return ProjectReadiness(
                 ProjectLifecycleState.ERROR,
@@ -235,6 +245,14 @@ def ProjectReadiness_Inspect(
                 and recorded_fingerprint != expected_generation_fingerprint
             ):
                 stale.append(".fccg/ownership.json")
+            recorded_binding_fingerprint = ownership.get("hardware", {}).get(
+                "resource_binding_fingerprint"
+            )
+            expected_binding_fingerprint = (
+                HardwareResourceBindingFingerprint_Get(model, catalog)
+            )
+            if recorded_binding_fingerprint != expected_binding_fingerprint:
+                stale.append(".fccg/ownership.json:resource-binding")
             managed_hashes = ownership.get("managed_hashes")
             if isinstance(managed_hashes, dict) and managed_hashes:
                 root_policy = WorkspacePolicy(root)
@@ -276,6 +294,7 @@ def ProjectReadiness_Inspect(
             json.JSONDecodeError,
             AttributeError,
             EideOwnershipError,
+            ValueError,
         ) as error:
             return ProjectReadiness(
                 ProjectLifecycleState.ERROR,

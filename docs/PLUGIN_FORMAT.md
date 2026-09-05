@@ -77,6 +77,21 @@ on JY901B, NEO-M9N, or another vendor/model name.
 
 Declarative logical Devices may omit payload roots when an explicit internal service component owns the implementation. Board plugins own PCB facts and verified semantic mappings, not generic storage, mission-action, indicator, or voltage-monitor services. `metadata.logical_device`, `device_category`, and `independent_class_member` identify UI grouping and independent singleton members. `device_category` must match `sensor.*`, `link.*`, `storage.*`, `actuator.*`, or `indicator.*`; unknown/misspelled namespaces fail at scan/install time. `default_instance_id` restores a stable ID when the user explicitly re-enables a singleton. An internal endpoint may declare `auto_managed_protocol_category` as exactly `telemetry`, `maintenance`, or `logging`; reconciliation then adds/removes it generically with that slot and never removes a user-owned Device lacking this declaration. `auto_select_when_required` is deliberately false for the two mission-action outputs: downstream Modes may depend on an actuator, but reconciliation never overrides the user's actuator cancellation. Current actuator classes distinguish `mission_action_actuator` from the reserved future `continuous_control_actuator`.
 
+### Verified Board fixed-resource contract
+
+A verified Board must provide a CubeMX snapshot and `connections_file`. Every manifest provision has
+exactly one `connections.json` entry with a strict typed `PLATFORM_<KIND>_<index>` logical ID, a
+non-empty physical alias, `fixed: true`, and a purpose. Duplicate JSON keys, duplicate fixed aliases,
+unknown aliases, kind mismatches, missing generated handle/port/pin/channel symbols, and logical-ID
+drift are rejected. The connection is enriched with inventory compatibility facts, but inventory
+`logical_index` never replaces the Board ID. Board creation/import may derive this mapping once;
+normal generation only resolves and validates it.
+
+Unverified/manual Board exports retain selectable roles and inventory behavior. A live custom
+CubeMX project does not require `connections.json`; its user assignments and imported
+`logical_index` remain authoritative. Plugins must not claim `verified: true` merely to obtain fixed
+rendering semantics.
+
 `metadata.recordable_outputs` declares raw outputs that can be written to protocol logs and optional device-configuration reason codes for outputs that exist but are not currently returned. It is intentionally separate from Algorithm capability consumption. Protocol record policies use `requires.recordable_capabilities`; they must not infer recordability from a capability route.
 
 Algorithm/Strategy/Flight manifests declare inputs as `{ "capability": "barometer.altitude", "purpose": "measurement_update" }`. Raw/Data capabilities state only that data exists; qualified-use capabilities end in `_qualified` and state that the provider meets a concrete implementation contract. Strategies explicitly require both the raw inputs and every qualification they need. Purpose describes the consumer contract; the implementation owns lifecycle. No generic phase policy is inferred or generated.

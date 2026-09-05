@@ -112,6 +112,13 @@ CubeMX只生成F407 HAL/外设初始化。`.ioc`不管理FreeRTOS和APP任务。
 - UART DMA、NVIC、TIM1 HAL tick、SysTick和GPIO映射没有漂移；
 - USER CODE以外的必要手工修改已有说明或同步配置。
 
+SS0.5是已验证Board，因此`connections.json`而不是CubeMX资源扫描顺序拥有Platform逻辑编号。
+重新生成后必须保持：RADIO_NSS/RST/BUSY/DIO1对应GPIO 0–3，P_CONTROL1/2对应4/5，
+IMU_CAL_LED对应6，GNSS_RST/TIMEPULSE对应7/8。`.ioc`与`main.h`只负责把这些固定别名
+解析成实际handle或port/pin并进行一致性验证；不得把inventory `logical_index`重新写回
+Board逻辑编号。FCCG生成前执行Platform Resource Closure Check，任何别名、符号或表项漂移
+都必须失败，不得按首个资源或扫描序号回退。
+
 ## 7. 自动目标
 
 ```powershell

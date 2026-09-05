@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import json
+import re
+from collections import Counter
 from copy import deepcopy
 from dataclasses import dataclass
-from collections import Counter
+from pathlib import Path
 from typing import Any
 
 from silverstar_fccg.core.errors import FccgError
@@ -68,6 +70,22 @@ class ResourceRequirementOption:
     physical_details: str = ""
 
 
+VERIFIED_BOARD_BINDING_ORIGIN = "verified_board_fixed"
+
+_PLATFORM_LOGICAL_PREFIXES = {
+    "uart": "PLATFORM_UART_",
+    "spi": "PLATFORM_SPI_",
+    "adc": "PLATFORM_ADC_",
+    "i2c": "PLATFORM_I2C_",
+    "can_classic": "PLATFORM_CAN_",
+    "can_fd": "PLATFORM_FDCAN_",
+    "pwm": "PLATFORM_PWM_",
+    "timer": "PLATFORM_TIMER_",
+    "sdio": "PLATFORM_SDIO_",
+    "time": "PLATFORM_TIME_",
+}
+
+
 def ResourceRequirement_Key(component_id: str, requirement_name: str) -> str:
     return f"{component_id}:{requirement_name}"
 
@@ -102,23 +120,122 @@ def BoardHardwareInventory_Get(manifest: PluginManifest) -> HardwareInventory | 
         raise ValueError(f"Cannot read Board CubeMX inventory: {error}") from error
 
 
+def _BoardConnections_Load(path: Path) -> dict[str, Any]:
+    def _ObjectWithoutDuplicates_Get(
+        pairs: list[tuple[str, Any]],
+    ) -> dict[str, Any]:
+        value: dict[str, Any] = {}
+        for key, item in pairs:
+            if key in value:
+                raise ValueError(
+                    f"Board connections contain duplicate key: {key}"
+                )
+            value[key] = item
+        return value
+
+    try:
+        return json.loads(
+            path.read_text(encoding="utf-8"),
+            object_pairs_hook=_ObjectWithoutDuplicates_Get,
+        )
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        raise ValueError(f"Cannot read Board connections: {error}") from error
+
+
+def _PlatformLogicalId_Parse(resource_id: str, kind: str) -> int:
+    prefix = (
+        "PLATFORM_GPIO_"
+        if kind.startswith("gpio_")
+        else _PLATFORM_LOGICAL_PREFIXES.get(kind, "")
+    )
+    if not prefix:
+        raise ValueError(
+            f"Verified Board resource kind has no Platform ID contract: {kind}"
+        )
+    match = re.fullmatch(re.escape(prefix) + r"([0-9]+)", resource_id)
+    if match is None:
+        raise ValueError(
+            f"Verified Board logical resource {resource_id} must use {prefix}<index>"
+        )
+    ordinal = int(match.group(1))
+    if not kind.startswith("gpio_"):
+        if ordinal == 0:
+            raise ValueError(
+                f"Verified Board logical resource {resource_id} must start at 1"
+            )
+        ordinal -= 1
+    return ordinal
+
+
+def _BoardGeneratedIdentifiers_Get(manifest: PluginManifest) -> set[str]:
+    if manifest.board is None or not manifest.board.ioc_file:
+        return set()
+    ioc_path = manifest.package_root.joinpath(*manifest.board.ioc_file.split("/"))
+    identifiers: set[str] = set()
+    try:
+        for relative_root in (
+            "Core/Src",
+            "Core/Inc",
+            "FATFS/App",
+            "FATFS/Target",
+        ):
+            directory = ioc_path.parent.joinpath(*relative_root.split("/"))
+            if not directory.is_dir():
+                continue
+            for path in sorted(directory.glob("*")):
+                if not path.is_file() or path.suffix.casefold() not in {".c", ".h"}:
+                    continue
+                text = path.read_text(encoding="utf-8-sig")
+                identifiers.update(
+                    re.findall(r"\b[A-Za-z_][A-Za-z0-9_]*\b", text)
+                )
+    except (OSError, UnicodeError) as error:
+        raise ValueError(
+            f"Cannot validate Board generated symbols: {error}"
+        ) from error
+    return identifiers
+
+
+def ResourceProvisionResolvedSymbol_Get(provision: ResourceProvision) -> str:
+    metadata = provision.metadata
+    if isinstance(metadata.get("port"), str) and isinstance(
+        metadata.get("pin"), str
+    ):
+        return f"{metadata['port']}/{metadata['pin']}"
+    handle = metadata.get("handle")
+    channel = metadata.get("channel_token")
+    if isinstance(handle, str) and handle:
+        return (
+            f"{handle}/{channel}"
+            if isinstance(channel, str) and channel
+            else handle
+        )
+    return str(
+        metadata.get(
+            "physical_alias",
+            metadata.get("physical_resource", provision.resource_id),
+        )
+    )
+
+
 def BoardResourceProvisions_Get(
     manifest: PluginManifest,
 ) -> tuple[ResourceProvision, ...]:
     inventory = BoardHardwareInventory_Get(manifest)
-    if (
-        inventory is None
-        or manifest.board is None
-        or not manifest.board.connections_file
-    ):
+    board = manifest.board
+    if board is None:
+        return manifest.resource_provisions
+    if inventory is None or not board.connections_file:
+        if board.verified:
+            raise ValueError(
+                f"Verified Board {manifest.component_id} requires both a CubeMX "
+                "inventory and connections.json"
+            )
         return manifest.resource_provisions
     connection_path = manifest.package_root.joinpath(
-        *manifest.board.connections_file.split("/")
+        *board.connections_file.split("/")
     )
-    try:
-        data = json.loads(connection_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as error:
-        raise ValueError(f"Cannot read Board connections: {error}") from error
+    data = _BoardConnections_Load(connection_path)
     if (
         not isinstance(data, dict)
         or set(data) != {"format_version", "resources"}
@@ -126,12 +243,20 @@ def BoardResourceProvisions_Get(
         or not isinstance(data.get("resources"), dict)
     ):
         raise ValueError("Board connections.json has an invalid format")
-    physical = {
-        resource.resource_id: resource
-        for resource in inventory.HardwareResources_Get()
-    }
+    hardware_resources = inventory.HardwareResources_Get()
+    physical_counts = Counter(
+        resource.resource_id for resource in hardware_resources
+    )
+    physical = {resource.resource_id: resource for resource in hardware_resources}
     result: list[ResourceProvision] = []
     connections = data["resources"]
+    verified_identifiers = (
+        _BoardGeneratedIdentifiers_Get(manifest) if board.verified else set()
+    )
+    verified_manifest_sha256 = (
+        manifest.ManifestSha256_Get() if board.verified else ""
+    )
+    fixed_physical_owners: dict[str, str] = {}
     for provision in manifest.resource_provisions:
         entry = connections.get(provision.resource_id)
         if not isinstance(entry, dict) or set(entry) - {
@@ -147,24 +272,121 @@ def BoardResourceProvisions_Get(
             raise ValueError(
                 f"Board connection has no physical resource: {provision.resource_id}"
             )
+        fixed = entry.get("fixed", False)
+        purpose = entry.get("purpose", "")
+        if not isinstance(fixed, bool):
+            raise ValueError(
+                f"Board connection fixed flag is invalid: {provision.resource_id}"
+            )
+        if not isinstance(purpose, str):
+            raise ValueError(
+                f"Board connection purpose is invalid: {provision.resource_id}"
+            )
+        if board.verified and (not fixed or not purpose.strip()):
+            raise ValueError(
+                f"Verified Board connection {provision.resource_id} must be fixed "
+                "and declare a purpose"
+            )
+        if fixed:
+            previous = fixed_physical_owners.get(physical_id)
+            if previous is not None:
+                raise ValueError(
+                    "Board fixed connections map one physical alias more than once: "
+                    f"{physical_id} ({previous}, {provision.resource_id})"
+                )
+            fixed_physical_owners[physical_id] = provision.resource_id
+        if physical_counts.get(physical_id, 0) > 1:
+            raise ValueError(
+                f"Board connection {provision.resource_id} references ambiguous "
+                f"IOC resource {physical_id}"
+            )
         actual = physical.get(physical_id)
         if actual is None:
             raise ValueError(
-                f"Board connection {provision.resource_id} references unknown "
-                f"IOC resource {physical_id}"
+                "Platform Resource Closure Check failed: "
+                f"logical ID {provision.resource_id}, expected alias {physical_id}, "
+                f"actual symbol <missing>, Board plugin {manifest.component_id}"
             )
         if actual.kind != provision.kind:
+            actual_symbol = ResourceProvisionResolvedSymbol_Get(actual)
             raise ValueError(
-                f"Board connection {provision.resource_id} kind mismatch: "
-                f"{provision.kind} versus {actual.kind}"
+                "Platform Resource Closure Check failed: "
+                f"logical ID {provision.resource_id}, expected alias {physical_id} "
+                f"with kind {provision.kind}, actual symbol {actual_symbol} "
+                f"has kind {actual.kind}, Board plugin {manifest.component_id}"
             )
+        logical_id = str(
+            provision.metadata.get("c_id", provision.resource_id)
+        )
+        fixed_logical_index: int | None = None
+        if board.verified:
+            if logical_id != provision.resource_id:
+                raise ValueError(
+                    "Platform Resource Closure Check failed: "
+                    f"logical ID {provision.resource_id}, expected alias {physical_id}, "
+                    f"actual symbol {logical_id}, Board plugin {manifest.component_id}"
+                )
+            fixed_logical_index = _PlatformLogicalId_Parse(
+                logical_id, provision.kind
+            )
+        inventory_metadata = dict(actual.metadata)
+        inventory_c_id = inventory_metadata.get("c_id", "")
+        inventory_logical_index = inventory_metadata.get("logical_index")
+        if board.verified:
+            inventory_metadata.pop("c_id", None)
+            inventory_metadata.pop("logical_index", None)
         metadata = {
-            **actual.metadata,
+            **inventory_metadata,
             **provision.metadata,
             "physical_resource": physical_id,
-            "connection_fixed": bool(entry.get("fixed", False)),
-            "connection_purpose": str(entry.get("purpose", "")),
+            "physical_alias": physical_id,
+            "connection_fixed": fixed,
+            "connection_purpose": purpose,
         }
+        if not board.verified:
+            metadata.pop("binding_origin", None)
+            metadata.pop("fixed_logical_index", None)
+        if board.verified:
+            metadata.update(
+                {
+                    "binding_origin": VERIFIED_BOARD_BINDING_ORIGIN,
+                    "binding_board_id": manifest.component_id,
+                    "binding_board_version": manifest.version,
+                    "binding_board_manifest_sha256": verified_manifest_sha256,
+                    "logical_id": provision.resource_id,
+                    "c_id": logical_id,
+                    "fixed_logical_index": fixed_logical_index,
+                    "inventory_c_id": inventory_c_id,
+                    "inventory_logical_index": inventory_logical_index,
+                }
+            )
+            symbol_tokens = tuple(
+                token
+                for token in (
+                    metadata.get("port"),
+                    metadata.get("pin"),
+                    metadata.get("handle"),
+                    metadata.get("channel_token"),
+                )
+                if isinstance(token, str) and token
+            )
+            missing_tokens = tuple(
+                token
+                for token in symbol_tokens
+                if token not in verified_identifiers
+            )
+            if not symbol_tokens or missing_tokens:
+                actual_symbol = (
+                    "/".join(missing_tokens)
+                    if missing_tokens
+                    else "<unresolved>"
+                )
+                raise ValueError(
+                    "Platform Resource Closure Check failed: "
+                    f"logical ID {provision.resource_id}, expected alias {physical_id}, "
+                    f"actual symbol {actual_symbol}, Board plugin "
+                    f"{manifest.component_id}"
+                )
         result.append(
             ResourceProvision(
                 resource_id=provision.resource_id,
