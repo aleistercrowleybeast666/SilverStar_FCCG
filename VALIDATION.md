@@ -1,3 +1,130 @@
+# Validation — 2026-09-06 SSLOG storage integrity repair
+
+本轮依据20号prompt实现并验证FCCG内部修复，基准HEAD：`346756111e6f6a9050dcfc7bb206117fae93b9e5`。
+所有开发/测试写入均在FCCG内；生成、编译、日志、临时文件与源码包在`tests/artifacts/storage20/`
+及仓库已有的tests临时目录。没有修改外部参考固件、FLP、GSHC，没有commit/push/Tag/Release。
+
+## 根因与证据边界
+
+- 可复现的底层缺陷：原SS0.5 `sd_diskio.c`禁用scratch，直接把任意FatFs byte pointer交给
+  word-aligned SDIO DMA。FatFs跨partial/full sector后，即使应用buffer原先对齐，传递指针也可能偏移。
+  原禁用的scratch-write分支还等待READ completion；原超时/错误completion和CTRL_SYNC的结果处理不可靠。
+- 使用真实FatFs、原diskio与延迟到completion才消费buffer的word-DMA Host模型，完成10000次指定长度写入。
+  以32-byte aligned buffer、512-byte读取隔离读侧影响，旧实现仍在offset **172032**（sector 336起点）
+  字节不一致；完成写入时已提交5次未对齐DMA。该基线是期望失败，保留`baseline-integrity.log`。
+- 独立的上层缺陷：partial write失败后Close再次尝试整个aggregate，可能重复已经写入的前缀。
+  现已禁止错误关闭重放、禁止writer在不确定write/sync后重开疑似损坏文件，并区别fault与finalized。
+- Queue增长与byte corruption分开处理：原关键记录逐条sync会放大等待，现合并排队中的critical批次，
+  以queue空或首条20ms deadline触发；已有storage操作可延迟实际完成。普通/Estimator容量仍是64/32，
+  aggregation仍是4096 bytes，任务优先级不变。增加HWM、accepted/dequeued、最大write/sync/迭代间隔诊断，
+  writer按新观察到的累计overflow推进sequence，保留明确gap。
+- 额外复现启动满队列停滞：SD打开后Required decoder descriptor入队失败会关闭session，唯一consumer
+  因而始终无法排空queue。使用已修复diskio但保留旧Logger启动逻辑的独立基线，模型超过300秒完成期限
+  并按预期失败（`baseline-startup-queue.log`）。现保持session打开，在dequeue后补入descriptor。
+- **没有拿到SS0014.BIN及精确匹配decoder，也没有真实SDIO/TF卡上板。** Prompt中1152 CRC candidates、
+  50 oversize、1222 gaps、overflow 110和START后3.318ms均为用户提供的历史事实，不能称为本轮重新测得。
+  Host模型证明确定的软件契约缺陷，不单独证明SS0014所有损坏和溢出的硬件成因。
+
+## 修复与所有权
+
+`tools/reference_overlays/storage/`持有Board diskio/BSP覆盖；固定512-byte main-SRAM bounce每次传1 sector，
+匹配completion且card-ready后才复用，等待有30秒整体边界。错误/超时锁存不可用直到reset，迟到IRQ不能解锁。
+FatFs仍拥有partial sector与RMW，CPU源buffer不要求4/32-byte alignment，F407没有DCache处理。
+Logger/Storage/LogSink C/H、Host/Target fixtures、离线audit均在importer的FCCG-owned/overlay映射中。
+正常Apply仍保留project-owned源文件；老项目须新生成或明确移植这些修复。自定义CubeMX glue须独立移植和验证。
+
+SSLOG payload/Record ID/version/framing/CRC、AIR M0、Maintenance 0.0、decoder 1.1、平台0.0.10均未变化。
+MISSION_CONFIG仍是91-byte payload / 119-byte record，没有补齐。
+共同Calibration契约与HEAD逐字节一致，SHA-256：`ffb8013cb9e1f254872255f8e4dc86abd374af5199ece39963fc90a0301f1f40`。
+
+## 实际执行的质量门
+
+| 项目 | 本轮结果 |
+| --- | --- |
+| 默认verified SS0.5 Generate | passed；最终输出`tests/artifacts/storage20/final`，只生成时不编译 |
+| Release / Debug all + Artifact + stack-report | passed；两个配置均无heap symbols，所有静态task及Idle预算通过 |
+| Host Tests | 67 executables、12423 checks、0 failures；8 compile-pass、16 expected compile rejection |
+| Architecture | passed，270 checks；首次注释中的provider单词触发既有扫描，修正注释后通过 |
+| Power of Ten | passed，5915 checks、94 first-party C files、2216 functions；拆分Logger诊断/周期flush保持函数行数限制 |
+| `CONFIG=Release static-analysis` | passed，第一方严格warnings + `-fanalyzer`；最终Logger改动后增量重跑通过 |
+| 额外ARM `-fanalyzer -Werror` | diskio、BSP callback glue、Target bench分别编译通过，补足vendor分类默认不加fanalyzer的边界 |
+| 初次完整 `python -m pytest -q` | **333 passed, 1 skipped**，708.83 s |
+| 启动queue修复后完整回归 | **333 passed, 1 skipped**，657.08 s，`pytest-full-final.log` |
+| 启动queue修复定向回归 | **9 passed**，35.64 s |
+| storage/docs/runtime定向 | **30 passed**，78.79 s；覆盖fixture/forensic audit及持久化修改 |
+| `python -m compileall -q src main.py tools` | passed；缓存限定`tests/artifacts/storage20/pycache` |
+| deterministic source export | 两次独立ZIP逐字节相同；保留真实unit/Host/Target/fixture源，排除build/tests临时与二进制产物 |
+| `git diff --check` | passed |
+
+唯一skip仍是`tests/test_prompt_acceptance.py:287`的只读外部reference工作树非clean，
+提示`read-only reference firmware task is still active`。这是既有测试对外部工作树的保护，
+不是对另一Codex任务是否完成的最终状态判断。没有为通过测试而改写外部reference。
+首次完整pytest运行中调整了Logger函数组织及后续测试检查；启动queue修复后再次执行完整回归，
+最终Host包含全部三个队列负载场景。
+
+## Storage/Logger字节与队列结果
+
+- 实际FatFs任意长度序列：1,2,3,4,7,31,60,88,91,119,127,255,256,257,511,512,513；
+  源offset轮换1..31，跨512/4096，10000次小写与间歇sync，共**1668166 bytes**逐字节读回一致。
+  无未对齐DMA提交。额外40000条真实C mixed records共**3850972 bytes**，header/记录逐字节重建、C CRC、
+  sequence及EOF全部通过，不依赖resync。
+- 读/写timeout、错误completion类型、提交失败以及CTRL_SYNC busy timeout共7种故障，每种单独进程，
+  验证错误返回、initialize不能解锁、迟到callback不能复用scratch或发起新DMA。
+- Target bench同样在Host实际FatFs模型中运行，返回Ok；此外完成ARM编译与fanalyzer。
+  Target bench不在production SourceGraph，**尚未在真实硬件执行**。
+- 真实LoggerBus→LoggerTask→LogSink→Storage→FatFs→diskio链路模拟START前约100 records/s、之后约500 records/s。
+  正常模式accepted=40002、wire records=40004（含直接startup events），drop/gap=0；
+  normal/estimator HWM=56/2，CRC全部正确、decoder三hash匹配、EOF无余字节。
+- 故意向两个queue额外突发600条：accepted=40071，wire records=40073，**drop=531，gap records=531**，
+  HWM=64/32；保留记录CRC全部正确、无sequence reorder，STATS计数精确对应gap。
+  模型最大write=90000us、sync=26000us、Logger迭代=116060us，**这些是Host模型时间，不是实卡延迟**。
+- lifecycle Host额外验证partial write只调用一次失败写，不在Close重放或重开；final sync失败不伪报finalized。
+- 启动满队列加飞行中突发：accepted=40132、wire records=40134、drop/gap=671，
+  Required decoder descriptor只出现一次且三hash精确匹配；全部记录CRC与EOF仍通过。
+- synthetic fixtures覆盖512边界重复/缺1 byte、payload CRC翻转、oversized length、未解释sequence gap、extra tail，
+  全部被严格审计拒绝；可选candidate scan只报告forensics，不改变pass/fail，也不修复输入文件。
+
+## Release/Debug内存差值（bytes）
+
+基线与修复使用相同默认Board/工程名/配置及Arm GNU 14.3.Rel1。
+
+| 区域 | 基线 | 修复 | 差值 |
+| --- | ---: | ---: | ---: |
+| Release FLASH | 260864 | 262112 | +1248 |
+| Release main SRAM | 77360 | 77944 | +584 |
+| Release CCMRAM | 51064 | 51064 | +0 |
+| Debug FLASH | 277192 | 278040 | +848 |
+| Debug main SRAM | 77384 | 77960 | +576 |
+| Debug CCMRAM | 51064 | 51064 | +0 |
+
+main SRAM容量131072，CCMRAM容量65536，FLASH容量524288；均通过实际ELF/产物检查。
+增加固定512-byte scratch、内部诊断和状态；queue/aggregate/task allocations不变。
+
+| Task | 配置bytes | Release估计 / 余量 | Debug估计 / 余量 |
+| --- | ---: | ---: | ---: |
+| Device | 2048 | 1496 / 552 | 1320 / 728 |
+| INS | 3072 | 2040 / 1032 | 1808 / 1264 |
+| Estimator | 4096 | 1964 / 2132 | 1868 / 2228 |
+| Flight | 4096 | 3428 / 668 | 2292 / 1804 |
+| Logger | 3072 | 1376 / 1696 | 1344 / 1728 |
+| Serial | 6144 | 4200 / 1944 | 2928 / 3216 |
+| Telemetry | 4096 | 1980 / 2116 | 1660 / 2436 |
+| Idle | 512 | 256 / 256 | 256 / 256 |
+
+这是`.su`+linked ELF保守预算；不是实测HWM/MSP/IRQ nesting。最小要求256-byte余量继续满足。
+
+## 仍需真实硬件与历史样本
+
+按`docs/platform/details/STORAGE_AND_FLIGHT_LOG.md`执行verified SS0.5+已知良好卡：
+preflight→NONE calibration→alignment→START→室内2–5分钟→正常停止，至少两次运行或两张卡，
+保存前后诊断、HWM、BIN、精确decoder与独立audit JSON。对SS0014使用严格audit，必要时另加
+`--scan-candidates`复核历史candidate统计。FLP能打开或GSHC正常不能替代TF文件CRC/字节验收。
+本轮未flash、未执行EIDE、未上板/飞行；未声称其他MCU/自定义CubeMX的存储硬件支持。
+
+下方保留历史验收快照，不将其测试数/硬件范围当作本轮新结果。
+
+---
+
 # Validation — 2026-09-05 final documentation alignment
 
 本节是按19号prompt校对FCCG文档的实际验收快照。工作基准HEAD为

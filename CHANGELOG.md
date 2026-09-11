@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased — SSLOG storage integrity repair
+
+Replaced the unsafe default SS0.5 DMA buffer path with a fixed sector bounce buffer and matching,
+bounded completion waits. Filtered BSP callbacks by SD handle and stopped aggregate replay after
+uncertain writes. Added internal queue/write/task diagnostics, visible drop sequence gaps and
+coalesced critical-record bursts. Added actual FatFs/diskio/Logger Host coverage for full startup
+queues, retrying the Required decoder descriptor after dequeue. Added optional Target byte readback
+tests and a strict metadata-driven offline audit with synthetic corruption cases.
+SSLOG 0.0 records/CRC, AIR M0, Maintenance 0.0, decoder 1.1 and platform 0.0.10 remain unchanged.
+Hardware conclusions and executed quality gates are recorded only in [VALIDATION.md](VALIDATION.md).
+
 ## 2026-09-05 — Final documentation alignment
 
 Adopted the user-provided FCCG/platform documentation tree without restoring the replaced docs.

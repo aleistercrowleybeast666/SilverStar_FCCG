@@ -1,5 +1,12 @@
 # Current Progress
 
+## Storage integrity progress
+
+已完成SS0.5 DMA任意地址缓冲、Logger部分写入不重放、关键记录批次同步、队列/延迟诊断、
+真实FatFs与C codec的Host回归及严格离线审计。协议布局没有变化，实测结果见根VALIDATION。
+启动queue已满时仍打开writer排空，再补入Required decoder descriptor，避免反复关闭导致停滞。
+已提供Target字节读回harness；真实SDIO/card、历史SS0014、两次或两卡正常停止验收仍需实机。
+
 > 当前平台：SilverStar 0.0.10。精确测试数量、hash、RAM/FLASH和本轮commit以仓库根 `VALIDATION.md` 为唯一验收快照，本文件不复制易漂移的数字。
 
 ## 已完成

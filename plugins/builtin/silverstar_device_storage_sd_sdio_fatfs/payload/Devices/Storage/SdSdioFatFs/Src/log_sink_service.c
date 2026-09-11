@@ -158,6 +158,7 @@ static SystemDeviceResult SilverStarLogSinkService_Write(const uint8_t *data,
     SystemDeviceResult result;
     uint64_t now_us;
 
+    if (written_length != NULL) { *written_length = 0U; }
     if ((data == NULL) || (written_length == NULL) || (length == 0U))
     {
         return SYSTEM_DEVICE_INVALID_ARGUMENT;

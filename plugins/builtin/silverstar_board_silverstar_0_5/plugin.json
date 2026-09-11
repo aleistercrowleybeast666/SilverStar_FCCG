@@ -379,7 +379,11 @@
       "zh_CN": "已验证的SS0.5板卡、CubeMX硬件源、固定服务与资源映射。",
       "en_US": "Verified SS0.5 PCB, CubeMX hardware source, fixed services, and resource mapping."
     },
-    "device_descriptors": []
+    "device_descriptors": [],
+    "source_origins": {
+      "FATFS/Target/sd_diskio.c": "fccg_storage_integrity",
+      "FATFS/Target/bsp_driver_sd.c": "fccg_storage_integrity"
+    }
   },
   "board": {
     "source_kind": "verified_builtin",

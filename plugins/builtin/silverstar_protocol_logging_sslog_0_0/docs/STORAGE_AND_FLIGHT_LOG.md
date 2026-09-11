@@ -264,7 +264,7 @@ old/new instance必须均对应现有descriptor，未使用位保持0。IMU在Ca
 
 LoggerTask使用静态Record buffer和aggregation buffer。完整Record才进入聚合；空间不足、关键Record或sync周期到达时批量写入。文件头、System/Mission config、descriptor、Initial State、关键Lifecycle/Calibration/Alignment事件应尽力及时flush。
 
-Landing确认后先把LANDING EVENT可靠加入LoggerBus，再以landing timestamp建立post-landing grace截止时间。截止前继续记录正常尾段；截止后Bus拒绝新Push但不计作overflow，LoggerTask排空normal/estimator queue、写完aggregation、flush并结束session。临时I/O失败按策略重试，只有全部成功才锁存finalized。本次上电不再自动开启第二个session。
+Landing确认后先把LANDING EVENT可靠加入LoggerBus，再以landing timestamp建立post-landing grace截止时间。截止前继续记录正常尾段；截止后Bus拒绝新Push但不计作overflow，LoggerTask排空normal/estimator queue、写完aggregation、flush并结束session。写入/sync不确定性锁存writer故障且不重放，只有全部成功才锁存finalized。本次上电不再自动开启第二个session。
 
 Storage/Log失败不得阻止、拒绝或回滚START、Deploy或Landing；它只进入Health、事件和丢弃计数。
 
@@ -299,3 +299,14 @@ ready/correction_valid为1。启用Logging时该Record保持required，并由Fli
 FCCG将本协议作为可独立启用或设为`不使用`的单一`日志`类别插件，当前Profile为`flight_log.0_0`。
 本插件独立拥有SSLOG 0.0容器、Record Catalog和decoder metadata。拆分与可选状态只改变构建归属、项目锁和声明式metadata，不改变任何现有wire/Record字节。
 启用时项目锁定component、version、Profile和manifest SHA-256；禁用时对应格式11槽位为`null`。`.ssdecoder`只携带数据与语义，不携带或执行解析代码。
+
+## FCCG storage integrity implementation
+
+The SS0.5 diskio payload uses the FCCG-owned sector bounce/completion overlay. Storage accepts
+arbitrary CPU byte buffers; MISSION_CONFIG remains 91 payload / 119 total bytes without padding.
+Partial writes/sync uncertainty latch the Logger fault without replay/reopen. Queue overflow creates
+explicit sequence gaps and stays separate from CRC corruption. Internal C diagnostics provide queue
+high-water marks and storage/task latency; Maintenance and SSLOG wire fields are unchanged.
+The current platform storage contract owns the full Host/Target and two-run/card procedure.
+Real TF-card acceptance and historical SS0014 regression remain pending; exact software results live
+only in the FCCG root VALIDATION.md. Custom CubeMX glue requires independent porting/validation.

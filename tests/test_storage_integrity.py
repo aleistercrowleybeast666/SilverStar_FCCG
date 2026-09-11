@@ -1,0 +1,149 @@
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+import shutil
+import struct
+import subprocess
+import sys
+import zlib
+
+import pytest
+
+from silverstar_fccg.app.service import FccgService
+from silverstar_fccg.core.workspace import WorkspacePolicy
+from tools.sslog_audit import Audit_Bytes, Audit_CandidatesScan, Audit_ProfileLoad
+
+
+@pytest.fixture(scope="module")
+def storage_project(tmp_path_factory):
+    root = Path(__file__).resolve().parents[1]
+    compiler = shutil.which("gcc")
+    if compiler is None:
+        pytest.skip("Host GCC unavailable")
+    project = tmp_path_factory.mktemp("storage-integrity")
+    service = FccgService(root)
+    service.Project_Save(service.ReferenceProject_Create("StorageRegression"), project,
+                         confirm_dangerous=True)
+    runner = project / "Tests/Host/storage_integrity/run_storage_integrity.py"
+    output = project / "build/FCCG/Host/Tests/StorageIntegrity"
+    result = subprocess.run([sys.executable, str(runner), "--project", str(project),
+                             "--compiler", compiler], cwd=project,
+                            env=dict(os.environ, PYTHONDONTWRITEBYTECODE="1"),
+                            capture_output=True, text=True, timeout=180)
+    WorkspacePolicy(root).Text_AtomicWrite(output / "integrity.log", result.stdout + result.stderr)
+    assert result.returncode == 0, result.stdout + result.stderr
+    return project, output
+
+
+def test_real_fatfs_delayed_dma_logger_and_queue(storage_project):
+    project, output = storage_project
+    catalog, hashes = Audit_ProfileLoad(project / "StorageRegression.ssdecoder")
+    mixed = Audit_Bytes((output / "mixed.sslog").read_bytes(), catalog)
+    assert mixed["passed"] and mixed["records"] == 40000
+    normal = Audit_Bytes((output / "logger-normal.sslog").read_bytes(), catalog, decoder_hashes=hashes)
+    assert normal["passed"] and normal["records"] >= 40000
+    assert normal["queue_overflow_max"] == 0 and normal["sequence_gap_records"] == 0
+    dropped = Audit_Bytes((output / "logger-overflow.sslog").read_bytes(), catalog,
+                          decoder_hashes=hashes, allow_queue_drops=True)
+    assert dropped["passed"] and dropped["sequence_gap_records"] > 0
+    assert dropped["sequence_gap_records"] == dropped["queue_overflow_max"]
+    assert dropped["sequence_reorders"] == 0
+    startup = Audit_Bytes((output / "logger-startup-overflow.sslog").read_bytes(), catalog,
+                          decoder_hashes=hashes, allow_queue_drops=True)
+    assert startup["passed"] and startup["queue_overflow_max"] > dropped["queue_overflow_max"]
+    assert startup["record_counts"]["DECODER_PROFILE_DESCRIPTOR"] == 1
+    for report in (normal, dropped):
+        assert report["unvalidated_tail_bytes"] == 0
+        assert {"IMU_NATIVE", "IMU_CORRECTED", "GNSS_NATIVE", "BARO_NATIVE", "HW_QUAT_NATIVE",
+                "ALIGNMENT_RESULT", "CALIBRATION_RESULT", "MISSION_CONFIG", "INITIAL_STATE",
+                "EVENT", "STATS", "ESTIMATOR"} <= set(report["record_counts"])
+    wrong_hashes = dict(hashes, record_catalog_hash_128="00" * 16)
+    assert not Audit_Bytes((output / "logger-normal.sslog").read_bytes(), catalog,
+                           decoder_hashes=wrong_hashes)["passed"]
+
+
+CASES = json.loads((Path(__file__).parent / "fixtures/sslog_corruption_cases.json").read_text())
+
+
+@pytest.mark.parametrize("case", CASES, ids=lambda case: case["name"])
+def test_strict_audit_synthetic_corruption(storage_project, case):
+    project, output = storage_project
+    catalog, _ = Audit_ProfileLoad(project / "StorageRegression.ssdecoder")
+    complete = (output / "mixed.sslog").read_bytes()
+    end = 64
+    while end < 4096:
+        end += 28 + struct.unpack_from("<H", complete, end + 6)[0]
+    data = bytearray(complete[:end])  # Small fixture from the real C writer.
+    operation = case["operation"]
+    position = case.get("offset", 0)
+    if operation == "duplicate_previous_byte":
+        data[position:position] = data[position - 1:position]
+    elif operation == "remove_byte":
+        del data[position]
+    elif operation == "flip_byte":
+        data[position] ^= 0x80
+    elif operation == "oversize_first_record":
+        struct.pack_into("<H", data, 70, 0xFFFF)
+    elif operation == "append_byte":
+        data += b"\xFF"
+    elif operation == "skip_sequence":
+        position = 64
+        while position < len(data):
+            length = 28 + struct.unpack_from("<H", data, position + 6)[0]
+            sequence = struct.unpack_from("<I", data, position + 8)[0]
+            if sequence >= 2:
+                struct.pack_into("<I", data, position + 8, sequence + case["missing_records"])
+                struct.pack_into("<I", data, position + length - 4,
+                                 zlib.crc32(data[position:position + length - 4]))
+            position += length
+    else:
+        raise AssertionError(operation)
+    report = Audit_Bytes(bytes(data), catalog, allow_queue_drops=True)
+    assert not report["passed"]
+    if "expected_error" in case:
+        assert report["errors"][0]["kind"] == case["expected_error"]
+        assert report["unvalidated_tail_bytes"] > 0
+    else:
+        assert report["integrity_ok"]
+        assert report["sequence_gap_records"] == case["missing_records"]
+        assert not report["queue_drop_accounted"]
+    if "signature" in case:
+        assert case["signature"] in {signature["kind"] for signature in report["boundary_signatures"]}
+        forensic = Audit_CandidatesScan(bytes(data), catalog)
+        assert forensic["valid_crc_candidates"] > report["records"]
+        assert forensic["errors"]["bad_crc"] > 0
+
+
+def test_storage_sources_survive_reference_reimport(monkeypatch, workspace_root):
+    import tools.import_reference_components as importer
+
+    monkeypatch.setattr(importer, "_ManifestValues_Get", lambda *_: [])
+    components = {item["manifest"]["id"]: item for item in importer._Components_Get(
+        Path("unused"), {"commit": "fixture", "snapshot_digest": "fixture"})}
+    core = components["silverstar.core.0_0_10"]
+    for relative in ("APP/Src/logger_bus.c", "APP/Src/logger_task.c", "APP/Inc/logger_bus.h",
+                     "APP/Inc/logger_task.h", "Interfaces/Inc/system_storage_if.h",
+                     "Tests/Host/storage_integrity/test_storage_integrity.c",
+                     "Tests/Host/storage_integrity/test_logger_storage.c",
+                     "Tests/Target/storage_integrity.c", "Tools/sslog_audit.py"):
+        source = workspace_root / core["fccg_owned_files"][relative]
+        assert source.is_file()
+        assert source.read_bytes() == (workspace_root / "plugins/builtin/silverstar_core_0_0_10/payload" / relative).read_bytes()
+    for component in components.values():
+        if component["manifest"]["id"].startswith("silverstar.board."):
+            for relative in ("sd_diskio.c", "bsp_driver_sd.c"):
+                overlay = component["overlay_files"]["FATFS/Target/" + relative]
+                assert (workspace_root / "tools/reference_overlays" / overlay).read_bytes() == (
+                    workspace_root / "plugins/builtin/silverstar_board_silverstar_0_5/payload/FATFS/Target" / relative).read_bytes()
+        if component["manifest"]["id"].startswith("silverstar.device.storage."):
+            assert len(component["fccg_owned_files"]) == 2
+
+
+def test_protocol_layout_is_unchanged(workspace_root):
+    path = workspace_root / "plugins/builtin/silverstar_protocol_logging_sslog_0_0/payload/Protocol/SSLOG/schema/sslog_schema.json"
+    catalog, _ = Audit_ProfileLoad(path)
+    mission = next(record for record in catalog["records"] if record["name"] == "MISSION_CONFIG")
+    assert mission["payload_size"] == 91 and mission["version"] == 0
+    assert 24 + mission["payload_size"] + 4 == 119

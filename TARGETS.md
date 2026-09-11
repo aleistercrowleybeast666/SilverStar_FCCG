@@ -1,5 +1,16 @@
 # Development targets
 
+## Storage byte integrity
+
+- [x] arbitrary-buffer SDIO bounce ownership and bounded fail-closed completion handling
+- [x] Logger partial-write replay removal, bounded critical-burst sync coalescing and diagnostics
+- [x] full startup queue drains and backfills its Required decoder descriptor without reopen loops
+- [x] real FatFs/Logger/codec Host regression, explicit queue-drop gaps and strict offline audit
+- [x] optional Target bench harness outside normal firmware sources
+- [ ] SS0.5 real-card repeated preflight/NONE/alignment/START/stop/readback acceptance and SS0014 audit
+
+Actual gate results and memory changes belong in [VALIDATION.md](VALIDATION.md).
+
 ## Documentation authority
 
 Start with [FCCG documentation](docs/README.md) and the [current SilverStar platform specification](docs/platform/README.md).

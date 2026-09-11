@@ -1,5 +1,17 @@
 # SilverStar Flight Controller Code Generator
 
+## Storage byte integrity repair
+
+SS0.5 diskio now accepts arbitrary byte buffers through a bounded static sector bounce buffer;
+FatFs owns partial-sector preservation. Logger write/sync uncertainty latches a session fault
+without replaying the aggregate or reopening an ambiguous stream. Queue diagnostics expose
+high-water marks and explicit dropped records; writer sequence gaps retain those losses.
+A full startup queue can drain while the Required decoder descriptor awaits a free slot.
+The wire format remains SSLOG 0.0: MISSION_CONFIG is still 91 payload bytes / 119 record bytes.
+See [storage contract and hardware procedure](docs/platform/details/STORAGE_AND_FLIGHT_LOG.md)
+and [actual validation](VALIDATION.md). Generate a fresh project or deliberately port the repairs
+to project-owned sources; normal Apply does not replace them. Real TF-card acceptance remains pending.
+
 ## Documentation authority
 
 Start with [FCCG documentation](docs/README.md) and the [current SilverStar platform specification](docs/platform/README.md).

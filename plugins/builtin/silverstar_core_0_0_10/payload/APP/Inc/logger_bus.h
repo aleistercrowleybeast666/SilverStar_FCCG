@@ -22,6 +22,20 @@ typedef enum
     LOGGER_BUS_FINALIZATION_FINALIZED
 } LoggerBusFinalizationState;
 
+/* Internal diagnostics; SSLOG STATS and all wire layouts remain unchanged.
+ * Counter deltas over elapsed time give the accepted/attempted production rate. */
+typedef struct
+{
+    uint32_t accepted_count;
+    uint32_t dequeued_count;
+    uint32_t overflow_count;
+    uint16_t normal_count;
+    uint16_t estimator_count;
+    uint16_t normal_high_water;
+    uint16_t estimator_high_water;
+} LoggerBusDiagnostics;
+
+LoggerBusResult LoggerBus_DiagnosticsGet(LoggerBusDiagnostics *diagnostics);
 LoggerBusResult LoggerBus_Init(void);
 void LoggerBus_Reset(void);
 LoggerBusResult LoggerBus_SamplePush(

@@ -142,7 +142,7 @@
       "APP/Src/flight_task.c": "fccg_optional_protocol_gating",
       "APP/Src/imu_sample_bus.c": "fccg_optional_protocol_gating",
       "APP/Src/ins_task.c": "fccg_optional_protocol_gating",
-      "APP/Src/logger_task.c": "fccg_optional_protocol_gating",
+      "APP/Src/logger_task.c": "fccg_storage_integrity",
       "APP/Src/telemetry_task.c": "fccg_optional_protocol_gating",
       "Common/Src/debug_log.c": "fccg_optional_protocol_gating",
       "Interfaces/Inc/system_telemetry_transport_if.h": "fccg_multi_instance_failover",
@@ -173,7 +173,11 @@
       "Tools/check_architecture.ps1": "fccg_runtime_safety",
       "Tools/check_power_of_ten.ps1": "fccg_optional_protocol_gating",
       "Tools/validate_sslog_record_catalog.py": "fccg_optional_protocol_gating",
-      "Tools/check_task_stacks.py": "fccg_runtime_safety"
+      "Tools/check_task_stacks.py": "fccg_runtime_safety",
+      "APP/Inc/logger_bus.h": "fccg_storage_integrity",
+      "APP/Inc/logger_task.h": "fccg_storage_integrity",
+      "APP/Src/logger_bus.c": "fccg_storage_integrity",
+      "Interfaces/Inc/system_storage_if.h": "fccg_storage_integrity"
     },
     "device_descriptors": [
       {

@@ -28,6 +28,8 @@ typedef struct
     uint32_t sync_count;
     uint32_t error_count;
     uint64_t bytes_written;
+    uint64_t max_write_latency_us;
+    uint64_t max_sync_latency_us;
     uint8_t initialized;
     uint8_t mounted;
     uint8_t file_open;

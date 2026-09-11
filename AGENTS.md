@@ -1,5 +1,22 @@
 # SilverStar_FCCG agent guidance
 
+## Storage integrity invariants
+
+- Storage is an arbitrary byte stream. A legal 119-byte record needs no padding or caller alignment.
+  FatFs owns partial-sector read/modify/write; SDIO DMA owns only its fixed main-SRAM bounce buffer.
+- Never reuse a DMA buffer until matching completion and card-ready. Uncertain completion latches
+  diskio unavailable until reset; late IRQs cannot reopen it. BSP callbacks filter the selected handle.
+- Never replay an aggregate or reopen a log after partial write/sync uncertainty. Fault is distinct
+  from successful finalization. Storage remains exclusively owned by LoggerTask in production.
+- Keep queue overflow distinct from byte corruption. Preserve drop counters and sequence gaps;
+  measure both queue high-water marks, accepted/dequeued counts, storage latency and task period.
+- A full startup queue must not prevent Logger from consuming it. Defer and retry the Required
+  decoder descriptor after dequeue rather than closing/reopening the file on queue backpressure.
+- Host storage acceptance runs actual FatFs/diskio/Logger/codec with delayed DMA; Target bench sources
+  stay outside the production graph. Independent audit never resynchronizes to obtain a pass.
+- Keep these runtime files, bench fixtures and audit tooling registered in the reference importer.
+  Custom CubeMX glue must independently meet this contract; the SS0.5 repair does not certify it.
+
 ## Documentation authority
 
 Start with [FCCG documentation](docs/README.md) and the [current SilverStar platform specification](docs/platform/README.md).

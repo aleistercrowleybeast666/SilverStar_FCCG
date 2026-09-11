@@ -1,5 +1,20 @@
 # Generated Code and Project Ownership
 
+## Storage repair ownership and migration
+
+SS0.5 builtin FatFs Target glue contains FCCG-owned SDIO integrity overlays; Storage/LogSink remain
+single-instance Device implementations. Reference re-import restores these controlled files and
+the Logger/Host fixes. Their generated copies become project-owned as usual: normal Apply preserves
+them, so existing projects require a fresh output or an explicit source port and rebuild.
+
+Generated Host tests include `Tests/Host/storage_integrity/run_storage_integrity.py` when the
+default SS0.5 SDIO/logging sources are selected. It writes only below `build/FCCG/Host/Tests`.
+`Tools/sslog_audit.py` is an offline check; Generate and firmware `all` never invoke it.
+`Tests/Target/storage_integrity.c` is bench-only and excluded from the production graph.
+Imported custom CubeMX snapshots remain user-owned: they must port/validate an equivalent arbitrary
+byte-buffer contract, including handle routing and memory accessibility; copying an `.ioc` alone
+does not establish storage integrity. F407 has no DCache; this is not H7 cache validation.
+
 ## Output model
 生成项目是独立源码工程，生成后可脱离FCCG构建。
 

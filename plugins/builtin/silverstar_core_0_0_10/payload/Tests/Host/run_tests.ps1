@@ -1036,6 +1036,16 @@ foreach ($runtimeFile in $alignmentRuntimeFiles) {
 }
 Write-Output 'Alignment periodic runtime stack audit passed.'
 
+$storageIntegrityRunner = Join-Path $repoRoot 'Tests\Host\storage_integrity\run_storage_integrity.py'
+$storageSourceGraph = Get-Content -LiteralPath "$repoRoot\Generated\project_sources.mk" -Raw
+$storageFlightConfig = Get-Content -LiteralPath "$repoRoot\Generated\Inc\project_flight_config.h" -Raw
+if (($storageFlightConfig -match '(?m)^#define\s+SILVERSTAR_PROTOCOL_LOGGING_ENABLED\s+1U\s*$') -and
+    ($storageSourceGraph -match '(?m)^\s+Devices/Storage/SdSdioFatFs/Src/storage_service\.c\s*\\?\s*$') -and
+    ($storageSourceGraph -match '(?m)^\s+FATFS/Target/sd_diskio\.c\s*\\?\s*$')) {
+    & python $storageIntegrityRunner --project $repoRoot --compiler $script:hostCompilerPath
+    if ($LASTEXITCODE -ne 0) { throw 'Storage byte-integrity tests failed.' }
+}
+
 $hostSummary = ("SilverStar host summary: executables={0} checks={1} " +
     "failures={2} compile_pass_cases={3} expected_compile_failures={4}") -f `
     $script:hostExecutableCount, $script:hostCheckCount, `

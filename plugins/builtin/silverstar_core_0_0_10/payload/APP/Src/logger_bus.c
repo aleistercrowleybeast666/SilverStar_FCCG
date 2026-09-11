@@ -30,6 +30,7 @@ static FlightLogRecord s_logger_storage[LOGGER_RECORD_QUEUE_DEPTH];
 static CommonSpscQueue s_estimator_logger_queue;
 static FlightLogRecord
     s_estimator_logger_storage[LOGGER_ESTIMATOR_RECORD_QUEUE_DEPTH];
+static LoggerBusDiagnostics s_diagnostics;
 static uint8_t s_initialized;
 static uint8_t s_next_estimator_queue;
 static uint8_t s_accepting_records;
@@ -76,6 +77,14 @@ static LoggerBusResult LoggerBus_QueuePush(
         return LOGGER_BUS_RESULT_BAD_STATE;
     }
     queue_result = CommonSpscQueue_Push(queue, record);
+    if (queue_result == COMMON_SPSC_QUEUE_RESULT_OK)
+    {
+        uint16_t count = CommonSpscQueue_Count(queue);
+        uint16_t *high_water = (queue == &s_logger_queue) ?
+            &s_diagnostics.normal_high_water : &s_diagnostics.estimator_high_water;
+        s_diagnostics.accepted_count++;
+        if (count > *high_water) { *high_water = count; }
+    }
     LoggerBus_IrqUnlock(state);
     if (queue_result == COMMON_SPSC_QUEUE_RESULT_OK)
     {
@@ -168,6 +177,7 @@ void LoggerBus_Reset(void)
 
     if (s_initialized != 0U)
     {
+        (void)memset(&s_diagnostics, 0, sizeof(s_diagnostics));
         CommonSpscQueue_Reset(&s_logger_queue);
         CommonSpscQueue_Reset(&s_estimator_logger_queue);
         s_next_estimator_queue = 0U;
@@ -813,6 +823,7 @@ static LoggerBusResult LoggerBus_QueuePop(
     }
     state = LoggerBus_IrqLock();
     result = CommonSpscQueue_Pop(queue, record);
+    if (result == COMMON_SPSC_QUEUE_RESULT_OK) { s_diagnostics.dequeued_count++; }
     LoggerBus_IrqUnlock(state);
     if (result == COMMON_SPSC_QUEUE_RESULT_OK)
     {
@@ -882,4 +893,18 @@ uint32_t LoggerBus_OverflowCountGet(void)
             s_estimator_logger_queue.overflow_count;
     LoggerBus_IrqUnlock(state);
     return count;
+}
+
+LoggerBusResult LoggerBus_DiagnosticsGet(LoggerBusDiagnostics *diagnostics)
+{
+    PlatformCriticalState state;
+    if (diagnostics == NULL) { return LOGGER_BUS_RESULT_BAD_PARAM; }
+    state = LoggerBus_IrqLock();
+    *diagnostics = s_diagnostics;
+    diagnostics->normal_count = CommonSpscQueue_Count(&s_logger_queue);
+    diagnostics->estimator_count = CommonSpscQueue_Count(&s_estimator_logger_queue);
+    diagnostics->overflow_count = s_logger_queue.overflow_count +
+        s_estimator_logger_queue.overflow_count;
+    LoggerBus_IrqUnlock(state);
+    return LOGGER_BUS_RESULT_OK;
 }

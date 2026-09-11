@@ -1,11 +1,11 @@
 #include "system_storage_if.h"
 
 #include <stddef.h>
+#include <limits.h>
 #include <string.h>
 
 #include "project_storage_binding.h"
 #include "platform_critical.h"
-#include "platform_memory.h"
 #include "platform_time.h"
 #include "silverstar_assert.h"
 
@@ -163,10 +163,12 @@ static SystemDeviceResult SilverStarStorageService_Write(
     UINT written = 0U;
     FRESULT result;
     uint64_t timestamp_us;
+    uint64_t started_us;
     uint32_t primask;
 
+    if (written_length != NULL) { *written_length = 0U; }
     if ((handle == NULL) || (data == NULL) ||
-        (written_length == NULL) || (length == 0U))
+        (written_length == NULL) || (length == 0U) || (length > UINT_MAX))
     {
         return SYSTEM_DEVICE_INVALID_ARGUMENT;
     }
@@ -177,14 +179,15 @@ static SystemDeviceResult SilverStarStorageService_Write(
     }
     SILVERSTAR_ASSERT_OBJECT(handle, SystemStorageFileHandle,
                              SILVERSTAR_ASSERT_MODULE_BOARD);
-    SILVERSTAR_ASSERT(
-        PlatformMemory_IsDmaAccessible(data, (size_t)length) != 0U,
-        SILVERSTAR_ASSERT_MODULE_BOARD,
-        SILVERSTAR_ASSERT_REASON_BUFFER_CAPACITY);
+    /* FatFs accepts arbitrary byte-addressed CPU RAM. The diskio backend
+     * owns DMA alignment/accessibility, including partial file sectors. */
+    started_us = PlatformTime_Us();
     result = f_write(&s_file, data, (UINT)length, &written);
     *written_length = written;
     timestamp_us = PlatformTime_Us();
     primask = SilverStarStorageService_IrqLock();
+    if ((timestamp_us - started_us) > s_health.max_write_latency_us)
+    { s_health.max_write_latency_us = timestamp_us - started_us; }
     s_health.bytes_written += written;
     s_health.last_write_timestamp_us = timestamp_us;
     s_health.write_count++;
@@ -205,6 +208,7 @@ static SystemDeviceResult SilverStarStorageService_Sync(SystemStorageFileHandle 
 {
     FRESULT result;
     uint64_t timestamp_us;
+    uint64_t started_us;
     uint32_t primask;
 
     if (handle == NULL) { return SYSTEM_DEVICE_INVALID_ARGUMENT; }
@@ -214,9 +218,12 @@ static SystemDeviceResult SilverStarStorageService_Sync(SystemStorageFileHandle 
     {
         return SYSTEM_DEVICE_BAD_STATE;
     }
+    started_us = PlatformTime_Us();
     result = f_sync(&s_file);
     timestamp_us = PlatformTime_Us();
     primask = SilverStarStorageService_IrqLock();
+    if ((timestamp_us - started_us) > s_health.max_sync_latency_us)
+    { s_health.max_sync_latency_us = timestamp_us - started_us; }
     s_health.last_sync_timestamp_us = timestamp_us;
     s_health.sync_count++;
     if (result != FR_OK)

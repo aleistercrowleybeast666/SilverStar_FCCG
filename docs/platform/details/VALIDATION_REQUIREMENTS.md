@@ -1,4 +1,14 @@
 # SilverStar 0.0.10 验收要求
+
+## Storage byte integrity acceptance
+
+必须执行[Storage规范](STORAGE_AND_FLIGHT_LOG.md)的实际FatFs/Logger/codec Host、独立严格审计及
+Target/两次或两卡验收流程。文件offset、源buffer地址与length都不能假设sector/word对齐；
+MISSION_CONFIG总长119 bytes不补齐。故意queue overflow必须产生明确gap且所有保留记录CRC正确。
+检查Header/EOF/length/CRC/sequence、任意字节读回、timeout/错误回调/迟到IRQ和partial write不重放。
+报告queue HWM、SD write/sync最大延迟、Logger迭代间隔及START前后production rate。
+新增静态buffer须记录Release/Debug ELF RAM/FLASH差值并复核所有task stack；不把Host模型延迟当作实卡测量。
+当前软件结果和仍缺失的硬件证据以根VALIDATION为准。
 > **0.0.10增量**：必须额外覆盖Verified Board resource closure、生产Indicator Init、任务stack report、多实例context隔离、IMU/GNSS/telemetry最小failover、四种Calibration Capability mask以及GSHC端NONE默认选择语义。
 
 > 文档版本：0.0.10

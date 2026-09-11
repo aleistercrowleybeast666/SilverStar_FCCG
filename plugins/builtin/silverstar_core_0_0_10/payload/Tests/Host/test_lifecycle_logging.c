@@ -7,6 +7,7 @@
 #include "estimator_task.h"
 #include "ins_task.h"
 #include "logger_bus.h"
+#include "logger_task.h"
 #include "system_alignment.h"
 #include "system_barometer_if.h"
 #include "system_calibration.h"
@@ -77,6 +78,7 @@ static uint32_t s_sink_flush_count;
 static uint32_t s_sink_end_count;
 static uint32_t s_landing_critical_flush_count;
 static uint8_t s_fail_final_flush_once;
+static uint8_t s_short_write_once;
 static uint32_t s_final_flush_failure_count;
 static FlightLogEventId s_last_serialized_event;
 static uint32_t s_header_serialize_count;
@@ -638,6 +640,12 @@ static SystemDeviceResult Mock_LogWrite(const uint8_t *data,
         return SYSTEM_DEVICE_INVALID_ARGUMENT;
     }
     s_sink_write_count++;
+    if (s_short_write_once != 0U && s_sink_write_count > 1U)
+    {
+        s_short_write_once = 0U;
+        *written_length = length / 2U;
+        return SYSTEM_DEVICE_IO_ERROR;
+    }
     *written_length = length;
     return SYSTEM_DEVICE_OK;
 }
@@ -1051,7 +1059,7 @@ static void Test_LoggerFinalizesAfterLandingGrace(void)
     TEST_CHECK(s_finalization_state == LOGGER_BUS_FINALIZATION_FINALIZED);
 }
 
-static void Test_FinalFlushFailureRetriesWithoutPrematureFinalize(void)
+static void Test_FinalFlushFailureLatchesWithoutPrematureFinalize(void)
 {
     const uint64_t landing_timestamp_us = 1000000ULL;
 
@@ -1072,9 +1080,32 @@ static void Test_FinalFlushFailureRetriesWithoutPrematureFinalize(void)
     }
 
     TEST_CHECK(s_final_flush_failure_count == 1U);
-    TEST_CHECK(s_finalization_state == LOGGER_BUS_FINALIZATION_FINALIZED);
+    TEST_CHECK(s_finalization_state == LOGGER_BUS_FINALIZATION_DRAINING);
     TEST_CHECK(s_sink_end_count == 1U);
     TEST_CHECK(s_sink_begin_count == 1U);
+    LoggerTaskDiagnostics diagnostics;
+    TEST_CHECK(LoggerTask_DiagnosticsGet(&diagnostics) == SYSTEM_DEVICE_OK);
+    TEST_CHECK(diagnostics.io_fault == 1U);
+}
+
+uint32_t LoggerBus_OverflowCountGet(void) { return 0U; }
+
+static void Test_PartialWriteNeverReplaysAggregate(void)
+{
+    LoggerTaskDiagnostics diagnostics;
+    Test_StateReset();
+    s_log_sink_available = 1U;
+    s_startup_report.completed = 1U;
+    s_startup_report.passed = 1U;
+    s_short_write_once = 1U;
+    s_delay_limit = 10U;
+    if (setjmp(s_task_exit) == 0) { AppTask_Logger(NULL); }
+    TEST_CHECK(s_short_write_once == 0U);
+    TEST_CHECK(s_sink_write_count == 2U);
+    TEST_CHECK(s_sink_begin_count == 1U);
+    TEST_CHECK(s_sink_end_count == 1U);
+    TEST_CHECK(LoggerTask_DiagnosticsGet(&diagnostics) == SYSTEM_DEVICE_OK);
+    TEST_CHECK(diagnostics.io_fault == 1U);
 }
 
 static void Test_StartupReportBackfillsAfterLateOpen(void)
@@ -1151,7 +1182,8 @@ int main(void)
     Test_MissingTfDoesNotChangeFlightState();
     Test_FlightRecoveryEventRetry();
     Test_LoggerFinalizesAfterLandingGrace();
-    Test_FinalFlushFailureRetriesWithoutPrematureFinalize();
+    Test_FinalFlushFailureLatchesWithoutPrematureFinalize();
+    Test_PartialWriteNeverReplaysAggregate();
     Test_StartupReportBackfillsAfterLateOpen();
     return Test_Finish("lifecycle_logging");
 }

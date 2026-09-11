@@ -1027,6 +1027,21 @@ def _Components_Get(
         )
         for relative in (
             "APP/Inc/app_task_config.h",
+            "APP/Inc/logger_bus.h",
+            "APP/Inc/logger_task.h",
+            "APP/Src/logger_bus.c",
+            "Interfaces/Inc/system_storage_if.h",
+            "Tests/Host/storage_integrity/FreeRTOS.h",
+            "Tests/Host/storage_integrity/task.h",
+            "Tests/Host/storage_integrity/queue.h",
+            "Tests/Host/storage_integrity/sd_diskio.h",
+            "Tests/Host/storage_integrity/fatfs.h",
+            "Tests/Host/storage_integrity/test_storage_integrity.c",
+            "Tests/Host/storage_integrity/test_logger_storage.c",
+            "Tests/Host/storage_integrity/run_storage_integrity.py",
+            "Tests/Target/storage_integrity.c",
+            "Tests/Target/storage_integrity.h",
+            "Tools/sslog_audit.py",
             "Common/Inc/silverstar_assert.h",
             "Common/Src/silverstar_assert.c",
             "System/Inc/system_task_stack.h",
@@ -1080,6 +1095,7 @@ def _Components_Get(
             "Tools/validate_sslog_record_catalog.py",
         )
     }
+    core_fccg_owned_files["Tools/sslog_audit.py"] = "tools/sslog_audit.py"
     board_sources = [path for path in first_party if path.startswith("Core/")]
     board_sources += _ManifestValues_Get(reference, "Board/SilverStar_0_5/module.mk", "C_SOURCES")
     board_sources = [
@@ -1286,6 +1302,10 @@ def _Components_Get(
                 "device_descriptors": [],
             },
             build_extra={"exclude_sources": ["Core/Src/sysmem.c"]},
+            overlay_files={
+                "FATFS/Target/sd_diskio.c": "storage/sd_diskio.c",
+                "FATFS/Target/bsp_driver_sd.c": "storage/bsp_driver_sd.c",
+            },
             board={"source_kind": "verified_builtin", "compatible_mcus": [mcu_id], "vendor": "STM32", "provider": "silverstar.hardware_provider.stm32_cubemx", "verified": True, "hardware_root": "Core", "ioc_file": "payload/Flight_Controller0.5.ioc", "connections_file": "connections.json"},
             docs=["docs/details/BUILD_AND_TARGETS.md"],
         )
@@ -1455,6 +1475,12 @@ def _Components_Get(
             reference_files={
                 "Devices/Storage/SdSdioFatFs/Src/storage_service.c": "Board/SilverStar_0_5/Services/Src/storage_service.c",
                 "Devices/Storage/SdSdioFatFs/Src/log_sink_service.c": "Board/SilverStar_0_5/Services/Src/log_sink_service.c",
+            },
+            fccg_owned_files={
+                f"Devices/Storage/SdSdioFatFs/Src/{name}":
+                    "plugins/builtin/silverstar_device_storage_sd_sdio_fatfs/payload/"
+                    f"Devices/Storage/SdSdioFatFs/Src/{name}"
+                for name in ("storage_service.c", "log_sink_service.c")
             },
             docs=["docs/details/STORAGE_AND_FLIGHT_LOG.md"],
         )
@@ -2705,6 +2731,7 @@ def _Components_Get(
     owned_documentation = {
         "silverstar.board.silverstar_0_5": ("BUILD_AND_TARGETS.md",),
         "silverstar.device.storage.sd_sdio_fatfs": ("STORAGE_AND_FLIGHT_LOG.md",),
+        "silverstar.protocol.logging.sslog_0_0": ("STORAGE_AND_FLIGHT_LOG.md",),
         "silverstar.flight_logic.indicator.gpio_status_service": ("FCCG_COMPONENT_BOUNDARIES.md",),
         "silverstar.flight_logic.mission_action.gpio_output_service": ("FCCG_COMPONENT_BOUNDARIES.md",),
     }
@@ -2715,6 +2742,21 @@ def _Components_Get(
             name: f"plugins/builtin/{slug}/docs/{name}"
             for name in owned_documentation.get(component_id, ())
         })
+        storage_files = ()
+        if component_id == core_id:
+            storage_files = (
+                "APP/Inc/logger_bus.h", "APP/Inc/logger_task.h",
+                "APP/Src/logger_bus.c", "APP/Src/logger_task.c",
+                "Interfaces/Inc/system_storage_if.h",
+            )
+        elif component_id == board_id:
+            storage_files = ("FATFS/Target/sd_diskio.c", "FATFS/Target/bsp_driver_sd.c")
+        elif component_id == storage_id:
+            storage_files = tuple(component["fccg_owned_files"])
+        if storage_files:
+            component["manifest"]["metadata"].setdefault("source_origins", {}).update(
+                {name: "fccg_storage_integrity" for name in storage_files}
+            )
     return components
 
 

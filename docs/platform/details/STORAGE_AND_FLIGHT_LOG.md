@@ -1,4 +1,75 @@
 # SilverStar Storage 与飞行日志格式 0.0
+
+## 任意字节流与DMA所有权
+
+Storage backend必须支持任意合法CPU buffer地址、文件offset和写入length，调用方不需要
+4或32字节对齐。MISSION_CONFIG payload=91 bytes、record=119 bytes是合法协议尺寸，
+禁止补齐payload、改变CRC或由FLP放宽CRC来掩盖writer错误。AIR M0、Maintenance/SSLOG 0.0、
+`.ssdecoder` 1.1及平台0.0.10保持原布局与版本。
+
+SS0.5的`FATFS/Target/sd_diskio.c`使用固定512-byte main-SRAM buffer。每次只向BSP提交
+一个sector，write先复制、read在完成后复制；匹配read/write completion并等待card-ready后
+才能复用。FatFs继续负责partial/full/partial sector及read/modify/write，不在Logger重写文件系统。
+扇区计数与字节数分离，检查空指针、零计数、计数上限和sector溢出。当前单次请求最多128 sectors，
+与此FatFs最大cluster传输相容。等待有30秒整体上限，card-busy轮询让出CPU；CTRL_SYNC检查真实就绪。
+
+缓冲区、完成队列及控制块全部静态，无heap。F407没有DCache。HAL completion只由实际SD handle
+路由。错误类型completion、提交失败或timeout锁存diskio不可用；重初始化和迟到IRQ不能解锁，
+必须复位后重新开始。这样即使DMA仍占用scratch，也不会被后续调用覆盖。这个保守策略不提供热插拔恢复。
+单个文件系统的生产调用只由LoggerTask持有；health getter可以跨任务读取。禁止并行调用FatFs。
+
+Logger遇到partial/uncertain write或sync失败时停止本次writer，不重放aggregate、不追加到疑似损坏文件，
+best-effort结束sink但不标记finalized。该故障不会停止飞控任务。已经失败的文件可能有截断尾部，
+审计应明确失败；修复不会伪造或修补已经丢失的数据。只有尚未开始写文件的open失败可继续重试。
+
+### Queue独立诊断
+
+普通/Estimator queue保持原容量与公平轮转，producer把完整record复制进queue。Overflow只增加明确drop；
+启动队列已满时不能因decoder descriptor入队失败而关闭文件，否则唯一consumer永远无法腾出空间。
+Logger先保持session打开并消费，在dequeue后重试尚未入队的Required descriptor，成功后只写入一次。
+每次serialize前，writer将新观察到的累计overflow增量加入sequence，因此双队列轮转不会造成push序号重排，
+也不会假装丢弃不存在。Gap位置表示writer首次观察到drop的位置，不表示每个被丢样本的精确timestamp。
+进程内的LoggerBus_Reset仅用于启动/测试，不能在活动文件中清零累计drop。STATS的原有overflow字段保持不变；
+最后一条记录后发生的丢弃或STATS自身丢弃，不能仅靠文件推断完整损失量。
+
+`LoggerBus_DiagnosticsGet`提供两队列当前量/HWM及accepted/dequeued/overflow累计计数；
+`LoggerTask_DiagnosticsGet`提供最大迭代间隔、serialized计数和io_fault；
+`SystemStorage_HealthGet`提供max_write_latency_us/max_sync_latency_us。这些是内部C诊断接口，
+没有新增维护命令或wire字段。用两个带monotonic timestamp的快照差值测START前后production rate：
+accepted增量/秒为接收率，(accepted+overflow)增量/秒为尝试率。用调试器或专用台架调用读取。
+
+队列增长要与存储延迟、任务调度和实际production rate一起判断。关键descriptor/生命周期批次不再逐条
+f_sync：队列排空或首条critical的20ms deadline到达即flush，常规250ms sync保持不变；deadline不随
+后续critical延长。已开始的有界存储操作可能使实际完成晚于deadline，必须记录真实最大延迟。
+不提高Logger优先级或单纯增大queue来掩盖介质吞吐不足。
+
+### 可重复Host与真实SS0.5验收
+
+1. 在新生成的verified SS0.5+SD/TF+Logging工程运行`mingw32-make host-tests`，也可单独运行
+   `python Tests/Host/storage_integrity/run_storage_integrity.py --project .`。
+   Host使用实际FatFs、diskio、LoggerBus/Task、Storage/LogSink和C codec；SD卡和RTOS时间为模型，
+   DMA延迟到completion才消费buffer。只在严格连续framing、全部CRC、文件长度和EOF正确时通过。
+2. Target bench仅在无点火/部署负载的室内台架使用。将`Tests/Target/storage_integrity.c`临时加入
+   专用台架工程，在scheduler启动、FatFs已link/mount且暂停常规Logger后，从唯一存储owner调用
+   `StorageIntegrity_Run()`。不要与Logger并发。函数用CREATE_NEW创建BYTECHK.BIN/LOGCHK.BIN，
+   不删除或格式化；已有同名文件时失败。确认返回Ok，保留读回文件。其静态RAM只属于台架构建。
+3. 使用当前verified Board与SD/TF插件、已知良好卡，执行preflight → NONE calibration → alignment
+   → START → 室内记录2–5分钟 → 正常停止，等待Logger完成grace/drain/flush/close后取出卡。
+   保存START前后与停止后的三组诊断快照、任务HWM、卡型号和固件/decoder身份。
+4. 独立运行`python Tools/sslog_audit.py SSxxxx.BIN --decoder Project.ssdecoder`。
+   核查文件头CRC、record CRC/length、sequence、尾字节、boundary signature和STATS overflow。
+   故意overflow用`--allow-queue-drops`，仅当CRC仍全正确且gap总量与有效STATS累计drop完全对应才可通过。
+   工具在首个坏frame停下，不resync获得通过；boundary extra/missing-byte signature只是局部CRC假设，
+   不修改输入文件，也不声称恢复数据。`--scan-candidates`可另报坏文件的CRC/length candidate、
+   恢复候选中的gap及STATS，结果与严格判定分离，不能据此证明queue损失或获得通过。
+   传`--catalog`只证明codec framing，不证明项目decoder精确匹配。
+5. 至少两次运行或两张卡；每次保留BIN、匹配`.ssdecoder`、审计JSON及诊断快照。
+   FLP能打开、GSHC遥测正常都不能替代TF文件逐字节/CRC验收。
+
+未提供本地SS0014.BIN和对应decoder时，只能保留prompt提供的历史缺陷事实，不能写成已复测。
+小型synthetic corruption定义位于`tests/fixtures/sslog_corruption_cases.json`，回归从实际C writer产生的
+字节流构造512边界重复/缺字节、CRC翻转、oversized length、sequence gap与尾字节并验证严格拒绝。
+实际执行结果、RAM/FLASH变化与硬件状态仅记录在根VALIDATION。
 > **0.0.10增量**：固件build tag为`SILV0010`；`.ssdecoder` package/project-semantics保持1.1。Physical Device、source descriptor、instance identity用于区分多IMU/GNSS native record。`CALIBRATION_RESULT`在NONE/OneFace/SixFace均是Required有效快照。
 
 > 文档版本：0.0.10
@@ -258,7 +329,7 @@ generation_profile_hash = SHA-256(generation_input)
 
 LoggerTask使用静态Record buffer和aggregation buffer。完整Record才进入聚合；空间不足、关键Record或sync周期到达时批量写入。文件头、System/Mission config、descriptor、Initial State、关键Lifecycle/Calibration/Alignment事件应尽力及时flush。
 
-Landing确认后先把LANDING EVENT可靠加入LoggerBus，再以landing timestamp建立post-landing grace截止时间。截止前继续记录正常尾段；截止后Bus拒绝新Push但不计作overflow，LoggerTask排空normal/estimator queue、写完aggregation、flush并结束session。临时I/O失败按策略重试，只有全部成功才锁存finalized。本次上电不再自动开启第二个session。
+Landing确认后先把LANDING EVENT可靠加入LoggerBus，再以landing timestamp建立post-landing grace截止时间。截止前继续记录正常尾段；截止后Bus拒绝新Push但不计作overflow，LoggerTask排空normal/estimator queue、写完aggregation、flush并结束session。写入/sync不确定性锁存writer故障且不重放，只有全部成功才锁存finalized。本次上电不再自动开启第二个session。
 
 Storage/Log失败不得阻止、拒绝或回滚START、Deploy或Landing；它只进入Health、事件和丢弃计数。
 
