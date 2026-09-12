@@ -383,3 +383,7 @@ Storage/Log失败不得阻止、拒绝或回滚START、Deploy或Landing；它只
 ## 13. 验收边界
 
 Host测试覆盖29类payload双向codec字节往返、Record长度、endian、完整Record解码错误、CRC、descriptor、stream policy、queue和finalization；同时验证双实例Native分流/独立去重/故障隔离、Decoder Profile三项hash与one-shot调用，以及STATS/TELEMETRY_DIAG生产路径。架构检查验证真实producer、Count/Instance facade、Catalog/C mirror、无registry/heap、Host fixture不进入Target图，并确认authoritative manifest不调用Python或生成器。ARM编译证明F407 Storage/Log Device实现可链接；没有TF卡长时间写入、断电注入和文件恢复实测时，不得声称Storage硬件已经验证。
+
+## Decoder algorithm parameters (package 1.2)
+
+`firmware_algorithm_parameters` remains per onboard algorithm and contains each final resolved actual value. FCCG `shared_key` metadata is intentionally absent: FLP need not understand it. Package schema and project semantics remain 1.2, Record Catalog and wire layout are unchanged, and `required_flp_minimum_version` is 0.0.2.

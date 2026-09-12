@@ -43,6 +43,10 @@
               "generated_symbol"
             ],
             "properties": {
+              "shared_key": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9_.-]*$"
+              },
               "id": {
                 "type": "string",
                 "pattern": "^[a-z][a-z0-9_]*$"

@@ -31,3 +31,7 @@ Verified Board保存固定logical→physical mapping、兼容MCU、`.ioc` snapsh
 
 ## Security
 ZIP traversal、绝对路径、symlink、special file、case collision、超限文件、managed-path claim均拒绝。所有C symbol/path/token做严格校验。
+
+## Shared algorithm parameters
+
+An algorithm parameter may declare `shared_key`, matching `^[a-z][a-z0-9_.-]*$`. All catalog declarations for a key must have identical type, default, unit, representation, bounds, precision, and step; IDs and generated symbols may differ. Selected owners are displayed by `selection.ui_order`, then component ID, with owners lacking `selection` last. This is declarative FCCG configuration linkage, not an algorithm dispatch rule.

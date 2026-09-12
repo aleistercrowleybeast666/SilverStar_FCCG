@@ -1,4 +1,5 @@
 from copy import deepcopy
+from dataclasses import replace
 import hashlib
 from io import BytesIO
 import json
@@ -15,7 +16,8 @@ from silverstar_fccg.core.workspace import WorkspacePolicy
 from silverstar_fccg.generator.log_decoder_profile import LogDecoderPackage_Verify, _AlgorithmParameters_Validate
 from silverstar_fccg.generator.render import LogDecoderProfile_Render
 from silverstar_fccg.plugins.algorithm_parameters import AlgorithmParameters_Parse
-from silverstar_fccg.project.algorithm_parameters import AlgorithmParameters_Resolve, AlgorithmParametersHeader_Render
+from silverstar_fccg.project.algorithm_parameters import (AlgorithmParameterOwners_Get,
+    AlgorithmParameters_Resolve, AlgorithmParametersHeader_Render)
 from silverstar_fccg.project.configuration import ProjectConfiguration_Reconcile
 from silverstar_fccg.project.generation_state import ProjectGenerationFingerprint_Get
 from silverstar_fccg.project.model import ProjectModel_Parse
@@ -23,6 +25,7 @@ from silverstar_fccg.project.reference import ReferenceProject_Create
 from silverstar_fccg.project.validation import Project_Validate
 from silverstar_fccg.ui.main_window import MainWindow
 from silverstar_fccg.ui.widgets import CollapsibleSection
+from silverstar_fccg.plugins.catalog import PluginCatalog
 
 INS = 'silverstar.algorithm.ins.coning2_sculling2'
 KF = 'silverstar.algorithm.estimator.kf6'
@@ -38,17 +41,22 @@ def test_actual_defaults_roundtrip_and_decoder(builtin_catalog):
     assert values['gnss_velocity_std'] == 0.15
     assert values['baro_std_m'] == 5.0
     assert len(values) == 21
+    assert values['gravity_mps2'] == 9.78
+    assert [owner.component_id for owner in AlgorithmParameterOwners_Get(model,builtin_catalog)] == [INS,KF]
     assert ProjectModel_Parse(model.Dictionary_Get()).algorithm_parameters == model.algorithm_parameters
     sets = AlgorithmParameters_Resolve(model, builtin_catalog)
     assert {p['component'] for p in sets} == {INS,KF}
     gravity = sets[0]['parameters'][0]
     assert gravity['value'] == struct.unpack('<f',struct.pack('<f',9.78))[0]
     package = LogDecoderProfile_Render(model, builtin_catalog)
-    assert LogDecoderPackage_Verify(package.content)['package_schema']['minor'] == 2
+    verified=LogDecoderPackage_Verify(package.content)
+    assert verified['package_schema']['minor'] == 2
+    assert verified['required_flp_minimum_version'] == '0.0.2'
     with zipfile.ZipFile(BytesIO(package.content)) as archive:
         semantics = json.loads(archive.read('project_semantics.json'))
     assert semantics['schema_id'] == 'silverstar.project-semantics/1.2'
     assert semantics['firmware_algorithm_parameters'] == sets
+    assert [next(p['value'] for p in s['parameters'] if p['id']=='gravity_mps2') for s in sets] == [gravity['value']]*2
     assert all(p['representation'] == 'sigma' for p in sets[1]['parameters'] if '_std' in p['id'])
 
 
@@ -101,6 +109,56 @@ def test_duplicate_schema_parameters_rejected(builtin_catalog):
     with pytest.raises(ValueError,match='Duplicate'): AlgorithmParameters_Parse(document)
 
 
+def test_shared_key_schema_and_project_mismatch_are_strict(builtin_catalog):
+    manifest=builtin_catalog.Component_Get(INS)
+    document=json.loads(manifest.manifest_path.read_text(encoding='utf-8'))['algorithm_parameters']
+    assert document['parameters'][0]['shared_key']=='navigation.gravity_mps2'
+    document['parameters'][0]['shared_key']='Unsafe key'
+    with pytest.raises(ValueError,match='shared_key'): AlgorithmParameters_Parse(document)
+    model=ReferenceProject_Create(catalog=builtin_catalog)
+    model.algorithm_parameters[KF]['gravity_mps2']=9.81
+    with pytest.raises(ValueError,match='Shared parameter mismatch'):
+        AlgorithmParameters_Resolve(model,builtin_catalog)
+    assert not Project_Validate(model,builtin_catalog).valid
+    reconciled=ProjectConfiguration_Reconcile(model,builtin_catalog).model
+    assert reconciled.algorithm_parameters[KF]['gravity_mps2']==9.81
+
+
+def test_synthetic_future_estimator_uses_ui_order_and_shared_value(builtin_catalog):
+    """A future plugin joins the mechanism without a component-name branch."""
+    source=builtin_catalog.Component_Get(KF)
+    gravity=next(p for p in source.algorithm_parameters if p.parameter_id=='gravity_mps2')
+    independent=replace(next(p for p in source.algorithm_parameters if p.parameter_id=='baro_std_m'),
+                        parameter_id='future_gain', generated_symbol='SYSTEM_EKF15_FUTURE_GAIN',
+                        greater_than='')
+    future=replace(source, component_id='synthetic.algorithm.estimator.ekf15',
+                   selection=replace(source.selection, ui_order=40),
+                   algorithm_parameters=(replace(gravity, generated_symbol='SYSTEM_EKF15_GRAVITY_MPS2'), independent))
+    catalog=PluginCatalog(builtin_catalog.builtin_root,builtin_catalog.installed_root)
+    catalog._components={m.component_id:m for m in builtin_catalog.All_Get()}
+    catalog._components[future.component_id]=future
+    model=ReferenceProject_Create(catalog=catalog)
+    assert future.component_id not in {o.component_id for o in AlgorithmParameterOwners_Get(model,catalog)}
+    model.algorithm_parameters[INS]['gravity_mps2']=9.81
+    model.algorithm_parameters[KF]['gravity_mps2']=9.81
+    estimator_slot=next(slot for slot,value in model.strategies.items() if value==KF)
+    model.strategies[estimator_slot]=future.component_id
+    model=ProjectConfiguration_Reconcile(model,catalog).model
+    assert [o.component_id for o in AlgorithmParameterOwners_Get(model,catalog)] == [INS,future.component_id]
+    assert model.algorithm_parameters[future.component_id]['gravity_mps2']==9.81
+    header=AlgorithmParametersHeader_Render(model,catalog)
+    assert '#define SYSTEM_EKF15_GRAVITY_MPS2 9.810000420e+00f' in header
+    incompatible=replace(future, algorithm_parameters=(replace(future.algorithm_parameters[0], maximum=21.0), independent))
+    assert PluginCatalog._SharedParameterErrors_Get({INS:catalog.Component_Get(INS),incompatible.component_id:incompatible})
+    catalog._components[future.component_id]=incompatible
+    with pytest.raises(ValueError,match='Incompatible shared parameter'):
+        AlgorithmParameters_Resolve(model,catalog)
+    catalog._components[future.component_id]=future
+    model.strategies[estimator_slot]=None
+    model=ProjectConfiguration_Reconcile(model,catalog).model
+    assert future.component_id not in model.algorithm_parameters
+
+
 def test_decoder_rejects_11_and_invalid_resolved_metadata(builtin_catalog):
     model=ReferenceProject_Create(catalog=builtin_catalog)
     package=LogDecoderProfile_Render(model,builtin_catalog)
@@ -136,18 +194,21 @@ def test_gui_page_edit_reset_dirty_and_readonly_display(tmp_path,qapp,monkeypatc
         old=window._model.Dictionary_Get()
         window._Project_Refresh()
         assert window._model.Dictionary_Get()==old
-        editor=window.algorithm_parameters_page.editors[(INS,'gravity_mps2')]
+        assert list(k for k in window.algorithm_parameters_page.editors if 'gravity' in k[1]) == [('shared','navigation.gravity_mps2')]
+        editor=window.algorithm_parameters_page.editors[('shared','navigation.gravity_mps2')]
         editor.setValue(9.81)
         qapp.processEvents()
         assert window._model.algorithm_parameters[INS]['gravity_mps2']==9.81
+        assert window._model.algorithm_parameters[KF]['gravity_mps2']==9.81
         assert 'dirty' in window._project_state.value.lower()
         sections = window.algorithm_parameters_page._content.findChildren(CollapsibleSection)
         advanced = next(section for section in sections if not section.Expanded_Is())
         advanced.toggle_button.setChecked(True)
         window._Project_Refresh()
         assert all(section.Expanded_Is() for section in window.algorithm_parameters_page._content.findChildren(CollapsibleSection))
-        window._AlgorithmDefaults_Reset(INS)
+        window._SharedAlgorithmDefaults_Reset('navigation.gravity_mps2')
         assert window._model.algorithm_parameters[INS]['gravity_mps2']==9.78
+        assert window._model.algorithm_parameters[KF]['gravity_mps2']==9.78
     finally:
         window._project_state=type(window._project_state).DRAFT
         window.close()
@@ -165,11 +226,14 @@ def test_generated_defaults_numerically_identical_and_changed_values_consumed(tm
     assert hashlib.sha256(baseline).hexdigest()==expected['trajectory_sha256']
     old_fingerprint=ProjectGenerationFingerprint_Get(model)
     model.algorithm_parameters[INS]['gravity_mps2']=9.81
-    model.algorithm_parameters[KF]['p0_position_e']=8.
-    model.algorithm_parameters[KF]['process_accel_std_u']=3.
-    model.algorithm_parameters[KF]['gnss_velocity_std']=.3
-    model.algorithm_parameters[KF]['baro_std_m']=6.
+    model.algorithm_parameters[KF]['gravity_mps2']=9.81
     assert ProjectGenerationFingerprint_Get(model)!=old_fingerprint
+    changed_sets=AlgorithmParameters_Resolve(model,service.catalog)
+    changed_gravity=[next(p['value'] for p in s['parameters'] if p['id']=='gravity_mps2') for s in changed_sets]
+    assert changed_gravity == [struct.unpack('<f',struct.pack('<f',9.81))[0]]*2
+    changed_header=AlgorithmParametersHeader_Render(model,service.catalog)
+    assert '#define SYSTEM_INS_GRAVITY_MPS2 9.810000420e+00f' in changed_header
+    assert '#define SYSTEM_KF_GRAVITY_MPS2 9.810000420e+00f' in changed_header
     service.Project_Save(model,project,confirm_dangerous=True)
     changed=Trajectory_Run(project,workspace_root)
     assert changed!=baseline
@@ -179,3 +243,7 @@ def test_generated_defaults_numerically_identical_and_changed_values_consumed(tm
     service.Project_SaveAs(saved,project,destination,confirm_dangerous=True)
     copied=service.Project_Open(destination/'SilverStar.ssproject')
     assert copied.algorithm_parameters==model.algorithm_parameters
+    model.algorithm_parameters[INS]['gravity_mps2']=9.78
+    model.algorithm_parameters[KF]['gravity_mps2']=9.78
+    service.Project_Save(model,project,confirm_dangerous=True)
+    assert Trajectory_Run(project,workspace_root)==baseline

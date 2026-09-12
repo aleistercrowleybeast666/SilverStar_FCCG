@@ -274,6 +274,8 @@ class MainWindow(QMainWindow):
         self.algorithm_parameters_page = AlgorithmParametersPage(self._translator)
         self.algorithm_parameters_page.parameterChanged.connect(self._AlgorithmParameter_Change)
         self.algorithm_parameters_page.defaultsRequested.connect(self._AlgorithmDefaults_Reset)
+        self.algorithm_parameters_page.sharedParameterChanged.connect(self._SharedAlgorithmParameter_Change)
+        self.algorithm_parameters_page.sharedDefaultsRequested.connect(self._SharedAlgorithmDefaults_Reset)
         self.board_hardware_page = BoardHardwarePage(self._translator)
         self.build_page = BuildPage(self._translator)
         self._page_widgets = (
@@ -1478,11 +1480,27 @@ class MainWindow(QMainWindow):
             lambda candidate: candidate.algorithm_parameters[component].__setitem__(parameter, value)
         )
 
+    def _SharedAlgorithmParameter_Change(self, shared_key: str, value: object) -> None:
+        def update(candidate) -> None:
+            for owner in AlgorithmParameterOwners_Get(candidate, self._service.catalog):
+                for parameter in owner.algorithm_parameters:
+                    if parameter.shared_key == shared_key:
+                        candidate.algorithm_parameters[owner.component_id][parameter.parameter_id] = value
+        self._ProjectConfiguration_Change(update)
+
+    def _SharedAlgorithmDefaults_Reset(self, shared_key: str) -> None:
+        def reset(candidate) -> None:
+            for owner in AlgorithmParameterOwners_Get(candidate, self._service.catalog):
+                for parameter in owner.algorithm_parameters:
+                    if parameter.shared_key == shared_key:
+                        candidate.algorithm_parameters[owner.component_id][parameter.parameter_id] = parameter.default
+        self._ProjectConfiguration_Change(reset)
+
     def _AlgorithmDefaults_Reset(self, component: str) -> None:
         defaults = {p.parameter_id: p.default
-                    for p in self._service.Plugin_Get(component).algorithm_parameters}
+                    for p in self._service.Plugin_Get(component).algorithm_parameters if not p.shared_key}
         self._ProjectConfiguration_Change(
-            lambda candidate: candidate.algorithm_parameters.__setitem__(component, defaults)
+            lambda candidate: candidate.algorithm_parameters[component].update(defaults)
         )
 
     def _ModeParameter_Change(

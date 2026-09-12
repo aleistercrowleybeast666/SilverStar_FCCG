@@ -280,3 +280,9 @@ Actual validation results are recorded only in `VALIDATION.md`.
 ## 0.0.1 — 2026-08-21
 
 - Created the independent PySide6 FCCG application, strict project/plugin models, secure installer, staged assembler, project-owned component preservation, thin generated glue, editor metadata, toolchain front end, and initial F407 acceptance project.
+
+## Unreleased — algorithm parameter closeout
+
+- Ordered Algorithm Parameters owners by manifest `selection.ui_order`.
+- Added generic optional `shared_key` declarations, strict contract/value checks, shared GUI editing/reset, and new-owner value inheritance. Pure INS and KF6 now share navigation gravity without changing algorithms or platform local gravity.
+- Kept project format 12 and `.ssdecoder`/project semantics 1.2 with separate per-algorithm resolved values; corrected required FLP minimum to 0.0.2.

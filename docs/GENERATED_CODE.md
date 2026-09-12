@@ -54,3 +54,7 @@ Board插件的`connections.json`决定logical ID；`.ioc`/generated header只解
 固定成员：`manifest.json`、`record_catalog.json`、`project_semantics.json`、`checksums.sha256`、`README.md`。它是纯数据ZIP，不执行代码。Package/semantics当前为1.2（不兼容1.1），SSLOG container为0.0。
 
 完整`docs/platform/`留在FCCG仓库，不复制到每个生成工程；生成工程摘要继续使用既有README/配置摘要机制。Calibration行为见[共同契约](AIR_CALIBRATION_CONTRACT.md)。
+
+## Shared actual values
+
+Shared GUI values do not create runtime objects. Each declaration still emits its own compile-time macro: Pure INS uses `SYSTEM_INS_GRAVITY_MPS2` and KF6 uses `SYSTEM_KF_GRAVITY_MPS2`, with identical resolved float32 values. `project_algorithm_parameters.h` remains included through `project_flight_config.h`; no parser or heap use is added.

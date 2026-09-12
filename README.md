@@ -235,3 +235,7 @@ expose one genuine implementation. Missing or ambiguous compatible transports di
 Profile with an explanation; no Profile is selected merely because it is installed.
 
 See [User Guide](docs/USER_GUIDE.md), [Architecture](docs/ARCHITECTURE.md), [Plugin Format](docs/PLUGIN_FORMAT.md), [Project Format](docs/PROJECT_FORMAT.md), [Generated Code](docs/GENERATED_CODE.md), [Build Integration](docs/BUILD.md), and [Validation](VALIDATION.md).
+
+## Shared algorithm-parameter closeout
+
+Algorithm owners are ordered generically by `selection.ui_order` (then component ID). Compatible declarations with the same optional `shared_key` produce one Shared Parameters editor while retaining one actual value under each selected component in project format 12. Pure INS and KF6 share `navigation.gravity_mps2`; this affects only their navigation gravity, not `SYSTEM_LOCAL_GRAVITY_MPS2`, Calibration, or Alignment. Decoder/package and project-semantics remain 1.2; the required FLP minimum is 0.0.2. No algorithm formula or timing changed.

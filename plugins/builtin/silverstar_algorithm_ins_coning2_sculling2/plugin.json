@@ -109,7 +109,8 @@
         "description": {
           "en_US": "Navigation gravity subtraction only; calibration, alignment and sensor conversion retain their separate platform gravity.",
           "zh_CN": "仅用于导航重力扣除；校准、对准和传感器换算保留独立的平台重力配置。"
-        }
+        },
+        "shared_key": "navigation.gravity_mps2"
       }
     ]
   }
