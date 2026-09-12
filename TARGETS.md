@@ -243,3 +243,10 @@ FLASH/RAM and acceptance snapshots belong only in [VALIDATION.md](VALIDATION.md)
   narrow latched GNSS-liveness and local telemetry-TX-timeout policy described above.
 - EIDE native metadata is generated and structurally/architecturally checked; an EIDE CLI builder is required before claiming an actual EIDE-native compile.
 - No current Board/Environment pair declares validated flash capability, so FCCG emits no GUI, Make, VS Code, or EIDE upload action; no hardware flash or electrical test is claimed.
+
+## Shared algorithm-parameter closeout
+
+- [x] generic owner ordering by `selection.ui_order` and deterministic component ID
+- [x] declarative, strictly compatible `shared_key` groups with one GUI editor and synchronized format-12 values
+- [x] separate INS/KF6 generated macros and decoder resolved values; `.ssdecoder`/semantics stay 1.2
+- [x] required FLP minimum corrected to 0.0.2 without changing FLP

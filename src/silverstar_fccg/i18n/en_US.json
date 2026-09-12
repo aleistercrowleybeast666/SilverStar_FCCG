@@ -735,5 +735,8 @@
   "algorithm_parameters.empty": "No selected algorithm declares tunable parameters.",
   "algorithm_parameters.basic": "Basic",
   "algorithm_parameters.advanced": "Advanced",
-  "algorithm_parameters.reset": "Restore algorithm defaults"
+  "algorithm_parameters.reset": "Restore algorithm defaults",
+  "algorithm_parameters.shared": "Shared Parameters",
+  "algorithm_parameters.shared_reset": "Restore shared parameter defaults",
+  "algorithm_parameters.no_private": "No independently adjustable parameters"
 }

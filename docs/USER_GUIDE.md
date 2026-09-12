@@ -37,3 +37,7 @@ Generate验证并增量物化源码、Generated glue、Make/EIDE/VS Code和项�
 
 ## 8. `.ssdecoder`
 Logging启用时生成并可导出。它与对应日志精确匹配，供FLP后续解析；不要手工编辑包内容。
+
+## Shared Parameters
+
+When selected algorithms declare a common `shared_key`, Algorithm Parameters shows one Shared Parameters section before the algorithm groups. Editing or resetting that field updates every selected owner. Algorithm reset buttons affect only non-shared fields. Pure INS and KF6 gravity therefore appear once; saved projects and decoder output still retain both equal actual values.

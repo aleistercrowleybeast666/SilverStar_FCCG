@@ -26,6 +26,7 @@ class AlgorithmParameterDefinition:
     description: dict[str, str]
     display_names: dict[str, str]
     generated_symbol: str
+    shared_key: str = ""
     greater_than: str = ""
 
     def DisplayName_Get(self, language: str) -> str:
@@ -66,7 +67,7 @@ def AlgorithmParameters_Parse(value: Any) -> tuple[AlgorithmParameterDefinition,
                 "generated_symbol"}
     definitions = []
     for entry in value["parameters"]:
-        if not isinstance(entry, dict) or not required <= set(entry) or set(entry) - required - {"greater_than"}:
+        if not isinstance(entry, dict) or not required <= set(entry) or set(entry) - required - {"greater_than", "shared_key"}:
             raise ValueError("Algorithm parameter has missing or unknown fields")
         if not isinstance(entry["id"], str) or not re.fullmatch(r"[a-z][a-z0-9_]*", entry["id"]):
             raise ValueError("Invalid algorithm parameter id")
@@ -98,6 +99,9 @@ def AlgorithmParameters_Parse(value: Any) -> tuple[AlgorithmParameterDefinition,
                 raise ValueError("Parameter labels require en_US and zh_CN")
         if not isinstance(entry["generated_symbol"], str) or not re.fullmatch(r"[A-Z][A-Z0-9_]*", entry["generated_symbol"]):
             raise ValueError("Invalid parameter generated symbol")
+        shared_key = entry.get("shared_key", "")
+        if not isinstance(shared_key, str) or (shared_key and not re.fullmatch(r"[a-z][a-z0-9_.-]*", shared_key)):
+            raise ValueError("Invalid parameter shared_key")
         greater = entry.get("greater_than", "")
         if not isinstance(greater, str):
             raise ValueError("Invalid parameter comparison")
@@ -105,7 +109,7 @@ def AlgorithmParameters_Parse(value: Any) -> tuple[AlgorithmParameterDefinition,
             entry["id"], entry["type"], entry["default"], entry["unit"],
             entry["representation"], entry["min"], entry["max"], entry["precision"],
             entry["step"], entry["group"], entry["order"], entry["description"],
-            entry["display_names"], entry["generated_symbol"], greater)
+            entry["display_names"], entry["generated_symbol"], shared_key, greater)
         definition.Value_Resolve(definition.default)
         definitions.append(definition)
     by_id = {d.parameter_id: d for d in definitions}

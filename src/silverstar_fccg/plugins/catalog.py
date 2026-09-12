@@ -45,6 +45,7 @@ class PluginCatalog:
                     manifests[manifest.component_id] = manifest
         errors.extend(self._ProtocolAssetsErrors_Get(manifests))
         errors.extend(self._PlatformAssetsErrors_Get(manifests))
+        errors.extend(self._SharedParameterErrors_Get(manifests))
         if errors:
             raise PluginCatalogError("\n".join(errors))
         self._components = manifests
@@ -140,6 +141,22 @@ class PluginCatalog:
                                 f"Protocol profile {category}/{profile.profile_id} "
                                 f"documentation is missing: {relative}"
                             )
+        return tuple(errors)
+
+    @staticmethod
+    def _SharedParameterErrors_Get(manifests: dict[str, PluginManifest]) -> tuple[str, ...]:
+        declarations: dict[str, tuple[object, ...]] = {}
+        errors: list[str] = []
+        for manifest in manifests.values():
+            for parameter in manifest.algorithm_parameters:
+                if not parameter.shared_key:
+                    continue
+                contract = (parameter.value_type, parameter.default, parameter.unit,
+                            parameter.representation, parameter.minimum, parameter.maximum,
+                            parameter.precision, parameter.step)
+                previous = declarations.setdefault(parameter.shared_key, contract)
+                if previous != contract:
+                    errors.append(f"Incompatible shared parameter declaration: {parameter.shared_key}")
         return tuple(errors)
 
     @staticmethod

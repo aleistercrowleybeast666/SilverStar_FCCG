@@ -9,17 +9,36 @@ from silverstar_fccg.project.model import ProjectModel
 
 
 def AlgorithmParameterOwners_Get(model: ProjectModel, catalog: PluginCatalog) -> tuple[PluginManifest, ...]:
-    return tuple(manifest for component in model.ComponentIds_Get()
-                 if (manifest := catalog.Component_Get(component)).algorithm_parameters)
+    owners = (catalog.Component_Get(component) for component in model.ComponentIds_Get())
+    return tuple(sorted((owner for owner in owners if owner.algorithm_parameters), key=lambda owner: (
+        owner.selection is None,
+        owner.selection.ui_order if owner.selection is not None else 0,
+        owner.component_id,
+    )))
+
+
+def AlgorithmParameterSharedGroups_Get(owners: tuple[PluginManifest, ...]) -> dict[str, tuple[tuple[PluginManifest, Any], ...]]:
+    groups: dict[str, list[tuple[PluginManifest, Any]]] = {}
+    for owner in owners:
+        for parameter in owner.algorithm_parameters:
+            if parameter.shared_key:
+                groups.setdefault(parameter.shared_key, []).append((owner, parameter))
+    return {key: tuple(value) for key, value in sorted(groups.items())}
 
 
 def AlgorithmParameters_Reconcile(model: ProjectModel, catalog: PluginCatalog) -> None:
     owners = AlgorithmParameterOwners_Get(model, catalog)
+    existing_shared: dict[str, float | int] = {}
+    for owner in owners:
+        old_values = model.algorithm_parameters.get(owner.component_id, {})
+        for parameter in owner.algorithm_parameters:
+            if parameter.shared_key and parameter.parameter_id in old_values:
+                existing_shared.setdefault(parameter.shared_key, old_values[parameter.parameter_id])
     # Removed algorithms are pruned. Unknown fields within a retained algorithm
     # remain visible to validation; never silently discard stale configuration.
     model.algorithm_parameters = {
         owner.component_id: {
-            **{p.parameter_id: p.default for p in owner.algorithm_parameters},
+            **{p.parameter_id: existing_shared.get(p.shared_key, p.default) for p in owner.algorithm_parameters},
             **model.algorithm_parameters.get(owner.component_id, {}),
         } for owner in owners
     }
@@ -30,6 +49,8 @@ def AlgorithmParameters_Resolve(model: ProjectModel, catalog: PluginCatalog) -> 
     if set(model.algorithm_parameters) != {m.component_id for m in owners}:
         raise ValueError("Algorithm parameter owners are missing or stale")
     symbols: set[str] = set()
+    shared_values: dict[str, float | int] = {}
+    shared_contracts: dict[str, tuple[object, ...]] = {}
     result = []
     for owner in owners:
         definitions = owner.algorithm_parameters
@@ -39,6 +60,18 @@ def AlgorithmParameters_Resolve(model: ProjectModel, catalog: PluginCatalog) -> 
         resolved = {p.parameter_id: p.Value_Resolve(values[p.parameter_id]) for p in definitions}
         parameters = []
         for parameter in definitions:
+            if parameter.shared_key:
+                contract = (parameter.value_type, parameter.default, parameter.unit,
+                            parameter.representation, parameter.minimum, parameter.maximum,
+                            parameter.precision, parameter.step)
+                if (parameter.shared_key in shared_contracts
+                        and contract != shared_contracts[parameter.shared_key]):
+                    raise ValueError(f"Incompatible shared parameter declaration: {parameter.shared_key}")
+                shared_contracts[parameter.shared_key] = contract
+                raw_value = values[parameter.parameter_id]
+                if parameter.shared_key in shared_values and raw_value != shared_values[parameter.shared_key]:
+                    raise ValueError(f"Shared parameter mismatch: {parameter.shared_key}")
+                shared_values[parameter.shared_key] = raw_value
             if parameter.generated_symbol in symbols:
                 raise ValueError("Conflicting algorithm parameter generated symbols")
             symbols.add(parameter.generated_symbol)

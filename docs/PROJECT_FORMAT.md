@@ -36,3 +36,7 @@ Platform 仍为 0.0.10，Record Catalog 与协议布局不变。
 
 ## Project Semantics
 生成的Project Semantics记录physical devices、capability endpoints、initial canonical routes、protocol locks/bindings、algorithms/strategies/modes、logging和hardware identity。Runtime source change通过日志event表达。
+
+## Shared algorithm-parameter invariant (format 12)
+
+No shared map is added. Values remain under `algorithm_parameters[component_id][parameter_id]`; all selected declarations with one `shared_key` must be exactly equal or strict open/validation/generation fails with a shared-parameter mismatch. Reconciliation initializes a newly selected owner from an existing group value, but never repairs an existing conflict. Deselecting an owner prunes only its existing private component map.

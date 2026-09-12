@@ -224,3 +224,7 @@ Long-running tools use `FCCG_PROGRESS|<TASK>|PLAN|<total>` and paired `BEGIN`/`D
 Only `DONE` advances completion. Success reaches 100%; failure and cancellation retain the last
 real progress. Expected host compile rejection is a successful gate result, while raw compiler
 diagnostics remain in the detailed log and project-local log file.
+
+## Shared algorithm parameters closeout
+
+Order selected parameter owners by `selection.ui_order`; use declarative `shared_key` groups without component-specific branches. Project format 12 keeps per-component values and strictly rejects mismatches. `.ssdecoder` 1.2 keeps per-algorithm resolved values (no `shared_key`) and requires FLP 0.0.2. Navigation gravity sharing does not include platform local gravity, Calibration, or Alignment.

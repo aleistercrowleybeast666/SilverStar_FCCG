@@ -902,3 +902,27 @@ archive includes this document itself; embedding its own hash would change that 
 - A normal Classic CAN consumer/filter/router/bus-off contract is not implemented.
 - SilverStar_FLP single-log import, exact decoder matching, rejection of unpublished old logs, and
   offline-algorithm comparison remain a separate follow-up task.
+
+## 2026-09-12 shared algorithm-parameter closeout
+
+Scope: generic `selection.ui_order` owner ordering, declarative `shared_key`, one shared GUI editor,
+strict format-12 equality, and decoder required-FLP correction only. Platform 0.0.10, package and
+project semantics 1.2, Record Catalog, AIR M0, Maintenance/SSLOG 0.0, firmware algorithm formulas
+and timing remain unchanged. FLP was not modified.
+
+Observed default generation resolves both `SYSTEM_INS_GRAVITY_MPS2` and
+`SYSTEM_KF_GRAVITY_MPS2` to `9.779999733e+00f`; both decoder parameter sets contain binary32
+`9.779999732971191`. Strict package verification reports package schema 1.2 and
+`required_flp_minimum_version=0.0.2`.
+
+| Check | Result |
+|---|---|
+| `python -m compileall -q src main.py tools` | PASS |
+| builtin catalog scan and shared resolve/generate script | PASS (36 plugins; INS then KF6; equal gravity) |
+| default SS0.5 assembler generation below `tests/.runtime-shared` and `.ssdecoder` strict verify | PASS |
+| `python -m pytest -q tests/test_algorithm_parameters.py tests/test_gui_smoke.py` | ENVIRONMENT BLOCKED before collection: PySide6 loader requires unavailable `libGL.so.1` |
+| Release / Debug / Host Tests / Architecture Check / Power of Ten / static analysis | ENVIRONMENT BLOCKED: generated Windows gates require unavailable `powershell` (and target toolchain) |
+| frozen 52,045-float numerical trajectory | ENVIRONMENT BLOCKED: fixture requires `D:\\msys64\\ucrt64\\bin\\gcc.exe`; test remains present and now checks shared-only 9.81 change plus restored-default identity |
+
+No GUI screenshot was captured because the same missing `libGL.so.1` prevents starting PySide6 in
+this container. No hardware/toolchain/flight validation is claimed.
