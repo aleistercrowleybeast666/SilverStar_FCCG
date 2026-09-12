@@ -39,8 +39,8 @@ def Audit_ProfileLoad(path: Path) -> tuple[dict[str, Any], dict[str, str] | None
         if manifest.get("format") != "SilverStar.ssdecoder":
             raise ValueError("invalid decoder format")
         schema = manifest.get("package_schema", {})
-        if (schema.get("major"), schema.get("minor")) != (1, 1):
-            raise ValueError("audit requires decoder package 1.1")
+        if (schema.get("major"), schema.get("minor")) != (1, 2):
+            raise ValueError("audit requires decoder package 1.2")
         catalog_bytes = archive.read("record_catalog.json")
         semantics_bytes = archive.read("project_semantics.json")
     catalog_hash = hashlib.sha256(catalog_bytes).hexdigest()
@@ -49,7 +49,7 @@ def Audit_ProfileLoad(path: Path) -> tuple[dict[str, Any], dict[str, str] | None
             semantics_hash != manifest.get("project_semantics_sha256")):
         raise ValueError("decoder payload hash mismatch")
     generation_hash = hashlib.sha256(
-        b"silverstar.ssdecoder.package-schema/1.1\nsilverstar.sslog.container/0.0\n"
+        b"silverstar.ssdecoder.package-schema/1.2\nsilverstar.sslog.container/0.0\n"
         + bytes.fromhex(catalog_hash) + bytes.fromhex(semantics_hash)).hexdigest()
     if generation_hash != manifest.get("generation_profile_sha256"):
         raise ValueError("decoder generation profile hash mismatch")

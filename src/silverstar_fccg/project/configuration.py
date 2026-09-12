@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from silverstar_fccg.project.algorithm_parameters import AlgorithmParameters_Reconcile
+
 from copy import deepcopy
 from dataclasses import dataclass, replace
 
@@ -726,6 +728,7 @@ def ProjectConfiguration_Reconcile(
     notices.extend(_Strategies_Reconcile(candidate, catalog))
     notices.extend(_Modes_Reconcile(candidate, catalog))
     _ModeParameters_Reconcile(candidate, catalog)
+    AlgorithmParameters_Reconcile(candidate, catalog)
     notices.extend(_ProtocolProfiles_Reconcile(candidate, catalog))
     notices.extend(_RequiredLogicalDevices_Reconcile(candidate, catalog))
     capability_resolution = CapabilitySourceOverrides_Reconcile(candidate, catalog)

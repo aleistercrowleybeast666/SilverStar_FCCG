@@ -30,3 +30,7 @@
 
 ## 6. 测试
 至少覆盖：浅/深主题、中文/英文、窗口尺寸、对话框、长任务进度、取消、异常恢复、图表与 3D smoke test，以及 signal/rebuild 回归。
+
+## Algorithm Parameters page
+
+The five-page order is Devices → Flight Configuration → Algorithm Parameters → Hardware Connection → Code Generation & Build. Algorithm parameter widgets are generated from strict plugin declarations; use actual values/units, localized descriptions, basic/advanced CollapsibleSection and per-algorithm reset.

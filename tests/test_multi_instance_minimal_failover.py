@@ -326,9 +326,9 @@ def test_generated_multi_instance_glue_and_decoder_are_deterministic(
     assert manifest["package_schema"]["id"] == LOG_DECODER_PACKAGE_SCHEMA_ID
     assert (manifest["package_schema"]["major"], manifest["package_schema"]["minor"]) == (
         1,
-        1,
+        2,
     )
-    assert semantics["schema_id"] == "silverstar.project-semantics/1.1"
+    assert semantics["schema_id"] == "silverstar.project-semantics/1.2"
     device_ids = {item["instance_id"] for item in semantics["physical_devices"]}
     assert {"imu0", "imu1", "gnss0", "gnss1", "telemetry0", "telemetry1"} <= device_ids
     telemetry_binding = next(

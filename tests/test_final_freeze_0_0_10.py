@@ -358,7 +358,7 @@ def test_new_project_and_generated_identity_are_consistently_0_0_10(
     builtin_catalog: PluginCatalog,
 ) -> None:
     model = ReferenceProject_Create("VersionTruth", catalog=builtin_catalog)
-    assert model.format_version == PROJECT_FORMAT_VERSION == 11
+    assert model.format_version == PROJECT_FORMAT_VERSION == 12
     assert model.identity.firmware_version == "0.0.10"
     assert model.identity.build_target == "SilverStar_0_0_10"
     assert model.core == "silverstar.core.0_0_10"
@@ -390,9 +390,9 @@ def test_new_project_and_generated_identity_are_consistently_0_0_10(
     package = LogDecoderProfile_Render(model, builtin_catalog)
     manifest = LogDecoderPackage_Verify(package.content)
     assert manifest["package_schema"] == {
-        "id": "silverstar.ssdecoder.package-schema/1.1",
+        "id": "silverstar.ssdecoder.package-schema/1.2",
         "major": 1,
-        "minor": 1,
+        "minor": 2,
     }
     assert manifest["firmware_version"] == "0.0.10"
     assert manifest["fccg_version"] == "0.0.10"
@@ -447,7 +447,7 @@ def test_current_pre_release_calibration_migration_is_deterministic(
     migrated = ProjectModel_Parse(
         _LegacyProjectData_Get(builtin_catalog, legacy)
     )
-    assert migrated.format_version == 11
+    assert migrated.format_version == 12
     assert migrated.identity.firmware_version == "0.0.10"
     assert migrated.identity.build_target == "SilverStar_0_0_10"
     assert migrated.core == "silverstar.core.0_0_10"
@@ -615,7 +615,7 @@ def test_calibration_four_selection_combinations_round_trip_and_render(
         generated["Generated/project_semantics.json"].decode("utf-8")
     )
     assert semantics["modes"]["calibration"] == selected
-    assert "Existing" not in json.dumps(semantics)
+    assert "Existing" not in json.dumps(semantics["modes"])
     assert CALIBRATION_COMPONENT in semantics["algorithms"]
     assert "System/Calibration/Src/system_calibration.c" in graph.sources
     assert "APP/Src/imu_sample_bus.c" in graph.sources

@@ -8,7 +8,7 @@ SilverStar 0.0.10 是首次公开发布前的 FCCG-centered 平台冻结候选�
 - OS：FreeRTOS 11.3.0，静态任务/静态内存；
 - Device：JY901B、NEO-M9N、E28-2G4M12SX/SX1281、SD/TF(SDIO+FatFs)、输入电压、Mission outputs、indicators；
 - Protocol：AIR M0、Serial Maintenance 0.0、SSLOG 0.0，三槽均可独立关闭；
-- Decoder package：`.ssdecoder` 1.1；
+- Decoder package：`.ssdecoder` 1.2（拒绝1.1），Project Semantics 1.2；算法参数为实际值；
 - Algorithm/logic：Calibration、Alignment、Coning2/Sculling2 INS、KF6、Deployment、Landing。
 
 ## 0.0.10 关键边界

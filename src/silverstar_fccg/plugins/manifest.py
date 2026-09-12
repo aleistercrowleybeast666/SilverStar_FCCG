@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from silverstar_fccg.plugins.algorithm_parameters import AlgorithmParameterDefinition, AlgorithmParameters_Parse
+
 import hashlib
 import json
 import math
@@ -433,6 +435,7 @@ class PluginManifest:
     platform: PlatformContribution | None = None
     hardware_provider: HardwareProviderContribution | None = None
     environment: EnvironmentContribution | None = None
+    algorithm_parameters: tuple[AlgorithmParameterDefinition, ...] = ()
     source: str = "builtin"
 
     @property
@@ -2722,6 +2725,7 @@ def PluginManifest_Parse(
         "payload",
         "metadata",
         "selection",
+        "algorithm_parameters",
         "board",
         "hardware_provider",
         "environment",
@@ -2814,6 +2818,14 @@ def PluginManifest_Parse(
     transports = _Transports_Parse(data.get("transports"), provides)
     build = _Build_Parse(data.get("build", {}))
     selection = _Selection_Parse(data.get("selection"))
+    try:
+        if "algorithm_parameters" in data and data["algorithm_parameters"] is None:
+            raise ValueError("algorithm_parameters must be an object")
+        algorithm_parameters = AlgorithmParameters_Parse(data.get("algorithm_parameters"))
+        if "algorithm_parameters" in data and data["type"] != "algorithm":
+            raise ValueError("Only algorithm plugins may declare algorithm_parameters")
+    except ValueError as error:
+        raise PluginManifestError(str(error)) from error
     board = _Board_Parse(data.get("board"))
     hardware_provider = _HardwareProvider_Parse(data.get("hardware_provider"))
     environment = _Environment_Parse(data.get("environment"))
@@ -2923,6 +2935,7 @@ def PluginManifest_Parse(
         instance_resource_binding=instance_resource_binding,
         physical_device=physical_device,
         selection=selection,
+        algorithm_parameters=algorithm_parameters,
         board=board,
         protocol=protocol,
         platform=platform,

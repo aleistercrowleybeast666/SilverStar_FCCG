@@ -1,5 +1,14 @@
 # FCCG User Guide
 
+## Algorithm actual parameters / 算法实际参数
+
+新增独立算法参数页面（硬件连接之前），插件声明实际值、单位和 representation。
+Project format 12；`.ssdecoder` / project-semantics 1.2，拒绝 decoder 1.1；
+Platform 仍为 0.0.10，Record Catalog 与协议布局不变。
+参数清单、生成绑定与 Recorded Configuration / Offline What-if 边界见[参数契约](ALGORITHM_PARAMETERS.md)。
+精确验证结果仅见仓库根 VALIDATION.md。
+
+
 ## 1. 新建工程
 输入工程名和输出目录。默认Core/OS/Environment自动选择。
 
@@ -11,17 +20,20 @@
 
 Calibration采样procedure只有OneFace/SixFace，默认都不选；NONE始终是飞控可用模式。若一个或多个采样procedure被编入，GSHC运行时仍可选择默认NONE。
 
-## 4. Hardware Connection
+## 4. Algorithm Parameters
+按算法编辑实际数值（不是默认倍率），检查单位与说明；高级参数可折叠，每个算法可恢复默认值。
+
+## 5. Hardware Connection
 - Official Board：使用固定logical ID→alias映射，为设备分配兼容资源并验证闭合，不能按扫描顺序重排；
 - Custom CubeMX：导入完整CubeMX generated project，由用户完成/确认资源分配。
 
 I2C外部上拉、PWM模式/极性、timebase、SDIO/FatFs等根据hardware snapshot严格验证。
 
-## 5. Generate
+## 6. Generate
 Generate验证并增量物化源码、Generated glue、Make/EIDE/VS Code和项目描述符。它不自动执行完整构建/质量门。
 
-## 6. Build/Validation
+## 7. Build/Validation
 使用EIDE/VS Code或FCCG高级操作执行支持的构建与验证。Stack Report通过生成工程的`mingw32-make CONFIG=Release stack-report`及Debug对应命令单独执行，详见[Build](BUILD.md)。
 
-## 7. `.ssdecoder`
+## 8. `.ssdecoder`
 Logging启用时生成并可导出。它与对应日志精确匹配，供FLP后续解析；不要手工编辑包内容。

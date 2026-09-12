@@ -4,7 +4,145 @@
   "title": "SilverStar FCCG declarative plugin manifest",
   "type": "object",
   "required": ["schema_version", "id", "name", "type", "version", "payload"],
+  "allOf": [
+    {
+      "if": {"required": ["algorithm_parameters"]},
+      "then": {"properties": {"type": {"const": "algorithm"}}}
+    }
+  ],
   "properties": {
+    "algorithm_parameters": {
+      "type": "object",
+      "required": [
+        "schema_id",
+        "parameters"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "schema_id": {
+          "const": "silverstar.algorithm-parameters/1.0"
+        },
+        "parameters": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "type",
+              "default",
+              "unit",
+              "representation",
+              "min",
+              "max",
+              "precision",
+              "step",
+              "group",
+              "order",
+              "description",
+              "display_names",
+              "generated_symbol"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9_]*$"
+              },
+              "type": {
+                "enum": [
+                  "float",
+                  "integer"
+                ]
+              },
+              "default": {
+                "type": "number"
+              },
+              "unit": {
+                "type": "string",
+                "minLength": 1
+              },
+              "representation": {
+                "enum": [
+                  "value",
+                  "sigma",
+                  "variance",
+                  "covariance_diagonal"
+                ]
+              },
+              "min": {
+                "type": "number"
+              },
+              "max": {
+                "type": "number"
+              },
+              "precision": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9
+              },
+              "step": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              },
+              "group": {
+                "enum": [
+                  "basic",
+                  "advanced"
+                ]
+              },
+              "order": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "description": {
+                "type": "object",
+                "required": [
+                  "en_US",
+                  "zh_CN"
+                ],
+                "properties": {
+                  "en_US": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "zh_CN": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "additionalProperties": false
+              },
+              "display_names": {
+                "type": "object",
+                "required": [
+                  "en_US",
+                  "zh_CN"
+                ],
+                "properties": {
+                  "en_US": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "zh_CN": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "additionalProperties": false
+              },
+              "generated_symbol": {
+                "type": "string",
+                "pattern": "^[A-Z][A-Z0-9_]*$"
+              },
+              "greater_than": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9_]*$"
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      }
+    },
     "schema_version": {"const": 0},
     "id": {"$ref": "#/$defs/componentId"},
     "name": {"type": "string", "minLength": 1, "pattern": ".*\\S.*"},

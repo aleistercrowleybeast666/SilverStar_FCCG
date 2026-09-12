@@ -314,3 +314,8 @@ Pure INS和KF6在线结果同时记录以作为回归基线。电脑端应编译
 EstimatorBus只保存最新气压快照，因此EstimatorTask必须把尚晚于当前KF状态时间的首个新气压样本复制到单槽pending。pending存在期间不得用总线后续快照覆盖，不得提前更新`last_baro_sequence`；每个惯性增量到达后重新比较状态时间，追上后对同一pending样本执行一次且仅一次1D更新。临时等待状态为`WAIT_STATE_CATCHUP`，不在每个IMU周期重复增加`skipped_count`。
 
 只有`ACCEPTED`、`SOFTENED`、`REJECTED`，或已经确定不能使用的`STALE`、`INVALID`、`ORIGIN_NOT_READY`、`UNSUPPORTED`等终态才消费sequence并释放pending。该机制不做历史状态回放，但消除了“future sample先消费、随后被最新快照覆盖”造成的气压更新永久饥饿；气压更新成功后必须能约束KF的PZ。Pure INS路径不接受该KF回注。
+
+## Actual parameter configuration
+
+This package declares actual-value tunables consumed by generated static float configuration.
+See the authoritative [parameter and decoder 1.2 contract](../../../../docs/ALGORITHM_PARAMETERS.md) for units, sigma/variance conversion, default equivalence and source ownership. No algorithm formula or update timing changes.

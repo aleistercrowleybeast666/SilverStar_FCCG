@@ -1,5 +1,14 @@
 # Changelog
 
+## Algorithm actual parameters / 算法实际参数
+
+新增独立算法参数页面（硬件连接之前），插件声明实际值、单位和 representation。
+Project format 12；`.ssdecoder` / project-semantics 1.2，拒绝 decoder 1.1；
+Platform 仍为 0.0.10，Record Catalog 与协议布局不变。
+参数清单、生成绑定与 Recorded Configuration / Offline What-if 边界见[参数契约](docs/ALGORITHM_PARAMETERS.md)。
+精确验证结果仅见仓库根 VALIDATION.md。
+
+
 ## Unreleased — Logger startup burst closeout
 
 Added LoggerBus bootstrap admission so periodic sensor/algorithm streams cannot fill the queue

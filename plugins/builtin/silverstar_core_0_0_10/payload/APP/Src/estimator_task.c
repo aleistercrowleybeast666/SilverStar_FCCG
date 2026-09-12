@@ -2303,7 +2303,7 @@ static void Estimator_PredictionProcess(
         q_start,
         prediction->delta_velocity_b_sculling_corrected,
         prediction->dt_s,
-        SYSTEM_LOCAL_GRAVITY_MPS2,
+        SYSTEM_KF_GRAVITY_MPS2,
         delta_velocity_enu_mps);
     if (Attitude_PropagateQuaternionBodyIncrement(
             q_start,

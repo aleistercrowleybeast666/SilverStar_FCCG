@@ -257,4 +257,6 @@ def ReferenceProject_Create(
         reference_provenance=dict(reference_provenance or {}),
     )
     LoggingProfile_SelectAllAvailable(model, catalog)
+    from silverstar_fccg.project.algorithm_parameters import AlgorithmParameters_Reconcile
+    AlgorithmParameters_Reconcile(model, catalog)
     return model

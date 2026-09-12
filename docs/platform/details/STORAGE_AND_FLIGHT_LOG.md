@@ -4,7 +4,7 @@
 
 上一轮修复SDIO/FatFs落盘字节完整性；本轮修复启动时普通周期流与开文件、descriptor和自检报告
 写入争抢队列的短时突发。用户报告的新日志字节校验已正常，但启动仍有丢记录；它不是新的CRC修复。
-SSLOG 0.0、`.ssdecoder`/Project Semantics 1.1及SilverStar 0.0.10保持不变。
+SSLOG 0.0与SilverStar 0.0.10保持不变；当前`.ssdecoder`/Project Semantics为1.2，增加算法实际参数，不改变记录布局。
 
 LoggerBus持有唯一`LOGGER_BOOTSTRAP` → `LOGGER_STREAMING_READY`准入状态，静态、有界、无heap。
 BOOT/其他EVENT、STATS、System/Device/Algorithm/Stream/Decoder descriptors、Mission config、
@@ -36,7 +36,7 @@ diskio/codec，生产节拍、其他任务工作计数和SD卡延迟是模型；
 Storage backend必须支持任意合法CPU buffer地址、文件offset和写入length，调用方不需要
 4或32字节对齐。MISSION_CONFIG payload=91 bytes、record=119 bytes是合法协议尺寸，
 禁止补齐payload、改变CRC或由FLP放宽CRC来掩盖writer错误。AIR M0、Maintenance/SSLOG 0.0、
-`.ssdecoder` 1.1及平台0.0.10保持原布局与版本。
+平台0.0.10及SSLOG布局保持不变；`.ssdecoder`当前使用1.2算法参数契约。
 
 SS0.5的`FATFS/Target/sd_diskio.c`使用固定512-byte main-SRAM buffer。每次只向BSP提交
 一个sector，write先复制、read在完成后复制；匹配read/write completion并等待card-ready后
@@ -105,7 +105,7 @@ f_sync：队列排空或首条critical的20ms deadline到达即flush，常规250
 小型synthetic corruption定义位于`tests/fixtures/sslog_corruption_cases.json`，回归从实际C writer产生的
 字节流构造512边界重复/缺字节、CRC翻转、oversized length、sequence gap与尾字节并验证严格拒绝。
 实际执行结果、RAM/FLASH变化与硬件状态仅记录在根VALIDATION。
-> **0.0.10增量**：固件build tag为`SILV0010`；`.ssdecoder` package/project-semantics保持1.1。Physical Device、source descriptor、instance identity用于区分多IMU/GNSS native record。`CALIBRATION_RESULT`在NONE/OneFace/SixFace均是Required有效快照。
+> **0.0.10增量**：固件build tag为`SILV0010`；`.ssdecoder` package/project-semantics现为1.2。Physical Device、source descriptor、instance identity用于区分多IMU/GNSS native record。`CALIBRATION_RESULT`在NONE/OneFace/SixFace均是Required有效快照。
 
 > 文档版本：0.0.10
 > 正式名称：飞行日志格式0.0

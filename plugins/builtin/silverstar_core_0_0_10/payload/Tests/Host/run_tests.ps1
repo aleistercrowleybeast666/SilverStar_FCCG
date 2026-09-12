@@ -603,14 +603,17 @@ Invoke-ExpectedCompileSuccess -Name 'capability_jy901b_gravity_known_yaw' `
     -Source $capabilitySource
 Invoke-ExpectedCompileFailure -Name 'capability_missing_imu_noise' `
     -ExtraCompilerArgs @(
+        '-include', "$repoRoot\Tests\Host\Fixtures\algorithm_noise_absent.h",
         '-DSYSTEM_SELECTED_IMU_ESTIMATOR_NOISE_RECOMMENDATION_AVAILABLE=0U'
     ) -Source $capabilitySource
 Invoke-ExpectedCompileFailure -Name 'capability_missing_gnss_noise' `
     -ExtraCompilerArgs @(
+        '-include', "$repoRoot\Tests\Host\Fixtures\algorithm_noise_absent.h",
         '-DSYSTEM_SELECTED_GNSS_ESTIMATOR_NOISE_RECOMMENDATION_AVAILABLE=0U'
     ) -Source $capabilitySource
 Invoke-ExpectedCompileFailure -Name 'capability_missing_baro_noise' `
     -ExtraCompilerArgs @(
+        '-include', "$repoRoot\Tests\Host\Fixtures\algorithm_noise_absent.h",
         '-DSYSTEM_SELECTED_BAROMETER_ESTIMATOR_NOISE_RECOMMENDATION_AVAILABLE=0U'
     ) -Source $capabilitySource
 Invoke-ExpectedCompileSuccess -Name 'capability_noise_overrides' `

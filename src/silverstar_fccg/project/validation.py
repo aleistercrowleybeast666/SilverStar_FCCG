@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from silverstar_fccg.project.algorithm_parameters import AlgorithmParameters_Resolve
+
 from dataclasses import dataclass
 import math
 import re
@@ -834,6 +836,10 @@ def Project_Validate(model: ProjectModel, catalog: PluginCatalog) -> ProjectVali
     _Strategies_Validate(model, catalog, issues)
     _Modes_Validate(model, catalog, issues)
     _ModeParameters_Validate(model, catalog, issues)
+    try:
+        AlgorithmParameters_Resolve(model, catalog)
+    except ValueError as error:
+        issues.append(ValidationIssue("error", "algorithm_parameters", str(error)))
     _ProtocolProfiles_Validate(model, catalog, issues)
     try:
         mcu_manifest = catalog.Component_Get(model.mcu)

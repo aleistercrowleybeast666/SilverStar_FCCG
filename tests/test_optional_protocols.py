@@ -113,7 +113,7 @@ def test_project_format_11_round_trips_null_protocols_and_preserves_v10(
 
     migrated = ProjectModel_Parse(legacy)
 
-    assert migrated.format_version == 11
+    assert migrated.format_version == 12
     assert migrated.protocols == original_selections
     assert all(migrated.protocols[category] is not None for category in PROTOCOL_CATEGORIES)
 
@@ -421,7 +421,7 @@ def test_all_protocol_combinations_render_exact_sources_and_artifacts(
     ):
         assert (semantics["protocols"][category] is not None) is enabled
     project_descriptor = json.loads(metadata["SilverStar.ssproject"])
-    assert project_descriptor["format_version"] == 11
+    assert project_descriptor["format_version"] == 12
 
     decoder_path = f"{model.identity.name}.ssdecoder"
     decoder_files = {
@@ -435,9 +435,9 @@ def test_all_protocol_combinations_render_exact_sources_and_artifacts(
         assert decoder_files <= rendered_paths
         decoder_manifest = LogDecoderPackage_Verify(metadata[decoder_path])
         assert decoder_manifest["package_schema"] == {
-            "id": "silverstar.ssdecoder.package-schema/1.1",
+            "id": "silverstar.ssdecoder.package-schema/1.2",
             "major": 1,
-            "minor": 1,
+            "minor": 2,
         }
         assert decoder_manifest["protocols"]["logging"] is not None
         assert (decoder_manifest["protocols"]["telemetry"] is not None) is telemetry

@@ -236,14 +236,14 @@ def test_main_window_shell_navigation_theme_and_language(tmp_path: Path, qapp) -
     try:
         assert window.windowTitle() == PRODUCT_NAME
         assert window.version_label.text() == f"v{__version__}"
-        assert window.pages.count() == 4
-        assert window.navigation_list.count() == 4
+        assert window.pages.count() == 5
+        assert window.navigation_list.count() == 5
         assert not hasattr(window, "project_page")
         assert not hasattr(window, "plugins_page")
         assert [
             window.navigation_list.item(index).text()
             for index in range(window.navigation_list.count())
-        ] == ["设备", "飞控配置", "硬件连接", "代码生成与构建"]
+        ] == ["设备", "飞控配置", "算法参数", "硬件连接", "代码生成与构建"]
         assert not hasattr(window.build_page, "configuration_combo")
         assert set(window.build_page.action_buttons) == {
             "generate_apply",
@@ -281,6 +281,7 @@ def test_main_window_shell_navigation_theme_and_language(tmp_path: Path, qapp) -
         ] == [
                 "Devices",
                 "Flight Configuration",
+                "Algorithm Parameters",
                 "Hardware Connection",
                 "Code Generation & Build",
             ]

@@ -279,6 +279,7 @@ $expectedGeneratedFiles = @(
     'Generated\Inc\project_capability_routes.h',
     'Generated\Src\project_capability_routes.c',
     'Generated\Inc\project_flight_config.h',
+    'Generated\Inc\project_algorithm_parameters.h',
     'Generated\Inc\project_storage_binding.h',
     'Generated\project_sources.mk',
     'Generated\module.mk'

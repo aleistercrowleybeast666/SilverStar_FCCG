@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from silverstar_fccg.project.algorithm_parameters import AlgorithmParameters_Resolve, AlgorithmParametersHeader_Render
+
 import hashlib
 import json
 import re
@@ -116,7 +118,7 @@ def _ProjectSemanticsWithoutLogging_Render(
     if not protocol_resolution.valid:
         raise ValueError("Cannot generate unresolved protocol transport bindings")
     semantics = {
-        "schema_id": "silverstar.project-semantics/1.1",
+        "schema_id": "silverstar.project-semantics/1.2",
         "project": model.identity.name,
         "target": model.build.target_profile,
         "firmware_version": model.identity.firmware_version,
@@ -242,6 +244,7 @@ def _ProjectSemanticsWithoutLogging_Render(
             slot: list(values) for slot, values in sorted(model.modes.items())
         },
         "mode_parameters": model.mode_parameters,
+        "firmware_algorithm_parameters": AlgorithmParameters_Resolve(model, catalog),
         "available_records": [],
         "logging_streams": [
             {
@@ -279,6 +282,7 @@ def GeneratedFiles_Render(
             else _ProjectSemanticsWithoutLogging_Render(model, catalog)
         ),
         "Generated/Inc/project_capability_routes.h": _CapabilityRoutesHeader_Render(),
+        "Generated/Inc/project_algorithm_parameters.h": AlgorithmParametersHeader_Render(model, catalog),
         "Generated/Inc/project_flight_config.h": _FlightConfigHeader_Render(
             model, catalog
         ),
@@ -648,6 +652,8 @@ def _FlightConfigHeader_Render(
     )
     return f"""#ifndef __PROJECT_FLIGHT_CONFIG_H
 #define __PROJECT_FLIGHT_CONFIG_H
+
+#include "project_algorithm_parameters.h"
 
 {AUTOGEN_C_COMMENT}
 
@@ -1371,7 +1377,7 @@ def LogDecoderProfile_Render(
     if not protocol_resolution.valid:
         raise ValueError("Cannot generate unresolved protocol transport bindings")
     project_semantics = {
-        "schema_id": "silverstar.project-semantics/1.1",
+        "schema_id": "silverstar.project-semantics/1.2",
         "project": model.identity.name,
         "target": model.build.target_profile,
         "firmware_version": model.identity.firmware_version,
@@ -1481,6 +1487,7 @@ def LogDecoderProfile_Render(
             slot: list(values) for slot, values in sorted(model.modes.items())
         },
         "mode_parameters": model.mode_parameters,
+        "firmware_algorithm_parameters": AlgorithmParameters_Resolve(model, catalog),
         "protocol_bindings": [
             {
                 "service": binding.service,

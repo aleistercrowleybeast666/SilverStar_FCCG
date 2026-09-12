@@ -39,7 +39,7 @@ TOOLCHAIN_PREFIX_PATTERN = re.compile(r"^[A-Za-z0-9_.+-]+$")
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 RELATIVE_FILE_PATTERN = re.compile(r"^[A-Za-z0-9_./+@ -]+$")
 
-PROJECT_FORMAT_VERSION = 11
+PROJECT_FORMAT_VERSION = 12
 PROTOCOL_CATEGORIES = ("telemetry", "maintenance", "logging")
 DEFAULT_PROTOCOL_PROFILES = {
     "telemetry": "air.m0",
@@ -178,6 +178,7 @@ class ProjectModel:
     base_components: list[str] = field(default_factory=list)
     strategies: dict[str, str | None] = field(default_factory=dict)
     modes: dict[str, list[str]] = field(default_factory=dict)
+    algorithm_parameters: dict[str, dict[str, float | int]] = field(default_factory=dict)
     mode_parameters: dict[str, dict[str, dict[str, float | int]]] = field(
         default_factory=lambda: deepcopy(DEFAULT_MODE_PARAMETERS)
     )
@@ -206,6 +207,7 @@ class ProjectModel:
             "project_log_config",
             "project_metadata",
             "project_flight_config",
+            "project_algorithm_parameters",
             "project_log_decoder_profile",
             "project_sources",
         ]
@@ -284,6 +286,7 @@ class ProjectModel:
                 slot: list(selection)
                 for slot, selection in sorted(self.modes.items())
             },
+            "algorithm_parameters": deepcopy(self.algorithm_parameters),
             "mode_parameters": {
                 slot: {
                     option: dict(sorted(parameters.items()))
@@ -707,7 +710,7 @@ def _ProjectV10_Migrate(root: dict[str, Any]) -> dict[str, Any]:
         )
     # Format 10 required all three selections, so preserving the objects is a
     # lossless migration.  Format 11 merely permits a slot to be null later.
-    migrated["format_version"] = PROJECT_FORMAT_VERSION
+    migrated["format_version"] = 11
     return migrated
 
 
@@ -947,6 +950,22 @@ def _Modes_Parse(value: Any) -> dict[str, list[str]]:
             raise ProjectModelError(f"Invalid mode option: {invalid!r}")
         modes[slot] = selection
     return modes
+
+
+def _AlgorithmParameters_Parse(value: Any) -> dict[str, dict[str, float | int]]:
+    data = _Object_Require(value, "algorithm_parameters")
+    result = {}
+    for component, parameters in data.items():
+        if not isinstance(component, str) or not re.fullmatch(r"[a-z][a-z0-9_.]*", component):
+            raise ProjectModelError("Invalid algorithm component id")
+        result[component] = {}
+        for key, number in _Object_Require(parameters, component).items():
+            if (not isinstance(key, str) or not re.fullmatch(r"[a-z][a-z0-9_]*", key)
+                    or type(number) not in (float, int)
+                    or (type(number) is float and not math.isfinite(number))):
+                raise ProjectModelError("Algorithm parameters must be finite actual numbers")
+            result[component][key] = number
+    return result
 
 
 def _ModeParameters_Parse(
@@ -1439,6 +1458,12 @@ def ProjectModel_Parse(data: dict[str, Any]) -> ProjectModel:
         root = _ProjectV9_Migrate(root)
     if root.get("format_version") == 10:
         root = _ProjectV10_Migrate(root)
+    if root.get("format_version") == 11:
+        root = deepcopy(root)
+        root["format_version"] = PROJECT_FORMAT_VERSION
+        root["algorithm_parameters"] = {}
+        if isinstance(root.get("generated_glue"), list):
+            root["generated_glue"] = list(dict.fromkeys([*root["generated_glue"], "project_algorithm_parameters"]))
     root = _CurrentPreRelease_Migrate(root)
     required_root = {
         "format_version",
@@ -1446,6 +1471,7 @@ def ProjectModel_Parse(data: dict[str, Any]) -> ProjectModel:
         "components",
         "modes",
         "mode_parameters",
+        "algorithm_parameters",
         "protocols",
         "hardware",
         "resources",
@@ -1494,6 +1520,7 @@ def ProjectModel_Parse(data: dict[str, Any]) -> ProjectModel:
         environment,
     ) = _Components_Parse(root.get("components"))
     modes = _Modes_Parse(root.get("modes"))
+    algorithm_parameters = _AlgorithmParameters_Parse(root.get("algorithm_parameters"))
     mode_parameters = _ModeParameters_Parse(root.get("mode_parameters"))
     protocols = _Protocols_Parse(root.get("protocols"))
     hardware = _Hardware_Parse(root.get("hardware"), board=board)
@@ -1540,6 +1567,7 @@ def ProjectModel_Parse(data: dict[str, Any]) -> ProjectModel:
         strategies=strategies,
         modes=modes,
         mode_parameters=mode_parameters,
+        algorithm_parameters=algorithm_parameters,
         protocols=protocols,
         development_environment=environment,
         hardware=hardware,

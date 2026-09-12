@@ -1,5 +1,14 @@
 # Generated Code and Project Ownership
 
+## Algorithm actual parameters / 算法实际参数
+
+新增独立算法参数页面（硬件连接之前），插件声明实际值、单位和 representation。
+Project format 12；`.ssdecoder` / project-semantics 1.2，拒绝 decoder 1.1；
+Platform 仍为 0.0.10，Record Catalog 与协议布局不变。
+参数清单、生成绑定与 Recorded Configuration / Offline What-if 边界见[参数契约](ALGORITHM_PARAMETERS.md)。
+精确验证结果仅见仓库根 VALIDATION.md。
+
+
 ## Storage repair ownership and migration
 
 SS0.5 builtin FatFs Target glue contains FCCG-owned SDIO integrity overlays; Storage/LogSink remain
@@ -42,6 +51,6 @@ does not establish storage integrity. F407 has no DCache; this is not H7 cache v
 Board插件的`connections.json`决定logical ID；`.ioc`/generated header只解析physical alias。生成后Platform Resource Closure Check验证Project assignment→logical ID→Board alias→physical symbol→platform table完全闭合。
 
 ## `.ssdecoder`
-固定成员：`manifest.json`、`record_catalog.json`、`project_semantics.json`、`checksums.sha256`、`README.md`。它是纯数据ZIP，不执行代码。Package/semantics当前为1.1，SSLOG container为0.0。
+固定成员：`manifest.json`、`record_catalog.json`、`project_semantics.json`、`checksums.sha256`、`README.md`。它是纯数据ZIP，不执行代码。Package/semantics当前为1.2（不兼容1.1），SSLOG container为0.0。
 
 完整`docs/platform/`留在FCCG仓库，不复制到每个生成工程；生成工程摘要继续使用既有README/配置摘要机制。Calibration行为见[共同契约](AIR_CALIBRATION_CONTRACT.md)。

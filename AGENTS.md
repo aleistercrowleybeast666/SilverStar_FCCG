@@ -1,5 +1,14 @@
 # SilverStar_FCCG agent guidance
 
+## Algorithm actual parameters / 算法实际参数
+
+新增独立算法参数页面（硬件连接之前），插件声明实际值、单位和 representation。
+Project format 12；`.ssdecoder` / project-semantics 1.2，拒绝 decoder 1.1；
+Platform 仍为 0.0.10，Record Catalog 与协议布局不变。
+参数清单、生成绑定与 Recorded Configuration / Offline What-if 边界见[参数契约](docs/ALGORITHM_PARAMETERS.md)。
+精确验证结果仅见仓库根 VALIDATION.md。
+
+
 ## Storage integrity invariants
 
 - LoggerBus owns the single BOOTSTRAP/STREAMING_READY admission state. LoggerTask opens ordinary
@@ -61,7 +70,7 @@ environment, or any other repository. Project-local settings and logs belong bel
 
 - `src/silverstar_fccg/app/version.py` is the single runtime authority for the SilverStar 0.0.10
   application/platform release train. Generated firmware identity and official SilverStar builtin
-  versions derive from it; AIR M0, maintenance/log 0.0, decoder/project-semantics 1.1, FreeRTOS,
+  versions derive from it; AIR M0, maintenance/log 0.0, decoder/project-semantics 1.2, FreeRTOS,
   Board revision, MCU part, CubeMX, and vendor package versions remain independent.
 - The matched MCU/Platform manifest owns the build Target Profile. Persisted
   `build.target_profile` is a derived integrity lock, never a GUI choice or a Python MCU-model
@@ -104,7 +113,7 @@ environment, or any other repository. Project-local settings and logs belong bel
   modify build files, or run toolchains directly.
 - All copy, extraction, replacement, and deletion operations pass through the workspace/path
   safety layer and use validation plus staging before apply.
-- Configuration follows Device → Flight Configuration → Hardware Connection → Build. Device
+- Configuration follows Device → Flight Configuration → Algorithm Parameters → Hardware Connection → Build. Device
   manifests declare capabilities and resource needs; Algorithm/Flight selections determine actual
   capability consumption before Board/imported hardware resolves physical mappings. The MCU plugin
   remains PCB-neutral.
@@ -188,7 +197,7 @@ All PySide6 UI work follows `docs/GUI_STYLE_GUIDE.md` and the copied normative
 `docs/CXYL_Python_GUI_STYLE_GUIDE.md`. Preserve the stable product title, deep-blue header and
 left navigation, Light/Dark themes, Simplified Chinese/English catalogs, custom tab/table/control
 styling, bottom task status/progress, and QRunnable/QThreadPool background work. Keep exactly the
-four normal pages defined in the GUI guide and no standalone Project, Plugins, or Generate page.
+five normal pages defined in the GUI guide and no standalone Project, Plugins, or Generate page.
 Project operations belong in File; plugin management belongs in the Plugins menu. User-visible strings
 use translation keys. Boolean/multiple selections use `StandardCheckBox`; progressive disclosure
 uses `CollapsibleSection` and never disables its body. Logging remains directly visible.

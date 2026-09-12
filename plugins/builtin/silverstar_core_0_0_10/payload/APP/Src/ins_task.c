@@ -750,7 +750,7 @@ void AppTask_Ins(void *argument)
     (void)argument;
     SILVERSTAR_ASSERT_OBJECT(&s_mechanization, InsMechanizationContext,
         SILVERSTAR_ASSERT_MODULE_APP);
-    InsMechanization_Init(&s_mechanization, SYSTEM_LOCAL_GRAVITY_MPS2);
+    InsMechanization_Init(&s_mechanization, SYSTEM_INS_GRAVITY_MPS2);
     AttitudePreflight_Init(&s_preflight_attitude);
     AlignmentStrategy_Init(&s_alignment_strategy);
     (void)memset(&s_alignment_snapshot, 0, sizeof(s_alignment_snapshot));

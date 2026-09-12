@@ -1,4 +1,102 @@
-# Validation — 2026-09-12 Logger startup burst closeout
+# Validation — 2026-09-12 Algorithm actual parameters / decoder 1.2
+
+## 2026-09-12 — Algorithm actual parameters / decoder 1.2 closeout
+
+Baseline commit: `b2e05fb`. This working-tree change keeps SilverStar Platform **0.0.10**;
+Project format is **12**, parameter declaration schema is `silverstar.algorithm-parameters/1.0`,
+and `.ssdecoder` package/project-semantics are **1.2**, rejecting package 1.1.
+The selected Pure INS/KF6 manifests declare **22 actual parameters** (1 + 21).
+See [parameter inventory and semantics](docs/ALGORITHM_PARAMETERS.md).
+
+### Executed checks
+
+- Full pytest: **356 passed, 1 skipped**, **692.14 s**. The skip at
+  `tests/test_prompt_acceptance.py:287` is the pre-existing reference-payload synchronization
+  check: the read-only reference firmware working tree is not clean. Its legacy message says
+  “task is still active”; this is not an inspection of other Codex tasks.
+- Focused parameter/schema/project/UI/decoder/documentation regressions: **58 passed**.
+  An additional **8 passed** cover strict decoder schema-lock validation and invalid values.
+- Release and Debug: `all artifact-check stack-report` passed using Arm GNU Toolchain
+  **14.3.Rel1**, compiler **14.3.1 20250623**. Both have **138 .su files** and all **8 static tasks**
+  meet the linked-ELF stack budget. Heap symbols: **0**.
+- Architecture: **270 checks, 0 failures**. The new parameter header is explicitly registered
+  in the reviewed thin-glue set; Make/EIDE source-graph consistency remains enforced.
+- Power of Ten: **5,930 checks, 94 first-party C files, 2,223 functions**, passed.
+- Host: **67 executables, 14,484 checks, 0 failures, 8 compile-pass cases and 16 expected
+  compile failures**. Golden logs use the actual C codec; storage byte audit and delayed-DMA
+  fixtures also passed against the schema-1.2 package. Negative missing-noise cases explicitly
+  remove generated actual noise before testing absence; capability assertions are retained.
+- Release static analysis passed with the original analyzer flags and policy intact.
+- Reference importer ownership audit passed for both parameter declarations/algorithm sources,
+  system/task bindings, Host fixtures and decoder/architecture tools. Reference files were read only.
+- New page rendered and inspected in Simplified Chinese/English and Light/Dark; it precedes
+  Hardware Connection. Parameter edits preserve advanced-section disclosure; old widgets are
+  hidden before deferred deletion. Save/reopen/Save As and Dirty behavior are covered.
+
+### Default numerical equivalence
+
+The old project sources and full Host Golden were frozen under `tests/artifacts/parameters24/baseline`
+before firmware bindings changed. The same C trajectory fixture runs against those frozen old sources
+and the new generated default project with GCC **16.1.0 x86_64-w64-mingw32**, C11, `-O2`.
+It covers **2,000 IMU steps / 1,000 updates**, quaternion, Pure INS position/velocity, KF6 state
+and complete covariance, with GNSS/barometer updates. **52,045 float outputs**, **5,005 lines**,
+**1,109,911 normalized bytes** are **bit-identical**; there is no rounding-tolerance exception.
+Changing saved gravity/P0/process sigma/GNSS sigma/barometer sigma changes the compiled trajectory.
+
+Trajectory SHA-256: `ad64bc875b4ec87f0bafdd65e868bb99822b79dfe79fc0debf13ec9484486aa1`.
+
+Only configuration references and the KF6 initialization/reset constants changed. Mathematical
+equations, structure dimensions, operation/update order, fusion timing and GNSS reacquisition policy
+were preserved. Pure INS mechanization source is unchanged. Logger, Calibration, Alignment,
+Board/MCU/hardware binding, AIR and SSLOG record-layout sources were not changed. FLP/GSHC were not modified.
+
+### Target resources and stack budgets
+
+| Configuration | FLASH used / available | Main SRAM used / available | CCM used / available |
+|---|---:|---:|---:|
+| Release | 261,232 / 524,288 B | 78,032 / 131,072 B | 51,064 / 65,536 B |
+| Debug | 278,816 / 524,288 B | 78,048 / 131,072 B | 51,064 / 65,536 B |
+
+| Task | Configured bytes | Release worst known / margin | Debug worst known / margin |
+|---|---:|---:|---:|
+| Device | 2048 | 1496 / 552 | 1320 / 728 |
+| INS | 3072 | 2040 / 1032 | 1808 / 1264 |
+| Estimator | 4096 | 1964 / 2132 | 1868 / 2228 |
+| Flight | 4096 | 3428 / 668 | 2292 / 1804 |
+| Logger | 3072 | 1376 / 1696 | 1368 / 1704 |
+| Serial | 6144 | 4200 / 1944 | 2928 / 3216 |
+| Telemetry | 4096 | 1980 / 2116 | 1660 / 2436 |
+| Idle | 512 | 256 / 256 | 256 / 256 |
+
+Release ELF SHA-256: `9fceecd3b5db4b42a1046205355bca5aebf3e3245a9040dab2f0f98b3337d703`.
+
+Debug ELF SHA-256: `5d62999c65ee93fddb778e2cb832b34d7b58fa71a0577e8ca5fe5dc3257f30be`.
+
+Record Catalog SHA-256 (equal to pre-change baseline): `a3fb7bd69a6f9d13a99e0654a9a74c14f057d4c0625af68da913884a427f5795`.
+
+Project semantics SHA-256: `cccae38b7e2e365a1918a7f6ef5829984130ab5bdedba571e056bff8bbf473e6`.
+
+Generation profile SHA-256: `2edc759219fc2b23bd20512895d40c001559ffb18253426ea86980cc11140de4`.
+
+### Scope and reproduction
+
+Acceptance outputs/logs/screenshots remain under `tests/artifacts/parameters24/`; temporary helpers
+are under its ignored `helpers/` directory. The reproducible numerical regression is
+`python -B -m pytest tests/test_algorithm_parameters.py`; run `python -B -m pytest -q` for the suite.
+Generate a fresh reference project, then run Release/Debug `all artifact-check stack-report`,
+`architecture-check power10-check host-tests` and Release `static-analysis` from its directory.
+Development outputs and compiler temporary files must stay below repository `tests/`.
+
+Normal Apply preserves project-owned C. Older generated projects must deliberately port the
+documented bindings or use a fresh output before relying on actual parameter configuration.
+No target flashing, hardware timing/flight acceptance or live FLP compatibility run is claimed.
+All edits remain uncommitted for review. No shutdown was requested or executed in this round.
+
+---
+
+## Historical snapshot — 2026-09-12 Logger startup burst closeout (prompt 22)
+
+以下保留上一轮验收时的版本与结果；本轮算法参数 / decoder 1.2 验收见文首。
 
 本轮基线为 `90c14dc`，开始时工作区干净。只修改FCCG；外部reference、FLP/GSHC均未写入。
 SilverStar 0.0.10、AIR M0、Maintenance/SSLOG 0.0、`.ssdecoder`/Project Semantics 1.1不变。

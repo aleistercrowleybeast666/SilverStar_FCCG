@@ -1,5 +1,14 @@
 # Current Progress
 
+## Algorithm actual parameters / 算法实际参数
+
+新增独立算法参数页面（硬件连接之前），插件声明实际值、单位和 representation。
+Project format 12；`.ssdecoder` / project-semantics 1.2，拒绝 decoder 1.1；
+Platform 仍为 0.0.10，Record Catalog 与协议布局不变。
+参数清单、生成绑定与 Recorded Configuration / Offline What-if 边界见[参数契约](ALGORITHM_PARAMETERS.md)。
+精确验证结果仅见仓库根 VALIDATION.md。
+
+
 ## Logger startup burst closeout
 
 已在LoggerBus统一bootstrap/streaming准入：关键事件、配置和Calibration/Alignment/Initial State
@@ -19,7 +28,7 @@
 
 ## 已完成
 - FCCG作为平台版本/装配权威；
-- 工程格式11；`.ssdecoder`/Project Semantics 1.1；
+- 工程格式12；`.ssdecoder`/Project Semantics 1.2；
 - 三协议独立nullable；
 - Verified Board固定资源映射与closure check；
 - STM32CubeMX自定义硬件导入；

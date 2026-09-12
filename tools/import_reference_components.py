@@ -1026,6 +1026,9 @@ def _Components_Get(
             f"{core_source_relative}/payload/{relative}"
         )
         for relative in (
+            "System/User/system_user_config.h",
+            "Tests/Host/test_algorithm_parameters.c",
+            "Tests/Host/Fixtures/algorithm_noise_absent.h",
             "APP/Inc/app_task_config.h",
             "APP/Inc/logger_bus.h",
             "APP/Inc/logger_task.h",
@@ -2738,6 +2741,16 @@ def _Components_Get(
     for component in components:
         component_id = component["manifest"]["id"]
         slug = component_id.replace(".", "_")
+        builtin_manifest_path = WORKSPACE_ROOT / "plugins" / "builtin" / slug / "plugin.json"
+        if component["manifest"]["type"] == "algorithm" and builtin_manifest_path.is_file():
+            owned_manifest = json.loads(builtin_manifest_path.read_text(encoding="utf-8"))
+            if "algorithm_parameters" in owned_manifest:
+                component["manifest"]["algorithm_parameters"] = owned_manifest["algorithm_parameters"]
+                for relative in component["manifest"]["build"]["sources"]:
+                    component["fccg_owned_files"][relative] = f"plugins/builtin/{slug}/payload/{relative}"
+                    component["manifest"]["metadata"].setdefault("source_origins", {})[relative] = "fccg_algorithm_parameters"
+                for document in sorted((builtin_manifest_path.parent / "docs").glob("*.md")):
+                    component["fccg_owned_docs"][document.name] = f"plugins/builtin/{slug}/docs/{document.name}"
         component["fccg_owned_docs"].update({
             name: f"plugins/builtin/{slug}/docs/{name}"
             for name in owned_documentation.get(component_id, ())
@@ -2824,6 +2837,7 @@ else {
         "Generated\\Inc\\project_capability_routes.h",
         "Generated\\Src\\project_capability_routes.c",
         "Generated\\Inc\\project_flight_config.h",
+        "Generated\\Inc\\project_algorithm_parameters.h",
         "Generated\\Inc\\project_storage_binding.h",
         "Generated\\project_sources.mk",
     )

@@ -247,7 +247,7 @@
   "status.generation_running": "正在更新生成代码……",
   "status.toolchain_detecting": "正在检测本地工具链…",
   "status.toolchains_detected": "工具链检测完成",
-  "status.tool_path_selected": "已为 {tool} 选择工程局部路径",
+  "status.tool_path_selected": "已选择{tool}路径，请再次点击“检测工具链”验证。",
   "status.build_running": "正在运行工程构建任务…",
   "status.build_succeeded": "构建任务成功：{action}",
   "status.build_failed": "构建任务失败：{action}",
@@ -614,7 +614,6 @@
   "tool.install_guide.closing": "请自行下载安装；安装完成后返回FCCG点击“检测工具链”。",
   "dialog.toolchain_detection_results": "工具链检测结果",
   "action.select_installed_location": "选择已安装位置",
-  "status.tool_path_selected": "已选择{tool}路径，请再次点击“检测工具链”验证。",
   "error.open_official_link": "无法使用系统浏览器打开官方链接：{url}",
   "error.host_tests_failed_summary": "主机测试失败，请查看日志。",
   "error.architecture_check_failed_summary": "架构检查失败，请查看日志。",
@@ -730,5 +729,11 @@
   "hardware.inventory.storage": "SDIO + FatFs（{object} / {driver}）",
   "hardware.inventory.storage_missing": "未同时启用 SDIO 与 FatFs",
   "hardware.inventory.can_reserved": "{inventory}；仅识别初始化依赖，Device 消费仍为预留",
-  "selection.unavailable.hardware_contract": "不可用：当前 CubeMX 硬件不满足该设备的资源合同"
+  "selection.unavailable.hardware_contract": "不可用：当前 CubeMX 硬件不满足该设备的资源合同",
+  "page.algorithm_parameters": "算法参数",
+  "algorithm_parameters.description": "配置所选算法插件声明的机载实际参数值。",
+  "algorithm_parameters.empty": "当前所选算法没有声明可调参数。",
+  "algorithm_parameters.basic": "基本参数",
+  "algorithm_parameters.advanced": "高级参数",
+  "algorithm_parameters.reset": "恢复该算法默认值"
 }

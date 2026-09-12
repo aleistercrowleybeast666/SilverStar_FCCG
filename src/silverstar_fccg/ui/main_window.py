@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from silverstar_fccg.ui.pages.algorithm_parameters import AlgorithmParametersPage
+from silverstar_fccg.project.algorithm_parameters import AlgorithmParameterOwners_Get
+
 import logging
 import json
 import os
@@ -137,6 +140,7 @@ class MainWindow(QMainWindow):
     PAGE_CODES = (
         "page.devices",
         "page.flight_configuration",
+        "page.algorithm_parameters",
         "page.board_hardware",
         "page.build",
     )
@@ -267,11 +271,15 @@ class MainWindow(QMainWindow):
         self.pages = QStackedWidget()
         self.devices_page = DevicesPage(self._translator)
         self.flight_configuration_page = FlightConfigurationPage(self._translator)
+        self.algorithm_parameters_page = AlgorithmParametersPage(self._translator)
+        self.algorithm_parameters_page.parameterChanged.connect(self._AlgorithmParameter_Change)
+        self.algorithm_parameters_page.defaultsRequested.connect(self._AlgorithmDefaults_Reset)
         self.board_hardware_page = BoardHardwarePage(self._translator)
         self.build_page = BuildPage(self._translator)
         self._page_widgets = (
             self.devices_page,
             self.flight_configuration_page,
+            self.algorithm_parameters_page,
             self.board_hardware_page,
             self.build_page,
         )
@@ -594,6 +602,10 @@ class MainWindow(QMainWindow):
         self._ValidationIssue_Clear()
         self._displaying_model = True
         try:
+            self.algorithm_parameters_page.Configuration_Set(
+                AlgorithmParameterOwners_Get(display.model, self._service.catalog),
+                display.model.algorithm_parameters,
+            )
             self.devices_page.Configuration_Set(
                 display.devices,
                 display.device_instances,
@@ -1461,6 +1473,18 @@ class MainWindow(QMainWindow):
         self._mode_refresh_scheduled = True
         QTimer.singleShot(0, self._ModeChanges_Apply)
 
+    def _AlgorithmParameter_Change(self, component: str, parameter: str, value: object) -> None:
+        self._ProjectConfiguration_Change(
+            lambda candidate: candidate.algorithm_parameters[component].__setitem__(parameter, value)
+        )
+
+    def _AlgorithmDefaults_Reset(self, component: str) -> None:
+        defaults = {p.parameter_id: p.default
+                    for p in self._service.Plugin_Get(component).algorithm_parameters}
+        self._ProjectConfiguration_Change(
+            lambda candidate: candidate.algorithm_parameters.__setitem__(component, defaults)
+        )
+
     def _ModeParameter_Change(
         self,
         slot: str,
@@ -1720,14 +1744,14 @@ class MainWindow(QMainWindow):
             return
         self._ValidationIssue_Clear()
         code = issue.code
-        page_index = 3
+        page_index = 4
         target: QWidget = self.build_page.tool_status_group
         if code.startswith(("hardware", "board", "resource", "platform")) or code in {
             "protocol_transport",
             "protocol_transport_ambiguous",
             "hal_cmsis_source_policy",
         }:
-            page_index = 2
+            page_index = 3
             target = (
                 self.board_hardware_page.resource_table
                 if code.startswith("resource") or code.startswith("protocol_transport")
@@ -1760,8 +1784,11 @@ class MainWindow(QMainWindow):
                 )
             else:
                 target = self.flight_configuration_page.capability_table
-        elif code.startswith("mcu"):
+        elif code == "algorithm_parameters":
             page_index = 2
+            target = self.algorithm_parameters_page
+        elif code.startswith("mcu"):
+            page_index = 3
             target = self.board_hardware_page.board_combo
         elif code.startswith("device"):
             page_index = 0

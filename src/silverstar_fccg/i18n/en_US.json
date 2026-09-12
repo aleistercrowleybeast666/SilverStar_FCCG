@@ -247,7 +247,7 @@
   "status.generation_running": "Updating generated code…",
   "status.toolchain_detecting": "Detecting local toolchain…",
   "status.toolchains_detected": "Toolchain detection complete",
-  "status.tool_path_selected": "Selected project-local path for {tool}",
+  "status.tool_path_selected": "Selected a path for {tool}; click Detect Toolchain again to verify it.",
   "status.build_running": "Running project build task…",
   "status.build_succeeded": "Build task succeeded: {action}",
   "status.build_failed": "Build task failed: {action}",
@@ -614,7 +614,6 @@
   "tool.install_guide.closing": "Download and install these tools yourself, then return to FCCG and click Detect Toolchain.",
   "dialog.toolchain_detection_results": "Toolchain Detection Results",
   "action.select_installed_location": "Select Installed Location",
-  "status.tool_path_selected": "Selected a path for {tool}; click Detect Toolchain again to verify it.",
   "error.open_official_link": "Could not open the official link in the system browser: {url}",
   "error.host_tests_failed_summary": "Host Tests failed. Inspect the log.",
   "error.architecture_check_failed_summary": "Architecture Check failed. Inspect the log.",
@@ -730,5 +729,11 @@
   "hardware.inventory.storage": "SDIO + FatFs ({object} / {driver})",
   "hardware.inventory.storage_missing": "SDIO and FatFs are not both enabled",
   "hardware.inventory.can_reserved": "{inventory}; initialization dependencies only, Device consumption remains reserved",
-  "selection.unavailable.hardware_contract": "Unavailable: the current CubeMX hardware does not satisfy this device contract"
+  "selection.unavailable.hardware_contract": "Unavailable: the current CubeMX hardware does not satisfy this device contract",
+  "page.algorithm_parameters": "Algorithm Parameters",
+  "algorithm_parameters.description": "Actual onboard values from selected algorithm plugins.",
+  "algorithm_parameters.empty": "No selected algorithm declares tunable parameters.",
+  "algorithm_parameters.basic": "Basic",
+  "algorithm_parameters.advanced": "Advanced",
+  "algorithm_parameters.reset": "Restore algorithm defaults"
 }

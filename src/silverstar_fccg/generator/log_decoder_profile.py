@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import math
+import struct
+
 import hashlib
 import io
 import json
@@ -11,10 +14,10 @@ from silverstar_fccg.project.model import LogDecoderProfileReference
 from silverstar_fccg.project.record_catalog import RecordCatalog_Validate
 
 
-LOG_DECODER_PACKAGE_SCHEMA_ID = "silverstar.ssdecoder.package-schema/1.1"
+LOG_DECODER_PACKAGE_SCHEMA_ID = "silverstar.ssdecoder.package-schema/1.2"
 LOG_DECODER_PACKAGE_SCHEMA_MAJOR = 1
-LOG_DECODER_PACKAGE_SCHEMA_MINOR = 1
-LOG_DECODER_PACKAGE_SCHEMA_VERSION = "1.1"
+LOG_DECODER_PACKAGE_SCHEMA_MINOR = 2
+LOG_DECODER_PACKAGE_SCHEMA_VERSION = "1.2"
 LOG_DECODER_CONTAINER_PLUGIN_ID = "silverstar.sslog.container/0.0"
 LOG_DECODER_REQUIRED_FLP_VERSION = "0.0.1"
 LOG_DECODER_FIXED_TIMESTAMP = (1980, 1, 1, 0, 0, 0)
@@ -78,6 +81,59 @@ class LogDecoderPackageResult:
             generation_profile_sha256=self.generation_profile_sha256,
             package_sha256=self.package_sha256,
         )
+
+
+def _AlgorithmParameters_Validate(semantics: dict[str, Any]) -> None:
+    sets = semantics.get("firmware_algorithm_parameters")
+    if not isinstance(sets, list):
+        raise ValueError("Missing firmware algorithm parameter sets")
+    seen = set()
+    lock_entries = semantics.get("component_locks")
+    if not isinstance(lock_entries, list) or not all(
+        isinstance(lock, dict) and isinstance(lock.get("component"), str)
+        and isinstance(lock.get("manifest_sha256"), str) for lock in lock_entries
+    ):
+        raise ValueError("Invalid algorithm parameter schema locks")
+    locks = {lock["component"]: lock["manifest_sha256"] for lock in lock_entries}
+    if len(locks) != len(lock_entries) or any(
+        len(value) != 64 or any(character not in "0123456789abcdef" for character in value)
+        for value in locks.values()
+    ):
+        raise ValueError("Invalid or duplicate algorithm parameter schema lock")
+    for entry in sets:
+        if not isinstance(entry, dict) or set(entry) != {"component", "schema_id", "manifest_sha256", "parameters"}:
+            raise ValueError("Invalid firmware algorithm parameter set")
+        component = entry["component"]
+        if (not isinstance(component, str) or component in seen
+                or component not in semantics["algorithms"] or component not in semantics["components"]
+                or entry["schema_id"] != "silverstar.algorithm-parameters/1.0"
+                or component not in locks
+                or entry["manifest_sha256"] != locks.get(component)
+                or not isinstance(entry["parameters"], list) or not entry["parameters"]):
+            raise ValueError("Invalid algorithm parameter ownership/schema")
+        seen.add(component)
+        ids = set()
+        for parameter in entry["parameters"]:
+            if not isinstance(parameter, dict) or set(parameter) != {"id", "value", "unit", "representation", "storage_type", "description"}:
+                raise ValueError("Invalid resolved algorithm parameter")
+            for field in ("id", "unit", "description"):
+                if not isinstance(parameter[field], str) or not parameter[field].strip():
+                    raise ValueError("Invalid algorithm parameter identity/units")
+            if parameter["id"] in ids or parameter["representation"] not in ("value", "sigma", "variance", "covariance_diagonal"):
+                raise ValueError("Duplicate/invalid resolved algorithm parameter")
+            ids.add(parameter["id"])
+            value = parameter["value"]
+            if type(value) not in (int, float) or not math.isfinite(value):
+                raise ValueError("Algorithm parameter value must be finite")
+            if parameter["storage_type"] == "float32":
+                try:
+                    rounded = struct.unpack("<f", struct.pack("<f", value))[0]
+                except (OverflowError, struct.error) as error:
+                    raise ValueError("Unrepresentable float32 parameter") from error
+                if rounded != value:
+                    raise ValueError("Algorithm parameter is not resolved float32")
+            elif parameter["storage_type"] != "int32" or type(value) is not int or not -(2**31) <= value < 2**31:
+                raise ValueError("Invalid algorithm parameter storage type")
 
 
 def CanonicalJson_Encode(value: Any) -> bytes:
@@ -187,6 +243,9 @@ def LogDecoderPackage_Build(
         "`CALIBRATION_RESULT` is the active correction snapshot, including a valid "
         "NONE/identity snapshot when no sampling procedure is selected. Verify "
         "`checksums.sha256` before loading the package.\n"
+        "Firmware algorithm parameters are actual float32/int32 values with units "
+        "and representation. Recorded Configuration is separate from Offline What-if. "
+        "Package and semantics schemas are 1.2; 1.1 is unsupported.\n"
     ).encode("utf-8")
     payloads = {
         "README.md": readme,
@@ -432,6 +491,7 @@ def LogDecoderPackage_Verify(content: bytes) -> dict[str, Any]:
         "protocols",
         "components",
         "algorithms",
+        "firmware_algorithm_parameters",
         "hardware",
         "devices",
         "resource_assignments",
@@ -441,7 +501,7 @@ def LogDecoderPackage_Verify(content: bytes) -> dict[str, Any]:
     }
     if (
         not isinstance(semantics, dict)
-        or semantics.get("schema_id") != "silverstar.project-semantics/1.1"
+        or semantics.get("schema_id") != "silverstar.project-semantics/1.2"
         or not required_semantics.issubset(semantics)
         or semantics.get("protocols") != protocols
         or not isinstance(semantics.get("components"), list)
@@ -459,6 +519,7 @@ def LogDecoderPackage_Verify(content: bytes) -> dict[str, Any]:
         != protocols["logging"]["profile"]
     ):
         raise ValueError("Log decoder firmware identity contract is invalid")
+    _AlgorithmParameters_Validate(semantics)
     RecordCatalog_Validate(
         json_values["record_catalog.json"], "decoder Record Catalog"
     )

@@ -10,3 +10,7 @@
 FCCG自身的软件架构、插件格式、工程格式、GUI和生成器说明仍位于上一级 `docs/`。平台文档不应再由外部reference firmware人工维护第二份当前版本。
 
 [运行时安全与任务栈](details/RUNTIME_SAFETY.md)规定启动、命令执行上下文和任务栈证明边界。组件包内的文档仅是package-local implementation note，外部reference docs不覆盖本平台规范。
+
+## Algorithm configuration contract
+
+Pure INS/KF6 实际参数、单位、P0/Q/R 转换与 decoder 1.2 边界见[算法参数契约](../ALGORITHM_PARAMETERS.md)。默认值保留旧算法数值行为；公式、时序与融合策略不变。

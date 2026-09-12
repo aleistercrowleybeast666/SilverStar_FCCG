@@ -1,5 +1,14 @@
 # SilverStar Flight Controller Code Generator
 
+## Algorithm actual parameters / 算法实际参数
+
+新增独立算法参数页面（硬件连接之前），插件声明实际值、单位和 representation。
+Project format 12；`.ssdecoder` / project-semantics 1.2，拒绝 decoder 1.1；
+Platform 仍为 0.0.10，Record Catalog 与协议布局不变。
+参数清单、生成绑定与 Recorded Configuration / Offline What-if 边界见[参数契约](docs/ALGORITHM_PARAMETERS.md)。
+精确验证结果仅见仓库根 VALIDATION.md。
+
+
 ## Logger startup admission
 
 LoggerBus starts in `LOGGER_BOOTSTRAP`: critical events, configuration/descriptors and
@@ -54,7 +63,7 @@ an existing generated project.
 
 SilverStar_FCCG (FCCG) is the central configuration, assembly, interface-freeze, and version authority for the SilverStar platform. It is a PySide6 flight-controller configurator, declarative component manager, safe project assembler, thin glue generator, STM32 hardware-import front end, and development-environment generator.
 
-The FCCG application, new-project platform identity, generated firmware, embedded Core, and official SilverStar builtin release train are frozen at **0.0.10**. Protocol and upstream identities remain independent: AIR stays M0, Serial Maintenance and Flight Log stay 0.0, `.ssdecoder` and project semantics stay 1.1, FreeRTOS stays 11.3.0, and SS0.5/STM32F407VET6 retain their hardware identities. The current internal software release candidate validates the real STM32F407VET6 + SS0.5 combination with JY901B, NEO-M9N, E28-2G4M12SX/SX1281, and the selected Alignment/INS/KF6/Landing components. Builtin packages retain read-only reference provenance while identifying FCCG-owned overlays; exact snapshot evidence is recorded in `VALIDATION.md`. This is a **Software Release Candidate / Pre-Hardware-Validation** milestone, not a public release or a claim of electrical, flight, flash, or alternate-MCU validation.
+The FCCG application, new-project platform identity, generated firmware, embedded Core, and official SilverStar builtin release train are frozen at **0.0.10**. Protocol and upstream identities remain independent: AIR stays M0, Serial Maintenance and Flight Log stay 0.0, `.ssdecoder` and project semantics use 1.2, FreeRTOS stays 11.3.0, and SS0.5/STM32F407VET6 retain their hardware identities. The current internal software release candidate validates the real STM32F407VET6 + SS0.5 combination with JY901B, NEO-M9N, E28-2G4M12SX/SX1281, and the selected Alignment/INS/KF6/Landing components. Builtin packages retain read-only reference provenance while identifying FCCG-owned overlays; exact snapshot evidence is recorded in `VALIDATION.md`. This is a **Software Release Candidate / Pre-Hardware-Validation** milestone, not a public release or a claim of electrical, flight, flash, or alternate-MCU validation.
 
 The matched MCU/Platform manifest owns the generated build Target Profile; the current verified plugin declares `SilverStar_F407`. Calibration exposes only One-face and Six-face procedures and defaults to an empty selection. Empty means no sampling procedure: firmware deterministically starts `SYSTEM_CALIBRATION_MODE_NONE`, establishes READY identity correction, and still emits the Required `CALIBRATION_RESULT` snapshot whenever logging is enabled.
 
@@ -66,14 +75,15 @@ Python 3.11 or newer and PySide6 6.8 or newer are required.
 python main.py
 ```
 
-The main window has exactly four pages: **Devices**, **Flight Configuration**, **Hardware Connection**, and **Code Generation & Build**. Project commands live in **File** and plugin management lives in the **Plugins** menu/dialog. Simplified Chinese/English, Light/Dark themes, manifest-driven controls, visible checkbox states, repository-local settings, and shared background-task progress follow the copied GUI standard. Advanced hardware/verification sections collapse by visibility only; Logging remains directly available.
+The main window has exactly five pages: **Devices**, **Flight Configuration**, **Algorithm Parameters**, **Hardware Connection**, and **Code Generation & Build**. Project commands live in **File** and plugin management lives in the **Plugins** menu/dialog. Simplified Chinese/English, Light/Dark themes, manifest-driven controls, visible checkbox states, repository-local settings, and shared background-task progress follow the copied GUI standard. Advanced hardware/verification sections collapse by visibility only; Logging remains directly available.
 
 ## Device-first workflow
 
 1. Enter only the project name and output directory. The sole current firmware/Core/OS/Environment defaults are selected automatically. The official SS0.5 reference draft also starts with all three official protocols enabled, while each protocol remains explicitly disableable later.
 2. Select Device instances. MCU is not a Device-page choice: the selected Board snapshot or imported CubeMX `.ioc` supplies exact part/family/package/core facts, and FCCG deterministically matches the installed MCU/Platform plugin. **Primary Sensors** contains only `sensor.imu` and `sensor.gnss`; all other valid `sensor.*` plugins enter **Other Sensors** automatically. Links, storage, actuators, and indicators remain separate groups. SS0.5 maps the active-low system indicator to `IMU_CAL_LED` on PA1. Its verified hardware has no second assignable indicator GPIO, so strict generation reports the optional GNSS indicator as unresolved instead of reusing a mission output.
 3. Open **Flight Configuration** to select manifest-defined Strategies and Modes, edit per-Mode parameters, choose AIR Telemetry Protocol M0 / Serial Maintenance Protocol 0.0 / Flight Log Format 0.0 or **None** independently, inspect derived capability consumers/sources, and adjust Protocol-owned Required/Recommended/Optional logging. M0 is the current low-resource/low-bandwidth AIR profile name, not a wire-version increment. Incompatible choices are disabled from Device capabilities alone, even before hardware is selected. A source override appears and is saved only for a genuinely ambiguous required capability.
-4. Open **Hardware Connection**. A new STM32 draft starts on **Custom STM32 Hardware** for the manual CubeMX import flow; alternatively select a compatible Board. FCCG parses the Board/imported `.ioc`, displays the detected MCU, CubeMX/Firmware Package facts, HAL/CMSIS source policy, and matched Platform lock/reason/provenance, validates typed UART/SPI/I²C/CAN-inventory/PWM and GPIO electrical contracts, preserves still-valid assignments, and auto-assigns new semantic connections. A selected custom I²C bus with Open Drain/NOPULL exposes a bus-and-pin-specific **verified external pull-up** checkbox; its evidence is bound to the current snapshot and disappears for unrelated hardware. Use **Complete Manual Assignment and Check** to seal the current mapping fingerprint; any relevant Device/Mode/IOC/Platform/assignment change invalidates that confirmation. Only Board plugins expose the optional **Prepare Hardware Files** action.
+4. Open **Algorithm Parameters** to edit plugin-declared actual values, units and ranges; basic/advanced sections and per-algorithm reset preserve the selected configuration.
+5. Open **Hardware Connection**. A new STM32 draft starts on **Custom STM32 Hardware** for the manual CubeMX import flow; alternatively select a compatible Board. FCCG parses the Board/imported `.ioc`, displays the detected MCU, CubeMX/Firmware Package facts, HAL/CMSIS source policy, and matched Platform lock/reason/provenance, validates typed UART/SPI/I²C/CAN-inventory/PWM and GPIO electrical contracts, preserves still-valid assignments, and auto-assigns new semantic connections. A selected custom I²C bus with Open Drain/NOPULL exposes a bus-and-pin-specific **verified external pull-up** checkbox; its evidence is bound to the current snapshot and disappears for unrelated hardware. Use **Complete Manual Assignment and Check** to seal the current mapping fingerprint; any relevant Device/Mode/IOC/Platform/assignment change invalidates that confirmation. Only Board plugins expose the optional **Prepare Hardware Files** action.
 
 For an official verified Board, `connections.json` owns the fixed logical mapping and the bundled
 `.ioc`/generated headers only resolve and validate its physical aliases. CubeMX GPIO scan order is
@@ -83,8 +93,8 @@ Generation runs a Platform Resource Closure Check and records a binding fingerpr
 snapshot, manifest, or renderer-contract drift makes the project stale or blocks generation.
 Custom CubeMX hardware remains manually assignable and continues to use its imported inventory
 indices.
-5. Choose **Generate Code** (or **File → Save Project**). This validates, resolves, prepares hardware, incrementally updates the standalone source project, renders Make/EIDE/VS Code, verifies readiness, and publishes `SilverStar.ssproject` last. Unchanged managed and component files retain their timestamps; `build/` and dependency files are not cleaned.
-6. From **Code Generation & Build**, choose **Open VS Code Workspace** or **Open Project Folder**, then build in VS Code/EIDE. Release is the default Make/EIDE/VS Code target and Debug remains available. **Open Firmware Output** stays disabled until an actual ELF/HEX/BIN/MAP artifact exists. FCCG's **Validation Build** is intentionally under advanced verification and also defaults to Release; generation itself never runs a full build or quality suite.
+6. Choose **Generate Code** (or **File → Save Project**). This validates, resolves, prepares hardware, incrementally updates the standalone source project, renders Make/EIDE/VS Code, verifies readiness, and publishes `SilverStar.ssproject` last. Unchanged managed and component files retain their timestamps; `build/` and dependency files are not cleaned.
+7. From **Code Generation & Build**, choose **Open VS Code Workspace** or **Open Project Folder**, then build in VS Code/EIDE. Release is the default Make/EIDE/VS Code target and Debug remains available. **Open Firmware Output** stays disabled until an actual ELF/HEX/BIN/MAP artifact exists. FCCG's **Validation Build** is intentionally under advanced verification and also defaults to Release; generation itself never runs a full build or quality suite.
 
 **Save Project As...** stages and copies the complete generated source tree—including project-owned Device, Algorithm, Platform, and FlightLogic edits—while excluding build output, caches, and intermediate artifacts. The copied descriptor is published last, so a failed operation is not presented as a ready project.
 
@@ -152,7 +162,7 @@ starts no worker and does not alter the project or Dirty state. FCCG still does 
 parser, executable decoder plugin, or multi-version decoder engine in this release.
 
 The current package contract uses firmware-owned IDs
-`silverstar.ssdecoder.package-schema/1.1` and `silverstar.sslog.container/0.0`. Package schema 1.1
+`silverstar.ssdecoder.package-schema/1.2` and `silverstar.sslog.container/0.0`. Package schema 1.2 adds self-describing resolved algorithm parameters and
 allows telemetry and maintenance locks to be `null` while requiring a real logging lock. The generated
 descriptor source is part of the same authoritative Make/EIDE/VS Code Source Graph as the other
 generated glue. Host Tests also compile a C utility against the real SSLOG codec to create and

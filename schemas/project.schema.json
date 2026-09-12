@@ -4,13 +4,28 @@
   "title": "SilverStar FCCG project",
   "type": "object",
   "required": [
-    "format_version", "project", "components", "modes", "mode_parameters",
+    "format_version", "algorithm_parameters", "project", "components", "modes", "mode_parameters",
     "protocols", "hardware",
     "resources", "capability_sources", "logging", "log_decoder_profile", "build", "generated_glue",
     "component_provenance", "reference_provenance"
   ],
   "properties": {
-    "format_version": {"const": 11},
+    "algorithm_parameters": {
+      "type": "object",
+      "patternProperties": {
+        "^[a-z][a-z0-9_.]*$": {
+          "type": "object",
+          "patternProperties": {
+            "^[a-z][a-z0-9_]*$": {
+              "type": "number"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "format_version": {"const": 12},
     "project": {
       "type": "object",
       "required": ["name", "firmware_version", "build_target"],

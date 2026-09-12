@@ -252,8 +252,8 @@ def test_fccg_owned_decoder_templates_survive_reference_reimport(
         encoding="utf-8"
     )
 
-    assert semantics["schema_id"] == "silverstar.project-semantics/1.1"
-    assert "profile->package_schema_minor = 1U;" in descriptor_source
+    assert semantics["schema_id"] == "silverstar.project-semantics/1.2"
+    assert "profile->package_schema_minor = 2U;" in descriptor_source
     for relative in (
         "project_device_instances.h",
         "project_device_instances.c",
