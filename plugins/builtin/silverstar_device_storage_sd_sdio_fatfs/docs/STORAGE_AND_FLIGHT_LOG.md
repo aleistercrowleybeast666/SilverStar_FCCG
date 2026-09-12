@@ -7,6 +7,16 @@
 
 # SilverStar Storage 与飞行日志格式 0.0
 
+## FCCG Logger bootstrap增量
+
+当前LoggerBus从`LOGGER_BOOTSTRAP`开始，只准入关键事件、STATS、配置/descriptor和
+Calibration/Alignment/Initial State快照。普通周期流等header、decoder、启动配置及自检报告
+排空并sync后进入`LOGGER_STREAMING_READY`再开放。成功open立即drain，尚未完成的自检不关闭session。
+启动suppression独立统计，不占queue/sequence；真实overflow继续留下gap。新增内部拒绝、写入/同步
+失败、session、放弃aggregate及延迟诊断，不改变SSLOG 0.0和decoder/project semantics 1.1。
+正常启动要求overflow/gap为零，有限过载只允许drop而不允许CRC/长度/字节损坏；Host调度为模型，
+实机证据与精确数值见根VALIDATION。当前权威流程见`docs/platform/details/STORAGE_AND_FLIGHT_LOG.md`。
+
 > 文档版本：0.0.10
 > 正式名称：飞行日志格式0.0
 > wire magic：`SSLOG0`；profile id：0

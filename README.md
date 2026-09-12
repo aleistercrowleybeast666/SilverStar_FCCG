@@ -1,5 +1,18 @@
 # SilverStar Flight Controller Code Generator
 
+## Logger startup admission
+
+LoggerBus starts in `LOGGER_BOOTSTRAP`: critical events, configuration/descriptors and
+Calibration/Alignment/Initial State snapshots remain admissible. Ordinary periodic streams
+start only after Logger has opened the session, written the header and decoder descriptor,
+drained the startup configuration/report and synced the pending records. Successful open
+immediately drains; an incomplete startup report keeps the same session open.
+Bootstrap suppression has its own counter and is distinct from queue overflow and sequence gaps.
+This closes the startup scheduling window following the byte-integrity repair below; it does
+not change the storage driver or protocol. Normal acceptance requires zero overflow/gaps;
+deliberate overload may drop records but must preserve every surviving record's CRC and framing.
+See [measured results and remaining hardware work](VALIDATION.md).
+
 ## Storage byte integrity repair
 
 SS0.5 diskio now accepts arbitrary byte buffers through a bounded static sector bounce buffer;

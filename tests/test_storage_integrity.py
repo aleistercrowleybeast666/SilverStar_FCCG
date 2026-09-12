@@ -31,7 +31,7 @@ def storage_project(tmp_path_factory):
     result = subprocess.run([sys.executable, str(runner), "--project", str(project),
                              "--compiler", compiler], cwd=project,
                             env=dict(os.environ, PYTHONDONTWRITEBYTECODE="1"),
-                            capture_output=True, text=True, timeout=180)
+                            capture_output=True, text=True, timeout=300)
     WorkspacePolicy(root).Text_AtomicWrite(output / "integrity.log", result.stdout + result.stderr)
     assert result.returncode == 0, result.stdout + result.stderr
     return project, output
@@ -62,6 +62,28 @@ def test_real_fatfs_delayed_dma_logger_and_queue(storage_project):
     wrong_hashes = dict(hashes, record_catalog_hash_128="00" * 16)
     assert not Audit_Bytes((output / "logger-normal.sslog").read_bytes(), catalog,
                            decoder_hashes=wrong_hashes)["passed"]
+
+
+def test_default_200hz_startup_and_overload_recovery(storage_project):
+    project, output = storage_project
+    catalog, hashes = Audit_ProfileLoad(project / "StorageRegression.ssdecoder")
+    for mode in ("startup-burst", "startup-burst-overload"):
+        report = Audit_Bytes((output / f"logger-{mode}.sslog").read_bytes(), catalog,
+                             decoder_hashes=hashes, allow_queue_drops=mode.endswith("overload"))
+        assert report["passed"] and report["integrity_ok"]
+        assert report["records"] > 200000 and report["unvalidated_tail_bytes"] == 0
+        assert report["sequence_reorders"] == 0
+        assert report["sequence_gap_records"] == report["queue_overflow_max"]
+        assert (report["queue_overflow_max"] > 0) == mode.endswith("overload")
+        counts = report["record_counts"]
+        assert counts["CALIBRATION_RESULT"] == counts["ALIGNMENT_RESULT"] == 1
+        assert counts["INITIAL_STATE"] == counts["MISSION_CONFIG"] == 1
+        assert counts["SYSTEM_CONFIG"] == 2  # Bootstrap and actual START configuration.
+        assert counts["DECODER_PROFILE_DESCRIPTOR"] == 1
+        assert {"IMU_NATIVE", "HW_QUAT_NATIVE", "BARO_NATIVE", "GNSS_NATIVE", "POWER",
+                "IMU_CORRECTED", "INERTIAL_INCREMENT", "SAMPLE", "RAW_SENSOR", "PURE_INS",
+                "ESTIMATOR", "KF6_DIAGNOSTIC", "KF6_FULL_P", "GNSS_MEASUREMENT",
+                "BARO_MEASUREMENT", "STATS", "TELEMETRY_DIAG", "HEALTH"} <= set(counts)
 
 
 CASES = json.loads((Path(__file__).parent / "fixtures/sslog_corruption_cases.json").read_text())
@@ -127,6 +149,8 @@ def test_storage_sources_survive_reference_reimport(monkeypatch, workspace_root)
                      "APP/Inc/logger_task.h", "Interfaces/Inc/system_storage_if.h",
                      "Tests/Host/storage_integrity/test_storage_integrity.c",
                      "Tests/Host/storage_integrity/test_logger_storage.c",
+                     "Tests/Host/storage_integrity/run_storage_integrity.py",
+                     "Tests/Host/test_logger.c", "Tests/Host/test_lifecycle_logging.c",
                      "Tests/Target/storage_integrity.c", "Tools/sslog_audit.py"):
         source = workspace_root / core["fccg_owned_files"][relative]
         assert source.is_file()

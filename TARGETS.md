@@ -1,5 +1,15 @@
 # Development targets
 
+## Logger startup burst closeout
+
+- [x] bounded bootstrap admission, retained critical snapshots and immediate drain after open
+- [x] distinct suppression/rejection/overflow, writer fault, session and latency diagnostics
+- [x] default multi-stream startup/START model and finite overload recovery with strict C-writer audit
+- [ ] repeated SS0.5 real-card startup with zero overflow/gaps, task HWM and storage latency margins
+
+This follows the storage byte repair; SSLOG 0.0 and decoder/project semantics 1.1 remain unchanged.
+Executed gates and queue/memory snapshots are recorded only in [VALIDATION.md](VALIDATION.md).
+
 ## Storage byte integrity
 
 - [x] arbitrary-buffer SDIO bounce ownership and bounded fail-closed completion handling

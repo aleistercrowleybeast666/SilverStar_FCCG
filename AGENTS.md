@@ -2,6 +2,15 @@
 
 ## Storage integrity invariants
 
+- LoggerBus owns the single BOOTSTRAP/STREAMING_READY admission state. LoggerTask opens ordinary
+  periodic admission only after durable bootstrap and an atomic empty-queue check. Critical
+  snapshots/events stay admissible; producers never wait. Count bootstrap suppression separately
+  from actual queue overflow, state/capacity rejection and sink faults; never renumber away drops.
+- Successful session open drains immediately. An incomplete startup report keeps its session;
+  only failed open waits for retry. Normal startup acceptance requires zero overflow/gaps;
+  finite overload must recover with intact CRC/framing and observable drops. Measure queue HWM
+  before changing capacity; Host scheduling is a model, not a target timing guarantee.
+
 - Storage is an arbitrary byte stream. A legal 119-byte record needs no padding or caller alignment.
   FatFs owns partial-sector read/modify/write; SDIO DMA owns only its fixed main-SRAM bounce buffer.
 - Never reuse a DMA buffer until matching completion and card-ready. Uncertain completion latches

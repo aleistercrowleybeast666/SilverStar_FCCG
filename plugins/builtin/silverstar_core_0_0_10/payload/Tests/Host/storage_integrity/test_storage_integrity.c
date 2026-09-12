@@ -9,7 +9,7 @@
 #include "sslog_protocol.h"
 #include "../../Target/storage_integrity.h"
 
-#define CARD_SECTORS 32768U
+#define CARD_SECTORS 65536U
 #define TEST_RECORD_COUNT 40000U
 static uint8_t s_card[CARD_SECTORS * BLOCKSIZE];
 static FATFS s_fs;

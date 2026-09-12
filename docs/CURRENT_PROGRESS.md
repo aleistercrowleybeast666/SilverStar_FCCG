@@ -1,5 +1,13 @@
 # Current Progress
 
+## Logger startup burst closeout
+
+已在LoggerBus统一bootstrap/streaming准入：关键事件、配置和Calibration/Alignment/Initial State
+继续记录，普通周期流等启动信息排空并同步后开放。成功开文件立即消费，尚未完成的自检报告不触发
+关闭重开。未准入计数、真实overflow/gap和sink错误分别保留；队列容量与协议布局保持不变。
+已补默认多流启动/START和有限过载恢复模型；精确结果见根VALIDATION。上一轮修复落盘字节损坏，
+本轮处理启动短时队列突发；实卡正常启动仍须证明overflow/gap均为零。
+
 ## Storage integrity progress
 
 已完成SS0.5 DMA任意地址缓冲、Logger部分写入不重放、关键记录批次同步、队列/延迟诊断、

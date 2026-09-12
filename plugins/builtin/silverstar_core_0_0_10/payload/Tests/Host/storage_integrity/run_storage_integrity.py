@@ -76,12 +76,12 @@ def StorageIntegrity_Run(project: Path, compiler: str) -> Path:
     decoders = list(project.glob("*.ssdecoder"))
     if len(decoders) != 1:
         raise ValueError("exactly one generated decoder is required for writer acceptance")
-    for mode in ("normal", "overflow", "startup-overflow"):
+    for mode in ("normal", "overflow", "startup-overflow", "startup-burst", "startup-burst-overload"):
         writer_log = output / f"logger-{mode}.sslog"
         command = [str(writer), str(writer_log)] + ([mode] if mode != "normal" else [])
         subprocess.run(command, check=True, cwd=project, env=environment)
         command = [sys.executable, str(auditor), str(writer_log), "--decoder", str(decoders[0])]
-        if mode != "normal":
+        if mode in ("overflow", "startup-overflow", "startup-burst-overload"):
             command += ["--allow-queue-drops"]
         subprocess.run(command, check=True, cwd=project, env=environment)
     print("FCCG_PROGRESS|STORAGE_INTEGRITY|DONE|4|4|logger-integrity", flush=True)

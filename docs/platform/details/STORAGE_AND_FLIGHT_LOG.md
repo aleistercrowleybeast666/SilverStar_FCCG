@@ -1,5 +1,36 @@
 # SilverStar Storage 与飞行日志格式 0.0
 
+## Logger启动准入
+
+上一轮修复SDIO/FatFs落盘字节完整性；本轮修复启动时普通周期流与开文件、descriptor和自检报告
+写入争抢队列的短时突发。用户报告的新日志字节校验已正常，但启动仍有丢记录；它不是新的CRC修复。
+SSLOG 0.0、`.ssdecoder`/Project Semantics 1.1及SilverStar 0.0.10保持不变。
+
+LoggerBus持有唯一`LOGGER_BOOTSTRAP` → `LOGGER_STREAMING_READY`准入状态，静态、有界、无heap。
+BOOT/其他EVENT、STATS、System/Device/Algorithm/Stream/Decoder descriptors、Mission config、
+Calibration/Alignment结果和Initial State可在bootstrap入队。普通周期raw/native、corrected、
+INS/Estimator输出、Power/Health/Telemetry诊断在此阶段不进入队列；不阻塞DeviceTask或FlightTask，
+不改变它们的采样、校准、对准或飞行计算。策略原本关闭/抽取掉的记录继续按原规则处理。
+
+Logger成功open后立即消费，只有open失败才进入retry延迟。文件头后排队Required decoder descriptor；
+已经入队的BOOT/关键快照保留FIFO次序，队列满时继续消费并重试descriptor。待其排空后排队启动
+System/Device/Algorithm/Stream配置批次，排空后写完整自检报告并sync。自检尚未完成时保持原session
+并继续消费关键记录。sync期间新到达的关键记录也必须排空，随后在同一临界区检查两队列为空并
+开放streaming；START仍保留原来的实际任务配置和Initial State记录。后续Calibration/Alignment结果
+始终允许记录，不要求用户先完成采样程序才能开放普通日志。
+
+`bootstrap_suppressed_count`表示按策略本应发出、但启动阶段未准入的普通记录。Push与原policy过滤
+一样返回OK；它不是成功入队承诺，不占槽、也不产生sequence。`accepted_count`才是入队总量。
+`state_reject_count`记录未初始化/结束后的拒绝；`capacity_reject_count`包含真实队列满拒绝及
+SystemConfig批次预检空间不足（批次尚未提交）。实际`overflow_count`只来自队列Push丢弃，并继续
+驱动原有writer sequence gap。不能把suppression当丢包，也不能把真实drop重新编号藏掉。
+
+正常SS0.5启动、NONE或已选procedure、Alignment、START及数分钟记录要求logger/IMU overflow、
+sequence gap、CRC/length/sync错误全为零。有限过载允许drop/gap，但所有存活记录仍须严格CRC、
+长度、连续framing和EOF正确，Logger恢复消费且其他任务继续执行。Host端到端使用真实Logger/FatFs/
+diskio/codec，生产节拍、其他任务工作计数和SD卡延迟是模型；真实任务调度与IMU总线overflow仍须台架验证。
+容量、峰值、延迟、RAM/FLASH和实测日志只在根VALIDATION记录；默认队列容量及任务优先级未调整。
+
 ## 任意字节流与DMA所有权
 
 Storage backend必须支持任意合法CPU buffer地址、文件offset和写入length，调用方不需要
@@ -33,10 +64,14 @@ Logger先保持session打开并消费，在dequeue后重试尚未入队的Requir
 最后一条记录后发生的丢弃或STATS自身丢弃，不能仅靠文件推断完整损失量。
 
 `LoggerBus_DiagnosticsGet`提供两队列当前量/HWM及accepted/dequeued/overflow累计计数；
-`LoggerTask_DiagnosticsGet`提供最大迭代间隔、serialized计数和io_fault；
+`LoggerTask_DiagnosticsGet`提供最大迭代间隔、iteration/drain/serialized计数、io_fault、
+streaming_ready时间、open尝试/失败/session次数、append/flush/serialize/close失败和discarded_bytes；
+write_count/total_write_us/max_write_us可算平均sink write调用延迟，包含Storage/FatFs调用；
 `SystemStorage_HealthGet`提供max_write_latency_us/max_sync_latency_us。这些是内部C诊断接口，
 没有新增维护命令或wire字段。用两个带monotonic timestamp的快照差值测START前后production rate：
-accepted增量/秒为接收率，(accepted+overflow)增量/秒为尝试率。用调试器或专用台架调用读取。
+accepted增量/秒为入队率，(accepted+overflow)增量/秒为实际单记录排队尝试率；另报bootstrap suppression、
+state拒绝与批次预检拒绝，不混算。discarded_bytes包含不确定写入后放弃重放的aggregate字节，
+不能直接当作已证实丢失字节数。用调试器或专用台架调用读取，64-bit延迟更新受临界区保护。
 
 队列增长要与存储延迟、任务调度和实际production rate一起判断。关键descriptor/生命周期批次不再逐条
 f_sync：队列排空或首条critical的20ms deadline到达即flush，常规250ms sync保持不变；deadline不随

@@ -243,6 +243,15 @@ Host mock验证UART读写/分片、SPI/GPIO/ADC/Time/Critical的Device可测试�
 - 历史`SilverStar_0_0_7.md`、`SilverStar_0_0_8.md`和历史patch note保持历史语义；仅允许标注0.0.9已删除的失效文档链接；
 - 所有硬件声明有证据，不把Host/ARM编译写成上板通过。
 
+## Logger启动突发验收
+
+必须分别验证bootstrap未准入、队列满丢弃、状态/批次空间拒绝、sink append/flush失败、session
+open/reopen、aggregate放弃及Logger迭代间隔。Required decoder与关键配置/快照先持久化，普通流后开放；
+成功开文件无额外retry等待，未完成自检不关闭重开。正常默认多流、START切换和数分钟记录要求
+overflow/gap/CRC/length/resync均为零；故意有限过载保留真实drop/gap但不能写坏存活record，且须恢复。
+记录两队列HWM、单槽RAM成本、写盘max/avg、任务HWM及实际卡/固件/decoder身份。
+Host工作计数和延迟模型不能代替真实FreeRTOS/IMU总线验收；具体快照只记录在根VALIDATION。
+
 ## 14. 当前未由静态/Host/ARM构建证明的项目
 
 至少包括：

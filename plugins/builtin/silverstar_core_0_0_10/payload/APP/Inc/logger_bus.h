@@ -22,6 +22,12 @@ typedef enum
     LOGGER_BUS_FINALIZATION_FINALIZED
 } LoggerBusFinalizationState;
 
+typedef enum
+{
+    LOGGER_BOOTSTRAP = 0U,
+    LOGGER_STREAMING_READY
+} LoggerBusStartupState;
+
 /* Internal diagnostics; SSLOG STATS and all wire layouts remain unchanged.
  * Counter deltas over elapsed time give the accepted/attempted production rate. */
 typedef struct
@@ -29,6 +35,10 @@ typedef struct
     uint32_t accepted_count;
     uint32_t dequeued_count;
     uint32_t overflow_count;
+    uint32_t bootstrap_suppressed_count;
+    uint32_t state_reject_count;
+    uint32_t capacity_reject_count;
+    LoggerBusStartupState startup_state;
     uint16_t normal_count;
     uint16_t estimator_count;
     uint16_t normal_high_water;
@@ -36,6 +46,11 @@ typedef struct
 } LoggerBusDiagnostics;
 
 LoggerBusResult LoggerBus_DiagnosticsGet(LoggerBusDiagnostics *diagnostics);
+/* LoggerTask alone opens admission after durable bootstrap and an empty queue.
+ * Suppressed periodic pushes return OK like policy filtering; they were never
+ * admitted, consume no queue slot/sequence and increment only suppression. */
+LoggerBusResult LoggerBus_StreamingReady(void);
+LoggerBusStartupState LoggerBus_StartupStateGet(void);
 LoggerBusResult LoggerBus_Init(void);
 void LoggerBus_Reset(void);
 LoggerBusResult LoggerBus_SamplePush(

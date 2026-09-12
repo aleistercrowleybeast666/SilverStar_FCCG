@@ -54,6 +54,7 @@ static LoggerBusResult LoggerBus_PushStateGet(void)
 
     result = ((s_initialized != 0U) && (s_accepting_records != 0U)) ?
         LOGGER_BUS_RESULT_OK : LOGGER_BUS_RESULT_BAD_STATE;
+    if (result != LOGGER_BUS_RESULT_OK) { s_diagnostics.state_reject_count++; }
     LoggerBus_IrqUnlock(state);
     return result;
 }
@@ -73,6 +74,7 @@ static LoggerBusResult LoggerBus_QueuePush(
     state = LoggerBus_IrqLock();
     if ((s_initialized == 0U) || (s_accepting_records == 0U))
     {
+        s_diagnostics.state_reject_count++;
         LoggerBus_IrqUnlock(state);
         return LOGGER_BUS_RESULT_BAD_STATE;
     }
@@ -85,6 +87,7 @@ static LoggerBusResult LoggerBus_QueuePush(
         s_diagnostics.accepted_count++;
         if (count > *high_water) { *high_water = count; }
     }
+    else { s_diagnostics.capacity_reject_count++; }
     LoggerBus_IrqUnlock(state);
     if (queue_result == COMMON_SPSC_QUEUE_RESULT_OK)
     {
@@ -117,6 +120,59 @@ static LoggerBusResult LoggerBus_RecordPush(
         &record);
 }
 
+static uint8_t LoggerBus_BootstrapAllows(FlightLogRecordType type)
+{
+    return (uint8_t)((type == FLIGHT_LOG_RECORD_EVENT) ||
+        (type == FLIGHT_LOG_RECORD_STATS) ||
+        (type == FLIGHT_LOG_RECORD_SYSTEM_CONFIG) ||
+        (type == FLIGHT_LOG_RECORD_DEVICE_DESCRIPTOR) ||
+        (type == FLIGHT_LOG_RECORD_ALGORITHM_DESCRIPTOR) ||
+        (type == FLIGHT_LOG_RECORD_LOG_STREAM_DESCRIPTOR) ||
+        (type == FLIGHT_LOG_RECORD_DECODER_PROFILE_DESCRIPTOR) ||
+        (type == FLIGHT_LOG_RECORD_CALIBRATION_RESULT) ||
+        (type == FLIGHT_LOG_RECORD_ALIGNMENT_RESULT) ||
+        (type == FLIGHT_LOG_RECORD_MISSION_CONFIG) ||
+        (type == FLIGHT_LOG_RECORD_INITIAL_STATE));
+}
+
+static uint8_t LoggerBus_BootstrapSuppress(FlightLogRecordType type)
+{
+    uint8_t suppressed;
+    PlatformCriticalState state = LoggerBus_IrqLock();
+    suppressed = (uint8_t)((s_diagnostics.startup_state == LOGGER_BOOTSTRAP) &&
+        (LoggerBus_BootstrapAllows(type) == 0U));
+    if (suppressed != 0U) { s_diagnostics.bootstrap_suppressed_count++; }
+    LoggerBus_IrqUnlock(state);
+    return suppressed;
+}
+
+LoggerBusResult LoggerBus_StreamingReady(void)
+{
+    LoggerBusResult result = LOGGER_BUS_RESULT_BAD_STATE;
+    PlatformCriticalState state = LoggerBus_IrqLock();
+    if ((s_initialized != 0U) && (s_accepting_records != 0U))
+    {
+        result = LOGGER_BUS_RESULT_FULL;
+        if ((CommonSpscQueue_Count(&s_logger_queue) == 0U) &&
+            (CommonSpscQueue_Count(&s_estimator_logger_queue) == 0U))
+        {
+            s_diagnostics.startup_state = LOGGER_STREAMING_READY;
+            result = LOGGER_BUS_RESULT_OK;
+        }
+    }
+    LoggerBus_IrqUnlock(state);
+    return result;
+}
+
+LoggerBusStartupState LoggerBus_StartupStateGet(void)
+{
+    LoggerBusStartupState startup_state;
+    PlatformCriticalState state = LoggerBus_IrqLock();
+    startup_state = s_diagnostics.startup_state;
+    LoggerBus_IrqUnlock(state);
+    return startup_state;
+}
+
 static LoggerBusResult LoggerBus_ConfiguredRecordPush(
     FlightLogRecordType type, uint64_t timestamp_us,
     uint32_t valid_flags, const void *payload,
@@ -131,6 +187,7 @@ static LoggerBusResult LoggerBus_ConfiguredRecordPush(
     {
         return LOGGER_BUS_RESULT_OK;
     }
+    if (LoggerBus_BootstrapSuppress(type) != 0U) { return LOGGER_BUS_RESULT_OK; }
     return LoggerBus_RecordPush(type, timestamp_us, valid_flags,
                                 payload, payload_size, estimator_queue);
 }
@@ -464,6 +521,9 @@ LoggerBusResult LoggerBus_SystemConfigPush(uint64_t timestamp_us)
     }
     if (used_slots > (LOGGER_RECORD_QUEUE_DEPTH - required_slots))
     {
+        state = LoggerBus_IrqLock();
+        s_diagnostics.capacity_reject_count++;
+        LoggerBus_IrqUnlock(state);
         return LOGGER_BUS_RESULT_FULL;
     }
     LoggerBus_SystemConfigBuild(&record);

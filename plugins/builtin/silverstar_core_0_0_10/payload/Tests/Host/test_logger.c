@@ -513,6 +513,7 @@ static void Test_TelemetryDiagnosticProducer(void)
     SystemLogStreamConfig config;
 
     LoggerBus_Reset();
+    TEST_CHECK(LoggerBus_StreamingReady() == LOGGER_BUS_RESULT_OK);
     s_lifecycle_state = SYSTEM_STATE_RECOVERY;
     (void)memset(&s_telemetry_health, 0, sizeof(s_telemetry_health));
     s_telemetry_health.last_transmit_timestamp_us = 101ULL;
@@ -714,6 +715,44 @@ static void Test_QueueOverflowAndFinalization(void)
                LOGGER_BUS_FINALIZATION_FINALIZED);
 }
 
+static void Test_BootstrapAdmission(void)
+{
+    FlightLogRecord record = {0};
+    LoggerBusDiagnostics diagnostics;
+    SystemLogStreamConfig config;
+    LoggerBus_Reset();
+    TEST_CHECK(SystemLogPolicy_StreamGet(FLIGHT_LOG_RECORD_IMU_NATIVE, &config) == SYSTEM_DEVICE_OK);
+    config.enabled = 1U;
+    config.decimation = 1U;
+    TEST_CHECK(SystemLogPolicy_StreamConfigure(&config) == SYSTEM_DEVICE_OK);
+    for (unsigned index = 0U; index < 1000U; index++)
+    {
+        TEST_CHECK(LoggerBus_ImuNativePush(index, 0U, &record.payload.imu_native) == LOGGER_BUS_RESULT_OK);
+    }
+    TEST_CHECK(LoggerBus_DiagnosticsGet(&diagnostics) == LOGGER_BUS_RESULT_OK);
+    TEST_CHECK(diagnostics.startup_state == LOGGER_BOOTSTRAP);
+    TEST_CHECK(diagnostics.bootstrap_suppressed_count == 1000U);
+    TEST_CHECK(diagnostics.accepted_count == 0U && diagnostics.overflow_count == 0U);
+    TEST_CHECK(LoggerBus_CalibrationResultPush(1U, &record.payload.calibration_result) == LOGGER_BUS_RESULT_OK);
+    TEST_CHECK(LoggerBus_AlignmentResultPush(2U, &record.payload.alignment_result) == LOGGER_BUS_RESULT_OK);
+    TEST_CHECK(LoggerBus_InitialStatePush(3U, &record.payload.initial_state) == LOGGER_BUS_RESULT_OK);
+    TEST_CHECK(LoggerBus_MissionConfigPush(4U) == LOGGER_BUS_RESULT_OK);
+    TEST_CHECK(LoggerBus_StreamingReady() == LOGGER_BUS_RESULT_FULL);
+    for (unsigned index = 0U; index < 4U; index++)
+    { TEST_CHECK(LoggerBus_NextPop(&record) == LOGGER_BUS_RESULT_OK); }
+    TEST_CHECK(LoggerBus_StreamingReady() == LOGGER_BUS_RESULT_OK);
+    TEST_CHECK(LoggerBus_ImuNativePush(5U, 0U, &record.payload.imu_native) == LOGGER_BUS_RESULT_OK);
+    TEST_CHECK(LoggerBus_NextPop(&record) == LOGGER_BUS_RESULT_OK);
+    TEST_CHECK(record.record_type == FLIGHT_LOG_RECORD_IMU_NATIVE);
+    TEST_CHECK(LoggerBus_DiagnosticsGet(&diagnostics) == LOGGER_BUS_RESULT_OK);
+    TEST_CHECK(diagnostics.accepted_count == 5U && diagnostics.dequeued_count == 5U);
+    TEST_CHECK(diagnostics.normal_high_water == 4U && diagnostics.overflow_count == 0U);
+    TEST_CHECK(diagnostics.bootstrap_suppressed_count == 1000U);
+    LoggerBus_Reset();
+    TEST_CHECK(LoggerBus_DiagnosticsGet(&diagnostics) == LOGGER_BUS_RESULT_OK);
+    TEST_CHECK(diagnostics.startup_state == LOGGER_BOOTSTRAP);
+}
+
 int main(void)
 {
     HostPlatformMock_Reset();
@@ -729,6 +768,7 @@ int main(void)
     Test_TelemetryDiagnosticProducer();
     Test_DescriptorBundle();
     Test_DecoderProfileDescriptor();
+    Test_BootstrapAdmission();
     Test_QueueOverflowAndFinalization();
     return Test_Finish("logger");
 }

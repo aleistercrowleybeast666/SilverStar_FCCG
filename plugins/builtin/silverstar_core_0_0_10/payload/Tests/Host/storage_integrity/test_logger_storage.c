@@ -3,10 +3,12 @@
 #define main Fixture_DiskMain
 #define vTaskDelay Fixture_BaseDelay
 #define xQueueReceive Fixture_BaseReceive
+#define xTaskGetTickCount Fixture_BaseTickCount
 #include "test_storage_integrity.c"
 #undef main
 #undef vTaskDelay
 #undef xQueueReceive
+#undef xTaskGetTickCount
 #include <setjmp.h>
 #include "app_tasks.h"
 #include "logger_bus.h"
@@ -24,6 +26,13 @@ static uint8_t s_running;
 static uint8_t s_in_producer;
 static uint8_t s_overflow_test;
 static uint8_t s_startup_overflow_test;
+static uint8_t s_startup_burst_test;
+static uint8_t s_open_stall_done;
+static uint32_t s_producer_failures;
+static uint32_t s_device_steps;
+static uint32_t s_flight_steps;
+static uint32_t s_first_delay_ticks;
+static uint32_t s_recovery_drops;
 static uint8_t s_burst_done;
 static uint8_t s_final_armed;
 static uint32_t s_produced;
@@ -40,6 +49,60 @@ void PlatformCritical_Exit(PlatformCriticalState state) { (void)state; }
 uint64_t PlatformTime_Us(void) { return s_clock_us + (uint64_t)s_ticks * 1000ULL; }
 uint64_t SystemTime_GetMonotonicUs(void) { s_clock_us += 20ULL; return PlatformTime_Us(); }
 const SystemStartupReport *SystemStartup_GetReport(void) { return &s_startup; }
+
+TickType_t xTaskGetTickCount(void)
+{
+    /* The multi-stream model uses a wall clock: reading SysTick does not cost
+     * a millisecond. The legacy slow-card model retains its original clock. */
+    return s_startup_burst_test ? (TickType_t)(PlatformTime_Us() / 1000ULL) : Fixture_BaseTickCount();
+}
+
+static void Fixture_ResultCheck(LoggerBusResult result)
+{
+    if (result != LOGGER_BUS_RESULT_OK) { s_producer_failures++; }
+}
+
+static void Fixture_DefaultFrame(uint32_t frame, uint64_t now)
+{
+    FlightLogRecord r = {0};
+    s_device_steps++;
+    s_flight_steps++;
+    Fixture_ResultCheck(LoggerBus_ImuNativePush(now, frame, &r.payload.imu_native));
+    Fixture_ResultCheck(LoggerBus_BaroNativePush(now, frame, &r.payload.baro_native));
+    Fixture_ResultCheck(LoggerBus_HardwareQuaternionNativePush(now, frame, &r.payload.hw_quat_native));
+    if (frame % 8U == 0U) { Fixture_ResultCheck(LoggerBus_GnssNativePush(now, frame, &r.payload.gnss_native)); }
+    if (frame % 4U == 0U) { Fixture_ResultCheck(LoggerBus_PowerPush(now, &r.payload.power)); }
+    if (frame == 1U) { Fixture_ResultCheck(LoggerBus_CalibrationResultPush(now, &r.payload.calibration_result)); }
+    if (frame == 1000U) { Fixture_ResultCheck(LoggerBus_AlignmentResultPush(now, &r.payload.alignment_result)); }
+    if (frame == 1200U)
+    {
+        Fixture_ResultCheck(LoggerBus_MissionConfigPush(now));
+        Fixture_ResultCheck(LoggerBus_SystemConfigPush(now));
+        Fixture_ResultCheck(LoggerBus_InitialStatePush(now, &r.payload.initial_state));
+        Fixture_ResultCheck(LoggerBus_EventPush(now, FLIGHT_LOG_EVENT_MISSION_START, 0U, 0U));
+    }
+    if (frame < 1200U) { return; }
+    Fixture_ResultCheck(LoggerBus_ImuCorrectedPush(now, frame, &r.payload.imu_corrected));
+    if (frame % 2U == 0U)
+    {
+        Fixture_ResultCheck(LoggerBus_InertialIncrementPush(now, frame, &r.payload.inertial_increment));
+        Fixture_ResultCheck(LoggerBus_SamplePush(now, frame, &r.payload.sample));
+        Fixture_ResultCheck(LoggerBus_RawSensorPush(now, frame, &r.payload.raw_sensor));
+        Fixture_ResultCheck(LoggerBus_PureInsPush(now, frame, &r.payload.pure_ins));
+        Fixture_ResultCheck(LoggerBus_EstimatorPush(now, frame, &r.payload.estimator));
+        Fixture_ResultCheck(LoggerBus_Kf6DiagnosticPush(now, frame, &r.payload.kf6_diagnostic));
+        Fixture_ResultCheck(LoggerBus_Kf6FullPPush(now, &r.payload.kf6_full_p));
+        Fixture_ResultCheck(LoggerBus_BaroMeasurementPush(now, frame, &r.payload.baro_measurement));
+    }
+    if (frame % 8U == 0U) { Fixture_ResultCheck(LoggerBus_GnssMeasurementPush(now, frame, &r.payload.gnss_measurement)); }
+    if (frame % 40U == 0U) { Fixture_ResultCheck(LoggerBus_TelemetryDiagnosticPush(now, &r.payload.telemetry_diagnostic)); }
+    if (frame % 200U == 0U)
+    {
+        r.payload.stats.logger_queue_overflow_count = LoggerBus_OverflowCountGet();
+        Fixture_ResultCheck(LoggerBus_StatsPush(now, &r.payload.stats));
+        Fixture_ResultCheck(LoggerBus_HealthPush(now, &r.payload.health));
+    }
+}
 
 static LoggerBusResult Fixture_RecordPush(uint32_t index, uint64_t now)
 {
@@ -79,20 +142,27 @@ static void Fixture_Produce(void)
     while (s_produced < TEST_RECORD_COUNT && now >= s_next_production_us)
     {
         LoggerBusResult result;
+        if (s_produced == 1500U) { s_recovery_drops = LoggerBus_OverflowCountGet(); }
         if (s_produced == 0U) { s_production_begin_us = now; }
-        if (s_produced == 1000U)
+        if (s_produced == (s_startup_burst_test ? 1200U : 1000U))
         {
             LoggerBusDiagnostics diagnostics;
             s_start_us = now;
             (void)LoggerBus_DiagnosticsGet(&diagnostics);
             s_start_accepted = diagnostics.accepted_count;
         }
-        result = Fixture_RecordPush(s_produced++, s_next_production_us);
+        if (s_startup_burst_test)
+        {
+            Fixture_DefaultFrame(s_produced++, s_next_production_us);
+            result = LOGGER_BUS_RESULT_OK;
+        }
+        else { result = Fixture_RecordPush(s_produced++, s_next_production_us); }
         if (result != LOGGER_BUS_RESULT_OK && result != LOGGER_BUS_RESULT_FULL) { abort(); }
-        s_next_production_us += s_produced < 1000U ? 10000ULL : 2000ULL;
+        s_next_production_us += s_startup_burst_test ? 5000ULL : (s_produced < 1000U ? 10000ULL : 2000ULL);
         s_production_end_us = now;
     }
-    if (s_overflow_test && !s_burst_done && s_produced > 1001U)
+    if (s_startup_burst_test && s_produced >= 100U) { s_startup.completed = 1U; }
+    if (s_overflow_test && !s_burst_done && s_produced > (s_startup_burst_test ? 1201U : 1001U))
     {
         /* Deliberate finite overload, separate from normal rate/SD latency. */
         for (unsigned index = 0U; index < 500U; index++)
@@ -118,6 +188,7 @@ static void Fixture_Produce(void)
 
 void vTaskDelay(TickType_t ticks)
 {
+    if (s_running && s_first_delay_ticks == 0U) { s_first_delay_ticks = ticks; }
     Fixture_BaseDelay(ticks);
     Fixture_Produce();
     if (s_running && LoggerBus_FinalizationStateGet() == LOGGER_BUS_FINALIZATION_FINALIZED)
@@ -132,6 +203,13 @@ void vTaskDelay(TickType_t ticks)
 
 BaseType_t xQueueReceive(QueueHandle_t queue, void *data, TickType_t ticks)
 {
+    if (s_running && s_startup_burst_test && !s_open_stall_done && ticks != 0U)
+    {
+        /* A 300 ms session-open stall while 200 Hz multi-sensor producers run. */
+        s_ticks += 300U;
+        s_open_stall_done = 1U;
+        Fixture_Produce();
+    }
     BaseType_t result = Fixture_BaseReceive(queue, data, ticks);
     Fixture_Produce();
     return result;
@@ -146,7 +224,7 @@ static int Test_Writer(const char *output)
     uint8_t buffer[513];
     UINT read;
     CHECK(LoggerBus_Init() == LOGGER_BUS_RESULT_OK);
-    for (uint16_t index = 0U; index < SystemLogPolicy_StreamCountGet(); index++)
+    for (uint16_t index = 0U; !s_startup_burst_test && index < SystemLogPolicy_StreamCountGet(); index++)
     {
         SystemLogStreamConfig config;
         CHECK(SystemLogPolicy_StreamByIndexGet(index, &config) == SYSTEM_DEVICE_OK);
@@ -154,8 +232,15 @@ static int Test_Writer(const char *output)
         config.decimation = 1U;
         CHECK(SystemLogPolicy_StreamConfigure(&config) == SYSTEM_DEVICE_OK);
     }
-    s_startup.completed = 1U;
+    s_startup.completed = (uint8_t)!s_startup_burst_test;
     s_startup.passed = 1U;
+    s_startup.device_count = SYSTEM_STARTUP_DEVICE_COUNT;
+    for (unsigned index = 0U; index < s_startup.device_count; index++)
+    {
+        s_startup.devices[index].device_name = "Fixture device";
+        s_startup.devices[index].model_name = "SS0.5";
+    }
+    CHECK(LoggerBus_EventPush(PlatformTime_Us(), FLIGHT_LOG_EVENT_BOOT, 0U, 0U) == LOGGER_BUS_RESULT_OK);
     if (s_startup_overflow_test)
     {
         for (unsigned index = 0U; index < 200U; index++)
@@ -171,7 +256,20 @@ static int Test_Writer(const char *output)
     CHECK(SystemStorage_HealthGet(&storage) == SYSTEM_DEVICE_OK && storage.error_count == 0U);
     CHECK(bus.normal_count == 0U && bus.estimator_count == 0U);
     CHECK(bus.accepted_count == bus.dequeued_count);
+    CHECK(bus.startup_state == LOGGER_STREAMING_READY && task.streaming_ready_us != 0ULL);
+    CHECK(bus.bootstrap_suppressed_count > 0U);
+    CHECK(task.session_count == 1U && task.open_attempt_count == 1U);
+    CHECK(task.append_failure_count == 0U && task.flush_failure_count == 0U);
+    CHECK(task.serialize_failure_count == 0U && task.discarded_bytes == 0U);
+    CHECK(task.drain_count == bus.dequeued_count && task.iteration_count >= task.drain_count);
+    if (s_startup_burst_test)
+    {
+        CHECK(s_overflow_test || s_producer_failures == 0U);
+        CHECK(s_device_steps == TEST_RECORD_COUNT && s_flight_steps == TEST_RECORD_COUNT);
+        CHECK(s_first_delay_ticks != 10U);
+    }
     CHECK(s_overflow_test ? bus.overflow_count > 0U : bus.overflow_count == 0U);
+    CHECK(bus.overflow_count == s_recovery_drops);
     CHECK(f_mount(NULL, "0:", 0U) == FR_OK);
     CHECK(f_mount(&s_fs, "0:", 1U) == FR_OK);
     CHECK(f_open(&s_file, "0:/SS0000.BIN", FA_READ) == FR_OK);
@@ -190,9 +288,21 @@ static int Test_Writer(const char *output)
         (unsigned long long)storage.max_write_latency_us,
         (unsigned long long)storage.max_sync_latency_us,
         (unsigned long long)task.max_iteration_us);
-    printf("LOGGER_RATE pre_records=1000 pre_us=%llu post_records=39000 post_us=%llu pre_accepted=%lu\n",
+    printf("LOGGER_RATE pre_steps=%u pre_us=%llu post_steps=%u post_us=%llu pre_accepted=%lu\n",
+        s_startup_burst_test ? 1200U : 1000U,
         (unsigned long long)(s_start_us - s_production_begin_us),
+        s_startup_burst_test ? 38800U : 39000U,
         (unsigned long long)(s_production_end_us - s_start_us), (unsigned long)s_start_accepted);
+    printf("LOGGER_BOOTSTRAP suppressed=%lu ready_us=%llu first_delay_ticks=%lu slot_bytes=%u depth=%u/%u\n",
+        (unsigned long)bus.bootstrap_suppressed_count, (unsigned long long)task.streaming_ready_us,
+        (unsigned long)s_first_delay_ticks, (unsigned)sizeof(FlightLogRecord),
+        SYSTEM_LOG_RECORD_QUEUE_DEPTH, SYSTEM_LOG_ESTIMATOR_QUEUE_DEPTH);
+    printf("LOGGER_CAUSALITY capacity_reject=%lu state_reject=%lu append_fail=%lu flush_fail=%lu discard_bytes=%lu opens=%lu/%lu write_avg_us=%llu steps=%lu/%lu\n",
+        (unsigned long)bus.capacity_reject_count, (unsigned long)bus.state_reject_count,
+        (unsigned long)task.append_failure_count, (unsigned long)task.flush_failure_count,
+        (unsigned long)task.discarded_bytes, (unsigned long)task.session_count,
+        (unsigned long)task.open_attempt_count, (unsigned long long)(task.total_write_us / task.write_count),
+        (unsigned long)s_device_steps, (unsigned long)s_flight_steps);
     return 1;
 }
 
@@ -201,7 +311,9 @@ int main(int argc, char **argv)
     if (argc != 2 && argc != 3) { return 2; }
     if (argc == 3)
     {
-        s_overflow_test = 1U;
+        s_startup_burst_test = (uint8_t)((strcmp(argv[2], "startup-burst") == 0) ||
+            (strcmp(argv[2], "startup-burst-overload") == 0));
+        s_overflow_test = (uint8_t)(strcmp(argv[2], "startup-burst") != 0);
         s_startup_overflow_test = (uint8_t)(strcmp(argv[2], "startup-overflow") == 0);
     }
     if (FATFS_LinkDriver(&SD_Driver, SDPath) != 0U) { return 3; }

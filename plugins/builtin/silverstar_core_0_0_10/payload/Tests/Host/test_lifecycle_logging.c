@@ -40,6 +40,8 @@ static uint32_t s_delay_count;
 static uint32_t s_delay_limit;
 static uint8_t s_enable_sink_after_first_delay;
 static uint8_t s_enable_event_after_first_delay;
+static uint8_t s_complete_startup_after_delay;
+static uint32_t s_first_delay_ticks;
 
 static uint8_t s_ready;
 static uint8_t s_mission_started;
@@ -60,6 +62,7 @@ static uint32_t s_finalization_arm_count;
 static uint64_t s_finalization_landing_timestamp_us;
 static uint64_t s_finalization_deadline_us;
 static LoggerBusFinalizationState s_finalization_state;
+static LoggerBusStartupState s_startup_state;
 static FlightLogRecord s_logger_records[TEST_LOGGER_QUEUE_CAPACITY];
 static uint8_t s_logger_record_count;
 static uint8_t s_logger_record_index;
@@ -88,8 +91,10 @@ static SystemStartupReport s_startup_report;
 
 void vTaskDelay(TickType_t ticks)
 {
-    (void)ticks;
+    if (s_delay_count == 0U) { s_first_delay_ticks = ticks; }
     s_delay_count++;
+    if (s_complete_startup_after_delay != 0U && s_delay_count == 2U)
+    { s_startup_report.completed = 1U; }
     if ((s_enable_sink_after_first_delay != 0U) && (s_delay_count == 1U))
     {
         s_sink_init_result = SYSTEM_DEVICE_OK;
@@ -490,6 +495,14 @@ LoggerBusResult LoggerBus_MissionConfigPush(uint64_t timestamp_us)
     return s_mission_config_push_result;
 }
 
+LoggerBusResult LoggerBus_StreamingReady(void)
+{
+    if (LoggerBus_Count() == 0U) { s_startup_state = LOGGER_STREAMING_READY; }
+    return LoggerBus_Count() == 0U ? LOGGER_BUS_RESULT_OK : LOGGER_BUS_RESULT_FULL;
+}
+
+LoggerBusStartupState LoggerBus_StartupStateGet(void) { return s_startup_state; }
+
 LoggerBusResult LoggerBus_DecoderProfileDescriptorPush(uint64_t timestamp_us)
 {
     (void)timestamp_us;
@@ -825,6 +838,9 @@ static void Test_StateReset(void)
     s_delay_count = 0U;
     s_delay_limit = 1U;
     s_enable_sink_after_first_delay = 0U;
+    s_complete_startup_after_delay = 0U;
+    s_first_delay_ticks = 0U;
+    s_startup_state = LOGGER_BOOTSTRAP;
     s_ready = 1U;
     s_mission_started = 0U;
     s_now_us = 0U;
@@ -1048,11 +1064,11 @@ static void Test_LoggerFinalizesAfterLandingGrace(void)
     }
 
     TEST_CHECK(s_logger_record_index == s_logger_record_count);
-    TEST_CHECK(s_record_serialize_count == 4U);
-    TEST_CHECK(s_serialized_events[2] == FLIGHT_LOG_EVENT_LANDING);
-    TEST_CHECK(s_serialized_events[3] == FLIGHT_LOG_EVENT_BOOT);
+    TEST_CHECK(s_record_serialize_count == 2U);
+    TEST_CHECK(s_serialized_events[0] == FLIGHT_LOG_EVENT_LANDING);
+    TEST_CHECK(s_serialized_events[1] == FLIGHT_LOG_EVENT_BOOT);
     TEST_CHECK(s_landing_critical_flush_count >= 1U);
-    TEST_CHECK(s_sink_flush_count >= 4U);
+    TEST_CHECK(s_sink_flush_count >= 3U);
     TEST_CHECK(s_sink_end_count == 1U);
     TEST_CHECK(s_sink_begin_count == 1U);
     TEST_CHECK(s_decoder_profile_push_count == 1U);
@@ -1086,6 +1102,7 @@ static void Test_FinalFlushFailureLatchesWithoutPrematureFinalize(void)
     LoggerTaskDiagnostics diagnostics;
     TEST_CHECK(LoggerTask_DiagnosticsGet(&diagnostics) == SYSTEM_DEVICE_OK);
     TEST_CHECK(diagnostics.io_fault == 1U);
+    TEST_CHECK(diagnostics.flush_failure_count == 1U);
 }
 
 uint32_t LoggerBus_OverflowCountGet(void) { return 0U; }
@@ -1106,6 +1123,8 @@ static void Test_PartialWriteNeverReplaysAggregate(void)
     TEST_CHECK(s_sink_end_count == 1U);
     TEST_CHECK(LoggerTask_DiagnosticsGet(&diagnostics) == SYSTEM_DEVICE_OK);
     TEST_CHECK(diagnostics.io_fault == 1U);
+    TEST_CHECK(diagnostics.append_failure_count == 1U);
+    TEST_CHECK(diagnostics.discarded_bytes > 0U);
 }
 
 static void Test_StartupReportBackfillsAfterLateOpen(void)
@@ -1174,6 +1193,22 @@ static void Test_StartupReportBackfillsAfterLateOpen(void)
     TEST_CHECK(s_sink_end_count == 0U);
 }
 
+static void Test_IncompleteStartupKeepsSession(void)
+{
+    LoggerTaskDiagnostics diagnostics;
+    Test_StateReset();
+    s_log_sink_available = 1U;
+    s_complete_startup_after_delay = 1U;
+    s_delay_limit = 6U;
+    if (setjmp(s_task_exit) == 0) { AppTask_Logger(NULL); }
+    TEST_CHECK(s_first_delay_ticks == pdMS_TO_TICKS(2U));
+    TEST_CHECK(s_sink_begin_count == 1U && s_sink_end_count == 0U);
+    TEST_CHECK(s_record_serialize_count == 2U);
+    TEST_CHECK(LoggerTask_DiagnosticsGet(&diagnostics) == SYSTEM_DEVICE_OK);
+    TEST_CHECK(diagnostics.open_attempt_count == 1U && diagnostics.open_failure_count == 0U);
+    TEST_CHECK(diagnostics.streaming_ready_us != 0ULL && diagnostics.io_fault == 0U);
+}
+
 int main(void)
 {
     Test_StartIgnoresMissingTfAndFullBus();
@@ -1185,5 +1220,6 @@ int main(void)
     Test_FinalFlushFailureLatchesWithoutPrematureFinalize();
     Test_PartialWriteNeverReplaysAggregate();
     Test_StartupReportBackfillsAfterLateOpen();
+    Test_IncompleteStartupKeepsSession();
     return Test_Finish("lifecycle_logging");
 }

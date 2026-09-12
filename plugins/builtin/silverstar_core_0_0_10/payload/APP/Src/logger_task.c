@@ -35,6 +35,7 @@ typedef struct
     uint8_t header_written;
     uint8_t startup_report_written;
     uint8_t decoder_profile_queued;
+    uint8_t bootstrap_config_queued;
 } LoggerRuntime;
 
 static LoggerRuntime s_logger;
@@ -82,17 +83,33 @@ static void LoggerTask_HeaderInfoBuild(FlightLogFileHeaderInfo *info)
 static uint8_t LoggerTask_SinkWrite(const uint8_t *data, uint32_t length)
 {
     uint32_t written = 0U;
+    uint64_t begin_us;
+    uint64_t elapsed;
+    SystemDeviceResult result;
+    PlatformCriticalState state;
 
     if ((s_logger.session_active == 0U) ||
         (data == NULL) || (length == 0U))
     {
         return 0U;
     }
-    if ((SystemLogSink_Write(data, length, &written) != SYSTEM_DEVICE_OK) ||
-        (written != length))
+    SILVERSTAR_ASSERT(length <= sizeof(s_aggregate_buffer),
+        SILVERSTAR_ASSERT_MODULE_APP, SILVERSTAR_ASSERT_REASON_LENGTH_RANGE);
+    SILVERSTAR_ASSERT(s_diagnostics.io_fault == 0U,
+        SILVERSTAR_ASSERT_MODULE_APP, SILVERSTAR_ASSERT_REASON_STATE_INVARIANT);
+    begin_us = SystemTime_GetMonotonicUs();
+    result = SystemLogSink_Write(data, length, &written);
+    elapsed = SystemTime_GetMonotonicUs() - begin_us;
+    state = PlatformCritical_Enter();
+    s_diagnostics.write_count++;
+    s_diagnostics.total_write_us += elapsed;
+    if (elapsed > s_diagnostics.max_write_us) { s_diagnostics.max_write_us = elapsed; }
+    PlatformCritical_Exit(state);
+    if ((result != SYSTEM_DEVICE_OK) || (written != length))
     {
         /* A partial/uncertain write cannot be replayed or appended to safely. */
         s_diagnostics.io_fault = 1U;
+        s_diagnostics.append_failure_count++;
         return 0U;
     }
     return 1U;
@@ -110,16 +127,33 @@ static uint8_t LoggerTask_AggregateWrite(void)
     return 1U;
 }
 
+static uint8_t LoggerTask_SinkFlush(void)
+{
+    if (SystemLogSink_Flush() != SYSTEM_DEVICE_OK)
+    {
+        s_diagnostics.io_fault = 1U;
+        s_diagnostics.flush_failure_count++;
+        return 0U;
+    }
+    return 1U;
+}
+
 static uint8_t LoggerTask_Flush(void)
 {
     if ((LoggerTask_AggregateWrite() == 0U) ||
-        (SystemLogSink_Flush() != SYSTEM_DEVICE_OK))
-    {
-        s_diagnostics.io_fault = 1U;
-        return 0U;
-    }
+        (LoggerTask_SinkFlush() == 0U)) { return 0U; }
     s_logger.last_flush_us = SystemTime_GetMonotonicUs();
     s_logger.critical_pending = 0U;
+    return 1U;
+}
+
+static uint8_t LoggerTask_SinkEnd(void)
+{
+    if (SystemLogSink_SessionEnd() != SYSTEM_DEVICE_OK)
+    {
+        s_diagnostics.close_failure_count++;
+        return 0U;
+    }
     return 1U;
 }
 
@@ -129,8 +163,9 @@ static void LoggerTask_Close(void)
     {
         /* The sink owns write/close error counters; close remains best effort. */
         /* Pending aggregate is never replayed by an error close. */
-        (void)SystemLogSink_SessionEnd();
+        (void)LoggerTask_SinkEnd();
     }
+    s_diagnostics.discarded_bytes += s_logger.aggregate_length;
     s_logger.session_active = 0U;
     s_logger.aggregate_length = 0U;
 }
@@ -179,6 +214,7 @@ static uint8_t LoggerTask_SessionOpen(void)
         return 0U;
     }
     s_logger.session_active = 1U;
+    s_diagnostics.session_count++;
     s_logger.last_flush_us = SystemTime_GetMonotonicUs();
     if (s_logger.header_written == 0U)
     {
@@ -188,7 +224,7 @@ static uint8_t LoggerTask_SessionOpen(void)
                                            &header_size) !=
              FLIGHT_LOG_SERIALIZE_RESULT_OK) ||
             (LoggerTask_SinkWrite(s_record_buffer, header_size) == 0U) ||
-            (SystemLogSink_Flush() != SYSTEM_DEVICE_OK))
+            (LoggerTask_SinkFlush() == 0U))
         {
             s_diagnostics.io_fault = 1U;
             LoggerTask_Close();
@@ -212,6 +248,7 @@ static uint8_t LoggerTask_DescriptorRecordIsCritical(uint8_t record_type)
         (record_type == FLIGHT_LOG_RECORD_LOG_STREAM_DESCRIPTOR) ||
         (record_type == FLIGHT_LOG_RECORD_DECODER_PROFILE_DESCRIPTOR) ||
         (record_type == FLIGHT_LOG_RECORD_INITIAL_STATE) ||
+        (record_type == FLIGHT_LOG_RECORD_MISSION_CONFIG) ||
         (record_type == FLIGHT_LOG_RECORD_CALIBRATION_RESULT) ||
         (record_type == FLIGHT_LOG_RECORD_ALIGNMENT_RESULT));
 }
@@ -238,8 +275,8 @@ static uint8_t LoggerTask_Finalize(void)
 {
     if ((s_logger.session_active == 0U) ||
         (LoggerTask_AggregateWrite() == 0U) ||
-        (SystemLogSink_Flush() != SYSTEM_DEVICE_OK) ||
-        (SystemLogSink_SessionEnd() != SYSTEM_DEVICE_OK))
+        (LoggerTask_SinkFlush() == 0U) ||
+        (LoggerTask_SinkEnd() == 0U))
     {
         s_diagnostics.io_fault = 1U;
         LoggerTask_Close();
@@ -271,6 +308,8 @@ static uint8_t LoggerTask_RecordAppend(const FlightLogRecord *record)
                                   &serialized_size) !=
         FLIGHT_LOG_SERIALIZE_RESULT_OK)
     {
+        s_diagnostics.serialize_failure_count++;
+        s_diagnostics.io_fault = 1U;
         return 0U;
     }
     if ((s_logger.aggregate_length + serialized_size) >
@@ -437,19 +476,50 @@ static void LoggerTask_SessionOpenTry(uint64_t now_us)
                       SILVERSTAR_ASSERT_MODULE_APP,
                       SILVERSTAR_ASSERT_REASON_STATE_INVARIANT);
     if ((s_diagnostics.io_fault != 0U) || (now_us < s_logger.next_retry_us)) { return; }
+    s_diagnostics.open_attempt_count++;
     if (LoggerTask_SessionOpen() == 0U)
     {
+        s_diagnostics.open_failure_count++;
         s_logger.next_retry_us = now_us + SYSTEM_LOG_RETRY_PERIOD_US;
     }
-    else if ((s_logger.startup_report_written == 0U) &&
-             (LoggerTask_StartupReportWrite() == 0U))
+}
+
+static void LoggerTask_BootstrapProcess(uint64_t now_us)
+{
+    const SystemStartupReport *report = SystemStartup_GetReport();
+    PlatformCriticalState state;
+    if ((s_logger.session_active == 0U) ||
+        (LoggerBus_StartupStateGet() == LOGGER_STREAMING_READY) ||
+        (LoggerBus_Count() != 0U)) { return; }
+    SILVERSTAR_ASSERT(s_logger.header_written != 0U,
+        SILVERSTAR_ASSERT_MODULE_APP, SILVERSTAR_ASSERT_REASON_STATE_INVARIANT);
+    SILVERSTAR_ASSERT(s_diagnostics.io_fault == 0U,
+        SILVERSTAR_ASSERT_MODULE_APP, SILVERSTAR_ASSERT_REASON_STATE_INVARIANT);
+    if (LoggerTask_DecoderProfileQueue(now_us) == 0U) { return; }
+    if (LoggerBus_Count() != 0U) { return; }
+    if (s_logger.bootstrap_config_queued == 0U)
     {
-        LoggerTask_Close();
-        s_logger.next_retry_us = now_us + SYSTEM_LOG_RETRY_PERIOD_US;
+        if (LoggerBus_SystemConfigPush(now_us) == LOGGER_BUS_RESULT_OK)
+        { s_logger.bootstrap_config_queued = 1U; }
+        return;
     }
-    else
+    /* Startup may still be collecting. Keep this session and drain critical
+     * records; an incomplete report is not a storage failure or reopen reason. */
+    if ((report == NULL) || (report->completed == 0U)) { return; }
+    if (s_logger.startup_report_written == 0U)
     {
+        if (LoggerTask_StartupReportWrite() == 0U)
+        { LoggerTask_Close(); return; }
         s_logger.startup_report_written = 1U;
+    }
+    if (LoggerTask_Flush() == 0U) { LoggerTask_Close(); return; }
+    /* Producers can run during sync. Admission opens only if their critical
+     * records have also drained; no producer waits for this transition. */
+    if (LoggerBus_StreamingReady() == LOGGER_BUS_RESULT_OK)
+    {
+        state = PlatformCritical_Enter();
+        s_diagnostics.streaming_ready_us = SystemTime_GetMonotonicUs();
+        PlatformCritical_Exit(state);
     }
 }
 
@@ -477,6 +547,7 @@ static void LoggerTask_IterationRecord(uint64_t now_us)
         (elapsed > s_diagnostics.max_iteration_us))
     { s_diagnostics.max_iteration_us = elapsed; }
     s_logger.last_iteration_us = now_us;
+    s_diagnostics.iteration_count++;
     PlatformCritical_Exit(state);
 }
 
@@ -524,12 +595,13 @@ void AppTask_Logger(void *argument)
         if (s_logger.session_active == 0U)
         {
             LoggerTask_SessionOpenTry(now_us);
-            vTaskDelay(pdMS_TO_TICKS(10U));
-            continue;
+            if (s_logger.session_active == 0U)
+            { vTaskDelay(pdMS_TO_TICKS(10U)); continue; }
         }
 
         if (LoggerBus_NextPop(&record) == LOGGER_BUS_RESULT_OK)
         {
+            s_diagnostics.drain_count++;
             (void)LoggerTask_DecoderProfileQueue(now_us);
             if (LoggerTask_RecordAppend(&record) == 0U)
             {
@@ -550,6 +622,7 @@ void AppTask_Logger(void *argument)
             continue;
         }
         LoggerTask_PeriodicFlushTry(now_us);
+        LoggerTask_BootstrapProcess(now_us);
     }
 }
 

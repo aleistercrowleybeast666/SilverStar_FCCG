@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased — Logger startup burst closeout
+
+Added LoggerBus bootstrap admission so periodic sensor/algorithm streams cannot fill the queue
+while the file header, decoder, startup configuration and report are being persisted. Critical
+snapshots and events remain admissible. Successful open now drains immediately; pending self-test
+completion no longer closes and reopens the session. Added internal fault/rejection/suppression
+counters and default multi-stream startup plus finite overload recovery tests with real FatFs,
+Logger and SSLOG codec. Retained queue sizes, task priorities, byte-integrity repair and all wire
+layouts/versions. Validation evidence and outstanding real-card acceptance are in `VALIDATION.md`.
+
 ## Unreleased — SSLOG storage integrity repair
 
 Replaced the unsafe default SS0.5 DMA buffer path with a fixed sector bounce buffer and matching,

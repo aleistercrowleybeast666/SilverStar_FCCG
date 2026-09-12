@@ -1,3 +1,119 @@
+# Validation — 2026-09-12 Logger startup burst closeout
+
+本轮基线为 `90c14dc`，开始时工作区干净。只修改FCCG；外部reference、FLP/GSHC均未写入。
+SilverStar 0.0.10、AIR M0、Maintenance/SSLOG 0.0、`.ssdecoder`/Project Semantics 1.1不变。
+SDIO、FatFs、Storage/LogSink实现、SSLOG IDs/layout/CRC与独立审计判定均未改动。
+当前结论仍是软件验证，不能替代SS0.5实卡验收。
+
+## 根因与证据边界
+
+旧Logger在session成功打开后仍无条件delay 10 ms；普通周期流在header、decoder和集中自检报告
+落盘前已可入队。报告尚未完成时，旧代码还会关闭已成功打开的session并等待重开。这些窗口
+使单个低优先级consumer暂时无法跟上启动producer。修复不通过增加队列或调整飞控任务优先级完成。
+
+`tests/artifacts/startup22/baseline`保存修改前生成的生产源码及Release/Debug产物。将本轮相同
+多流Host输入/延迟模型接到旧生产Logger/Bus，移除fixture中旧API不存在的新诊断断言，仅将旧版本
+验收期待改成“有真实drop”，复现 **629次overflow、3段gap/629 IDs**，CRC/length/framing仍正确。
+这次比较保留旧writer，未给旧代码添加bootstrap。原始日志为`baseline-startup-repro.log`。
+
+用户提供的新实机日志摘要为CRC/length/sync/unknown均0、START后连续、启动3段gap/12 IDs、
+logger overflow39、IMU overflow0；本轮没有该BIN与匹配decoder的本地输入，因此**没有复测这组39/12**，
+也不声称629就是该实机的丢失量。日志可能受首条记录前drop、末条STATS和采集窗口影响；
+仅凭摘要无法逐条归因。上一轮字节修复与本轮启动队列修复必须分开判断。
+
+## 实现与持久所有权
+
+- `APP/Src/logger_bus.c` / `APP/Inc/logger_bus.h`：唯一BOOTSTRAP/STREAMING_READY准入状态；
+  普通周期流未准入计数与实际accepted、overflow、state/capacity拒绝分开。关键事件/descriptor/
+  Calibration/Alignment/Mission/Initial State保持可入队，producer无等待。
+- `APP/Src/logger_task.c` / `APP/Inc/logger_task.h`：成功open立即drain；保留pending自检的session；
+  decoder排空后补启动System/Device/Algorithm/Stream配置，写完整自检并sync后，在临界区确认两队列
+  为空才开放streaming。已排队BOOT/关键记录仍保持原FIFO顺序，满队列仍可消费并重试decoder。
+  START原有配置/Initial State记录保留。Mission config纳入关键flush批次。
+- 增加iteration/drain、open尝试/失败/session、append/flush/serialize/close失败、discarded_bytes、
+  write count/total/max、ready时间内部诊断。Storage原有health与延迟诊断保留。64-bit延迟更新受保护。
+  capacity拒绝也包含尚未提交的SystemConfig批次预检；真正drop仍只来自queue overflow，并沿用原序号
+  增量算法。没有成功写入后重排sequence、重放不确定aggregate或将错误收尾伪装成finalized。
+- 修改的C/H、Host fixture、runner及两份包内Storage文档已在既有`fccg_owned_files`/owned-doc映射中；
+  本轮扩展`test_storage_sources_survive_reference_reimport`验证其逐字节回导保留。
+  这些builtin路径本来就是FCCG-owned真源，不是只修一个生成工程。没有运行外部reference写操作。
+
+## 真实C writer与Host模型结果
+
+最终运行文件位于`tests/artifacts/startup22/final`；日志见`final-host.log`和`final-storage.log`。
+实际LoggerBus → LoggerTask → LogSink → Storage → FatFs → diskio → 延迟DMA模型 → 文件读回 →
+真实C codec与严格metadata审计；未用Python重写writer布局。后补的恢复断言要求step 1500后drop不再增长。
+
+| 模型 | 写出records | overflow / gap IDs | gap段数 | normal/estimator HWM |
+|---|---:|---:|---:|---:|
+| 旧生产代码，同一200 Hz多流启动输入 | 291037 | 629 / 629 | 3 | 64 / 8 |
+| 正常200 Hz多流启动与START | 291359 | 0 / 0 | 0 | 62 / 8 |
+| 相同多流输入，START后有限过载 | 291367 | 517 / 517 | 2 | 64 / 26 |
+| 原有100→500 records/s慢卡模型 | 40079 | 0 / 0 | 0 | 55 / 2 |
+| 慢卡+有限过载 | 40121 | 558 / 558 | 保留真实缺口 | 64 / 32 |
+| 满critical启动队列+有限过载 | 40188 | 692 / 692 | 保留真实缺口 | 64 / 32 |
+
+所有模型存活记录的header/record CRC、length、framing、unknown和尾部未校验字节均0错误；
+sequence reorder=0，匹配生成的decoder。每个文件仅一个decoder descriptor。没有resync取得通过。
+正常/过载默认多流均保留1个Calibration、Alignment、Mission config和Initial State，2组SystemConfig
+（bootstrap与START）；故意过载的drop与最终STATS严格对应，并恢复至结束不再增加。
+
+默认多流模型：200 Hz IMU/BARO/HW quaternion、25 Hz GNSS、50 Hz Power；START前保留默认流策略，
+START后加入IMU corrected、100 Hz INS相关记录、生成配置中的Estimator/KF抽取、GNSS/Baro量测和
+STATS/Health/Telemetry诊断。自检报告延迟完成、session open注入300 ms停顿，运行40000个5 ms步，
+约200秒。Device/Flight模拟工作计数各40000，普通生产路径无等待；IMU overflow fixture值为0。
+这不是完整FreeRTOS调度器，也未执行真实传感器/Calibration/Alignment求解；真实FlightTask的NONE结果
+映射由既有lifecycle Host测试另验，实际IMU总线overflow与任务执行时序仍须上板确认。
+
+默认模型bootstrap suppression=351，绝不计作drop/sequence。session/open尝试=1/1，首个task delay=2 ticks，
+没有成功open后的10 ms暂停。normal/overload的append/flush/serialize/close/storage错误及aggregate discard均0。
+Storage最大write/sync=30000/8000 us；sink write平均正常14895 us、过载14893 us；最大Logger迭代316120 us
+含300 ms开文件注入，不能独立当作CPU饥饿时间。模型ready绝对时刻1110520 us，包含测试准备时钟。
+原有慢卡模型最大write/sync=90000/26000 us、最大迭代126260 us；bootstrap suppression=22。
+
+## Queue与RAM/FLASH
+
+队列深度 **64/32 → 64/32**，`sizeof(FlightLogRecord)=224` bytes；分别14336/7168 bytes，合计21504 bytes，
+队列RAM增量0。aggregate仍4096 bytes、DMA bounce仍512 bytes。正常多流峰值62/8，对应空余2/24槽；
+这仅覆盖本次延迟/负载模型，普通队列余量较小，实卡需测最大延迟与HWM，不能宣称任意卡均零丢弃。
+
+| 构建 | FLASH基线→本轮（Δ） | main SRAM基线→本轮（Δ） | CCMRAM |
+|---|---:|---:|---:|
+| Release | 262112→261232（-880） | 77944→78032（+88） | 51064不变 |
+| Debug | 278040→278808（+768） | 77960→78048（+88） | 51064不变 |
+
+Release剩余FLASH263056、main SRAM53040、CCMRAM14472 bytes；Debug分别245480、53024、14472。
+无heap符号。编译器Arm GNU 14.3.Rel1；Release/Debug全部8个静态task含Idle的`.su`+ELF预算通过。
+Logger配置3072 bytes，最坏已知栈Release1376 / Debug1368，余量1696 / 1704；所有task均满足256-byte
+最小静态余量。它们不是运行时HWM/MSP嵌套的实测值，assert/stack overflow/HardFault保护保持开启。
+
+Release ELF SHA-256：`6baa96224d0fc008981e6c1723edc31a7ad3bc7db4f780a8d65a3feb858e1e7e`。
+Debug ELF SHA-256：`2663072c207e6bbea45b3fa7eab2c60daf0f0fdd03b72d707d5ae2c8dd0661e3`。
+
+## 执行门禁与交付状态
+
+- fresh默认SS0.5 Generate：通过；产物位于本仓库tests下，不触碰外部参考工程。
+- compileall `src main.py tools`：通过，cache重定向至tests内。
+- 专项pytest（Storage/文档）：16 passed，57.17 s。
+- 全量pytest：**334 passed、1 skipped，761.06 s**，退出码0；一次被中断的运行不计通过。
+  跳过项为`tests/test_prompt_acceptance.py:287`的只读参考工程验收，触发条件是外部参考工作树不干净；
+  该测试的“task is still active”提示不等于Codex任务状态查询，
+  关机条件必须另用任务工具核对。其余门禁不依赖修改该外部参考工程。
+- Release / Debug + Artifact + stack-report：均通过。
+- Host：67 executables、14484 checks、0 failures；8 compile-pass、16 expected compile-failure。
+  随后增加纯Host恢复断言并再次执行完整Storage runner：通过。
+- Architecture：270 checks、0 failures。Power of Ten：5930 checks、94 first-party C、2223 functions，通过。
+- Release `-fanalyzer`：完整独立目录编译/链接通过，未发现warning；退出码0。
+- 源码确定性导出：两份ZIP逐字节一致，849个源文件；已检查build/acceptance/cache与编译产物排除，
+  Host/Target真实源码及corruption fixture保留。最终文档收尾后重新导出，hash留在tests内export-result.json，
+  避免把自身archive hash写回归档内容造成循环。
+- `git diff --check`：通过。20个跟踪文件修改，均在FCCG内，修改保持未提交；未commit/push/tag/release。
+
+仍需实机：SS0.5单IMU/GNSS/telemetry，NONE及所选procedure，反复preflight/alignment/START/正常收尾；
+至少两次或两张卡，保留BIN、匹配decoder、独立审计、START前后及停止时诊断、任务HWM和最大存储延迟。
+正常目标必须为logger/IMU overflow、gap、CRC/length/resync全0；故意过载仅允许真实drop且须恢复。
+无真实硬件结果时不关闭该验收项；没有声称EIDE builder、烧录、飞行或其他MCU已通过。
+
 # Validation — 2026-09-06 SSLOG storage integrity repair
 
 本轮依据20号prompt实现并验证FCCG内部修复，基准HEAD：`346756111e6f6a9050dcfc7bb206117fae93b9e5`。
