@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from silverstar_fccg.ui.pages.algorithm_parameters import AlgorithmParametersPage
+from silverstar_fccg.ui.touch_scroll import TouchScroll_Enable
 from silverstar_fccg.project.algorithm_parameters import AlgorithmParameterOwners_Get
 
 import logging
@@ -257,6 +258,7 @@ class MainWindow(QMainWindow):
         sidebar_layout = QVBoxLayout(sidebar)
         sidebar_layout.setContentsMargins(0, 8, 0, 8)
         self.navigation_list = QListWidget()
+        TouchScroll_Enable(self.navigation_list)
         self.navigation_list.setObjectName("navigation")
         self.navigation_list.setHorizontalScrollBarPolicy(
             Qt.ScrollBarPolicy.ScrollBarAlwaysOff

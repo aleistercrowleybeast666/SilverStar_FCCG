@@ -1,4 +1,5 @@
 {
+  "protocol.selection_unavailable": "已选协议不可用：{component} / {profile}",
   "app.credit": "辰星引力开发",
   "app.title": "SilverStar 飞控代码生成器",
   "about.text": "SilverStar 飞控代码生成器\n版本 v{version}\n\n图形化飞控工程配置、声明式组件插件管理、工程装配、少量连接代码生成与构建工具链前端。",

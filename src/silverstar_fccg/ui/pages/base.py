@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from silverstar_fccg.ui.touch_scroll import TouchScroll_Enable
 from silverstar_fccg.core.i18n import Translator
 from silverstar_fccg.ui.widgets import EngineeringTable, PageHeader
 
@@ -74,6 +75,7 @@ class ScrollableLocalizedPage(LocalizedPage):
         outer_layout = QVBoxLayout(self)
         outer_layout.setContentsMargins(0, 0, 0, 0)
         scroll = QScrollArea()
+        TouchScroll_Enable(scroll)
         scroll.setWidgetResizable(True)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         content = QWidget()

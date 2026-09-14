@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from silverstar_fccg.ui.touch_scroll import TouchScroll_Enable
 from silverstar_fccg.core.i18n import Translator
 
 
@@ -28,6 +29,7 @@ class StandardComboBox(QComboBox):
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
+        TouchScroll_Enable(self.view())
         self.setMaxVisibleItems(self.MAX_VISIBLE_ITEMS)
         self.setMinimumContentsLength(12)
         self.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
@@ -73,6 +75,7 @@ class SmoothTableWidget(QTableWidget):
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
+        TouchScroll_Enable(self)
         self.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
 

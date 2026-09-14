@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
+from silverstar_fccg.ui.touch_scroll import TouchScroll_Enable
 from silverstar_fccg.core.i18n import Translator
 from silverstar_fccg.core.view_models import ToolchainToolView
 from silverstar_fccg.ui.pages.base import ScrollableLocalizedPage
@@ -197,6 +198,7 @@ class BuildPage(ScrollableLocalizedPage):
 
         log_layout = QVBoxLayout()
         self.build_log = QPlainTextEdit()
+        TouchScroll_Enable(self.build_log)
         self.build_log.setObjectName("buildLog")
         self.build_log.setReadOnly(True)
         self.build_log.setMaximumBlockCount(20_000)
@@ -205,6 +207,7 @@ class BuildPage(ScrollableLocalizedPage):
         advanced_layout.addWidget(self.Group_Create("group.build_log", log_layout))
         detail_layout = QVBoxLayout()
         self.build_detail_log = QPlainTextEdit()
+        TouchScroll_Enable(self.build_detail_log)
         self.build_detail_log.setObjectName("buildDetailLog")
         self.build_detail_log.setReadOnly(True)
         self.build_detail_log.setMaximumBlockCount(20_000)

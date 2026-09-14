@@ -1549,8 +1549,31 @@ class FlightConfigurationPage(ScrollableLocalizedPage):
                         )
                     if value.availability_reason:
                         item.setToolTip(value.availability_reason)
-            index = combo.findData(selected.get(category))
-            combo.setCurrentIndex(max(0, index))
+            selection = selected.get(category)
+            index = 0
+            if selection is not None:
+                key = (str(selection[0]), str(selection[1]))
+                index = next(
+                    (
+                        row for row in range(1, combo.count())
+                        if isinstance(data := combo.itemData(row), (tuple, list))
+                        and len(data) == 2
+                        and (str(data[0]), str(data[1])) == key
+                    ),
+                    -1,
+                )
+                if index < 0:
+                    message = self._translator.Text_Get(
+                        "protocol.selection_unavailable",
+                        component=key[0], profile=key[1],
+                    )
+                    combo.addItem(message, key)
+                    index = combo.count() - 1
+                    combo.model().item(index).setEnabled(False)
+                    combo.model().item(index).setToolTip(message)
+                    combo.setToolTip(message)
+                    combo.setProperty("validationIssue", True)
+            combo.setCurrentIndex(index)
             combo.currentIndexChanged.connect(
                 lambda _index, selected_category=category,
                 selected_combo=combo: self._Protocol_Emit(

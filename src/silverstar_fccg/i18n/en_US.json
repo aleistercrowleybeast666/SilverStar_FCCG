@@ -1,4 +1,5 @@
 {
+  "protocol.selection_unavailable": "Selected protocol unavailable: {component} / {profile}",
   "app.credit": "By CXYL",
   "app.title": "SilverStar Flight Controller Code Generator",
   "about.text": "SilverStar Flight Controller Code Generator\nVersion v{version}\n\nGraphical flight-controller project configuration, declarative component plugins, project assembly, minimal glue generation, and build/toolchain front end.",

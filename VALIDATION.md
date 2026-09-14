@@ -1,5 +1,109 @@
 # Validation — 2026-09-12 Algorithm actual parameters / decoder 1.2
 
+## 2026-09-14 — Protocol GUI mapping and touch-scrolling closeout
+
+Scope: GUI/helper, translation strings, GUI tests and documentation only. The initial working
+tree was clean. No model/schema, generator semantics, builtin payload, firmware runtime, algorithm,
+KF6/INS/GNSS, log format/semantics, protocol wire, version, commit or push was changed.
+
+<!-- touch-git-snapshot -->
+### Modified files and Git snapshot
+
+- `VALIDATION.md`
+- `docs/GUI_STYLE_GUIDE.md`
+- `src/silverstar_fccg/i18n/en_US.json`
+- `src/silverstar_fccg/i18n/zh_CN.json`
+- `src/silverstar_fccg/ui/main_window.py`
+- `src/silverstar_fccg/ui/pages/base.py`
+- `src/silverstar_fccg/ui/pages/build.py`
+- `src/silverstar_fccg/ui/pages/components.py`
+- `src/silverstar_fccg/ui/touch_scroll.py`
+- `src/silverstar_fccg/ui/widgets.py`
+- `tests/test_protocol_gui_mapping.py`
+- `tests/test_touch_scroll.py`
+
+`git diff --stat` (tracked files only; new files are listed above):
+
+```text
+ VALIDATION.md                              | 104 +++++++++++++++++++++++++++++
+ docs/GUI_STYLE_GUIDE.md                    |  16 +++++
+ src/silverstar_fccg/i18n/en_US.json        |   1 +
+ src/silverstar_fccg/i18n/zh_CN.json        |   1 +
+ src/silverstar_fccg/ui/main_window.py      |   2 +
+ src/silverstar_fccg/ui/pages/base.py       |   2 +
+ src/silverstar_fccg/ui/pages/build.py      |   3 +
+ src/silverstar_fccg/ui/pages/components.py |  27 +++++++-
+ src/silverstar_fccg/ui/widgets.py          |   3 +
+ 9 files changed, 157 insertions(+), 2 deletions(-)
+```
+
+`git status --short`:
+
+```text
+ M VALIDATION.md
+ M docs/GUI_STYLE_GUIDE.md
+ M src/silverstar_fccg/i18n/en_US.json
+ M src/silverstar_fccg/i18n/zh_CN.json
+ M src/silverstar_fccg/ui/main_window.py
+ M src/silverstar_fccg/ui/pages/base.py
+ M src/silverstar_fccg/ui/pages/build.py
+ M src/silverstar_fccg/ui/pages/components.py
+ M src/silverstar_fccg/ui/widgets.py
+?? src/silverstar_fccg/ui/touch_scroll.py
+?? tests/test_protocol_gui_mapping.py
+?? tests/test_touch_scroll.py
+```
+<!-- /touch-git-snapshot -->
+
+### Cause and repair
+
+Protocols_Set previously used Qt findData(selected_tuple) and max(0, index), conflating a failed
+mapping with a genuine None selection. A missing plugin/profile therefore silently looked like
+"not used". It now normalizes selection and tuple/list itemData to string pairs and compares
+items explicitly. An unmapped existing selection gets a disabled, localized unavailable item,
+tooltip and validation marker while retaining its identity. Signal connections are made only
+after restoration; refresh leaves ProjectModel intact. Existing availability, transport and
+logging-enable handling is unchanged.
+
+The current PySide6 6.10.1 probe returned list itemData and successfully matched an equal fresh
+tuple using findData. Thus the exact field-only QVariant failure was not reproduced here;
+tests explicitly simulate a failed Qt lookup and exercise both tuple and list representations.
+The proven defect is GUI failure-to-None fallback. No underlying model corruption was observed
+or repaired; genuine model None and valid telemetry/maintenance/logging selections are all tested.
+
+Touch coverage: all ScrollableLocalizedPage viewports (the normal configuration pages),
+SmoothTableWidget/EngineeringTable including plugin and configuration tables, navigation list,
+build summary/detail logs, and StandardComboBox popup views. The local helper only registers
+QScrollArea, ordinary item views and text views; it excludes headers and leaves pixel-scroll modes,
+mouse handlers, inputs, sliders and graphics alone. No cross-repository runtime dependency added.
+
+### Executed checks
+
+- `python -B -m pytest tests/test_gui_smoke.py tests/test_service_gui.py -q --basetemp=tests/.pytest-work-touch-focused -o cache_dir=tests/.pytest-cache-touch`: **14 passed**, 94.94 s.
+- `python -B -m pytest tests/test_protocol_gui_mapping.py tests/test_touch_scroll.py -q --basetemp=tests/.pytest-work-touch-new2 -o cache_dir=tests/.pytest-cache-touch`: **25 passed**, 9.41 s.
+- Full `python -B -m pytest -q --ignore-glob='tests/.pytest-runtime*' --basetemp=tests/.pytest-work-touch-full -o cache_dir=tests/.pytest-cache-touch`: **382 passed, 1 skipped**, 665.03 s; includes existing configuration/protocol/generation regression tests.
+- Additional final Protocol tests (three model-None cases were added after full-run collection): `python -B -m pytest tests/test_protocol_gui_mapping.py -q --basetemp=tests/.pytest-work-touch-mapping-final -o cache_dir=tests/.pytest-cache-touch`: **10 passed**, 9.47 s.
+- GUI compileall, `git diff --check`, static scroll inventory and protected-source diff audit: **passed**.
+
+New tests exercise all three Protocol categories, tuple/list itemData, simulated QVariant miss,
+missing-profile display, zero refresh signals, unchanged ProjectModel, model None, real-window
+scroll coverage, excluded input/graphics/header targets, preserved mouse row selection/scrollbars,
+and synthesized finger swipes that actually move page/list/table/text scrollbars.
+
+Runs use offscreen Qt and repository-local test output directories. The full-run log and source
+scope audit are `tests/.pytest-cache-touch/full.log` and `scope-audit.json` under the same directory.
+The original full collection attempt encountered nine access-denied errors in existing
+`tests/.pytest-runtime*` generated-cache directories; its log is `collection-error.log`.
+Only these cache directories were excluded on retry; no source test was removed or disabled.
+
+### Remaining validation limits
+
+The existing reference-payload test skips when read-only reference firmware provenance reports
+an unclean working tree. Its legacy message "task is still active" does not establish another
+agent's status. No reference firmware was edited. No physical CF-33 touch/stylus, target hardware,
+flash or new numerical algorithm acceptance is claimed. No failing executed GUI regression remains.
+
+
 ## 2026-09-12 — Algorithm actual parameters / decoder 1.2 closeout
 
 Baseline commit: `b2e05fb`. This working-tree change keeps SilverStar Platform **0.0.10**;
