@@ -54,6 +54,8 @@ def StorageIntegrity_Run(project: Path, compiler: str) -> Path:
     print("FCCG_PROGRESS|STORAGE_INTEGRITY|BEGIN|3|4|logger-compile", flush=True)
     logger_sources = [fixture / "test_logger_storage.c"] + sources[1:]
     logger_sources += [project / relative for relative in (
+        "APP/Src/device_native_log.c", "APP/Src/imu_sample_bus.c",
+        "System/Calibration/Src/system_calibration_correction.c",
         "APP/Src/logger_bus.c", "APP/Src/logger_task.c", "Common/Src/common_spsc_queue.c",
         "System/Src/system_log_policy.c", "System/Src/system_profile.c",
         "System/Src/system_navigation_profile.c", "System/Src/system_estimator_profile.c",
@@ -70,6 +72,7 @@ def StorageIntegrity_Run(project: Path, compiler: str) -> Path:
                        "-include", str(project / "Generated/Inc/project_flight_config.h")]
     command += ["-I" + str(path) for path in logger_includes]
     command += [str(path) for path in logger_sources] + ["-lm", "-o", str(writer)]
+    writer_command = list(command)
     subprocess.run(command, check=True, cwd=project, env=environment)
     print("FCCG_PROGRESS|STORAGE_INTEGRITY|DONE|3|4|logger-compile", flush=True)
     print("FCCG_PROGRESS|STORAGE_INTEGRITY|BEGIN|4|4|logger-integrity", flush=True)
@@ -84,6 +87,21 @@ def StorageIntegrity_Run(project: Path, compiler: str) -> Path:
         if mode in ("overflow", "startup-overflow", "startup-burst-overload"):
             command += ["--allow-queue-drops"]
         subprocess.run(command, check=True, cwd=project, env=environment)
+    for diagnostic in (False, True):
+        if diagnostic:
+            writer = output / "logger_preflight_diagnostic.exe"
+            command = writer_command[:-1] + [str(writer)]
+            command[1:1] = ["-DSYSTEM_LOG_PREFLIGHT_NATIVE_ENABLE=1U",
+                            "-DSYSTEM_LOG_PREFLIGHT_CORRECTED_IMU_ENABLE=1U"]
+            subprocess.run(command, check=True, cwd=project, env=environment)
+        for seconds in (30, 120):
+            name = f"preflight-{'diagnostic' if diagnostic else 'normal'}-{seconds}"
+            writer_log = output / f"{name}.sslog"
+            subprocess.run([str(writer), str(writer_log), "sparse", str(seconds)],
+                           check=True, cwd=project, env=environment)
+            subprocess.run([sys.executable, str(auditor), str(writer_log),
+                            "--decoder", str(decoders[0])],
+                           check=True, cwd=project, env=environment)
     print("FCCG_PROGRESS|STORAGE_INTEGRITY|DONE|4|4|logger-integrity", flush=True)
     return log
 

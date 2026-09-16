@@ -28,6 +28,10 @@ static uint8_t s_overflow_test;
 static uint8_t s_startup_overflow_test;
 static uint8_t s_startup_burst_test;
 static uint8_t s_open_stall_done;
+static uint8_t s_sparse_test;
+static uint32_t s_preflight_frames;
+static uint32_t s_frame_limit = TEST_RECORD_COUNT;
+static uint64_t s_landing_us;
 static uint32_t s_producer_failures;
 static uint32_t s_device_steps;
 static uint32_t s_flight_steps;
@@ -54,13 +58,21 @@ TickType_t xTaskGetTickCount(void)
 {
     /* The multi-stream model uses a wall clock: reading SysTick does not cost
      * a millisecond. The legacy slow-card model retains its original clock. */
-    return s_startup_burst_test ? (TickType_t)(PlatformTime_Us() / 1000ULL) : Fixture_BaseTickCount();
+    return (s_startup_burst_test || s_sparse_test) ? (TickType_t)(PlatformTime_Us() / 1000ULL) : Fixture_BaseTickCount();
 }
 
 static void Fixture_ResultCheck(LoggerBusResult result)
 {
-    if (result != LOGGER_BUS_RESULT_OK) { s_producer_failures++; }
+    if (result != LOGGER_BUS_RESULT_OK)
+    {
+        s_producer_failures++;
+        if (s_sparse_test && s_producer_failures < 8U)
+        { fprintf(stderr, "SPARSE_PUSH result=%u frame=%lu time=%llu\n", result,
+            (unsigned long)s_produced, (unsigned long long)PlatformTime_Us()); }
+    }
 }
+
+#include "test_sparse_preflight.h"
 
 static void Fixture_DefaultFrame(uint32_t frame, uint64_t now)
 {
@@ -139,26 +151,31 @@ static void Fixture_Produce(void)
     if (!s_running || s_in_producer) { return; }
     s_in_producer = 1U;
     now = PlatformTime_Us();
-    while (s_produced < TEST_RECORD_COUNT && now >= s_next_production_us)
+    while (s_produced < s_frame_limit && now >= s_next_production_us)
     {
         LoggerBusResult result;
         if (s_produced == 1500U) { s_recovery_drops = LoggerBus_OverflowCountGet(); }
         if (s_produced == 0U) { s_production_begin_us = now; }
-        if (s_produced == (s_startup_burst_test ? 1200U : 1000U))
+        if (s_produced == (s_sparse_test ? s_preflight_frames : (s_startup_burst_test ? 1200U : 1000U)))
         {
             LoggerBusDiagnostics diagnostics;
             s_start_us = now;
             (void)LoggerBus_DiagnosticsGet(&diagnostics);
             s_start_accepted = diagnostics.accepted_count;
         }
-        if (s_startup_burst_test)
+        if (s_sparse_test)
+        {
+            Fixture_SparseFrame(s_produced++, s_next_production_us);
+            result = LOGGER_BUS_RESULT_OK;
+        }
+        else if (s_startup_burst_test)
         {
             Fixture_DefaultFrame(s_produced++, s_next_production_us);
             result = LOGGER_BUS_RESULT_OK;
         }
         else { result = Fixture_RecordPush(s_produced++, s_next_production_us); }
         if (result != LOGGER_BUS_RESULT_OK && result != LOGGER_BUS_RESULT_FULL) { abort(); }
-        s_next_production_us += s_startup_burst_test ? 5000ULL : (s_produced < 1000U ? 10000ULL : 2000ULL);
+        s_next_production_us += s_sparse_test ? 10000ULL : (s_startup_burst_test ? 5000ULL : (s_produced < 1000U ? 10000ULL : 2000ULL));
         s_production_end_us = now;
     }
     if (s_startup_burst_test && s_produced >= 100U) { s_startup.completed = 1U; }
@@ -174,7 +191,7 @@ static void Fixture_Produce(void)
         }
         s_burst_done = 1U;
     }
-    if (s_produced == TEST_RECORD_COUNT && LoggerBus_Count() == 0U && !s_final_armed)
+    if (s_produced == s_frame_limit && LoggerBus_Count() == 0U && !s_final_armed)
     {
         FlightLogStatsRecord stats = {0};
         stats.logger_queue_overflow_count = LoggerBus_OverflowCountGet();
@@ -251,13 +268,25 @@ static int Test_Writer(const char *output)
     if (setjmp(s_exit) == 0) { AppTask_Logger(NULL); }
     s_running = 0U;
     CHECK(s_failures == 0U);
+    if (s_sparse_test)
+    {
+        CHECK(s_produced == s_frame_limit && s_calibration_steps == s_frame_limit);
+        CHECK(s_producer_failures == 0U);
+        CHECK(PlatformTime_Us() >= s_landing_us + (uint64_t)SYSTEM_LOG_POST_LANDING_GRACE_MS * 1000ULL);
+        CHECK(LoggerBus_FinalizationStateGet() == LOGGER_BUS_FINALIZATION_FINALIZED);
+        printf("SPARSE_PREFLIGHT pre_s=%lu samples=%lu start_us=%llu landing_us=%llu final_us=%llu native=%u corrected=%u\n",
+            (unsigned long)(s_preflight_frames / 100U), (unsigned long)s_calibration_steps,
+            (unsigned long long)s_start_us, (unsigned long long)s_landing_us,
+            (unsigned long long)PlatformTime_Us(), SYSTEM_LOG_PREFLIGHT_NATIVE_ENABLE,
+            SYSTEM_LOG_PREFLIGHT_CORRECTED_IMU_ENABLE);
+    }
     CHECK(LoggerBus_DiagnosticsGet(&bus) == LOGGER_BUS_RESULT_OK);
     CHECK(LoggerTask_DiagnosticsGet(&task) == SYSTEM_DEVICE_OK && task.io_fault == 0U);
     CHECK(SystemStorage_HealthGet(&storage) == SYSTEM_DEVICE_OK && storage.error_count == 0U);
     CHECK(bus.normal_count == 0U && bus.estimator_count == 0U);
     CHECK(bus.accepted_count == bus.dequeued_count);
     CHECK(bus.startup_state == LOGGER_STREAMING_READY && task.streaming_ready_us != 0ULL);
-    CHECK(bus.bootstrap_suppressed_count > 0U);
+    CHECK(s_sparse_test || bus.bootstrap_suppressed_count > 0U);
     CHECK(task.session_count == 1U && task.open_attempt_count == 1U);
     CHECK(task.append_failure_count == 0U && task.flush_failure_count == 0U);
     CHECK(task.serialize_failure_count == 0U && task.discarded_bytes == 0U);
@@ -308,7 +337,14 @@ static int Test_Writer(const char *output)
 
 int main(int argc, char **argv)
 {
-    if (argc != 2 && argc != 3) { return 2; }
+    if (argc != 2 && argc != 3 && argc != 4) { return 2; }
+    if (argc == 4 && strcmp(argv[2], "sparse") == 0)
+    {
+        s_sparse_test = 1U;
+        s_preflight_frames = (uint32_t)strtoul(argv[3], NULL, 10) * 100U;
+        s_frame_limit = s_preflight_frames + 2100U;
+        if (ImuSampleBus_Init() != IMU_SAMPLE_BUS_RESULT_OK) { return 6; }
+    }
     if (argc == 3)
     {
         s_startup_burst_test = (uint8_t)((strcmp(argv[2], "startup-burst") == 0) ||

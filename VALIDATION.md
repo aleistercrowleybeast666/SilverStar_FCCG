@@ -1,5 +1,185 @@
 # Validation — 2026-09-12 Algorithm actual parameters / decoder 1.2
 
+## 2026-09-16 — Sparse preflight logging closeout
+
+Initial source worktree clean at `b5904e3`. No reset, checkout, commit or push. Production
+change is limited to the two defaults and explicit compiler-override guards in the builtin
+System/User/system_user_config.h. Platform 0.0.10, project format 12, decoder/project-semantics
+1.2, SSLOG/AIR/maintenance layouts and versions are unchanged. KF6/INS mathematics, Q/R/P0,
+GNSS qualification/reacquisition, START transaction and deployment algorithms were not edited.
+
+### Root cause and producer audit
+
+Both existing preflight macros defaulted to 1, allowing continuous native/corrected sensor records
+through their existing producer-side gates. They now default to 0 under #ifndef guards.
+
+- DeviceNativeLog_Process / ImuProcess return before logging snapshot reads, dedup advancement
+  or LoggerBus push outside FLIGHT/RECOVERY. IMU_NATIVE, GNSS_NATIVE, BARO_NATIVE, MAG_NATIVE
+  and HW_QUAT_NATIVE are gated. Underlying DeviceTask startup/device processing still runs.
+- ImuSampleBus continues SystemInertial_NextGet, source-sequence validation,
+  SystemCalibration_ImuSampleProcess and consumer queueing; only CorrectedLog skips IMU_CORRECTED.
+- InsTask's pre-existing mission/lifecycle gate controls flight mechanization outputs; preflight
+  alignment remains active. EstimatorTask's pre-existing prediction gate controls measurement,
+  state/covariance/diagnostic output; GNSS/Baro origin collection remains separate and active.
+- Power/Health/Stats and event-driven diagnostics retain their original cadence/policies.
+  No LoggerBus admission policy, queue capacity, drop counter or writer integrity code changed.
+
+Preserved: file header; decoder profile, SYSTEM_CONFIG, DEVICE_DESCRIPTOR, ALGORITHM_DESCRIPTOR,
+LOG_STREAM_DESCRIPTOR; boot/self-test/config diagnostics; calibration and alignment start/result/
+failure; final GNSS/Baro origins; mission config, INITIAL_STATE, START/START_REJECTED and fault events.
+LoggerTask still creates the session at boot and drains throughout preflight.
+
+START still performs Prepare → origin freeze → navigation initialization → flight-queue reset
+before committing FLIGHT; FlightTask then writes the start snapshots/events. The change introduces
+no queue reset and does not advance native dedup while gated. Host tests confirm the first native,
+corrected and navigation-output records at START and each 10 ms IMU sample throughout 20 s.
+This is a Host boundary result, not a target task-scheduling guarantee.
+
+LANDING retains the original lifecycle gates, 1000 ms grace, drain, flush, finalize and fault
+behavior. The fixture enters LANDED and arms real LoggerBus finalization with the landing time;
+ordinary native/corrected flight logging ends and low-rate tail records continue until closure.
+
+Diagnostic full preflight remains available by changing the generated header values to 1U, or
+passing `-DSYSTEM_LOG_PREFLIGHT_NATIVE_ENABLE=1U` and
+`-DSYSTEM_LOG_PREFLIGHT_CORRECTED_IMU_ENABLE=1U` to the compiler. Both Release and Debug otherwise
+use sparse defaults. No new checkbox, manifest parameter, project field or decoder field was added.
+See [policy and producer ownership](docs/PREFLIGHT_LOGGING.md).
+
+### Files and regression coverage
+
+- `plugins/builtin/silverstar_core_0_0_10/payload/System/User/system_user_config.h`: defaults/guards.
+- Its `Tests/Host/storage_integrity/test_sparse_preflight.h`: Host device/inertial/calibration-state
+  facades and preflight/flight/landing workload; calls real native producer, ImuSampleBus and
+  calibration correction implementation. Sampling and calibration-consumer calls continue for
+  all 14,100 samples in the 120 s case, with zero sample-bus source gaps or overflow.
+- Its `Tests/Host/storage_integrity/test_logger_storage.c`, `run_storage_integrity.py`: link actual
+  producer sources into the existing real LoggerBus→LoggerTask→codec→FatFs→diskio delayed-DMA
+  chain; build both default and explicit diagnostic macro configurations; retain prior corruption,
+  storage-fault, 200 Hz startup and finite-overload recovery cases.
+- `tests/test_storage_integrity.py`: generated-header defaults, exact decoder matching, critical
+  records, first START timestamps, complete task IMU cadence, sequence/CRC/no-overflow checks,
+  30/120 s duration comparison, and machine-readable size/record report.
+- `tools/import_reference_components.py`: register the new Host fixture as FCCG-owned for reference
+  re-import; runtime config remains the existing FCCG-owned source of truth.
+- `docs/PREFLIGHT_LOGGING.md`, `docs/README.md`, this report: policy, operational instructions and evidence.
+
+### Exact generated-project comparison
+
+Reference project is actually generated below `tests/.pytest-sparse-0916e/storage-integrity0`.
+The same selected-stream policy is used in both configurations. Size workload: 100 Hz IMU/native
+attitude, 25 Hz native Baro, 12.5 Hz native GNSS, 50 Hz modeled navigation outputs, 1 Hz low-rate
+status; no selected standalone magnetometer. 20 s FLIGHT then 1 s existing landing grace.
+The navigation outputs and device source values are Host models; this byte-integrity workload
+is not presented as a physically meaningful navigation golden trajectory.
+
+| Mode / preflight | Whole file bytes | Whole records | Preflight bytes including header | Preflight records |
+| --- | ---: | ---: | ---: | ---: |
+| Normal / 30 s | 1,679,603 | 15,303 | 10,140 | 190 |
+| Normal / 120 s | 1,696,523 | 15,573 | 27,060 | 460 |
+| Diagnostic / 30 s | 2,623,263 | 25,745 | 923,244 | 10,294 |
+| Diagnostic / 120 s | 5,385,183 | 56,390 | 3,685,164 | 40,939 |
+
+120 s preflight bytes decrease by **99.27%**. Extra waiting only adds retained low-rate status:
+normal IMU_NATIVE/IMU_CORRECTED/HW_QUAT_NATIVE remain 2,000 records each, BARO_NATIVE 500,
+GNSS_NATIVE 250 for both durations. First record timestamp equals START for each; mission IMU
+samples exactly match range(START, LANDING, 10000). All four runs have zero record-sequence gaps,
+zero LoggerBus overflow, intact CRC/framing, one successful session and safe finalization.
+No audit resynchronization or sequence renumbering is used.
+
+The comparative fixture is explicitly 100 Hz. An exploratory 200 Hz combined diagnostic workload
+with the delayed-card model exceeded the existing queue near START; this was not hidden or treated
+as a pass, and queue capacity was not enlarged. Diagnostic logging remains bounded by real SD latency
+and stream load. The independent existing 200 Hz startup fixture passed its normal zero-drop case;
+its intentional overload remains observable and recovers with valid CRC/framing. Neither result
+certifies all possible 200 Hz target/card workloads.
+
+### Commands and acceptance
+
+All temporary/generated/build output is below tests; test PYTHONDONTWRITEBYTECODE=1,
+QT_QPA_PLATFORM=offscreen, TEMP/TMP point below tests. No reference firmware or other source tree
+is modified by FCCG generation/testing.
+
+```powershell
+python -m pytest tests/test_storage_integrity.py -q -x --basetemp=tests/.pytest-sparse-0916e -o cache_dir=tests/.pytest_cache/sparse0916
+& tests/.pytest-sparse-0916e/storage-integrity0/Tests/Host/run_tests.ps1
+python -m pytest -q --basetemp=tests/.pytest-work-closeout0916 --ignore-glob='tests/.pytest-runtime*' --ignore-glob='tests/.pytest-sparse-*' --ignore-glob='tests/.pytest-env-*' -o cache_dir=tests/.pytest-cache/closeout0916
+```
+
+Focused storage: **11 passed in 69.97 s**.
+Generated Host: **67 executables, 14,484 checks, 0 failures**, 8 positive compile cases,
+16 expected compile rejections; all storage cases pass. Full pytest: **386 passed, 1 skipped in 816.00 s**.
+The one skip is `tests/test_prompt_acceptance.py:287`: its read-only reference firmware
+working tree is not clean (the test labels this "task is still active"). No reference files
+were changed; this comparison is not claimed as a pass.
+The complete suite includes logging streams, generation, decoder/SSLOG, algorithms and frozen
+C trajectory/golden checks. Golden fixtures were not modified.
+
+Release and Debug were also built from this generated project with Arm GNU Toolchain 14.3,
+using the existing Make graph and strict first-party warnings:
+
+```powershell
+# Working directory: tests/.pytest-sparse-0916e/storage-integrity0
+D:/msys64/ucrt64/bin/mingw32-make.exe -j4 SHELL=cmd.exe CONFIG=Release all stack-report memory-report artifact-check
+D:/msys64/ucrt64/bin/mingw32-make.exe -j4 SHELL=cmd.exe CONFIG=Debug all stack-report memory-report artifact-check
+```
+
+Both commands exit 0. Each configuration supplies 138 .su files plus linked-ELF analysis;
+all eight enabled tasks (including Idle) pass their stack budgets. Artifact checks verify
+ELF/MAP/BIN/HEX, FLASH, main SRAM, CCMRAM and zero heap symbols.
+
+| Configuration | FLASH bytes | Main SRAM bytes | CCMRAM bytes | Minimum task stack margin |
+| --- | ---: | ---: | ---: | ---: |
+| Release | 261,304 / 524,288 | 78,032 / 131,072 | 51,064 / 65,536 | 256 bytes (Idle) |
+| Debug | 278,840 / 524,288 | 78,048 / 131,072 | 51,064 / 65,536 | 256 bytes (Idle) |
+
+Release ELF SHA-256: `fe0588625ca6e293445cde623ae35eec2ac86c985729fbc797717bf71baa332e`.
+Debug ELF SHA-256: `611bd41b843f3baa6752ded893664142ffba7fb562cee3e1898092d4ca7e2d74`.
+Stack budgets are static bounds, not measured hardware high-water marks.
+
+Evidence:
+- `tests/.pytest-cache/target-release-closeout0916.log`, `target-debug-closeout0916.log`
+- Generated `build/FCCG/SilverStar_F407/{Release,Debug}/stack-budget.json` and ELF/MAP/BIN/HEX
+- `tests/.pytest-cache/sparse0916-final.log`
+- `tests/.pytest-cache/host-closeout0916.log`
+- `tests/.pytest-cache/full-closeout0916.log`
+- `tests/.pytest-sparse-0916e/storage-integrity0/build/FCCG/Host/Tests/StorageIntegrity/`:
+  `integrity.log`, four preflight-*.sslog files and `preflight-comparison.json`.
+
+No board flash, physical SD, GNSS-origin convergence or flight acceptance is claimed. Real target
+START scheduling, sensor rates and card latency remain hardware validation items. FLP's separate
+exact synthetic import/replay acceptance is recorded in its own VALIDATION.md.
+`git diff --check` passes; protocol/schema/version and protected algorithm files are outside the diff.
+
+<!-- closeout-git-begin -->
+### Final Git snapshot
+
+Tracked diff (new files are listed separately by status):
+
+```text
+ VALIDATION.md                                      | 180 +++++++++++++++++++++
+ docs/README.md                                     |   1 +
+ .../payload/System/User/system_user_config.h       |  10 +-
+ .../storage_integrity/run_storage_integrity.py     |  18 +++
+ .../Host/storage_integrity/test_logger_storage.c   |  54 +++++--
+ tests/test_storage_integrity.py                    |  61 ++++++-
+ tools/import_reference_components.py               |   1 +
+ 7 files changed, 313 insertions(+), 12 deletions(-)
+```
+
+```text
+ M VALIDATION.md
+ M docs/README.md
+ M plugins/builtin/silverstar_core_0_0_10/payload/System/User/system_user_config.h
+ M plugins/builtin/silverstar_core_0_0_10/payload/Tests/Host/storage_integrity/run_storage_integrity.py
+ M plugins/builtin/silverstar_core_0_0_10/payload/Tests/Host/storage_integrity/test_logger_storage.c
+ M tests/test_storage_integrity.py
+ M tools/import_reference_components.py
+?? docs/PREFLIGHT_LOGGING.md
+?? plugins/builtin/silverstar_core_0_0_10/payload/Tests/Host/storage_integrity/test_sparse_preflight.h
+```
+<!-- closeout-git-end -->
+
+
 ## 2026-09-14 — Protocol GUI mapping and touch-scrolling closeout
 
 Scope: GUI/helper, translation strings, GUI tests and documentation only. The initial working

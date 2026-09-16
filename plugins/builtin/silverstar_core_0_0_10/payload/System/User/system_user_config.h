@@ -203,8 +203,14 @@
 /* -------------------------------------------------------------------------- */
 /* Logging runtime/storage policy. Stream policy is authoritative in SSLOG.   */
 /* -------------------------------------------------------------------------- */
-#define SYSTEM_LOG_PREFLIGHT_NATIVE_ENABLE      1U
-#define SYSTEM_LOG_PREFLIGHT_CORRECTED_IMU_ENABLE 1U
+/* Normal sessions keep bootstrap/snapshots/events, but no high-rate preflight
+ * samples. Explicit compiler -D overrides enable diagnostic preflight capture. */
+#ifndef SYSTEM_LOG_PREFLIGHT_NATIVE_ENABLE
+#define SYSTEM_LOG_PREFLIGHT_NATIVE_ENABLE      0U
+#endif
+#ifndef SYSTEM_LOG_PREFLIGHT_CORRECTED_IMU_ENABLE
+#define SYSTEM_LOG_PREFLIGHT_CORRECTED_IMU_ENABLE 0U
+#endif
 
 #define SYSTEM_POWER_SAMPLE_PERIOD_US                20000ULL
 #define SYSTEM_TELEMETRY_STATUS_REPEAT_PERIOD_US      50000ULL

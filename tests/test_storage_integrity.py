@@ -13,7 +13,7 @@ import pytest
 
 from silverstar_fccg.app.service import FccgService
 from silverstar_fccg.core.workspace import WorkspacePolicy
-from tools.sslog_audit import Audit_Bytes, Audit_CandidatesScan, Audit_ProfileLoad
+from tools.sslog_audit import Audit_Bytes, Audit_CandidatesScan, Audit_ProfileLoad, Audit_FieldsRead
 
 
 @pytest.fixture(scope="module")
@@ -171,3 +171,62 @@ def test_protocol_layout_is_unchanged(workspace_root):
     mission = next(record for record in catalog["records"] if record["name"] == "MISSION_CONFIG")
     assert mission["payload_size"] == 91 and mission["version"] == 0
     assert 24 + mission["payload_size"] + 4 == 119
+
+
+def test_sparse_preflight_producers_start_boundary_and_diagnostic_override(storage_project):
+    project, output = storage_project
+    header = (project / "System/User/system_user_config.h").read_text()
+    import re
+    for macro in ("SYSTEM_LOG_PREFLIGHT_NATIVE_ENABLE", "SYSTEM_LOG_PREFLIGHT_CORRECTED_IMU_ENABLE"):
+        assert re.search(r"#define\s+" + macro + r"\s+0U", header)
+        assert "#ifndef " + macro in header
+    catalog, hashes = Audit_ProfileLoad(project / "StorageRegression.ssdecoder")
+    metadata = {(int(r["id"], 16), r["version"]): r for r in catalog["records"]}
+    summaries = {}
+    required = {"EVENT", "DECODER_PROFILE_DESCRIPTOR", "SYSTEM_CONFIG", "DEVICE_DESCRIPTOR",
+                "ALGORITHM_DESCRIPTOR", "LOG_STREAM_DESCRIPTOR", "CALIBRATION_RESULT",
+                "ALIGNMENT_RESULT", "MISSION_CONFIG", "INITIAL_STATE"}
+    high_rate = {"IMU_NATIVE", "IMU_CORRECTED", "BARO_NATIVE", "GNSS_NATIVE", "HW_QUAT_NATIVE"}
+    for mode in ("normal", "diagnostic"):
+        for seconds in (30, 120):
+            data = (output / f"preflight-{mode}-{seconds}.sslog").read_bytes()
+            report = Audit_Bytes(data, catalog, decoder_hashes=hashes)
+            assert report["passed"] and report["sequence_gap_records"] == 0
+            assert report["queue_overflow_max"] == 0 and report["unvalidated_tail_bytes"] == 0
+            assert required <= set(report["record_counts"])
+            records = []
+            offset = 64
+            while offset < len(data):
+                length = 28 + struct.unpack_from("<H", data, offset + 6)[0]
+                info = metadata[(data[offset + 5], data[offset + 4])]
+                timestamp = struct.unpack_from("<Q", data, offset + 12)[0]
+                fields = Audit_FieldsRead(data[offset + 24:offset + length - 4], info)
+                records.append((info["name"], timestamp, fields, length))
+                offset += length
+            start = next(t for name, t, fields, _ in records
+                         if name == "EVENT" and int.from_bytes(fields["event_id"], "little") == 3)
+            landing = next(t for name, t, fields, _ in records
+                           if name == "EVENT" and int.from_bytes(fields["event_id"], "little") == 0x2A)
+            assert landing - start == 20_000_000
+            assert any(name == "INITIAL_STATE" and t == start for name, t, _, _ in records)
+            for name in high_rate:
+                times = [t for n, t, _, _ in records if n == name]
+                assert start in times  # Producer dedup has not consumed the first START sample.
+                assert (min(times) < start) == (mode == "diagnostic")
+            for name in ("IMU_NATIVE", "IMU_CORRECTED", "HW_QUAT_NATIVE"):
+                times = [t for n, t, _, _ in records if n == name and start <= t < landing]
+                assert times == list(range(start, landing, 10000))
+            for name in ("ESTIMATOR", "KF6_DIAGNOSTIC", "KF6_FULL_P", "INERTIAL_INCREMENT",
+                         "BARO_MEASUREMENT", "GNSS_MEASUREMENT", "PURE_INS"):
+                assert any(n == name and t == start for n, t, _, _ in records)
+            preflight = [r for r in records if r[1] < start]
+            summaries[f"{mode}-{seconds}"] = {
+                "file_bytes": len(data), "records": report["records"],
+                "preflight_bytes": 64 + sum(r[3] for r in preflight),
+                "preflight_records": len(preflight), "counts": report["record_counts"],
+            }
+    for name in high_rate:
+        assert summaries["normal-30"]["counts"][name] == summaries["normal-120"]["counts"][name]
+        assert summaries["diagnostic-120"]["counts"][name] > summaries["diagnostic-30"]["counts"][name]
+    assert summaries["normal-120"]["preflight_bytes"] < summaries["diagnostic-120"]["preflight_bytes"] / 10
+    (output / "preflight-comparison.json").write_text(json.dumps(summaries, indent=2))

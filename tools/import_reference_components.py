@@ -1041,6 +1041,7 @@ def _Components_Get(
             "Tests/Host/storage_integrity/fatfs.h",
             "Tests/Host/storage_integrity/test_storage_integrity.c",
             "Tests/Host/storage_integrity/test_logger_storage.c",
+            "Tests/Host/storage_integrity/test_sparse_preflight.h",
             "Tests/Host/storage_integrity/run_storage_integrity.py",
             "Tests/Target/storage_integrity.c",
             "Tests/Target/storage_integrity.h",
