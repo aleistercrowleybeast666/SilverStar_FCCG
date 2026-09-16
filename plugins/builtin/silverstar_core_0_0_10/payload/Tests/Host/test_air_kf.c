@@ -602,6 +602,8 @@ static void Test_KfGnssPredictionLossRecovery(void)
     NavigationKf_Init(&context);
     context.state[0] = -30.0f;
     context.state[3] = 10.0f;
+    Test_GnssEpochSet(&epoch, 500000ULL, position, velocity);
+    NavigationKf_GnssEpochTrack(&context, &epoch);
     for (sample = 0U; sample < 80U; sample++)
     {
         if (sample != 0U)
@@ -663,6 +665,8 @@ static void Test_KfGnssVelocityPredictionLossRecovery(void)
 
     NavigationKf_Init(&context);
     context.state[3] = -20.0f;
+    Test_GnssEpochSet(&epoch, 500000ULL, position, velocity);
+    NavigationKf_GnssEpochTrack(&context, &epoch);
     for (sample = 0U; sample < 80U; sample++)
     {
         position[0] = (float)sample * 0.4f;
@@ -719,6 +723,8 @@ static void Test_KfGnssInflationBounded(void)
         0.5f * SYSTEM_ESTIMATOR_GNSS_REACQUIRE_POSITION_VARIANCE_CAP_M2;
     context.covariance[1][1] =
         0.5f * SYSTEM_ESTIMATOR_GNSS_REACQUIRE_POSITION_VARIANCE_CAP_M2;
+    Test_GnssEpochSet(&epoch, 500000ULL, position, velocity);
+    NavigationKf_GnssEpochTrack(&context, &epoch);
     for (sample = 0U; sample < 120U; sample++)
     {
         Test_GnssEpochSet(&epoch, 1000000ULL +
@@ -783,6 +789,8 @@ static void Test_KfGnssOriginInvariant(void)
     estimator.origin_height_mm = 12345;
     estimator.guard_after = 0x87654321UL;
     NavigationKf_Init(&estimator.kf);
+    Test_GnssEpochSet(&epoch, 500000ULL, position, velocity);
+    NavigationKf_GnssEpochTrack(&estimator.kf, &epoch);
     for (sample = 0U; sample < 30U; sample++)
     {
         Test_GnssEpochSet(&epoch, 1000000ULL +

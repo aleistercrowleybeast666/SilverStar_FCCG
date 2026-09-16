@@ -40,7 +40,7 @@ def test_actual_defaults_roundtrip_and_decoder(builtin_catalog):
     assert values['process_accel_std_u'] == 2.0
     assert values['gnss_velocity_std'] == 0.15
     assert values['baro_std_m'] == 5.0
-    assert len(values) == 21
+    assert len(values) == 23
     assert values['gravity_mps2'] == 9.78
     assert [owner.component_id for owner in AlgorithmParameterOwners_Get(model,builtin_catalog)] == [INS,KF]
     assert ProjectModel_Parse(model.Dictionary_Get()).algorithm_parameters == model.algorithm_parameters

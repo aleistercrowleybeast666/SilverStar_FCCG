@@ -47,6 +47,7 @@ from silverstar_fccg.build.toolchain import ArmGnuSubtoolPaths_Derive
 from silverstar_fccg.core.i18n import Translator
 from silverstar_fccg.core.errors import FccgError
 from silverstar_fccg.core.settings import SettingsStore
+from silverstar_fccg.core.path_preferences import PathPreferences, ExistingDirectory_Get
 from silverstar_fccg.core.task import (
     TaskProgressEvent_Parse,
     TaskProgressState,
@@ -158,6 +159,7 @@ class MainWindow(QMainWindow):
         self._settings = settings
         workspace_root = Path(__file__).resolve().parents[3]
         self._service = service or FccgService(workspace_root)
+        self._path_preferences = PathPreferences(self._service.policy, self._settings.path.parent / "path_preferences.json")
         self._translator = Translator(language)
         self._theme = theme if theme in {"light", "dark"} else "light"
         self._thread_pool = QThreadPool.globalInstance()
@@ -311,6 +313,8 @@ class MainWindow(QMainWindow):
 
     def _Menu_Build(self) -> None:
         self.file_menu = self.menuBar().addMenu("")
+        self.default_root_action = QAction(self)
+        self.default_root_action.triggered.connect(self._DefaultProjectRoot_Select)
         self.new_action = QAction(self)
         self.new_action.setShortcut("Ctrl+N")
         self.open_action = QAction(self)
@@ -325,6 +329,7 @@ class MainWindow(QMainWindow):
             (self.new_action, self.open_action, self.save_action, self.save_as_action)
         )
         self.file_menu.addSeparator()
+        self.file_menu.addAction(self.default_root_action)
         self.file_menu.addAction(self.export_source_action)
         self.file_menu.addSeparator()
         self.file_menu.addAction(self.exit_action)
@@ -1836,8 +1841,20 @@ class MainWindow(QMainWindow):
         )
         self._Project_Refresh()
 
+    def _DefaultProjectRoot_Select(self) -> None:
+        selected = QFileDialog.getExistingDirectory(
+            self, self._translator.Text_Get("action.default_project_root"),
+            str(ExistingDirectory_Get(self._path_preferences.DefaultProjectRoot_Get())),
+        )
+        if selected:
+            try:
+                self._path_preferences.DefaultProjectRoot_Set(Path(selected))
+            except (OSError, ValueError) as error:
+                self._Error_Show(error)
+
     def _NewProject_Show(self) -> None:
-        wizard = NewProjectWizard(self._translator, self)
+        wizard = NewProjectWizard(self._translator, self,
+                                  default_root=self._path_preferences.DefaultProjectRoot_Get())
         if wizard.exec() != QDialog.DialogCode.Accepted:
             return
         values = wizard.WizardData_Get()
@@ -3140,6 +3157,7 @@ class MainWindow(QMainWindow):
         self.help_menu.setTitle(self._translator.Text_Get("menu.help"))
         for action, key in (
             (self.new_action, "action.new_project"),
+            (self.default_root_action, "action.default_project_root"),
             (self.open_action, "action.open_project"),
             (self.save_action, "action.save_project"),
             (self.save_as_action, "action.save_project_as"),

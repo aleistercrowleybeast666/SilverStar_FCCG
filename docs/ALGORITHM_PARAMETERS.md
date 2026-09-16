@@ -24,19 +24,19 @@ profile initialization calls in `estimator_task.c`. Their C calculation sites ar
 the existing initial GNSS uncertainty rule may increase P0. They are not squared again.
 Process acceleration sigma is per axis; existing prediction squares sigma and retains its
 original dt gains. GNSS sigma remains `max(receiver_sigma * 1.25, configured_floor)` and
-R is its square. Horizontal E/N share a position floor; velocity E/N/U share a velocity floor.
+R is its square. Horizontal E/N share a position floor; velocity U additionally uses the declared vertical sigma scale.
 Barometer sigma is squared once by the existing update and retains its 1.5 m minimum.
 NIS values are dimensionless; hard must exceed soft even after float32 rounding.
 The existing NIS maximum R inflation cap is itself an actual dimensionless parameter.
 
 FLP's old default-multiplier vocabulary must not enter the project: P0 scale maps to the six
 actual diagonal floors, GNSS R scales to the real firmware sigma-floor parameters, and baro R
-scale to actual sigma. There is no invented fixed GNSS R or new runtime multiplier. This does
+scale to actual sigma. There is no invented fixed GNSS R; the declared vertical velocity scale multiplies sigma after its dynamic floor. This does
 not emulate arbitrary offline R multipliers: reported receiver uncertainty still participates.
 FLP process sigma, gravity and NIS values already have actual semantics. FLP is read-only in
 this change; its later consumer must adopt this explicit contract independently.
 State dimension, coning/sculling coefficients, matrix safeguards, update order, source selection,
-measurement timing and GNSS reacquisition policy are not exposed or changed.
+measurement timing remain unchanged. GNSS outage recovery and its two compatible parameter additions are defined in [the recovery contract](KF6_OUTAGE_RECOVERY.md).
 
 ## Coning2 + Sculling2 INS
 
@@ -65,6 +65,8 @@ measurement timing and GNSS reacquisition policy are not exposed or changed.
 | `gnss_position_std_horizontal` | 1.5 | m | sigma |
 | `gnss_position_std_vertical` | 2.5 | m | sigma |
 | `gnss_velocity_std` | 0.15 | m/s | sigma |
+| `gnss_velocity_vertical_scale` | 1 | 1 | value |
+| `gnss_reacquire_outage_ms` | 300 | ms | value |
 | `baro_std_m` | 5 | m | sigma |
 | `nis_1d_soft` | 6.635 | 1 | value |
 | `nis_1d_hard` | 10.828 | 1 | value |

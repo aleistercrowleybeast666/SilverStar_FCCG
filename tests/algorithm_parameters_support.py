@@ -7,7 +7,7 @@ from pathlib import Path
 from silverstar_fccg.core.workspace import WorkspacePolicy
 
 
-def Trajectory_Run(project: Path, workspace: Path, *, baseline: bool = False) -> bytes:
+def Trajectory_Run(project: Path, workspace: Path, *, baseline: bool = False, fixture_name: str = "test_algorithm_parameters.c") -> bytes:
     policy = WorkspacePolicy(workspace)
     output = policy.Directory_Ensure(project / 'build/FCCG/Host/Tests')
     temp = policy.Directory_Ensure(output / 'tmp')
@@ -19,7 +19,7 @@ def Trajectory_Run(project: Path, workspace: Path, *, baseline: bool = False) ->
                'Algorithm/Common/Src/attitude_frame.c',
                'System/Src/system_estimator_profile.c',
                'Common/Src/silverstar_assert.c']
-    fixture = workspace / 'plugins/builtin/silverstar_core_0_0_10/payload/Tests/Host/test_algorithm_parameters.c'
+    fixture = workspace / 'plugins/builtin/silverstar_core_0_0_10/payload/Tests/Host' / fixture_name
     command = [str(compiler), '-std=c11', '-Wall', '-Wextra', '-Werror', '-pedantic', '-O2',
                '-include', str(project / 'Generated/Inc/project_flight_config.h')]
     if baseline:

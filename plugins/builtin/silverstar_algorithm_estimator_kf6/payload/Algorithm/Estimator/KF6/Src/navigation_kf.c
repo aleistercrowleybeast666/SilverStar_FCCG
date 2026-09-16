@@ -1644,6 +1644,50 @@ static void NavigationKf_GnssConsistencyUpdate(
     }
 }
 
+/* Availability uses each group's own valid sample clock, never its NIS result.
+ * No new sample is required during loss: the returning epoch closes the gap. */
+static void NavigationKf_GnssAvailabilityTrack(
+    NavigationKfGnssReacquisitionContext *reacquisition,
+    const NavigationKfGnssEpoch *epoch,
+    uint8_t valid_mask)
+{
+    uint8_t group;
+    for (group = 0U; group < NAV_KF_GNSS_GROUP_COUNT; group++)
+    {
+        NavigationKfGnssReacquireGroupState *state = &reacquisition->group[group];
+        uint8_t bit = NAV_KF_GNSS_GROUP_MASK(group);
+        uint64_t anchor = state->availability_timestamp_us;
+        if (anchor == 0U)
+        {
+            state->availability_timestamp_us = epoch->timestamp_us;
+        }
+        else if ((epoch->timestamp_us - anchor) >
+                 ((uint64_t)SYSTEM_ESTIMATOR_GNSS_REACQUIRE_OUTAGE_MS * 1000ULL))
+        {
+            /* Reset once per loss, including a new loss during recovery. */
+            if (state->loss_latched == 0U)
+            {
+                (void)memset(state, 0, sizeof(*state));
+                state->availability_timestamp_us = anchor;
+                state->outage = 1U;
+                state->loss_latched = 1U;
+                reacquisition->active_mask &= (uint8_t)(~bit);
+            }
+        }
+        if ((valid_mask & bit) != 0U)
+        {
+            state->loss_latched = 0U;
+            state->availability_timestamp_us = epoch->timestamp_us;
+        }
+        else
+        {
+            state->reject_streak = 0U;
+            state->accepted_streak = 0U;
+            state->consistent_count = 0U;
+        }
+    }
+}
+
 void NavigationKf_GnssEpochTrack(
     NavigationKfContext *context,
     const NavigationKfGnssEpoch *epoch)
@@ -1659,6 +1703,7 @@ void NavigationKf_GnssEpochTrack(
         if (context != NULL)
         {
             context->health_flags |= NAV_KF_HEALTH_INVALID_INPUT;
+            context->gnss_reacquisition.previous_epoch.valid_group_mask = 0U;
         }
         return;
     }
@@ -1678,11 +1723,19 @@ void NavigationKf_GnssEpochTrack(
     reacquisition = &context->gnss_reacquisition;
     current_valid_mask = NavigationKf_GnssCurrentValidMaskGet(epoch);
     reacquisition->consistency_mask = 0U;
-    if ((reacquisition->previous_epoch_valid == 0U) ||
+    if ((reacquisition->previous_epoch_valid != 0U) &&
         (epoch->timestamp_us <= reacquisition->previous_epoch.timestamp_us))
     {
-        NavigationKf_GnssEpochBaselineSet(
-            reacquisition, epoch, current_valid_mask);
+        /* A reset/duplicate cannot authorize recovery or accumulate rejects. */
+        (void)memset(reacquisition->group, 0, sizeof(reacquisition->group));
+        reacquisition->active_mask = 0U;
+        NavigationKf_GnssEpochBaselineSet(reacquisition, epoch, 0U);
+        return;
+    }
+    NavigationKf_GnssAvailabilityTrack(reacquisition, epoch, current_valid_mask);
+    if (reacquisition->previous_epoch_valid == 0U)
+    {
+        NavigationKf_GnssEpochBaselineSet(reacquisition, epoch, current_valid_mask);
         return;
     }
     dt_us = epoch->timestamp_us - reacquisition->previous_epoch.timestamp_us;
@@ -1921,7 +1974,8 @@ static void NavigationKf_GnssRejectedProcess(
     {
         state->epochs_since_inflation++;
     }
-    if ((state->reject_streak >=
+    if ((state->outage != 0U) &&
+        (state->reject_streak >=
          SYSTEM_ESTIMATOR_GNSS_REACQUIRE_REJECT_COUNT) &&
         (state->consistent_count >=
          SYSTEM_ESTIMATOR_GNSS_REACQUIRE_CONSISTENT_COUNT))
@@ -1943,6 +1997,7 @@ static void NavigationKf_GnssFusedProcess(
     SILVERSTAR_ASSERT_OBJECT(state, NavigationKfGnssReacquireGroupState,
                              SILVERSTAR_ASSERT_MODULE_ALGORITHM);
     state->reject_streak = 0U;
+    if (state->active == 0U) { state->outage = 0U; }
     if (state->active != 0U)
     {
         if (state->accepted_streak < UINT32_MAX)
@@ -1953,6 +2008,7 @@ static void NavigationKf_GnssFusedProcess(
             SYSTEM_ESTIMATOR_GNSS_REACQUIRE_ACCEPT_COUNT)
         {
             state->active = 0U;
+            state->outage = 0U;
             state->accepted_streak = 0U;
             reacquisition->active_mask &= (uint8_t)(~bit);
         }
@@ -1984,6 +2040,12 @@ void NavigationKf_GnssGroupResultProcess(
     reacquisition = &context->gnss_reacquisition;
     state = &reacquisition->group[group];
     bit = NAV_KF_GNSS_GROUP_MASK(group);
+    if ((reacquisition->previous_epoch.valid_group_mask & bit) == 0U)
+    {
+        state->reject_streak = 0U;
+        state->accepted_streak = 0U;
+        return;
+    }
     if (result == NAV_KF_UPDATE_REJECTED_NIS)
     {
         NavigationKf_GnssRejectedProcess(

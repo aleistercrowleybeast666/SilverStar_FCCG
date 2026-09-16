@@ -50,3 +50,12 @@ Before field use, check finger swipes and taps on a CF-33: page scroll, nested t
 scroll and selection, popup selection, button taps, spinboxes, mouse wheel/scrollbars,
 stylus, plot pan/zoom, camera lock/rotation and replay time slider. Automated synthetic
 Qt touch tests do not certify the physical Windows touch driver.
+
+## Default Project Root
+
+File → Default Project Root stores an existing selected directory in repository-local
+`.fccg/path_preferences.json` (schema_version 1), separate from project state and UI INI settings.
+New Project derives `<root>/<name>` until the first user edit or Browse selection freezes the
+output path. Name changes then leave the custom path intact. Browsing starts at the nearest
+existing output ancestor. Missing/corrupt preferences safely fall back without creating a root.
+Save/Open/Save As and the five-page configuration flow retain their existing semantics.

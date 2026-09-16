@@ -1,5 +1,179 @@
 # Validation — 2026-09-12 Algorithm actual parameters / decoder 1.2
 
+## 2026-09-17 — KF6 外场反馈第二轮与默认工程根目录
+
+初始 HEAD：`60dd1f3d4d92cfaf308771e3e2d92890592cf048`。
+初始 `git status --short` 为空。未 reset/checkout/clean；本轮分别本地中文提交，不 push。
+参考固件只读，三个产品无跨仓库运行时依赖。下方文件清单与 diff 统计是不含本报告的提交前快照。
+
+### 算法结论与边界
+
+旧实现仅用连续 hard reject 和 GNSS 自身一致性授权恢复，导致连续有效 GNSS 的动态不一致
+也会触发 inflation。现在 position EN/U、velocity EN/U 分别保存有效时间戳、outage/loss latch
+和恢复计数。有效样本即使 NIS 拒绝也刷新该组可用时间；距该组上次有效样本严格超过
+`gnss_reacquire_outage_ms` 才允许掉线恢复。完整缺失在下一个 epoch 返回时识别；单组无效独立计时。
+position 的可用性不依赖 velocity；其返回一致性检查仍可要求对应 velocity。
+
+默认 300 ms，可配 100–10000 ms。25 Hz 下约 7.5 个周期，100 ms 小缺口不算掉线；
+候选 160/200/250/300/500 ms 通过合成回放扫描，未宣称真实飞行最优。
+正常连续 high-NIS 不 inflation；真正 outage 后先正常 NIS，能融合则直接恢复，不膨胀。
+否则需五次连续 hard reject、三个一致间隔和真实 outage，才启动选择性 DPD'。
+factor=2、最多八次、两次尝试间至少五个 reject、三个融合返回后退出均保留；
+大误差用例需要多次尝试，因此没有无依据把上限减为一次。
+新掉线清除旧恢复计数；重复、回退、零时间戳及非法 sigma 不可积累恢复授权。
+
+保持六状态、Q、P0、重力、INS/姿态、NIS 阈值、GNSS 质量门、部署与着陆逻辑。
+Barometer 观测 pU，并通过 P(vU,pU) 修正 vU；GNSS pU 与 vU 分别做独立一维更新。
+速度噪声保持 receiver uncertainty 与 accuracy scale：
+`sigma_EN=max(receiver_sigma_EN*1.25, gnss_velocity_std)`；
+`sigma_U=max(receiver_sigma_U*1.25, gnss_velocity_std)*gnss_velocity_vertical_scale`；
+R 为最终 sigma 的平方。新 scale 只作用量测，P0 不变。
+
+| 参数 | 正式默认 | 离线候选 |
+| --- | ---: | --- |
+| GNSS pU sigma floor | 2.5 m | 2.5 / 3 / 4 / 5 / 6 m |
+| Barometer sigma floor | 5 m | 1.5 / 2 / 3 / 5 m |
+| GNSS velocity floor | 0.15 m/s | 保留原参数 |
+| GNSS velocity U scale | 1.0 | 1 / 1.25 / 1.5 / 2 |
+| GNSS outage | 300 ms | 160 / 200 / 250 / 300 / 500 ms |
+
+无实测日志，不能给出手持最优或飞行最优；保守飞行候选仍是兼容默认。所有候选需真实飞行确认。
+未改 AIR/GSP、SSLOG/schema、project 12、decoder semantics 1.2、参数 schema 1.0、
+Platform 0.0.10；保留 sparse-preflight、分组 NIS 展示与存储完整性规则。
+新参数缺失由 manifest default 补齐，生成常量和 decoder actual values 同源。
+导入器登记 FCCG-owned C/H 与 Host fixture，防止重新导入参考源覆盖修复。
+
+### 路径工作流
+
+File → 默认工程根目录 / Default Project Root 写入独立 UTF-8 原子 JSON：
+生产位置 `.fccg/path_preferences.json`（测试注入路径位于 tests）。
+例如 root=`D:/SilverStarProjects`，name=`Test01`，最终目录=`D:/SilverStarProjects/Test01`。
+名称自动跟随，实际手动编辑或 Browse 后保持自定义目录。Browse 从最近存在的父目录开始。
+JSON 缺失/损坏、schema 不符或根目录不存在均安全 fallback，不自动创建未经确认的根目录。
+偏好不进入 project/decoder hash，不影响 Dirty 或既有 Save/Open。
+
+### 测试命令与结果
+
+下列为本次命令入口及可复验的隔离目录参数；日志、生成物均在 tests 下。
+
+- `python -m pytest tests -q --ignore-glob='tests/.pytest-*' --basetemp=tests/.pytest-full-0917`：
+  **389 passed, 1 skipped, 679.78 s**。日志 `tests/.pytest-cache/0917-full.log`。
+  唯一跳过：`test_prompt_acceptance.py:287` 的只读参考固件任务仍活跃，不修改或中断参考工程。
+- 全量收集后新增了非默认 U scale 的生成 C 测试，并收紧导入器的已声明 owned header 条件。
+  最终 `python -m pytest tests/test_kf6_outage.py tests/test_path_preferences.py tests/test_algorithm_parameters.py -q`
+  **28 passed, 59.49 s**，日志 `tests/.pytest-cache/0917-final-focus.log`；
+  `python -m pytest tests/test_reference_import_progress_adapters.py tests/test_kf6_outage.py tests/test_path_preferences.py -q`
+  **5 passed, 24.13 s**，日志 `tests/.pytest-cache/0917-last.log`。
+  不把这些后续测试合并冒充一次完整 390 项运行。
+- `FccgService.ReferenceProject_Create("Kf6Outage")` 后 `Project_Save` 生成
+  `tests/.pytest-outage-0917/generated`，由测试辅助函数编译真实生成 C fixture。
+- 生成目录内 `./Tests/Host/run_tests.ps1 -HostCompiler D:/msys64/ucrt64/bin/gcc.exe`：
+  **67 executables / 14484 checks / 0 failures / 8 compile-pass / 16 expected compile-fail**；
+  日志 `tests/.pytest-outage-0917/host-0917.log`。包含 estimator、KF、storage、sparse preflight。
+- 生成目录内，Arm GCC 14.3.1，
+  `D:/msys64/ucrt64/bin/mingw32-make.exe -j4 SHELL=cmd.exe CONFIG=Release all stack-report memory-report artifact-check`，
+  Debug 同命令改 `CONFIG=Debug`：两者通过。日志
+  `tests/.pytest-outage-0917/target-release.log`、`target-debug.log`。
+- `python -m pytest tests/test_documentation.py -q --basetemp=tests/.pytest-doc-final-0917`：最终文档检查 **6 passed, 0.27 s**。
+- `git diff --check` 与 `git diff --cached --check`：通过。
+- Qt offscreen：Light/Dark × zh_CN/en_US 新建窗口均渲染，测试进程显式加载 Windows 字体；
+  检视中文 Light 和英文 Dark 无布局裁切。图在 `tests/.pytest-visual-0917/`；不等于实体屏验收。
+
+| 配置 | FLASH bytes（相对上一轮） | main SRAM | CCM RAM | heap |
+| --- | ---: | ---: | ---: | ---: |
+| Release | 261720 (+416) | 78032 (+0) | 51112 (+48) | 0 |
+| Debug | 279224 (+384) | 78048 (+0) | 51112 (+48) | 0 |
+
+均检查 138 个 .su、八个任务；heap symbols=0。任务栈余量顺序为
+Device/INS/Estimator/Flight/Logger/Serial/Telemetry/Idle：
+Release=552/1032/2132/668/1696/1944/2116/256 bytes；
+Debug=728/1264/2228/1804/1704/3216/2436/256 bytes。
+linked ELF 与静态预算通过；未做实机时序、刷机、EIDE 或飞行认证。
+
+Release ELF SHA256：
+`ded64a42ddc58bafd70a5a737b7229cba75583956673ab224812fa27345b9316`；
+Debug：
+`753686f28769715cf966e2e032f2a88412d18d8fc06cf3f026e8162e4d4d9be9`。
+
+### 跨仓库数值与缺失实测
+
+独立固定 fixture：十个场景、每场景 64 帧，共 640 行，C 输入/状态为 float32。
+FLP 数值比较最大差：position **7.499018093992671e-09 m**，
+velocity **4.881515330845687e-11 m/s**，P **3.7143001591077862e-09**。
+恢复状态与计数完全一致；偏差来自 C 文本数值序列化精度，达到 float32 等价要求。
+fixture 是各仓库本地验证数据，无运行时相互导入。
+
+在三仓库、D:/python_software 与用户 Desktop 含隐藏/忽略路径搜索 SS0005–SS0008，
+未找到真实 BIN/SSLOG；少数历史测试缓存 ACL 不可读。不宣称扫描了所有磁盘。
+**未执行真实 SS0005–8 A/B**；四组日志最佳 shift 均未知，无稳定 GNSS 物理延迟结论。
+FLP 合成已知 +80 ms 延迟找回 -80 ms，只证明工具，不支持固件补偿。本轮未加入固定延迟。
+
+### 提交前 Git 快照（不含本报告）
+
+初始 HEAD 复核：60dd1f3d4d92cfaf308771e3e2d92890592cf048
+
+```text
+M	docs/ALGORITHM_PARAMETERS.md
+M	docs/GUI_STYLE_GUIDE.md
+A	docs/KF6_OUTAGE_RECOVERY.md
+M	docs/README.md
+M	docs/platform/details/NAVIGATION_AND_ESTIMATION.md
+M	plugins/builtin/silverstar_algorithm_estimator_kf6/docs/NAVIGATION_AND_ESTIMATION.md
+M	plugins/builtin/silverstar_algorithm_estimator_kf6/payload/Algorithm/Estimator/KF6/Inc/navigation_kf.h
+M	plugins/builtin/silverstar_algorithm_estimator_kf6/payload/Algorithm/Estimator/KF6/Src/navigation_kf.c
+M	plugins/builtin/silverstar_algorithm_estimator_kf6/plugin.json
+M	plugins/builtin/silverstar_core_0_0_10/payload/APP/Src/estimator_task.c
+M	plugins/builtin/silverstar_core_0_0_10/payload/System/Inc/system_estimator_profile.h
+M	plugins/builtin/silverstar_core_0_0_10/payload/System/Src/system_estimator_profile.c
+M	plugins/builtin/silverstar_core_0_0_10/payload/System/User/system_user_config.h
+M	plugins/builtin/silverstar_core_0_0_10/payload/Tests/Host/test_air_kf.c
+M	plugins/builtin/silverstar_core_0_0_10/payload/Tests/Host/test_algorithm_parameters.c
+A	plugins/builtin/silverstar_core_0_0_10/payload/Tests/Host/test_kf6_outage.c
+A	src/silverstar_fccg/core/path_preferences.py
+M	src/silverstar_fccg/i18n/en_US.json
+M	src/silverstar_fccg/i18n/zh_CN.json
+M	src/silverstar_fccg/ui/dialogs/new_project.py
+M	src/silverstar_fccg/ui/main_window.py
+M	tests/algorithm_parameters_support.py
+A	tests/fixtures/kf6_outage_vectors.json
+M	tests/test_algorithm_parameters.py
+A	tests/test_kf6_outage.py
+A	tests/test_path_preferences.py
+M	tools/import_reference_components.py
+
+ docs/ALGORITHM_PARAMETERS.md                       |  8 ++-
+ docs/GUI_STYLE_GUIDE.md                            |  9 +++
+ docs/KF6_OUTAGE_RECOVERY.md                        | 66 +++++++++++++++++
+ docs/README.md                                     |  1 +
+ docs/platform/details/NAVIGATION_AND_ESTIMATION.md |  5 +-
+ .../docs/NAVIGATION_AND_ESTIMATION.md              |  5 +-
+ .../Algorithm/Estimator/KF6/Inc/navigation_kf.h    |  3 +
+ .../Algorithm/Estimator/KF6/Src/navigation_kf.c    | 70 ++++++++++++++++--
+ .../silverstar_algorithm_estimator_kf6/plugin.json | 47 +++++++++++-
+ .../payload/APP/Src/estimator_task.c               |  8 +--
+ .../payload/System/Inc/system_estimator_profile.h  |  3 +-
+ .../payload/System/Src/system_estimator_profile.c  |  8 ++-
+ .../payload/System/User/system_user_config.h       |  7 ++
+ .../payload/Tests/Host/test_air_kf.c               |  8 +++
+ .../payload/Tests/Host/test_algorithm_parameters.c | 11 +--
+ .../payload/Tests/Host/test_kf6_outage.c           | 84 ++++++++++++++++++++++
+ src/silverstar_fccg/core/path_preferences.py       | 45 ++++++++++++
+ src/silverstar_fccg/i18n/en_US.json                |  3 +-
+ src/silverstar_fccg/i18n/zh_CN.json                |  3 +-
+ src/silverstar_fccg/ui/dialogs/new_project.py      | 25 +++++--
+ src/silverstar_fccg/ui/main_window.py              | 20 +++++-
+ tests/algorithm_parameters_support.py              |  4 +-
+ tests/fixtures/kf6_outage_vectors.json             |  1 +
+ tests/test_algorithm_parameters.py                 |  2 +-
+ tests/test_kf6_outage.py                           | 43 +++++++++++
+ tests/test_path_preferences.py                     | 46 ++++++++++++
+ tools/import_reference_components.py               | 11 ++-
+ 27 files changed, 510 insertions(+), 36 deletions(-)
+```
+
+最终提交后的工作区状态另在交付消息核验。
+
+
 ## 2026-09-16 — Sparse preflight logging closeout
 
 Initial source worktree clean at `b5904e3`. No reset, checkout, commit or push. Production

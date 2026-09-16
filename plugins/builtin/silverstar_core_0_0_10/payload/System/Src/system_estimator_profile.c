@@ -75,7 +75,7 @@ float SystemEstimatorProfile_GnssStdResolve(
 {
     float floor;
 
-    SILVERSTAR_ASSERT(kind <= SYSTEM_ESTIMATOR_GNSS_STD_VELOCITY,
+    SILVERSTAR_ASSERT(kind <= SYSTEM_ESTIMATOR_GNSS_STD_VERTICAL_VELOCITY,
                       SILVERSTAR_ASSERT_MODULE_SYSTEM,
                       SILVERSTAR_ASSERT_REASON_ENUM_RANGE);
     SILVERSTAR_ASSERT(isfinite(reported_std) && (reported_std >= 0.0f),
@@ -89,7 +89,8 @@ float SystemEstimatorProfile_GnssStdResolve(
     {
         floor = s_estimator_profile.gnss_vertical_position_std_floor_m;
     }
-    else if (kind == SYSTEM_ESTIMATOR_GNSS_STD_VELOCITY)
+    else if ((kind == SYSTEM_ESTIMATOR_GNSS_STD_VELOCITY) ||
+             (kind == SYSTEM_ESTIMATOR_GNSS_STD_VERTICAL_VELOCITY))
     {
         floor = s_estimator_profile.gnss_velocity_std_floor_mps;
     }
@@ -100,7 +101,8 @@ float SystemEstimatorProfile_GnssStdResolve(
 
     return SystemEstimatorProfile_Max(
         reported_std * s_estimator_profile.gnss_accuracy_scale,
-        floor);
+        floor) * ((kind == SYSTEM_ESTIMATOR_GNSS_STD_VERTICAL_VELOCITY) ?
+                   SYSTEM_ESTIMATOR_GNSS_VELOCITY_VERTICAL_SCALE : 1.0f);
 }
 
 void SystemEstimatorProfile_BuildP0(float p0[6][6],

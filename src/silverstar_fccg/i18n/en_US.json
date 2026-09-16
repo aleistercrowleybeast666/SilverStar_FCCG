@@ -739,5 +739,6 @@
   "algorithm_parameters.reset": "Restore algorithm defaults",
   "algorithm_parameters.shared": "Shared Parameters",
   "algorithm_parameters.shared_reset": "Restore shared parameter defaults",
-  "algorithm_parameters.no_private": "No independently adjustable parameters"
+  "algorithm_parameters.no_private": "No independently adjustable parameters",
+  "action.default_project_root": "Default Project Root..."
 }

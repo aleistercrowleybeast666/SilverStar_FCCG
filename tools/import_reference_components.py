@@ -1028,6 +1028,10 @@ def _Components_Get(
         for relative in (
             "System/User/system_user_config.h",
             "Tests/Host/test_algorithm_parameters.c",
+            "Tests/Host/test_air_kf.c",
+            "Tests/Host/test_kf6_outage.c",
+            "System/Inc/system_estimator_profile.h",
+            "System/Src/system_estimator_profile.c",
             "Tests/Host/Fixtures/algorithm_noise_absent.h",
             "APP/Inc/app_task_config.h",
             "APP/Inc/logger_bus.h",
@@ -2747,7 +2751,12 @@ def _Components_Get(
             owned_manifest = json.loads(builtin_manifest_path.read_text(encoding="utf-8"))
             if "algorithm_parameters" in owned_manifest:
                 component["manifest"]["algorithm_parameters"] = owned_manifest["algorithm_parameters"]
-                for relative in component["manifest"]["build"]["sources"]:
+                owned_sources = list(component["manifest"]["build"]["sources"])
+                owned_sources.extend(
+                    relative for relative, origin in owned_manifest.get("metadata", {}).get("source_origins", {}).items()
+                    if relative.endswith(".h") and origin.startswith("fccg_")
+                )
+                for relative in owned_sources:
                     component["fccg_owned_files"][relative] = f"plugins/builtin/{slug}/payload/{relative}"
                     component["manifest"]["metadata"].setdefault("source_origins", {})[relative] = "fccg_algorithm_parameters"
                 for document in sorted((builtin_manifest_path.parent / "docs").glob("*.md")):

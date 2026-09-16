@@ -183,7 +183,8 @@ scale=1.25
 ```text
 horizontal_std = max(hAcc * scale, horizontal_floor)
 vertical_std   = max(vAcc * scale, vertical_floor)
-velocity_std   = max(sAcc * scale, velocity_floor)
+velocity_EN_std = max(sAcc_EN * scale, velocity_floor)
+velocity_U_std  = max(sAcc_U * scale, velocity_floor) * gnss_velocity_vertical_scale
 ```
 
 因此Device静态推荐值不会把GNSS R退化为固定值。JY901B Barometer的推荐高度标准差为5 m；未定义`SYSTEM_ESTIMATOR_BAROMETER_ALTITUDE_STD_M_OVERRIDE`时由Barometer Interface提供。当前量测方差与该推荐下限取较大值，未来Device提供更大的实时不确定度时继续优先保留实时值。
@@ -198,7 +199,7 @@ Device推荐值与可选User override在构建`SystemEstimatorProfile`时解析�
 
 soft与hard之间扩大R后重算；超过hard拒绝。正常模式继续保留这一异常值保护。GNSS position EN、position U、velocity EN、velocity U与气压分别门控，一个组拒绝不连带拒绝其他组。
 
-仅靠hard reject不能自行修复“INS预测继续漂移、创新继续增大”的正反馈。因此KF内部对四个GNSS组分别维护reject streak、GNSS自一致计数、reacquire active、膨胀间隔和有限attempt。进入重捕获必须同时满足：System GNSS质量门已通过、字段和时间戳有效、对应组连续hard NIS reject达到配置值，并且GNSS最近历元本身连续满足运动学一致性。单帧跳点或GNSS自身连续乱跳只被拒绝，不触发协方差膨胀。
+仅靠hard reject不能自行修复“INS预测继续漂移、创新继续增大”的正反馈。因此KF内部对四个GNSS组分别维护reject streak、GNSS自一致计数、reacquire active、膨胀间隔和有限attempt。进入重捕获必须先发生对应组有效历元间隔严格超过 gnss_reacquire_outage_ms（默认 300 ms）的失联。连续新鲜 GNSS 的 hard reject 本身永不授权膨胀。返回帧先执行普通 NIS，接受时直接回到跟踪；仅仍拒绝时才继续确认。还必须同时满足：System GNSS质量门已通过、字段和时间戳有效、对应组连续hard NIS reject达到配置值，并且GNSS最近历元本身连续满足运动学一致性。单帧跳点或GNSS自身连续乱跳只被拒绝，不触发协方差膨胀。
 
 位置自一致性使用相邻GNSS历元：
 

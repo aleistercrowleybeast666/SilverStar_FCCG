@@ -48,10 +48,13 @@ static void Test_MeasurementApply(NavigationKfContext *context, unsigned int ste
         variance[index] = sigma * sigma;
     }
     (void)NavigationKf_UpdateGnssPosition(context, position, variance);
-    sigma = SystemEstimatorProfile_GnssStdResolve(SYSTEM_ESTIMATOR_GNSS_STD_VELOCITY, 0.05f);
-    variance[0] = sigma * sigma;
-    variance[1] = variance[0];
-    variance[2] = variance[0];
+    for (index = 0U; index < 3U; index++)
+    {
+        sigma = SystemEstimatorProfile_GnssStdResolve(
+            (index == 2U) ? SYSTEM_ESTIMATOR_GNSS_STD_VERTICAL_VELOCITY :
+                           SYSTEM_ESTIMATOR_GNSS_STD_VELOCITY, 0.05f);
+        variance[index] = sigma * sigma;
+    }
     (void)NavigationKf_UpdateGnssVelocity3D(context, velocity, variance);
     (void)NavigationKf_UpdateBaroAltitude(context, 0.15f, context->baro_std_m * context->baro_std_m);
 }

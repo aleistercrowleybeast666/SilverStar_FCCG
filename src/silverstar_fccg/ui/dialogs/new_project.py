@@ -20,14 +20,17 @@ from PySide6.QtWidgets import (
 )
 
 from silverstar_fccg.core.i18n import Translator
+from silverstar_fccg.core.path_preferences import ExistingDirectory_Get
 
 
 class ProjectIdentityForm(QWidget):
     completionChanged = Signal()
 
-    def __init__(self, translator: Translator) -> None:
+    def __init__(self, translator: Translator, default_root: Path | None = None) -> None:
         super().__init__()
         self._translator = translator
+        self._default_root = ExistingDirectory_Get(default_root)
+        self._output_automatic = True
         layout = QFormLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setHorizontalSpacing(16)
@@ -81,6 +84,9 @@ class ProjectIdentityForm(QWidget):
         output_layout.addWidget(self.output_edit, 1)
         output_layout.addWidget(self.browse_button)
         layout.addRow(self.output_label, output_widget)
+        self.name_edit.textChanged.connect(self._Output_Derive)
+        self.output_edit.textEdited.connect(self._Output_Customize)
+        self._Output_Derive()
         self.Language_Apply(translator)
 
     def isComplete(self) -> bool:
@@ -98,20 +104,31 @@ class ProjectIdentityForm(QWidget):
         )
         self.browse_button.setText(translator.Text_Get("action.browse"))
 
+    def _Output_Customize(self) -> None:
+        self._output_automatic = False
+
+    def _Output_Derive(self) -> None:
+        if self._output_automatic:
+            name = self.name_edit.text().strip()
+            # Invalid names are rejected by project creation, never used as paths.
+            if name not in (".", "..") and not any(c in name for c in '<>:"/\\|?*'):
+                self.output_edit.setText(str(self._default_root / name))
+
     def _Output_Browse(self) -> None:
         selected = QFileDialog.getExistingDirectory(
             self,
             self._translator.Text_Get("dialog.select_output_directory"),
-            self.output_edit.text() or str(Path.home() / "Documents"),
+            str(ExistingDirectory_Get(Path(self.output_edit.text()), self._default_root)),
         )
         if selected:
+            self._Output_Customize()
             self.output_edit.setText(selected)
 
 
 class NewProjectWizard(QDialog):
     """Compact identity dialog; configuration continues through the main pages."""
 
-    def __init__(self, translator: Translator, parent=None) -> None:
+    def __init__(self, translator: Translator, parent=None, *, default_root: Path | None = None) -> None:
         super().__init__(parent)
         self._translator = translator
         self.setModal(True)
@@ -127,7 +144,7 @@ class NewProjectWizard(QDialog):
         self.summary_label.setObjectName("muted")
         layout.addWidget(self.summary_label)
 
-        self.identity_page = ProjectIdentityForm(translator)
+        self.identity_page = ProjectIdentityForm(translator, default_root)
         self.identity_page.completionChanged.connect(self._Completion_Refresh)
         layout.addWidget(self.identity_page)
 

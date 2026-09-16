@@ -32,6 +32,9 @@ typedef enum
 
 typedef struct
 {
+    uint64_t availability_timestamp_us;
+    uint8_t outage;
+    uint8_t loss_latched;
     uint32_t reject_streak;
     uint32_t consistent_count;
     uint32_t accepted_streak;

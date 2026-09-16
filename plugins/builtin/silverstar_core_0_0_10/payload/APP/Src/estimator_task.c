@@ -1544,7 +1544,8 @@ static void Estimator_GnssVelocityBuild(EstimatorGnssUpdateWork *work)
     for (index = 0U; index < 3U; index++)
     {
         float std_mps = SystemEstimatorProfile_GnssStdResolve(
-            SYSTEM_ESTIMATOR_GNSS_STD_VELOCITY,
+            (index == 2U) ? SYSTEM_ESTIMATOR_GNSS_STD_VERTICAL_VELOCITY :
+                            SYSTEM_ESTIMATOR_GNSS_STD_VELOCITY,
             sqrtf(Estimator_Max(
                 work->sample.velocity_variance_m2ps2[index], 0.0f)));
         work->velocity_variance[index] = std_mps * std_mps;
@@ -1767,10 +1768,7 @@ static void Estimator_GnssUpdate(uint64_t state_timestamp_us)
     { return; }
 
     Estimator_GnssVelocityBuild(&work);
-    if (work.epoch.valid_group_mask != 0U)
-    {
-        NavigationKf_GnssEpochTrack(&s_estimator.kf, &work.epoch);
-    }
+    NavigationKf_GnssEpochTrack(&s_estimator.kf, &work.epoch);
 
     Estimator_GnssPositionUpdate(state_timestamp_us, profile, &work);
 
