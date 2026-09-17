@@ -118,7 +118,8 @@ class ProjectIdentityForm(QWidget):
         selected = QFileDialog.getExistingDirectory(
             self,
             self._translator.Text_Get("dialog.select_output_directory"),
-            str(ExistingDirectory_Get(Path(self.output_edit.text()), self._default_root)),
+            str(self._default_root if self._output_automatic else
+                ExistingDirectory_Get(Path(self.output_edit.text()), self._default_root)),
         )
         if selected:
             self._Output_Customize()

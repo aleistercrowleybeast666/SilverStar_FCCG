@@ -1,5 +1,86 @@
 # Validation — 2026-09-12 Algorithm actual parameters / decoder 1.2
 
+## 2026-09-17 — 外场前工程默认根目录一致性收尾
+
+本节只记录本轮路径修改；下方较早的 KF6 报告属于历史基线，本轮未改算法。
+初始 HEAD：`bad4167`；初始 `git status --short` 为空。
+没有 commit/push、reset/checkout/clean，没有删除或覆盖用户原有未提交内容。
+GSHC 未修改；FCCG 和 FLP 分别复用本仓库 PathPreferences，无新的跨仓库依赖。
+
+### 修改文件与原因
+
+- `src/silverstar_fccg/core/path_preferences.py`：给既有 PathPreferences 增加
+  `DefaultProjectRoot_EffectiveGet`，提供统一、只读的有效默认根目录。
+- `src/silverstar_fccg/ui/main_window.py`：New/Open/Save As 与默认目录设置入口复用 helper；
+  Open 不再用 service.workspace_root，Save As 不再固定 Documents。
+  Save As 用 Qt 目录对话框分别设置现存初始 root 与当前工程名；即使同名目录存在，
+  也不会自动进入该目录而丢失 root 初始位置。用户仍可选择其他目录。
+- `src/silverstar_fccg/ui/dialogs/new_project.py`：自动推导状态下 Browse 从 root 开始；
+  手动路径后保留原自定义目录/最近现存父目录行为。
+- `tests/test_path_preferences.py`：实际入口拦截测试，覆盖默认根目录、Unicode 名称、
+  同名目录已存在、取消、无效偏好 fallback、插件/工具链入口保持原目录。
+- `tests/test_device_capability_architecture.py`：原 Save As 完整复制集成测试改为拦截
+  QFileDialog.exec/选择结果；捕获错误提示并断言无错误，避免自动化停在隐藏模态框。
+  继续检查完整工程复制与设备源码保留，没有降低原有验收条件。
+- `docs/GUI_STYLE_GUIDE.md`：说明统一路径规则。
+- `VALIDATION.md`：本轮验收与检查限制。
+
+### 最终路径规则
+
+有效配置 → 现存 Documents → 现存 Home → cwd；不存在、不再是 directory、缺失盘符、
+空/损坏/相对路径配置安全 fallback，读取不 mkdir、不重写 JSON。
+设置位置仍为独立 `.fccg/path_preferences.json`，schema_version 1 不变。
+
+例如 root=D:/SilverStarProjects、name=SS_TEST_0：
+New 保持自动目标 D:/SilverStarProjects/SS_TEST_0，自动 Browse 从 D:/SilverStarProjects 开始；
+Open 从 D:/SilverStarProjects 开始；
+Save As 的目录视图从 D:/SilverStarProjects 开始，名称预填 SS_TEST_0。
+目录不存在时用户可明确创建或改选；仅显示对话框不会创建目录或移动工程。
+已存在同名目录仍受原 Save As 嵌套/非空目标及生成安全检查约束，不静默覆盖。
+普通 Save、手工自定义路径不变，Open/Save As 不更新用户的 Default Project Root。
+
+插件安装/导出、工具链 executable、CubeMX IOC、source-package 对话框没有被改到 root。
+语法树对比确认 MainWindow 仅四个方法发生变化：
+_DefaultProjectRoot_Select、_NewProject_Show、_Project_OpenDialog、_Project_SaveAs。
+
+### 检查结果
+
+- 定向路径测试：
+  `python -m pytest tests/test_path_preferences.py -q --basetemp=tests/.pytest-root-drive-20260917 -o cache_dir=tests/.pytest-root-cache-20260917`：
+  **10 passed, 1.50 s**。包含实际缺失盘符、删除后的目录、普通文件、坏 JSON、空配置、
+  首次启动、Documents/Home/cwd 逐级 fallback；前后偏好字节、工程模型不变。
+- 保存相关完整文件：
+  `python -u -m pytest tests/test_device_capability_architecture.py -vv --basetemp=tests/.pytest-root-save-debug-20260917 -o cache_dir=tests/.pytest-root-cache-20260917 -o faulthandler_timeout=60`：
+  **22 passed, 49.77 s**。日志保留于 `tests/.pytest-root-cache-20260917/.pytest-root-save-debug-20260917.log`。
+- 首次定向测试错误地直接赋值冻结的 ProjectIdentity，报 FrozenInstanceError；
+  新测试已改用既有 ProjectDraft_Create，不修改产品模型或解除冻结。
+- 第一次全量收集遇到旧 `tests/.pytest_cache/sparse0916` ACL 拒绝；后续使用
+  `--ignore-glob='tests/.pytest*'` 排除历史测试缓存，不删除缓存，也不跳过正式测试文件。
+- 随后的全量运行在保存服务错误提示处停滞，超时栈确认是 _Error_Show 的模态提示；
+  只终止本次自有测试进程。未完成运行不计通过。保存源工程独立复制和整个保存测试文件均通过，
+  随后改进测试错误捕获并重新执行全量检查。产品保存服务未作猜测性修改。
+
+- 最终完整复验：
+  `python -u -m pytest tests -x -vv --ignore-glob='tests/.pytest*' --basetemp=tests/.pytest-root-diagnose-20260917 -o cache_dir=tests/.pytest-root-cache-20260917`：
+  **398 passed, 1 skipped, 711.13 s**。虽然启用首错停止，但本次没有失败，399 项均完成判定。
+  日志保留于 `tests/.pytest-root-cache-20260917/.pytest-root-diagnose-20260917.log`。
+  唯一跳过：`test_prompt_acceptance.py:287`，只读参考固件任务仍活跃，本轮未中断或改写参考工程。
+- `git diff --check` 通过；没有为 FCCG 添加未在开发环境要求中的 Ruff/mypy 工具。
+- 最终报告写入后，`python -m pytest tests/test_documentation.py -q --basetemp=tests/.pytest-root-docs-20260917 -o cache_dir=tests/.pytest-root-cache-20260917`：**6 passed, 0.27 s**。
+
+### 未修改的问题与交付边界
+
+一次未完成的全量运行出现既有服务复制测试失败，后续 GUI 错误提示导致停滞；没有保留到该次
+会话最终异常摘要，不能据此确定根因。独立复制、保存测试文件及最终全量复验均通过。
+保存服务完全无 diff；若用户实际保存时再次遇到错误，建议独立收集异常后处理，不做推测性重构。
+本轮将自动化错误提示转成明确断言失败，避免以后隐藏弹窗掩盖错误。
+
+GNSS CONFIG READ/SHOW 差异未在本轮诊断或修改，按提示词留待下一轮新固件外场核验。
+未改 KF6、INS、GNSS 融合/质量门/reacquisition、算法默认参数、NIS、P/Q、协议或日志格式。
+FCCG project 12、decoder semantics 1.2、FLP .ssflp v3/schema 均不变；没有自动移动用户工程。
+最终保留上述文件的未提交修改，无 push。测试产物均位于 tests 的忽略目录内。
+
+
 ## 2026-09-17 — KF6 外场反馈第二轮与默认工程根目录
 
 初始 HEAD：`60dd1f3d4d92cfaf308771e3e2d92890592cf048`。

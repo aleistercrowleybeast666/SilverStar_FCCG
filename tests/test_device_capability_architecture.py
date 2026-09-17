@@ -1022,12 +1022,15 @@ def test_gui_save_as_action_switches_to_complete_project_copy(
         service=service,
         language="en_US",
     )
+    errors = []
+    monkeypatch.setattr(window, "_Error_Show", errors.append)
     try:
         window._Project_Open(source)
+        assert not errors
         monkeypatch.setattr(
             QFileDialog,
-            "getExistingDirectory",
-            lambda *_args, **_kwargs: str(destination),
+            "exec",
+            lambda dialog: (dialog.selectFile(str(destination)), QFileDialog.DialogCode.Accepted)[1],
         )
         window._Project_SaveAs()
         deadline = time.monotonic() + 30.0
@@ -1037,6 +1040,7 @@ def test_gui_save_as_action_switches_to_complete_project_copy(
             # Windows/Python 3.14, starving the Python-heavy save worker.
             time.sleep(0.01)
         assert window._active_worker is None
+        assert not errors, errors
         assert window._project_root == destination.resolve()
         assert (destination / "SilverStar.ssproject").is_file()
         assert (destination / "Devices" / "IMU" / "JY901B").is_dir()

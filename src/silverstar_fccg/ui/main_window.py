@@ -47,7 +47,7 @@ from silverstar_fccg.build.toolchain import ArmGnuSubtoolPaths_Derive
 from silverstar_fccg.core.i18n import Translator
 from silverstar_fccg.core.errors import FccgError
 from silverstar_fccg.core.settings import SettingsStore
-from silverstar_fccg.core.path_preferences import PathPreferences, ExistingDirectory_Get
+from silverstar_fccg.core.path_preferences import PathPreferences
 from silverstar_fccg.core.task import (
     TaskProgressEvent_Parse,
     TaskProgressState,
@@ -1844,7 +1844,7 @@ class MainWindow(QMainWindow):
     def _DefaultProjectRoot_Select(self) -> None:
         selected = QFileDialog.getExistingDirectory(
             self, self._translator.Text_Get("action.default_project_root"),
-            str(ExistingDirectory_Get(self._path_preferences.DefaultProjectRoot_Get())),
+            str(self._path_preferences.DefaultProjectRoot_EffectiveGet()),
         )
         if selected:
             try:
@@ -1854,7 +1854,7 @@ class MainWindow(QMainWindow):
 
     def _NewProject_Show(self) -> None:
         wizard = NewProjectWizard(self._translator, self,
-                                  default_root=self._path_preferences.DefaultProjectRoot_Get())
+                                  default_root=self._path_preferences.DefaultProjectRoot_EffectiveGet())
         if wizard.exec() != QDialog.DialogCode.Accepted:
             return
         values = wizard.WizardData_Get()
@@ -1871,7 +1871,7 @@ class MainWindow(QMainWindow):
         selected, _filter = QFileDialog.getOpenFileName(
             self,
             self._translator.Text_Get("dialog.open_project"),
-            str(self._service.workspace_root),
+            str(self._path_preferences.DefaultProjectRoot_EffectiveGet()),
             self._translator.Text_Get("filter.silverstar_project"),
         )
         if selected:
@@ -1963,13 +1963,22 @@ class MainWindow(QMainWindow):
 
     def _Project_SaveAs(self) -> None:
         self._ProjectModel_Sync()
-        selected = QFileDialog.getExistingDirectory(
+        dialog = QFileDialog(
             self,
             self._translator.Text_Get("dialog.save_project_as"),
-            str(Path.home() / "Documents"),
+            str(self._path_preferences.DefaultProjectRoot_EffectiveGet()),
         )
-        if not selected:
+        # Keep the root visible while prefilling the directory name, even if it exists.
+        dialog.setOption(QFileDialog.Option.DontUseNativeDialog, True)
+        dialog.setFileMode(QFileDialog.FileMode.Directory)
+        dialog.setOption(QFileDialog.Option.ShowDirsOnly, True)
+        dialog.setAcceptMode(QFileDialog.AcceptMode.AcceptSave)
+        dialog.selectFile(self._model.identity.name)
+        selected_paths = dialog.selectedFiles() if dialog.exec() == QDialog.DialogCode.Accepted else []
+        dialog.deleteLater()
+        if not selected_paths:
             return
+        selected = selected_paths[0]
         dangerous = False
         if self._project_root is not None and (
             self._project_root / "SilverStar.ssproject"

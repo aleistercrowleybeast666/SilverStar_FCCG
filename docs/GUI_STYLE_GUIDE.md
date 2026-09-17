@@ -56,6 +56,10 @@ Qt touch tests do not certify the physical Windows touch driver.
 File → Default Project Root stores an existing selected directory in repository-local
 `.fccg/path_preferences.json` (schema_version 1), separate from project state and UI INI settings.
 New Project derives `<root>/<name>` until the first user edit or Browse selection freezes the
-output path. Name changes then leave the custom path intact. Browsing starts at the nearest
-existing output ancestor. Missing/corrupt preferences safely fall back without creating a root.
-Save/Open/Save As and the five-page configuration flow retain their existing semantics.
+output path. Name changes then leave the custom path intact. Automatic Browse starts at the root;
+custom Browse starts at the nearest existing output ancestor. New/Open/Save As share the effective
+root: a valid configured directory, then existing Documents, Home, or cwd. Save As uses a directory
+dialog rooted there with the current project name prefilled; it does not create that directory
+until the user explicitly does so. Ordinary Save keeps its current project destination.
+Missing/corrupt preferences safely fall back without creating a root or rewriting preferences.
+Plugin/toolchain/IOC/source-package dialogs and the five-page flow keep their existing semantics.
