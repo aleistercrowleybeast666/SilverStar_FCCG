@@ -243,3 +243,24 @@ SystemDeviceResult SystemTime_GetUtc(SystemUtcSnapshot *snapshot)
     SystemTime_Unlock(state);
     return (snapshot->valid != 0U) ? SYSTEM_DEVICE_OK : SYSTEM_DEVICE_NOT_READY;
 }
+
+SystemMeasurementTimeResult SystemTime_MeasurementTimestampResolve(
+    uint64_t receive_us, uint64_t native_mcu_us, uint8_t native_trusted,
+    uint32_t configured_delay_ms, uint64_t *measurement_us)
+{
+    uint64_t delay_us = (uint64_t)configured_delay_ms * 1000ULL;
+    if ((measurement_us == NULL) || (receive_us == 0U) || (native_trusted > 1U))
+    { return SYSTEM_MEASUREMENT_TIME_INVALID; }
+    if (native_trusted != 0U)
+    {
+        if ((native_mcu_us == 0U) || (native_mcu_us > receive_us))
+        { return SYSTEM_MEASUREMENT_TIME_INVALID; }
+        *measurement_us = native_mcu_us;
+    }
+    else
+    {
+        if (receive_us < delay_us) { return SYSTEM_MEASUREMENT_TIME_INVALID; }
+        *measurement_us = receive_us - delay_us;
+    }
+    return SYSTEM_MEASUREMENT_TIME_OK;
+}

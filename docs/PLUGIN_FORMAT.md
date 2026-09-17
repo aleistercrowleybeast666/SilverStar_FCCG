@@ -35,3 +35,29 @@ ZIP traversal、绝对路径、symlink、special file、case collision、超限�
 ## Shared algorithm parameters
 
 An algorithm parameter may declare `shared_key`, matching `^[a-z][a-z0-9_.-]*$`. All catalog declarations for a key must have identical type, default, unit, representation, bounds, precision, and step; IDs and generated symbols may differ. Selected owners are displayed by `selection.ui_order`, then component ID, with owners lacking `selection` last. This is declarative FCCG configuration linkage, not an algorithm dispatch rule.
+
+## Sensor Recommendation != Algorithm Constraint
+
+A Device may publish `metadata.sensor_recommendations`, an array of objects with
+`parameter_id`, finite numeric `value`, `unit`, `representation`, `source`, and
+localized `description`. Example: JY901B `baro_std_m=1.5`, unit `m`, representation
+`sigma`. This is advisory display/initialization/fallback data. It cannot overwrite
+saved algorithm values, clamp them, reject a shared parameter group, or masquerade
+as native per-sample variance. UI pairs a matching parameter ID/unit/representation
+with the advisory label; its editor retains the algorithm's own legal bounds.
+
+Algorithm `minimum`/`maximum` and `Value_Resolve` remain hard numeric domains. Actual
+chip/protocol limits, C representability, necessary numerical invariants, static
+history capacity and reviewed MCU budgets remain hard constraints with explicit
+errors. A recommended sigma/rate/range/quality threshold is not a hardware guarantee.
+If no native variance exists, mark it unavailable rather than synthesizing sigma²
+from a recommendation. Real receiver hAcc/vAcc/sAcc uncertainty remains native data.
+
+Builtin audit: JY901B barometer 5 m was an empirical recommendation previously
+misrepresented as per-sample variance; it is now 1.5 m advisory and variance is
+unavailable. The old KF setter's 1.5 m clamp is removed. JY901B process-acceleration
+sigma and NEO-M9N recommended GNSS sigma floors already feed only descriptor/fallback
+paths when no explicit algorithm override exists; they are now also visible advisory
+metadata. Receiver-reported hAcc/vAcc/sAcc and the algorithm's configured dynamic
+GNSS floor policy are retained. Actual transport rates, sensor ranges, qualification,
+quality gates and existing GNSS recovery thresholds are unchanged.

@@ -21,6 +21,8 @@ typedef struct
 {
     uint64_t sample_timestamp_us;
     uint64_t receive_timestamp_us;
+    /* sample_timestamp_us is already on MCU monotonic axis when trusted. */
+    uint8_t measurement_timestamp_trusted;
     uint32_t sequence;
     int32_t pressure_raw_pa;
     int32_t altitude_raw_cm;

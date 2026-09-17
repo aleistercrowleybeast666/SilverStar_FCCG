@@ -39,7 +39,8 @@
   ],
   "build": {
     "sources": [
-      "Algorithm/Estimator/KF6/Src/navigation_kf.c"
+      "Algorithm/Estimator/KF6/Src/navigation_kf.c",
+      "Algorithm/Estimator/KF6/Src/navigation_kf_replay.c"
     ],
     "asm_sources": [],
     "include_dirs": [
@@ -80,7 +81,18 @@
     ],
     "source_origins": {
       "Algorithm/Estimator/KF6/Src/navigation_kf.c": "fccg_algorithm_parameters",
-      "Algorithm/Estimator/KF6/Inc/navigation_kf.h": "fccg_algorithm_parameters"
+      "Algorithm/Estimator/KF6/Inc/navigation_kf.h": "fccg_algorithm_parameters",
+      "Algorithm/Estimator/KF6/Inc/navigation_kf_replay.h": "fccg_algorithm_parameters",
+      "Algorithm/Estimator/KF6/Src/navigation_kf_replay.c": "fccg_algorithm_parameters",
+      "Algorithm/Estimator/KF6/module.mk": "fccg_algorithm_parameters"
+    },
+    "delayed_measurement_replay": {
+      "version": 1,
+      "history_window_ms": 600,
+      "maximum_configured_delay_ms": 550,
+      "ordering": "IMU boundary, GNSS position, GNSS velocity, barometer; source sequence tie-break",
+      "initialization": "new estimator epoch at mission initialization",
+      "time_axis": "MCU monotonic microseconds; receive time owns availability"
     }
   },
   "selection": {
@@ -387,10 +399,10 @@
       {
         "id": "baro_std_m",
         "type": "float",
-        "default": 5.0,
+        "default": 2.5,
         "unit": "m",
         "representation": "sigma",
-        "min": 1.5,
+        "min": 0.01,
         "max": 1000.0,
         "precision": 6,
         "step": 0.01,
@@ -402,9 +414,10 @@
           "zh_CN": "气压高度标准差"
         },
         "description": {
-          "en_US": "Altitude sigma, squared once by the existing measurement update; existing minimum is 1.5 m.",
-          "zh_CN": "高度标准差，由原测量更新平方一次；原有最小值为 1.5 m。"
-        }
+          "en_US": "Configured altitude sigma; R = sigma squared. Provider recommendations never clamp this value.",
+          "zh_CN": "配置的高度标准差；R 等于此值平方。传感器建议不钳制此值。"
+        },
+        "legacy_default": 5.0
       },
       {
         "id": "nis_1d_soft",
@@ -566,7 +579,7 @@
       {
         "id": "gnss_velocity_vertical_scale",
         "type": "float",
-        "default": 1.0,
+        "default": 1.75,
         "unit": "1",
         "representation": "value",
         "min": 1.0,
@@ -583,7 +596,8 @@
         "description": {
           "zh_CN": "GNSS 垂直速度标准差倍率；失联恢复不由连续 NIS 拒绝单独触发。",
           "en_US": "GNSS vertical velocity standard deviation scale; continuous NIS rejection alone never authorizes recovery."
-        }
+        },
+        "legacy_default": 1.0
       },
       {
         "id": "gnss_reacquire_outage_ms",
@@ -605,6 +619,75 @@
         "description": {
           "zh_CN": "GNSS 恢复失联门槛；失联恢复不由连续 NIS 拒绝单独触发。",
           "en_US": "GNSS reacquisition outage threshold; continuous NIS rejection alone never authorizes recovery."
+        }
+      },
+      {
+        "id": "gnss_position_measurement_delay_ms",
+        "type": "integer",
+        "default": 0,
+        "legacy_default": 0,
+        "unit": "ms",
+        "representation": "value",
+        "min": 0,
+        "max": 550,
+        "precision": 0,
+        "step": 5,
+        "group": "advanced",
+        "order": 24,
+        "generated_symbol": "SYSTEM_ESTIMATOR_GNSS_POSITION_MEASUREMENT_DELAY_MS",
+        "display_names": {
+          "en_US": "GNSS position measurement delay",
+          "zh_CN": "GNSS 位置量测延迟"
+        },
+        "description": {
+          "en_US": "Experimental fixed-lag delay. Receive-only timestamp fallback; trusted MCU sample epochs bypass this delay. Hard maximum reserves history scheduling margin.",
+          "zh_CN": "实验性固定滞后延迟。仅接收时间回退使用；可信 MCU 量测时刻不重复扣除。硬上限预留历史调度余量。"
+        }
+      },
+      {
+        "id": "gnss_velocity_measurement_delay_ms",
+        "type": "integer",
+        "default": 270,
+        "legacy_default": 0,
+        "unit": "ms",
+        "representation": "value",
+        "min": 0,
+        "max": 550,
+        "precision": 0,
+        "step": 5,
+        "group": "advanced",
+        "order": 25,
+        "generated_symbol": "SYSTEM_ESTIMATOR_GNSS_VELOCITY_MEASUREMENT_DELAY_MS",
+        "display_names": {
+          "en_US": "GNSS velocity measurement delay",
+          "zh_CN": "GNSS 速度量测延迟"
+        },
+        "description": {
+          "en_US": "Experimental fixed-lag delay. Receive-only timestamp fallback; trusted MCU sample epochs bypass this delay. Hard maximum reserves history scheduling margin.",
+          "zh_CN": "实验性固定滞后延迟。仅接收时间回退使用；可信 MCU 量测时刻不重复扣除。硬上限预留历史调度余量。"
+        }
+      },
+      {
+        "id": "baro_measurement_delay_ms",
+        "type": "integer",
+        "default": 0,
+        "legacy_default": 0,
+        "unit": "ms",
+        "representation": "value",
+        "min": 0,
+        "max": 550,
+        "precision": 0,
+        "step": 5,
+        "group": "advanced",
+        "order": 26,
+        "generated_symbol": "SYSTEM_ESTIMATOR_BARO_MEASUREMENT_DELAY_MS",
+        "display_names": {
+          "en_US": "Barometer measurement delay",
+          "zh_CN": "气压高度量测延迟"
+        },
+        "description": {
+          "en_US": "Experimental fixed-lag delay. Receive-only timestamp fallback; trusted MCU sample epochs bypass this delay. Hard maximum reserves history scheduling margin.",
+          "zh_CN": "实验性固定滞后延迟。仅接收时间回退使用；可信 MCU 量测时刻不重复扣除。硬上限预留历史调度余量。"
         }
       }
     ]

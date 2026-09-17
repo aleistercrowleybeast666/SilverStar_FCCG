@@ -29,19 +29,19 @@ static void Test_EstimatorNoiseProfile(
     TEST_CHECK(FloatClose(estimator->barometer_altitude_std_m, 3.5f));
 #else
     TEST_CHECK(FloatClose(estimator->process_accel_std_mps2[0],
-        SYSTEM_SELECTED_IMU_RECOMMENDED_PROCESS_ACCEL_E_STD_MPS2));
+        SYSTEM_ESTIMATOR_PROCESS_ACCEL_E_STD_MPS2_VALUE));
     TEST_CHECK(FloatClose(estimator->process_accel_std_mps2[1],
-        SYSTEM_SELECTED_IMU_RECOMMENDED_PROCESS_ACCEL_N_STD_MPS2));
+        SYSTEM_ESTIMATOR_PROCESS_ACCEL_N_STD_MPS2_VALUE));
     TEST_CHECK(FloatClose(estimator->process_accel_std_mps2[2],
-        SYSTEM_SELECTED_IMU_RECOMMENDED_PROCESS_ACCEL_U_STD_MPS2));
+        SYSTEM_ESTIMATOR_PROCESS_ACCEL_U_STD_MPS2_VALUE));
     TEST_CHECK(FloatClose(estimator->gnss_horizontal_position_std_floor_m,
-        SYSTEM_SELECTED_GNSS_RECOMMENDED_HORIZONTAL_POSITION_STD_FLOOR_M));
+        SYSTEM_ESTIMATOR_GNSS_HORIZONTAL_STD_FLOOR_M_VALUE));
     TEST_CHECK(FloatClose(estimator->gnss_vertical_position_std_floor_m,
-        SYSTEM_SELECTED_GNSS_RECOMMENDED_VERTICAL_POSITION_STD_FLOOR_M));
+        SYSTEM_ESTIMATOR_GNSS_VERTICAL_STD_FLOOR_M_VALUE));
     TEST_CHECK(FloatClose(estimator->gnss_velocity_std_floor_mps,
-        SYSTEM_SELECTED_GNSS_RECOMMENDED_VELOCITY_STD_FLOOR_MPS));
+        SYSTEM_ESTIMATOR_GNSS_VELOCITY_STD_FLOOR_MPS_VALUE));
     TEST_CHECK(FloatClose(estimator->barometer_altitude_std_m,
-        SYSTEM_SELECTED_BAROMETER_RECOMMENDED_ALTITUDE_STD_M));
+        SYSTEM_ESTIMATOR_BAROMETER_ALTITUDE_STD_M_VALUE));
 #endif
 }
 

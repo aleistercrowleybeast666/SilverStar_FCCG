@@ -25,7 +25,8 @@ the existing initial GNSS uncertainty rule may increase P0. They are not squared
 Process acceleration sigma is per axis; existing prediction squares sigma and retains its
 original dt gains. GNSS sigma remains `max(receiver_sigma * 1.25, configured_floor)` and
 R is its square. Horizontal E/N share a position floor; velocity U additionally uses the declared vertical sigma scale.
-Barometer sigma is squared once by the existing update and retains its 1.5 m minimum.
+Barometer R is the square of the configured sigma. JY901B recommendation (1.5 m)
+is advisory; there is no device sigma floor and no fabricated native variance.
 NIS values are dimensionless; hard must exceed soft even after float32 rounding.
 The existing NIS maximum R inflation cap is itself an actual dimensionless parameter.
 
@@ -35,8 +36,8 @@ scale to actual sigma. There is no invented fixed GNSS R; the declared vertical 
 not emulate arbitrary offline R multipliers: reported receiver uncertainty still participates.
 FLP process sigma, gravity and NIS values already have actual semantics. FLP is read-only in
 this change; its later consumer must adopt this explicit contract independently.
-State dimension, coning/sculling coefficients, matrix safeguards, update order, source selection,
-measurement timing remain unchanged. GNSS outage recovery and its two compatible parameter additions are defined in [the recovery contract](KF6_OUTAGE_RECOVERY.md).
+State dimension, coning/sculling coefficients, matrix safeguards and source selection remain unchanged.
+Measurement timing is extended by the [fixed-lag replay contract](KF6_FIXED_LAG_REPLAY.md). GNSS outage recovery and its two compatible parameter additions are defined in [the recovery contract](KF6_OUTAGE_RECOVERY.md).
 
 ## Coning2 + Sculling2 INS
 
@@ -65,9 +66,9 @@ measurement timing remain unchanged. GNSS outage recovery and its two compatible
 | `gnss_position_std_horizontal` | 1.5 | m | sigma |
 | `gnss_position_std_vertical` | 2.5 | m | sigma |
 | `gnss_velocity_std` | 0.15 | m/s | sigma |
-| `gnss_velocity_vertical_scale` | 1 | 1 | value |
+| `gnss_velocity_vertical_scale` | 1.75 | 1 | value |
 | `gnss_reacquire_outage_ms` | 300 | ms | value |
-| `baro_std_m` | 5 | m | sigma |
+| `baro_std_m` | 2.5 | m | sigma |
 | `nis_1d_soft` | 6.635 | 1 | value |
 | `nis_1d_hard` | 10.828 | 1 | value |
 | `nis_2d_soft` | 9.21 | 1 | value |
@@ -146,3 +147,20 @@ Pure INS and KF6 declare `navigation.gravity_mps2`. Their separate generated mac
 FCCG-only and is not serialized to `.ssdecoder`; FLP does not interpret it. This navigation group
 does not include `SYSTEM_LOCAL_GRAVITY_MPS2`, Calibration, or Alignment. Package schema and project
 semantics remain 1.2, required FLP minimum is 0.0.2, and algorithm formulas/timing are unchanged.
+
+## Fixed-lag parameters and migration
+
+KF6 declares advanced integer `gnss_position_measurement_delay_ms` (0),
+`gnss_velocity_measurement_delay_ms` (270), and `baro_measurement_delay_ms` (0).
+Values 0–550 ms are supported by the static 600 ms history with 50 ms scheduling
+headroom. A measurement outside the actual available history is explicitly rejected,
+including startup and reset boundaries. 270 ms is an experimental candidate, not a
+NEO-M9N hardware property. All values are emitted into generated constants and decoder
+actual-parameter metadata.
+
+`legacy_default` is optional declarative parameter metadata. Reconciliation uses it
+only for a missing field in an existing algorithm owner. Previously stored explicit
+values always win; new selections and Restore Defaults use `default`. Old KF6 owners
+missing new delay fields receive zero delays; missing legacy baro/vertical-scale
+fields receive 5.0/1.0. New projects use 2.5/1.75 and velocity delay 270 ms.
+Recommendations never participate in shared-parameter contract equality.

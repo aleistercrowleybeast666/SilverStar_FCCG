@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from silverstar_fccg.plugins.recommendations import SensorRecommendations_Parse
 from silverstar_fccg.plugins.algorithm_parameters import AlgorithmParameterDefinition, AlgorithmParameters_Parse
 
 import hashlib
@@ -2760,6 +2761,10 @@ def PluginManifest_Parse(
     metadata = data.get("metadata", {})
     if not isinstance(metadata, dict):
         raise PluginManifestError("metadata must be an object")
+    try:
+        SensorRecommendations_Parse(metadata.get("sensor_recommendations"))
+    except ValueError as error:
+        raise PluginManifestError(str(error)) from error
     for metadata_field in ("display_names", "descriptions"):
         localized_values = metadata.get(metadata_field, {})
         if not isinstance(localized_values, dict) or not all(

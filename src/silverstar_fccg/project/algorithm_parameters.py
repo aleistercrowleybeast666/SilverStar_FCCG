@@ -38,7 +38,7 @@ def AlgorithmParameters_Reconcile(model: ProjectModel, catalog: PluginCatalog) -
     # remain visible to validation; never silently discard stale configuration.
     model.algorithm_parameters = {
         owner.component_id: {
-            **{p.parameter_id: existing_shared.get(p.shared_key, p.default) for p in owner.algorithm_parameters},
+            **{p.parameter_id: existing_shared.get(p.shared_key, p.legacy_default if owner.component_id in model.algorithm_parameters and p.legacy_default is not None else p.default) for p in owner.algorithm_parameters},
             **model.algorithm_parameters.get(owner.component_id, {}),
         } for owner in owners
     }

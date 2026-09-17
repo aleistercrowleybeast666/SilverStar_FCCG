@@ -125,7 +125,8 @@ def test_dependency_and_resource_conflicts_are_reported(builtin_catalog) -> None
 
 def test_source_graph_is_complete_and_has_one_truth(builtin_catalog) -> None:
     graph = SourceGraph_Resolve(ReferenceProject_Create(), builtin_catalog)
-    assert len(graph.sources) == 138
+    assert len(graph.sources) == 139
+    assert "Algorithm/Estimator/KF6/Src/navigation_kf_replay.c" in graph.sources
     assert len(graph.sources) == len(set(graph.sources))
     assert "APP/Src/diagnostic_log.c" in graph.sources
     assert "APP/Src/device_task.c" in graph.sources

@@ -29,6 +29,18 @@ typedef struct
     uint8_t valid;
 } SystemUtcSnapshot;
 
+typedef enum
+{
+    SYSTEM_MEASUREMENT_TIME_OK = 0,
+    SYSTEM_MEASUREMENT_TIME_INVALID
+} SystemMeasurementTimeResult;
+
+/* native_mcu_us is already converted by the provider's existing time sync.
+ * A trusted epoch bypasses configured receive latency; never subtract twice. */
+SystemMeasurementTimeResult SystemTime_MeasurementTimestampResolve(
+    uint64_t receive_us, uint64_t native_mcu_us, uint8_t native_trusted,
+    uint32_t configured_delay_ms, uint64_t *measurement_us);
+
 SYSTEM_WARN_UNUSED_RESULT SystemDeviceResult SystemTime_Init(void);
 uint64_t SystemTime_GetMonotonicUs(void);
 uint64_t SystemTime_GetMonotonicUsFromIsr(void);

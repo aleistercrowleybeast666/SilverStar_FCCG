@@ -2751,16 +2751,41 @@ def _Components_Get(
             owned_manifest = json.loads(builtin_manifest_path.read_text(encoding="utf-8"))
             if "algorithm_parameters" in owned_manifest:
                 component["manifest"]["algorithm_parameters"] = owned_manifest["algorithm_parameters"]
+                component["manifest"]["build"]["sources"] = list(dict.fromkeys(
+                    component["manifest"]["build"]["sources"] +
+                    owned_manifest["build"]["sources"]))
+                if "delayed_measurement_replay" in owned_manifest.get("metadata", {}):
+                    component["manifest"]["metadata"]["delayed_measurement_replay"] = owned_manifest["metadata"]["delayed_measurement_replay"]
                 owned_sources = list(component["manifest"]["build"]["sources"])
                 owned_sources.extend(
                     relative for relative, origin in owned_manifest.get("metadata", {}).get("source_origins", {}).items()
-                    if relative.endswith(".h") and origin.startswith("fccg_")
+                    if (relative.endswith(".h") or relative.endswith("module.mk")) and isinstance(origin, str) and origin.startswith("fccg_")
                 )
                 for relative in owned_sources:
                     component["fccg_owned_files"][relative] = f"plugins/builtin/{slug}/payload/{relative}"
                     component["manifest"]["metadata"].setdefault("source_origins", {})[relative] = "fccg_algorithm_parameters"
                 for document in sorted((builtin_manifest_path.parent / "docs").glob("*.md")):
                     component["fccg_owned_docs"][document.name] = f"plugins/builtin/{slug}/docs/{document.name}"
+        # Recommendation metadata and timestamp contracts are package-owned.
+        if component_id == core_id:
+            for relative in (
+                "APP/Inc/estimator_bus.h", "APP/Src/estimator_task.c", "APP/Src/device_task.c",
+                "System/Inc/system_time.h", "System/Src/system_time.c",
+                "Interfaces/Inc/system_gnss_if.h", "Interfaces/Inc/system_barometer_if.h",
+                "Tests/Host/test_navigation_kf_replay.c", "Tests/Host/test_profiles.c", "Tests/Host/test_air_kf.c", "Tests/Host/test_jy901b_adapter.c", "Tests/Host/run_tests.ps1",
+            ):
+                component["fccg_owned_files"][relative] = f"plugins/builtin/{slug}/payload/{relative}"
+        if component["manifest"]["type"] == "device" and builtin_manifest_path.is_file():
+            owned_device = json.loads(builtin_manifest_path.read_text(encoding="utf-8"))
+            recommendations = owned_device.get("metadata", {}).get("sensor_recommendations")
+            if recommendations is not None:
+                component["manifest"]["metadata"]["sensor_recommendations"] = recommendations
+            if component_id == "silverstar.device.imu.jy901b":
+                for relative in (
+                    "Devices/IMU/JY901B/Adapter/Inc/jy901b_barometer_build_capabilities.h",
+                    "Devices/IMU/JY901B/Adapter/Src/jy901b_barometer_adapter.c",
+                ):
+                    component["fccg_owned_files"][relative] = f"plugins/builtin/{slug}/payload/{relative}"
         component["fccg_owned_docs"].update({
             name: f"plugins/builtin/{slug}/docs/{name}"
             for name in owned_documentation.get(component_id, ())

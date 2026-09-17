@@ -838,13 +838,13 @@ static void Test_Kf(void)
     NavigationKf_Init(&context);
     TEST_CHECK_NEAR(context.process_accel_std_mps2[0], 1.5f, 1.0e-6f);
     TEST_CHECK_NEAR(context.process_accel_std_mps2[2], 2.0f, 1.0e-6f);
-    TEST_CHECK_NEAR(context.baro_std_m, 5.0f, 1.0e-6f);
+    TEST_CHECK_NEAR(context.baro_std_m, SYSTEM_ESTIMATOR_BAROMETER_ALTITUDE_STD_M_VALUE, 1.0e-6f);
     TEST_CHECK_NEAR(context.nis_soft_threshold[1], 9.210f, 1.0e-4f);
     TEST_CHECK_NEAR(context.nis_hard_threshold[2], 16.266f, 1.0e-4f);
     TEST_CHECK_NEAR(profile->p0_diagonal[5], 0.25f, 1.0e-6f);
     TEST_CHECK_NEAR(profile->process_accel_std_mps2[2], 2.0f, 1.0e-6f);
     TEST_CHECK_NEAR(profile->gnss_accuracy_scale, 1.25f, 1.0e-6f);
-    TEST_CHECK_NEAR(profile->barometer_altitude_std_m, 5.0f, 1.0e-6f);
+    TEST_CHECK_NEAR(profile->barometer_altitude_std_m, SYSTEM_ESTIMATOR_BAROMETER_ALTITUDE_STD_M_VALUE, 1.0e-6f);
 
     SystemEstimatorProfile_BuildP0(p0, position_std, velocity_std,
         SYSTEM_GNSS_VEL_VALID_E | SYSTEM_GNSS_VEL_VALID_N);

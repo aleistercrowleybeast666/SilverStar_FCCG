@@ -1,5 +1,162 @@
 # Validation — 2026-09-12 Algorithm actual parameters / decoder 1.2
 
+## 2026-09-17 — KF6 fixed-lag replay 与传感器建议值（诊断日志未闭环）
+
+本轮只修改 FCCG，基于 HEAD `34e16ef282402e3800c20492b32255143c0da67b`；起始工作区干净。
+未修改 FLP、GSHC、参考固件、全局环境或原有未提交内容；未 commit/push。
+实现契约、时间链和推荐值审计分别见 [KF6 replay](docs/KF6_FIXED_LAG_REPLAY.md)、
+[参数契约](docs/ALGORITHM_PARAMETERS.md)、[插件契约](docs/PLUGIN_FORMAT.md)。
+
+### 完成范围与未完成项
+
+- JY901B 原 5 m 人工保守值改成 1.5 m recommendation；无原生逐样本 variance 的事实用
+  unsupported/invalid 标记表达，不能再把建议值平方伪装成原生 R。KF setter 的 1.5 m
+  隐式钳制已删除；气压量测 R = configured sigma²，1.0/2.5/5.0 均可保存和生成。
+- 建议值是 Device 的声明式 metadata，UI 只显示来源/数值/单位；不进入 shared-key
+  compatibility，不覆盖工程实际值。JY901B process sigma、NEO-M9N sigma recommendation
+  保持 descriptor/fallback 语义；真实 hAcc/vAcc/sAcc 保留原生不确定度语义。
+- 保留算法自身合法数值域、真实设备速率/量程、协议/C 表示范围、资格/质量门限及资源
+  限制。非有限输入、非法 R、超历史/容量和时间不连续显式拒绝，不以静默 clamp 放行。
+- 新建工程 GNSS sigma = 1.5/2.5/0.15，vertical scale = 1.75，baro sigma = 2.5，
+  outage = 300 ms；position/velocity/baro delay = 0/270/0 ms。旧工程显式值优先；
+  已有 owner 缺失的新 delay 补 0，缺失 baro/vertical scale 分别补旧默认 5/1。
+- 一套 engine 同时处理 GNSS position、velocity 和 Barometer；完整 KF context 检查点
+  恢复后，在 measurement time update，再按时间重放 IMU 与 aiding events 到 present。
+  保存导航系 IMU 增量，姿态不重复传播；回放不重复发日志、遥测或任务副作用。
+- GNSS 原接收侧 availability/consistency 只按 receive time 执行一次；历史中携带其
+  不可变证据。270 ms 算法延迟不参与 outage 时钟；真实失联恢复数学规则保持原样。
+- Barometer 在算法参数页 advanced 参数 `baro_measurement_delay_ms` 设置非零即进入
+  同一 engine；0 使用旧 fast path（无可信历史 epoch 时）。可信 MCU sample timestamp
+  优先，绝不再减 configured delay。参数合法范围 0–550 ms，历史窗口 600 ms。
+- **尚未完成：SSLOG replay 汇总诊断输出。** 内部 replay/history-miss/overflow/rejection、
+  steps/runtime/HWM 已记录；decoder 已包含三个实际 delay，旧 native/measurement record
+  仍保留输入时间。自动审批按早期“日志不变”限制拒绝了新的诊断 record，并拒绝了保留
+  原 29 个 record 布局、仅追加 EVENT 含义的兼容方案；已请求本轮追加 EVENT 授权，尚未
+  收到答复，因此没有落地这些日志改动。不能宣称第十四节诊断要求或整项任务全部完成。
+
+### 时间同步与 Fixed-Lag Replay 的衔接
+
+原 Platform/System Time 负责统一 MCU 单调微秒、计数器回绕、任务原点和外部提供的 UTC
+对应关系。惯性 hub 当前只运行 PASSTHROUGH；JY901B 压力帧和 NEO-M9N NAV-PVT 的 sample
+时间均来自接收解析时钟，iTOW 尚无自动 MCU epoch 映射。原机制不恢复历史状态。
+
+本轮在原 SystemTime 中增加 measurement time 解析，而没有复制时钟系统：
+可信且已转 MCU 轴的 native sample → 直接使用；否则 receive − configured delay →
+统一 replay engine → 历史完整 KF x/P/internal state → measurement update → 后续事件
+重放 → present。只修正 timestamp 后在 current x/P 更新的实现被测试作为错误负面对照。
+
+### 自动化验证
+
+所有生成、编译和临时文件均在 `tests/artifacts/fixed_lag/`，未降低原有内存、栈、
+编译拒绝或 golden 验收门限。
+
+| 检查 | 结果与证据 |
+|---|---|
+| 全部 Python tests | **409 passed, 1 skipped**, 1075.85 s；`python-full-03.log` |
+| 唯一 skip | 只读参考固件工作树非 clean，原测试自行跳过 reference payload 精确同步检查；未为通过测试修改参考目录 |
+| 推荐值/UI/参数与 replay 定向回归 | `pytest-05` 35 passed；随后边界/文档/source-graph `pytest-07` 8 passed |
+| 最终引擎 + 最大 delay 补验 | `pytest-09` 1 passed；实际 C fixture **28,160 checks, 0 failures** |
+| 最终生成固件完整 Host | `integration-04/validation-host.log`：**68 executables, 37,569 checks, 0 failures**；8 compile-pass、16 expected compile-fail；storage-integrity 4/4 |
+| Golden/deterministic | 全部 Python/Host 回归中的原测试通过；原 golden fixture 未修改，以相同旧实际参数验证旧输出 |
+| ARM Release / Debug | 均通过 `all stack-report memory-report artifact-check`；最终产物 `integration-04` |
+| 差异检查 | `git diff --check` 通过 |
+
+完整 Python 命令：
+`python -m pytest -q --ignore-glob=tests/.pytest* --basetemp=tests/artifacts/fixed_lag/pytest-full-03 -o cache_dir=tests/artifacts/fixed_lag/pytest-cache`。
+完整 Python 运行期间最终优化了高频 Barometer 的紧凑存储，因此另外用最终生成固件完整
+Host 和 `pytest-09` 验证该 C 版本。`integration-04` 包含 0/100 ms 满速压力场景；此后
+仅增加 550 ms 测试场景，未改生产代码，由 `pytest-09` 编译最终 fixture 执行。
+
+C 测试覆盖：相同参数/输入下零延迟 x/P 逐步 memcmp；GNSS 及气压历史更新；IMU 区间
+中间的气压采样；多 delay 到达乱序；同时间确定排序；环多次回绕；真实/伪 outage；
+重复 GNSS receive epoch；太旧量测、epoch/reset、容量/速率溢出、时间不连续、NaN；
+64 位时间边界；可信 native 时间不双减 delay；P finite/对称/对角非负与状态计数一致。
+零延迟等价指相同实际参数和 R 的旧 KF 数学路径；不能把新默认值或本轮明确修改的
+Barometer R 语义变化描述成旧默认输出完全不变。
+
+### ARM 静态资源（字节）
+
+基线来自本轮修改前重新生成的 `baseline`，不是沿用旧报告数值。
+
+| 项目 | 基线 Release | 最终 Release | 基线 Debug | 最终 Debug |
+|---|---:|---:|---:|---:|
+| FLASH / bin | 261728 | 266968 | 279224 | 284680 |
+| main SRAM | 78032 | 95288 | 78048 | 95304 |
+| `.data` | 1128 | 1128 | 1128 | 1128 |
+| main `.bss` | 67816 | 85072 | 67832 | 85088 |
+| CCM `.ccmram_bss` | 51112 | 61936 | 51112 | 61936 |
+| main + CCM SRAM | 129144 | 157224 | 129160 | 157240 |
+| Estimator worst-known stack | 1964 | 2348 | 1868 | 2436 |
+| Estimator stack margin（4096 配置） | 2132 | 1748 | 2228 | 1660 |
+
+main SRAM 增加 17,256；CCM 增加 10,824；总 SRAM 增加 **28,080**。
+History/context 两个静态对象为 `s_replay` **17,248 main SRAM** 与 `s_replay_storage`
+**9,984 CCM**，合计 **27,232**；其余增量包括 KF group generation、快照字段及对齐。
+最终 Release/Debug main SRAM 余量分别 35,784/35,768，CCM 余量 3,600；保留原产品
+reviewed resource gates。heap reserved = 0，linked runtime heap symbols = 0。
+
+静态容量：144 IMU + 48 GNSS + 160 compact Barometer + 8 full KF checkpoints，共用
+有序事件索引。理论单次 replay 预测分段/量测更新上限 **560**，全部循环也有固定容量
+边界。200 Hz IMU + 200 Hz Barometer + 25 Hz GNSS 实测合成事件流：
+
+| Barometer delay | GNSS position/velocity delay | 最大 replay steps | event HWM | overflow / history miss |
+|---|---|---:|---:|---|
+| 0 ms | 0 / 270 ms | 151 | 168 | 0 / 0 |
+| 100 ms | 0 / 270 ms | 131 | 148 | 0 / 0 |
+| 550 ms | 0 / 270 ms | 171 | 58 | 0 / 0 |
+
+Release ELF SHA256: `a95cb8c0f161a9bd04be00027835b4f2a0ea48f251475e8397086eaa2bd2d6cf`。
+Debug ELF SHA256: `70bab162b91005ecd9cc77c1df90015e931d699217f7dd7b6484c05da7997ac5`。
+
+**ARM 编译通过，但 on-target cycle timing 尚待实机验证。** 本轮无上板运行结果，
+没有 CPU 利用率、真实任务周期、动态栈 HWM 或外场精度承诺。Host 步数与静态栈分析
+不能证明 200 Hz 实时 deadline；下一轮需板上压力测试，尤其 CCM 仅余 3,600 字节。
+
+### 本轮文件清单
+
+- `VALIDATION.md`
+- `docs/ALGORITHM_PARAMETERS.md`
+- `docs/KF6_FIXED_LAG_REPLAY.md`
+- `docs/PLUGIN_FORMAT.md`
+- `docs/README.md`
+- `plugins/builtin/silverstar_algorithm_estimator_kf6/payload/Algorithm/Estimator/KF6/Inc/navigation_kf.h`
+- `plugins/builtin/silverstar_algorithm_estimator_kf6/payload/Algorithm/Estimator/KF6/Inc/navigation_kf_replay.h`
+- `plugins/builtin/silverstar_algorithm_estimator_kf6/payload/Algorithm/Estimator/KF6/Src/navigation_kf.c`
+- `plugins/builtin/silverstar_algorithm_estimator_kf6/payload/Algorithm/Estimator/KF6/Src/navigation_kf_replay.c`
+- `plugins/builtin/silverstar_algorithm_estimator_kf6/payload/Algorithm/Estimator/KF6/module.mk`
+- `plugins/builtin/silverstar_algorithm_estimator_kf6/plugin.json`
+- `plugins/builtin/silverstar_core_0_0_10/payload/APP/Inc/estimator_bus.h`
+- `plugins/builtin/silverstar_core_0_0_10/payload/APP/Src/device_task.c`
+- `plugins/builtin/silverstar_core_0_0_10/payload/APP/Src/estimator_task.c`
+- `plugins/builtin/silverstar_core_0_0_10/payload/Interfaces/Inc/system_barometer_if.h`
+- `plugins/builtin/silverstar_core_0_0_10/payload/Interfaces/Inc/system_gnss_if.h`
+- `plugins/builtin/silverstar_core_0_0_10/payload/System/Inc/system_time.h`
+- `plugins/builtin/silverstar_core_0_0_10/payload/System/Src/system_time.c`
+- `plugins/builtin/silverstar_core_0_0_10/payload/Tests/Host/run_tests.ps1`
+- `plugins/builtin/silverstar_core_0_0_10/payload/Tests/Host/test_air_kf.c`
+- `plugins/builtin/silverstar_core_0_0_10/payload/Tests/Host/test_jy901b_adapter.c`
+- `plugins/builtin/silverstar_core_0_0_10/payload/Tests/Host/test_navigation_kf_replay.c`
+- `plugins/builtin/silverstar_core_0_0_10/payload/Tests/Host/test_profiles.c`
+- `plugins/builtin/silverstar_device_gnss_neo_m9n/plugin.json`
+- `plugins/builtin/silverstar_device_imu_jy901b/payload/Devices/IMU/JY901B/Adapter/Inc/jy901b_barometer_build_capabilities.h`
+- `plugins/builtin/silverstar_device_imu_jy901b/payload/Devices/IMU/JY901B/Adapter/Src/jy901b_barometer_adapter.c`
+- `plugins/builtin/silverstar_device_imu_jy901b/plugin.json`
+- `schemas/plugin.schema.json`
+- `src/silverstar_fccg/i18n/en_US.json`
+- `src/silverstar_fccg/i18n/zh_CN.json`
+- `src/silverstar_fccg/plugins/algorithm_parameters.py`
+- `src/silverstar_fccg/plugins/manifest.py`
+- `src/silverstar_fccg/plugins/recommendations.py`
+- `src/silverstar_fccg/project/algorithm_parameters.py`
+- `src/silverstar_fccg/ui/main_window.py`
+- `src/silverstar_fccg/ui/pages/algorithm_parameters.py`
+- `tests/test_algorithm_parameters.py`
+- `tests/test_fixed_lag_replay.py`
+- `tests/test_project_domain.py`
+- `tests/test_sensor_recommendations.py`
+- `tools/import_reference_components.py`
+
+
 ## 2026-09-17 — 外场前工程默认根目录一致性收尾
 
 本节只记录本轮路径修改；下方较早的 KF6 报告属于历史基线，本轮未改算法。

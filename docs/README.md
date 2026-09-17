@@ -17,6 +17,7 @@
 - [飞前日志策略](PREFLIGHT_LOGGING.md)
 - [`GUI_STYLE_GUIDE.md`](GUI_STYLE_GUIDE.md)
 - [KF6 outage recovery](KF6_OUTAGE_RECOVERY.md)
+- [KF6 固定滞后重放与时间同步](KF6_FIXED_LAG_REPLAY.md)
 
 ## 共同协议契约
 - [`AIR_CALIBRATION_CONTRACT.md`](AIR_CALIBRATION_CONTRACT.md)
@@ -27,4 +28,4 @@ GUI规范同时参见[CXYL Python GUI Style Guide](CXYL_Python_GUI_STYLE_GUIDE.m
 
 ## Algorithm configuration contract
 
-Pure INS/KF6 实际参数、单位、P0/Q/R 转换与 decoder 1.2 边界见[算法参数契约](ALGORITHM_PARAMETERS.md)。默认值保留旧算法数值行为；公式、时序与融合策略不变。
+Pure INS/KF6 实际参数、单位、P0/Q/R 转换与 decoder 1.2 边界见[算法参数契约](ALGORITHM_PARAMETERS.md)。旧工程保存值保持不变；新工程采用本轮候选默认值。固定滞后引擎扩展量测时序，KF 公式和 GNSS true-outage 策略保持不变。

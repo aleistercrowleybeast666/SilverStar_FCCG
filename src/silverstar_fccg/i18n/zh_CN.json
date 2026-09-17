@@ -740,5 +740,6 @@
   "algorithm_parameters.shared": "公共参数",
   "algorithm_parameters.shared_reset": "恢复公共参数默认值",
   "algorithm_parameters.no_private": "无独立可调参数",
-  "action.default_project_root": "默认工程根目录..."
+  "action.default_project_root": "默认工程根目录...",
+  "algorithm_parameters.recommendation": "{source} 推荐值：{value} {unit}（仅供参考，不限制当前值）"
 }

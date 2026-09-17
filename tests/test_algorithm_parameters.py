@@ -39,8 +39,12 @@ def test_actual_defaults_roundtrip_and_decoder(builtin_catalog):
     assert values['p0_position_u'] == 9.0
     assert values['process_accel_std_u'] == 2.0
     assert values['gnss_velocity_std'] == 0.15
-    assert values['baro_std_m'] == 5.0
-    assert len(values) == 23
+    assert values['baro_std_m'] == 2.5
+    assert len(values) == 26
+    assert values["gnss_velocity_vertical_scale"] == 1.75
+    assert values["gnss_position_measurement_delay_ms"] == 0
+    assert values["gnss_velocity_measurement_delay_ms"] == 270
+    assert values["baro_measurement_delay_ms"] == 0
     assert values['gravity_mps2'] == 9.78
     assert [owner.component_id for owner in AlgorithmParameterOwners_Get(model,builtin_catalog)] == [INS,KF]
     assert ProjectModel_Parse(model.Dictionary_Get()).algorithm_parameters == model.algorithm_parameters
@@ -82,7 +86,7 @@ def test_selection_lifecycle_unknown_ids_and_nis_order(builtin_catalog):
     assert KF not in {s['component'] for s in AlgorithmParameters_Resolve(model,builtin_catalog)}
     model.strategies[slot]=KF
     model=ProjectConfiguration_Reconcile(model,builtin_catalog).model
-    assert model.algorithm_parameters[KF]['baro_std_m']==5.
+    assert model.algorithm_parameters[KF]['baro_std_m']==2.5
     model.algorithm_parameters[KF]['nis_1d_hard']=model.algorithm_parameters[KF]['nis_1d_soft']
     with pytest.raises(ValueError,match='must exceed'):
         AlgorithmParameters_Resolve(model,builtin_catalog)
@@ -219,6 +223,9 @@ def test_generated_defaults_numerically_identical_and_changed_values_consumed(tm
         pytest.skip('Reference golden compiler unavailable')
     service=FccgService(workspace_root)
     model=service.ReferenceProject_Create('AlgorithmGolden')
+    # Keep the historical golden unchanged; use its explicit actual parameters.
+    model.algorithm_parameters[KF]['baro_std_m'] = 5.0
+    model.algorithm_parameters[KF]['gnss_velocity_vertical_scale'] = 1.0
     project=tmp_path/'generated'
     service.Project_Save(model,project,confirm_dangerous=True)
     baseline=Trajectory_Run(project,workspace_root)

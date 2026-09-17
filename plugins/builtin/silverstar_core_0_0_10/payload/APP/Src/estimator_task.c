@@ -13,6 +13,7 @@
 #include "geodesy_local.h"
 #include "ins_mechanization.h"
 #include "ins_task.h"
+#include "navigation_kf_replay.h"
 #if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
 #include "logger_bus.h"
 #endif
@@ -151,6 +152,7 @@ typedef struct
     FlightLogGnssMeasurementRecord measurement;
 #endif
     NavigationKfGnssEpoch epoch;
+    NavigationReplayOutcome replay_outcome;
     NavigationKfGnssSeparatedUpdateResult position_group_result;
     NavigationKfGnssSeparatedUpdateResult velocity_group_result;
     float position_enu_m[3];
@@ -180,6 +182,11 @@ typedef struct
 } EstimatorBarometerUpdateWork;
 
 static PLATFORM_CPU_FAST_BSS EstimatorRuntime s_estimator;
+/* Single EstimatorTask owner. Event data uses main SRAM; CPU-only
+ * IMU/checkpoint storage uses reviewed CCM capacity. Neither is DMA memory. */
+static NavigationReplayContext s_replay;
+static PLATFORM_CPU_FAST_BSS NavigationReplayStorage s_replay_storage;
+static uint32_t s_replay_epoch;
 static EstimatorOutputSnapshot s_snapshot;
 static EstimatorOutputSnapshot s_published_snapshot;
 static volatile uint8_t s_origin_collection_busy;
@@ -312,8 +319,7 @@ static uint8_t Estimator_GnssSampleFresh(
     {
         return 0U;
     }
-    timestamp_us = (sample->receive_timestamp_us != 0U) ?
-        sample->receive_timestamp_us : sample->sample_timestamp_us;
+    timestamp_us = sample->receive_timestamp_us;
     return (uint8_t)((timestamp_us != 0U) &&
                      (timestamp_us <= now_us) &&
                      ((now_us - timestamp_us) <=
@@ -1393,7 +1399,7 @@ static EstimatorGnssPrepareResult Estimator_GnssSamplePrepare(
     }
     if (work->sample.sequence == s_estimator.last_gnss_sequence)
     { return ESTIMATOR_GNSS_PREPARE_STOP; }
-    if (work->sample.sample_timestamp_us > state_timestamp_us)
+    if (work->sample.receive_timestamp_us > state_timestamp_us)
     {
         s_estimator.gnss_diagnostics.last_update_state =
             SYSTEM_ESTIMATOR_GNSS_UPDATE_WAIT_SAMPLE;
@@ -1429,7 +1435,7 @@ static EstimatorGnssPrepareResult Estimator_GnssMeasurementPrepare(
     work->measurement.position_usable = sample->position_usable;
     work->measurement.fusion_allowed = s_estimator.gnss_fusion_enabled;
 #endif
-    work->age_us = state_timestamp_us - sample->sample_timestamp_us;
+    work->age_us = state_timestamp_us - sample->receive_timestamp_us;
     s_snapshot.last_gnss_timestamp_us = sample->sample_timestamp_us;
     s_snapshot.last_gnss_sequence = sample->sequence;
     s_snapshot.last_gnss_age_us = Estimator_AgeToU32(work->age_us);
@@ -1586,18 +1592,16 @@ static void Estimator_GnssPositionUpdate(
     if ((s_snapshot.measurement_attempt_mask &
          ESTIMATOR_ATTEMPT_GNSS_POSITION) == 0U)
     { return; }
-    s_snapshot.position_update_result =
-        NavigationKf_UpdateGnssPositionSeparated(
-            &s_estimator.kf, work->position_enu_m,
-            work->position_variance, &work->position_group_result);
+    s_snapshot.position_update_result = work->replay_outcome.position;
+    work->position_group_result = work->replay_outcome.position_groups;
     horizontal_scale = Estimator_ResultScale(
         work->position_group_result.horizontal_result,
-        s_estimator.kf.last_gnss_group_nis[
+        work->replay_outcome.group_nis[
             NAV_KF_GNSS_GROUP_POSITION_HORIZONTAL],
         profile->nis_2d_soft, profile->nis_max_r_scale);
     vertical_scale = Estimator_ResultScale(
         work->position_group_result.vertical_result,
-        s_estimator.kf.last_gnss_group_nis[
+        work->replay_outcome.group_nis[
             NAV_KF_GNSS_GROUP_POSITION_VERTICAL],
         profile->nis_1d_soft, profile->nis_max_r_scale);
     s_snapshot.position_r_scale = Estimator_Max(
@@ -1634,25 +1638,20 @@ static void Estimator_GnssVelocityUpdate(
     for (index = 0U; index < 3U; index++)
     {
         s_snapshot.velocity_innovation[index] =
-            work->sample.velocity_enu_mps[index] -
-            s_estimator.kf.state[index + 3U];
+            work->replay_outcome.velocity_innovation[index];
     }
-    s_snapshot.velocity_update_result =
-        NavigationKf_UpdateGnssVelocitySeparated(
-            &s_estimator.kf, work->sample.velocity_enu_mps,
-            work->velocity_variance,
-            (uint8_t)(work->velocity_dimension == 3U),
-            &work->velocity_group_result);
+    s_snapshot.velocity_update_result = work->replay_outcome.velocity;
+    work->velocity_group_result = work->replay_outcome.velocity_groups;
     horizontal_scale = Estimator_ResultScale(
         work->velocity_group_result.horizontal_result,
-        s_estimator.kf.last_gnss_group_nis[
+        work->replay_outcome.group_nis[
             NAV_KF_GNSS_GROUP_VELOCITY_HORIZONTAL],
         profile->nis_2d_soft, profile->nis_max_r_scale);
     if (work->velocity_group_result.vertical_attempted != 0U)
     {
         vertical_scale = Estimator_ResultScale(
             work->velocity_group_result.vertical_result,
-            s_estimator.kf.last_gnss_group_nis[
+            work->replay_outcome.group_nis[
                 NAV_KF_GNSS_GROUP_VELOCITY_VERTICAL],
             profile->nis_1d_soft, profile->nis_max_r_scale);
     }
@@ -1670,34 +1669,6 @@ static void Estimator_GnssVelocityUpdate(
     else
     {
         s_snapshot.velocity_reject_count++;
-    }
-}
-
-static void Estimator_GnssGroupResultsProcess(
-    const EstimatorGnssUpdateWork *work)
-{
-    SILVERSTAR_ASSERT_OBJECT(work, EstimatorGnssUpdateWork,
-                             SILVERSTAR_ASSERT_MODULE_APP);
-    if (work->position_group_result.horizontal_attempted != 0U)
-    {
-        NavigationKf_GnssGroupResultProcess(
-            &s_estimator.kf, NAV_KF_GNSS_GROUP_POSITION_HORIZONTAL,
-            work->position_group_result.horizontal_result);
-        NavigationKf_GnssGroupResultProcess(
-            &s_estimator.kf, NAV_KF_GNSS_GROUP_POSITION_VERTICAL,
-            work->position_group_result.vertical_result);
-    }
-    if (work->velocity_group_result.horizontal_attempted != 0U)
-    {
-        NavigationKf_GnssGroupResultProcess(
-            &s_estimator.kf, NAV_KF_GNSS_GROUP_VELOCITY_HORIZONTAL,
-            work->velocity_group_result.horizontal_result);
-        if (work->velocity_group_result.vertical_attempted != 0U)
-        {
-            NavigationKf_GnssGroupResultProcess(
-                &s_estimator.kf, NAV_KF_GNSS_GROUP_VELOCITY_VERTICAL,
-                work->velocity_group_result.vertical_result);
-        }
     }
 }
 
@@ -1746,6 +1717,101 @@ static void Estimator_GnssUpdateFinalize(
 #endif
 }
 
+static SystemMeasurementTimeResult Estimator_MeasurementTimeResolve(
+    uint64_t receive_us, uint64_t sample_us, uint8_t trusted,
+    uint32_t delay_ms, uint64_t present_us, uint64_t *measurement_us)
+{
+    SystemMeasurementTimeResult result = SystemTime_MeasurementTimestampResolve(
+        receive_us, sample_us, trusted, delay_ms, measurement_us);
+    if (result != SYSTEM_MEASUREMENT_TIME_OK)
+    {
+        s_replay.diagnostics.last_result = NAV_REPLAY_INVALID;
+        s_replay.diagnostics.rejection_count++;
+    }
+    else if ((trusted == 0U) && (delay_ms == 0U))
+    {
+        /* Legacy zero-delay application boundary. Original receive timestamp
+         * remains in native and estimator input records. */
+        *measurement_us = present_us;
+    }
+    return result;
+}
+
+static NavigationReplayResult Estimator_ReplayInsert(
+    const NavigationReplayEvent *event, NavigationReplayOutcome *outcome)
+{
+    uint64_t start_us = SystemTime_GetMonotonicUs();
+    NavigationReplayResult result = NavigationReplay_Insert(
+        &s_replay, &s_estimator.kf, event, outcome);
+    NavigationReplay_RuntimeRecord(&s_replay, SystemTime_GetMonotonicUs() - start_us);
+    return result;
+}
+
+static void Estimator_GnssReplay(uint64_t state_timestamp_us,
+                                 EstimatorGnssUpdateWork *work)
+{
+    NavigationReplayEvent event;
+    NavigationReplayOutcome outcome;
+    uint64_t position_us;
+    uint64_t velocity_us;
+    uint8_t part;
+    (void)memset(&event, 0, sizeof(event));
+    work->replay_outcome.position = NAV_KF_UPDATE_REJECTED_INVALID;
+    work->replay_outcome.velocity = NAV_KF_UPDATE_REJECTED_INVALID;
+    work->epoch.timestamp_us = work->sample.receive_timestamp_us;
+    if (NavigationReplay_ReceiveTrack(&s_replay, &work->epoch, &event) != NAV_REPLAY_OK)
+    { return; }
+    if ((Estimator_MeasurementTimeResolve(work->sample.receive_timestamp_us,
+            work->sample.sample_timestamp_us, work->sample.measurement_timestamp_trusted,
+            SYSTEM_ESTIMATOR_GNSS_POSITION_MEASUREMENT_DELAY_MS,
+            state_timestamp_us, &position_us) != SYSTEM_MEASUREMENT_TIME_OK) ||
+        (Estimator_MeasurementTimeResolve(work->sample.receive_timestamp_us,
+            work->sample.sample_timestamp_us, work->sample.measurement_timestamp_trusted,
+            SYSTEM_ESTIMATOR_GNSS_VELOCITY_MEASUREMENT_DELAY_MS,
+            state_timestamp_us, &velocity_us) != SYSTEM_MEASUREMENT_TIME_OK))
+    { return; }
+    event.sequence = work->sample.sequence;
+    event.source = 0U;
+    event.vertical_valid = (uint8_t)(work->velocity_dimension == 3U);
+    (void)memcpy(event.position, work->position_enu_m, sizeof(event.position));
+    (void)memcpy(event.position_variance, work->position_variance, sizeof(event.position_variance));
+    (void)memcpy(event.velocity, work->sample.velocity_enu_mps, sizeof(event.velocity));
+    (void)memcpy(event.velocity_variance, work->velocity_variance, sizeof(event.velocity_variance));
+    for (part = 0U; part < 2U; part++)
+    {
+        /* Insert this packet's older component first, so its rewind cannot
+         * invalidate the newer component's published result in the same packet. */
+        event.kind = ((part == 0U) == (position_us <= velocity_us)) ?
+            NAV_REPLAY_POSITION : NAV_REPLAY_VELOCITY;
+        event.measurement_timestamp_us = (event.kind == NAV_REPLAY_POSITION) ?
+            position_us : velocity_us;
+        if (position_us == velocity_us)
+        { event.kind = NAV_REPLAY_POSITION | NAV_REPLAY_VELOCITY; }
+        (void)Estimator_ReplayInsert(&event, &outcome);
+        if ((event.kind & NAV_REPLAY_POSITION) != 0U)
+        {
+            work->replay_outcome.position = outcome.position;
+            work->replay_outcome.position_groups = outcome.position_groups;
+            (void)memcpy(work->replay_outcome.position_innovation,
+                outcome.position_innovation, sizeof(outcome.position_innovation));
+            work->replay_outcome.group_nis[0] = outcome.group_nis[0];
+            work->replay_outcome.group_nis[1] = outcome.group_nis[1];
+        }
+        if ((event.kind & NAV_REPLAY_VELOCITY) != 0U)
+        {
+            work->replay_outcome.velocity = outcome.velocity;
+            work->replay_outcome.velocity_groups = outcome.velocity_groups;
+            (void)memcpy(work->replay_outcome.velocity_innovation,
+                outcome.velocity_innovation, sizeof(outcome.velocity_innovation));
+            work->replay_outcome.group_nis[2] = outcome.group_nis[2];
+            work->replay_outcome.group_nis[3] = outcome.group_nis[3];
+        }
+        if (position_us == velocity_us) { break; }
+    }
+    (void)memcpy(s_snapshot.position_innovation, work->replay_outcome.position_innovation,
+                  sizeof(s_snapshot.position_innovation));
+}
+
 static void Estimator_GnssUpdate(uint64_t state_timestamp_us)
 {
     const SystemEstimatorProfile *profile;
@@ -1768,13 +1834,12 @@ static void Estimator_GnssUpdate(uint64_t state_timestamp_us)
     { return; }
 
     Estimator_GnssVelocityBuild(&work);
-    NavigationKf_GnssEpochTrack(&s_estimator.kf, &work.epoch);
+    Estimator_GnssReplay(state_timestamp_us, &work);
 
     Estimator_GnssPositionUpdate(state_timestamp_us, profile, &work);
 
     Estimator_GnssVelocityUpdate(state_timestamp_us, profile, &work);
 
-    Estimator_GnssGroupResultsProcess(&work);
     Estimator_GnssUpdateFinalize(&work);
 }
 
@@ -1848,7 +1913,7 @@ static EstimatorBarometerPrepareResult Estimator_BarometerSampleValidate(
         return ESTIMATOR_BAROMETER_PREPARE_STOP;
     }
     s_estimator.baro_diagnostics.sample_valid = 1U;
-    if (work->pressure.timestamp_us > state_timestamp_us)
+    if (work->pressure.receive_timestamp_us > state_timestamp_us)
     {
         Estimator_BarometerUpdateStateSet(
             SYSTEM_ESTIMATOR_BARO_UPDATE_WAIT_STATE_CATCHUP,
@@ -1856,7 +1921,7 @@ static EstimatorBarometerPrepareResult Estimator_BarometerSampleValidate(
             state_timestamp_us, 0U);
         return ESTIMATOR_BAROMETER_PREPARE_STOP;
     }
-    age_us = state_timestamp_us - work->pressure.timestamp_us;
+    age_us = state_timestamp_us - work->pressure.receive_timestamp_us;
     s_snapshot.last_baro_timestamp_us = work->pressure.timestamp_us;
     s_snapshot.last_baro_sequence = work->pressure.sequence;
     s_snapshot.last_baro_age_us = Estimator_AgeToU32(age_us);
@@ -1909,12 +1974,10 @@ static void Estimator_BarometerMeasurementUpdate(
     work->relative_altitude_m = work->altitude_m -
                                 s_estimator.frozen_baro_altitude_m;
     s_snapshot.baro_relative_altitude_m = work->relative_altitude_m;
-    work->variance_m2 = Estimator_Max(
-        work->pressure.variance_m2,
-        profile->barometer_altitude_std_m *
-        profile->barometer_altitude_std_m);
-    work->variance_m2 += s_estimator.baro_origin_std_m *
-                         s_estimator.baro_origin_std_m;
+    /* Explicit algorithm variance: the sensor recommendation does not impose a floor.
+     * Origin statistics remain separate diagnostics and P0 inputs. */
+    work->variance_m2 = profile->barometer_altitude_std_m *
+                        profile->barometer_altitude_std_m;
     s_snapshot.baro_innovation = work->relative_altitude_m -
                                  s_estimator.kf.state[2];
     s_snapshot.baro_variance_r = work->variance_m2;
@@ -1930,13 +1993,32 @@ static void Estimator_BarometerMeasurementUpdate(
     work->measurement.valid_mask =
         (work->pressure.valid != 0U) ? 1UL : 0UL;
 #endif
-    s_snapshot.baro_update_result = NavigationKf_UpdateBaroAltitude(
-        &s_estimator.kf, work->relative_altitude_m, work->variance_m2);
+    {
+        NavigationReplayEvent event;
+        NavigationReplayOutcome outcome;
+        (void)memset(&event, 0, sizeof(event));
+        event.kind = NAV_REPLAY_BAROMETER;
+        event.source = 1U;
+        event.sequence = work->pressure.sequence;
+        event.epoch = s_replay.epoch;
+        event.receive_timestamp_us = work->pressure.receive_timestamp_us;
+        event.altitude = work->relative_altitude_m;
+        event.altitude_variance = work->variance_m2;
+        s_snapshot.baro_update_result = NAV_KF_UPDATE_REJECTED_INVALID;
+        if (Estimator_MeasurementTimeResolve(work->pressure.receive_timestamp_us,
+                work->pressure.timestamp_us, work->pressure.measurement_timestamp_trusted,
+                SYSTEM_ESTIMATOR_BARO_MEASUREMENT_DELAY_MS, state_timestamp_us,
+                &event.measurement_timestamp_us) == SYSTEM_MEASUREMENT_TIME_OK)
+        {
+            (void)Estimator_ReplayInsert(&event, &outcome);
+            s_snapshot.baro_update_result = outcome.barometer;
+            s_snapshot.baro_innovation = outcome.baro_innovation;
+            s_snapshot.baro_r_scale = Estimator_ResultScale(outcome.barometer,
+                outcome.baro_nis, profile->nis_1d_soft, profile->nis_max_r_scale);
+        }
+    }
     s_estimator.kf_diagnostics.last_update_type = SYSTEM_KF_UPDATE_BAROMETER;
     s_estimator.kf_diagnostics.last_update_timestamp_us = state_timestamp_us;
-    s_snapshot.baro_r_scale = Estimator_ResultScale(
-        s_snapshot.baro_update_result, s_estimator.kf.last_baro_nis,
-        profile->nis_1d_soft, profile->nis_max_r_scale);
 }
 
 static void Estimator_BarometerResultProcess(uint64_t state_timestamp_us)
@@ -2311,9 +2393,9 @@ static void Estimator_PredictionProcess(
         s_snapshot.health_flags |= ESTIMATOR_HEALTH_KF_NUMERIC_ERROR;
         return;
     }
-    if (NavigationKf_Predict(&s_estimator.kf,
-                             delta_velocity_enu_mps,
-                             prediction->dt_s) == 0U)
+    if (NavigationReplay_Predict(&s_replay, &s_estimator.kf,
+                                  prediction->timestamp_us, delta_velocity_enu_mps,
+                                  prediction->dt_s) != NAV_REPLAY_OK)
     {
         s_snapshot.health_flags |= ESTIMATOR_HEALTH_KF_NUMERIC_ERROR;
         return;
@@ -2674,6 +2756,7 @@ SystemDeviceResult EstimatorTask_InitializeMission(void)
     }
     Estimator_KfInitialVelocityApply();
     Estimator_KfRuntimeInitialize();
+    NavigationReplay_Reset(&s_replay, &s_replay_storage, &s_estimator.kf, 0U, ++s_replay_epoch);
     Estimator_SnapshotPublish(0U);
     return SYSTEM_DEVICE_OK;
 }
@@ -2692,6 +2775,7 @@ void EstimatorTask_RollbackMissionStart(void)
     s_estimator.mission_running = 0U;
     s_estimator.initialized = 0U;
     NavigationKf_Reset(&s_estimator.kf);
+    NavigationReplay_Reset(&s_replay, &s_replay_storage, &s_estimator.kf, 0U, ++s_replay_epoch);
     s_snapshot.initialized = 0U;
     s_snapshot.mission_running = 0U;
     s_snapshot.gnss_origin_valid = 0U;
@@ -2729,6 +2813,7 @@ void EstimatorTask_AbortMission(void)
     s_estimator.mission_running = 0U;
     s_estimator.initialized = 0U;
     NavigationKf_Reset(&s_estimator.kf);
+    NavigationReplay_Reset(&s_replay, &s_replay_storage, &s_estimator.kf, 0U, ++s_replay_epoch);
     s_snapshot.initialized = 0U;
     s_snapshot.mission_running = 0U;
     EstimatorTask_SnapshotCommit();

@@ -17,7 +17,6 @@
 #define NAV_KF_DEFAULT_PROCESS_N_STD_MPS2 SYSTEM_ESTIMATOR_PROCESS_ACCEL_N_STD_MPS2_VALUE
 #define NAV_KF_DEFAULT_PROCESS_U_STD_MPS2 SYSTEM_ESTIMATOR_PROCESS_ACCEL_U_STD_MPS2_VALUE
 #define NAV_KF_DEFAULT_BARO_STD_M SYSTEM_ESTIMATOR_BAROMETER_ALTITUDE_STD_M_VALUE
-#define NAV_KF_MIN_BARO_STD_M 1.5f
 #define NAV_KF_DEFAULT_NIS_1D_SOFT SYSTEM_ESTIMATOR_NIS_1D_SOFT_THRESHOLD
 #define NAV_KF_DEFAULT_NIS_1D_HARD SYSTEM_ESTIMATOR_NIS_1D_HARD_THRESHOLD
 #define NAV_KF_DEFAULT_NIS_2D_SOFT SYSTEM_ESTIMATOR_NIS_2D_SOFT_THRESHOLD
@@ -1667,7 +1666,9 @@ static void NavigationKf_GnssAvailabilityTrack(
             /* Reset once per loss, including a new loss during recovery. */
             if (state->loss_latched == 0U)
             {
+                uint32_t generation = state->generation + 1U;
                 (void)memset(state, 0, sizeof(*state));
+                state->generation = generation;
                 state->availability_timestamp_us = anchor;
                 state->outage = 1U;
                 state->loss_latched = 1U;
@@ -1727,7 +1728,13 @@ void NavigationKf_GnssEpochTrack(
         (epoch->timestamp_us <= reacquisition->previous_epoch.timestamp_us))
     {
         /* A reset/duplicate cannot authorize recovery or accumulate rejects. */
-        (void)memset(reacquisition->group, 0, sizeof(reacquisition->group));
+        uint8_t group;
+        for (group = 0U; group < NAV_KF_GNSS_GROUP_COUNT; group++)
+        {
+            uint32_t generation = reacquisition->group[group].generation + 1U;
+            (void)memset(&reacquisition->group[group], 0, sizeof(reacquisition->group[group]));
+            reacquisition->group[group].generation = generation;
+        }
         reacquisition->active_mask = 0U;
         NavigationKf_GnssEpochBaselineSet(reacquisition, epoch, 0U);
         return;
@@ -2094,10 +2101,6 @@ void NavigationKf_SetBaroStd(NavigationKfContext *context,
         return;
     }
 
-    if (altitude_std_m < NAV_KF_MIN_BARO_STD_M)
-    {
-        altitude_std_m = NAV_KF_MIN_BARO_STD_M;
-    }
     context->baro_std_m = altitude_std_m;
 }
 

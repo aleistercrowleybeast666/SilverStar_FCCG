@@ -33,6 +33,7 @@ typedef enum
 typedef struct
 {
     uint64_t availability_timestamp_us;
+    uint32_t generation; /* receive-side loss/reset certificate */
     uint8_t outage;
     uint8_t loss_latched;
     uint32_t reject_streak;

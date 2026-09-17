@@ -614,6 +614,10 @@ class MainWindow(QMainWindow):
             self.algorithm_parameters_page.Configuration_Set(
                 AlgorithmParameterOwners_Get(display.model, self._service.catalog),
                 display.model.algorithm_parameters,
+                tuple(recommendation
+                      for component_id in display.model.ComponentIds_Get()
+                      for recommendation in self._service.catalog.Component_Get(component_id).metadata.get(
+                          "sensor_recommendations", [])),
             )
             self.devices_page.Configuration_Set(
                 display.devices,

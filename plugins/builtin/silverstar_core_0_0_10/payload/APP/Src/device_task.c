@@ -41,6 +41,7 @@ static void DeviceTask_PublishBarometer(void)
     last_sequence = sample.sequence;
     snapshot.timestamp_us = sample.sample_timestamp_us;
     snapshot.receive_timestamp_us = sample.receive_timestamp_us;
+    snapshot.measurement_timestamp_trusted = sample.measurement_timestamp_trusted;
     snapshot.sequence = sample.sequence;
     snapshot.pressure_raw_pa = sample.pressure_raw_pa;
     snapshot.height_raw_cm = sample.altitude_raw_cm;

@@ -710,6 +710,13 @@ Invoke-ExpectedCompileFailure -Name 'capability_delay_without_time' `
         '-DSYSTEM_BUILD_MISSION_MONOTONIC_TIME_AVAILABLE=0U'
     ) -Source $capabilitySource
 
+Invoke-HostTest -Name 'navigation_kf_replay' -Sources @(
+    "$repoRoot\Tests\Host\test_navigation_kf_replay.c",
+    "$repoRoot\Algorithm\Estimator\KF6\Src\navigation_kf.c",
+    "$repoRoot\Algorithm\Estimator\KF6\Src\navigation_kf_replay.c",
+    "$repoRoot\System\Src\system_time.c"
+)
+
 Invoke-HostTest -Name 'air_kf' -Sources @(
     "$repoRoot\Tests\Host\test_air_kf.c",
     "$repoRoot\Protocol\Src\air_protocol.c",
@@ -731,7 +738,8 @@ Invoke-HostTest -Name 'jy901b_adapter' -ExtraCompilerArgs @(
     $hostPlatformMock,
     "$repoRoot\Generated\Src\project_resources.c",
     "$repoRoot\Devices\IMU\JY901B\Src\jy901b_device.c",
-    "$repoRoot\Devices\IMU\JY901B\Adapter\Src\jy901b_imu_adapter.c"
+    "$repoRoot\Devices\IMU\JY901B\Adapter\Src\jy901b_imu_adapter.c",
+    "$repoRoot\Devices\IMU\JY901B\Adapter\Src\jy901b_barometer_adapter.c"
 )
 Invoke-HostTest -Name 'neo_m9n_device' -Sources @(
     "$repoRoot\Tests\Host\test_neo_m9n_device.c",

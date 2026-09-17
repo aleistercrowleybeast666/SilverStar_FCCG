@@ -170,7 +170,42 @@
       "Devices/GNSS/NEO_M9N/Adapter/Inc/neo_m9n_instance.h": "fccg_multi_instance_context",
       "Devices/GNSS/NEO_M9N/Src/neo_m9n_device.c": "fccg_multi_instance_context",
       "Devices/GNSS/NEO_M9N/Adapter/Src/neo_m9n_system_adapter.c": "fccg_multi_instance_context"
-    }
+    },
+    "sensor_recommendations": [
+      {
+        "parameter_id": "gnss_position_std_horizontal",
+        "value": 1.5,
+        "unit": "m",
+        "representation": "sigma",
+        "source": "NEO-M9N",
+        "description": {
+          "en_US": "Advisory initialization/fallback estimate; explicit algorithm values take precedence. This is not per-sample native uncertainty.",
+          "zh_CN": "仅用于初始建议或无显式配置时的回退；以算法实际配置为准。不是逐样本原生不确定度。"
+        }
+      },
+      {
+        "parameter_id": "gnss_position_std_vertical",
+        "value": 2.5,
+        "unit": "m",
+        "representation": "sigma",
+        "source": "NEO-M9N",
+        "description": {
+          "en_US": "Advisory initialization/fallback estimate; explicit algorithm values take precedence. This is not per-sample native uncertainty.",
+          "zh_CN": "仅用于初始建议或无显式配置时的回退；以算法实际配置为准。不是逐样本原生不确定度。"
+        }
+      },
+      {
+        "parameter_id": "gnss_velocity_std",
+        "value": 0.15,
+        "unit": "m/s",
+        "representation": "sigma",
+        "source": "NEO-M9N",
+        "description": {
+          "en_US": "Advisory initialization/fallback estimate; explicit algorithm values take precedence. This is not per-sample native uncertainty.",
+          "zh_CN": "仅用于初始建议或无显式配置时的回退；以算法实际配置为准。不是逐样本原生不确定度。"
+        }
+      }
+    ]
   },
   "instance_policy": {
     "plugin_max": 4,

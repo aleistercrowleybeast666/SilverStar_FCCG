@@ -56,8 +56,7 @@ static SystemDeviceResult Jy901bBarometerAdapter_GetInfo(uint8_t instance, Syste
     info->model_name = "JY901B";
     info->driver_version = SILVERSTAR_PRODUCT_STRING;
     info->capability_mask = SYSTEM_BARO_VALID_PRESSURE |
-                            SYSTEM_BARO_VALID_ALTITUDE |
-                            SYSTEM_BARO_VALID_VARIANCE;
+                            SYSTEM_BARO_VALID_ALTITUDE;
     info->configuration_mask = SYSTEM_BARO_CFG_OUTPUT_RATE;
     return SYSTEM_DEVICE_OK;
 }
@@ -67,8 +66,7 @@ static SystemDeviceResult Jy901bBarometerAdapter_GetCapabilities(uint8_t instanc
     (void)instance;
     if (mask == NULL) { return SYSTEM_DEVICE_INVALID_ARGUMENT; }
     *mask = SYSTEM_BARO_VALID_PRESSURE |
-            SYSTEM_BARO_VALID_ALTITUDE |
-            SYSTEM_BARO_VALID_VARIANCE;
+            SYSTEM_BARO_VALID_ALTITUDE;
     return SYSTEM_DEVICE_OK;
 }
 
@@ -93,12 +91,10 @@ static SystemDeviceResult Jy901bBarometerAdapter_GetSample(uint8_t instance,
     sample->altitude_raw_cm = data.HeightRawCm;
     sample->pressure_pa = data.PressurePa;
     sample->altitude_m = data.HeightCm * 0.01f;
-    sample->altitude_variance_m2 =
-        JY901B_BAROMETER_RECOMMENDED_ALTITUDE_STD_M *
-        JY901B_BAROMETER_RECOMMENDED_ALTITUDE_STD_M;
+    /* The packet has no native uncertainty estimate. Recommendation is advisory. */
+    sample->altitude_variance_m2 = 0.0f;
     sample->supported_fields = SYSTEM_BARO_FIELD_PRESSURE |
-                               SYSTEM_BARO_FIELD_ALTITUDE |
-                               SYSTEM_BARO_FIELD_VARIANCE;
+                               SYSTEM_BARO_FIELD_ALTITUDE;
     sample->valid_fields = sample->supported_fields;
     sample->valid_mask = sample->valid_fields;
     return SYSTEM_DEVICE_OK;

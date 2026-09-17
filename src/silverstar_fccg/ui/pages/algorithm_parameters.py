@@ -23,12 +23,14 @@ class AlgorithmParametersPage(ScrollableLocalizedPage):
         self.root_layout.addStretch(1)
         self._owners: tuple[PluginManifest, ...] = ()
         self._values: dict = {}
+        self._recommendations: tuple[dict, ...] = ()
         self._expanded: dict[tuple[str, str], bool] = {}
         self.editors: dict[tuple[str, str], QDoubleSpinBox] = {}
 
-    def Configuration_Set(self, owners: tuple[PluginManifest, ...], values: dict) -> None:
+    def Configuration_Set(self, owners: tuple[PluginManifest, ...], values: dict, recommendations: tuple[dict, ...] = ()) -> None:
         self._owners = owners
         self._values = values
+        self._recommendations = recommendations
         content = QWidget()
         layout = QVBoxLayout(content)
         self.editors = {}
@@ -74,6 +76,18 @@ class AlgorithmParametersPage(ScrollableLocalizedPage):
                         QTimer.singleShot(0, self, lambda:
                             self.parameterChanged.emit(c, p.parameter_id, int(value) if p.value_type == "integer" else value)))
                     form.addRow(parameter.DisplayName_Get(language), editor)
+                    for recommendation in recommendations:
+                        if (recommendation["parameter_id"] == parameter.parameter_id
+                                and recommendation["unit"] == parameter.unit
+                                and recommendation["representation"] == parameter.representation):
+                            text = self._translator.Text_Get("algorithm_parameters.recommendation").format(
+                                source=recommendation["source"], value=recommendation["value"],
+                                unit=recommendation["unit"])
+                            label = QLabel(text)
+                            label.setWordWrap(True)
+                            label.setToolTip(recommendation["description"].get(language,
+                                recommendation["description"].get("en_US", "")))
+                            form.addRow("", label)
                     self.editors[(owner.component_id, parameter.parameter_id)] = editor
                 group_layout.addWidget(section)
             non_shared = [p for p in owner.algorithm_parameters if not p.shared_key]
@@ -104,4 +118,4 @@ class AlgorithmParametersPage(ScrollableLocalizedPage):
 
     def Language_Apply(self, translator: Translator) -> None:
         super().Language_Apply(translator)
-        self.Configuration_Set(self._owners, self._values)
+        self.Configuration_Set(self._owners, self._values, self._recommendations)

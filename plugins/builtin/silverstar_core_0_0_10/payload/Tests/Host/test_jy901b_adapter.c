@@ -1,3 +1,4 @@
+#include "system_barometer_if.h"
 #include <stdint.h>
 #include <string.h>
 
@@ -59,6 +60,10 @@ static void Test_NativeSampleConvertsToSystemInterface(void)
     uint8_t frames[2U * IMU_FRAME_LEN];
     SystemImuSample latest;
     SystemImuSample next;
+    SystemBarometerSample barometer;
+    SystemBarometerNoiseCharacteristics recommendation;
+    uint32_t barometer_capabilities;
+    uint8_t pressure_frame[IMU_FRAME_LEN];
 
     HostPlatformMock_Reset();
     HostPlatformMock_TimeSetUs(250000ULL);
@@ -83,6 +88,23 @@ static void Test_NativeSampleConvertsToSystemInterface(void)
     TEST_CHECK(next.valid_mask == latest.valid_mask);
     TEST_CHECK_NEAR(next.gyro_b_radps[1], latest.gyro_b_radps[1],
                     1.0e-6f);
+    Test_FrameBuild(IMUFramePressureHeight, (int16_t)0x8BCD, 1, 12345, 0,
+                    pressure_frame);
+    TEST_CHECK(HostPlatformMock_UartRxInject(PROJECT_RESOURCE_IMU_UART,
+        pressure_frame, sizeof(pressure_frame)) == sizeof(pressure_frame));
+    SystemImu_Process();
+    TEST_CHECK(Jy901bBarometerInstance_LatestSampleGet(0U, &barometer) == SYSTEM_DEVICE_OK);
+    TEST_CHECK(barometer.sample_timestamp_us == 250000ULL);
+    TEST_CHECK(barometer.receive_timestamp_us == barometer.sample_timestamp_us);
+    TEST_CHECK(barometer.measurement_timestamp_trusted == 0U);
+    TEST_CHECK((barometer.valid_fields & SYSTEM_BARO_FIELD_VARIANCE) == 0U);
+    TEST_CHECK((barometer.supported_fields & SYSTEM_BARO_FIELD_VARIANCE) == 0U);
+    TEST_CHECK_NEAR(barometer.altitude_variance_m2, 0.0f, 0.0f);
+    TEST_CHECK_NEAR(barometer.altitude_m, 123.45f, 1.0e-4f);
+    TEST_CHECK(Jy901bBarometerInstance_CapabilitiesGet(0U, &barometer_capabilities) == SYSTEM_DEVICE_OK);
+    TEST_CHECK((barometer_capabilities & SYSTEM_BARO_VALID_VARIANCE) == 0U);
+    TEST_CHECK(Jy901bBarometerInstance_NoiseCharacteristicsGet(0U, &recommendation) == SYSTEM_DEVICE_OK);
+    TEST_CHECK_NEAR(recommendation.recommended_altitude_std_m, 1.5f, 0.0f);
     TEST_CHECK(SystemImu_Stop() == SYSTEM_DEVICE_OK);
 }
 

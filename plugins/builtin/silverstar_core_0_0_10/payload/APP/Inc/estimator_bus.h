@@ -13,6 +13,7 @@ typedef struct
 {
     uint64_t timestamp_us;
     uint64_t receive_timestamp_us;
+    uint8_t measurement_timestamp_trusted;
     uint32_t sequence;
     int32_t pressure_raw_pa;
     int32_t height_raw_cm;

@@ -60,6 +60,10 @@
               "default": {
                 "type": "number"
               },
+              "legacy_default": {
+                "type": "number",
+                "description": "Default for missing fields of an existing algorithm owner; stored values are preserved."
+              },
               "unit": {
                 "type": "string",
                 "minLength": 1
