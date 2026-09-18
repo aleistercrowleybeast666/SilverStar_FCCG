@@ -1,5 +1,145 @@
 # Validation — 2026-09-12 Algorithm actual parameters / decoder 1.2
 
+## 2026-09-18 — architecture-check 与 KF6 Power of Ten 合规修复
+
+起始 HEAD：`8671cab2ccbeeaffeeaef7aea8d9ffd31c7db8b3`，起始 `git status --short` 为空。
+本轮只在 FCCG 内进行检查器修复和结构重构；没有调整算法参数、默认值、history 容量、
+checkpoint stride、排序、时间语义、NIS/P0/Q/R/reacquisition 数学、INS、任务状态机、
+日志/decoder/project schema、GUI 或版本。`check_power_of_ten.ps1` 文件完全未改。
+本节是本轮验收；下方上一轮日志诊断缺项不属于本次获准修改范围。
+
+### 复现与检查器修复
+
+使用修改前新生成的 `tests/artifacts/compliance/baseline`，实际执行 Release 的
+`architecture-check` 和 `power10-check`，分别得到 **270 checks / 1 failure** 与
+**16 failures**。架构误报准确定位 `System/Inc/system_time.h:38` 的 `provider's` 注释；
+该注释未改动。Power of Ten 的七个 while、长函数与缺少断言问题全部复现。
+
+Architecture 的 `Assert-NoArchitecturePattern` 增加可选 `-SanitizeRuntimeCode`，仅旧
+Provider/VTable/callback 运行时 token 规则启用。sanitizer 沿用原 Power of Ten 的词法
+状态处理方法；其他规则仍使用原 `Select-String` 原文扫描，include/path 检查不受影响。
+原 `provider`、`ProviderOps`、`RegisterCallback`、`DioIrqHandler`、`Radio.` 模式均保留；
+额外识别明确的 `provider_runtime...` 标识符。已有声明式 `provider_instance_hash` 等
+身份字段不属于旧运行时回调架构，未引入宽泛 provider 前缀禁令。
+
+实际生成工程 fixture 证明：block/line comments、含转义引号的 string 不误报；
+FooProviderOps、ExampleProviderOps、RegisterCallback、DioIrqHandler、Radio.foo、
+provider_runtime_identifier 和独立 provider token 全部命中，诊断行号正确；
+`#include "stm32f4xx_hal.h"` 仍被原边界规则拒绝。
+
+### 合规重构及数学不变证据
+
+- 七个 while 全部改为显式 checkpoint/IMU/event capacity 上界的 for；循环后验证原
+  条件已不成立，内部 invariant 损坏时断言，不静默越过未完成操作。
+- Prune 顺序仍是 checkpoint → oldest → IMU → aiding events。
+- Predict 拆分输入、时间、容量校验和历史保存；dt rounding、checkpoint stride、
+  prediction_count 和状态提交次序保持不变。
+- Insert 拆分输入/历史校验、索引查找、事件提交、checkpoint 选择及应用/失败处理；
+  fast path、错误码、outcome reset、fault latch 和成功才提交 current state 均保留。
+- Rebuild 拆出区间内量测处理，排序仍为 measurement time → position → velocity →
+  barometer → source → sequence。全部大型 state/event 仍通过 pointer 传递。
+- GnssEpochTrack 拆出重复 epoch reset 和 consistency 阶段；APP 仅拆出结果复制。
+  同包不同 measurement time 仍先插入较旧分量，真实 receive-time outage 逻辑不变。
+- 对内部对象、alignment、容量、索引及 loop postcondition 加真实断言。外部非法输入
+  仍由原返回路径拒绝；新增空指针 fixture 证明不会由普通 INVALID 变成 fatal assert。
+
+修改前生成工程完整保留。Host trace 对 **21,548 次操作**记录返回码及完整初始化后的
+KF context、history（剔除 storage 指针地址）、storage/checkpoints、outcome 内容摘要，
+包括 x/P、NIS、group result、计数和事件索引顺序。逐操作 FNV64 帧再计算 SHA256；
+基线重复运行一致，11 组场景与最终版本全部一致。期望值固定在
+`tests/fixtures/replay_compliance_trace.json`，不是从修后代码反推。
+原 zero-delay 每步 x/P memcmp 测试继续保留。
+
+另从修改前/后 APP 提取实际 GNSS 派发函数与原 work 类型进行编译，0/270、270/0、
+0/0、100/100 ms 四种测试配置各 450 步轨迹一致，覆盖分量次序及结果复制。
+测试配置只用于 Host 编译覆盖，不写回产品默认值。
+
+历史数值故障注入验证 current state 不提交、outcome 为 NUMERIC_ERROR、faulted 锁存；
+work-limit 分支使用临时源码副本注入一轮工作预算，原版/修后均通过 10 项断言。
+生产 `NAV_REPLAY_MAX_STEPS=560` 与所有容量不变。history miss、overflow、epoch mismatch、
+时间不连续、重复 receive epoch、真实 outage 和假 outage 回归均保留并通过。
+
+### 最终标准工程与验证结果
+
+标准工程：`tests/artifacts/compliance/SS_TEST_0`，项目名 `SS_TEST_0`。
+
+| 验证 | 结果 |
+|---|---|
+| architecture-check Release | **PASS：270 checks，0 failures** |
+| power10-check Release | **PASS：6036 checks，95 first-party C files，2264 functions** |
+| Python 完整回归 | **411 passed，1 skipped，1145.98 s**；只读参考固件工作树非 clean，原 reference payload 同步测试按既有条件跳过，无失败 |
+| 最终专项 pytest | **3 passed，99.69 s**；包含真实 architecture fixture、完整 KF trace、APP trace、work-limit 注入及原 replay fixture |
+| 全部 Host tests | **68 executables，42672 checks，0 failures**；8 compile-pass，16 expected compile-fail；storage-integrity 4/4 |
+| 其中 replay fixture | **28175 checks，0 failures** |
+| ARM Release / Debug | **PASS / PASS** |
+| stack-report Release / Debug | **PASS / PASS**，原 256-byte minimum margin 门限未改 |
+| memory-report / artifact-check | **PASS / PASS**，heap reserved=0、runtime heap symbols=0 |
+| git diff --check | **PASS** |
+
+主要日志位于标准工程下 `architecture-check.log`、`power10-check.log`、
+`validation-host.log`、`validation-Release.log`、`validation-Debug.log`；完整 Python
+日志为 `tests/artifacts/compliance/python-full.log`。全量命令使用当前 Make 的
+`TARGET_PROFILE=SilverStar_F407 CONFIG=Release/Debug`，没有跳过质量门禁。
+Python 命令为 `python -m pytest -q --ignore-glob=tests/.pytest*`，basetemp 和 cache
+均在 `tests/artifacts/compliance/`；ignore 只排除历史临时目录，不排除真实测试。
+
+### 资源与有界工作量对比（字节）
+
+| 项目 | 修改前 Release | 修后 Release | 修改前 Debug | 修后 Debug |
+|---|---:|---:|---:|---:|
+| FLASH / bin | 266968 | 268432 | 284680 | 286400 |
+| main SRAM | 95288 | 95288 | 95304 | 95304 |
+| `.data` | 1128 | 1128 | 1128 | 1128 |
+| main `.bss` | 85072 | 85072 | 85088 | 85088 |
+| CCM `.ccmram_bss` | 61936 | 61936 | 61936 | 61936 |
+| Estimator worst-known stack | 2348 | 2348 | 2436 | 2524 |
+| Estimator stack margin | 1748 | 1748 | 1660 | 1572 |
+
+FLASH 增加 Release **1464**、Debug **1720**（均小于 0.7%），来自有界循环、真实断言和
+函数拆分；main SRAM、CCM、history **27232** 字节及 heap 均无增长。
+Debug 栈增加 **88**：旧 Insert/Rebuild 调用链帧合计 184，新 Insert/InsertedApply/
+Rebuild/IntervalApply 合计 272；未增加 NavigationKfContext 大对象栈副本。
+Release 优化后的 Estimator worst-known stack 不变。
+
+| 200 Hz IMU + 200 Hz Baro + 25 Hz GNSS | 基线/修后 max replay steps | 基线/修后 event HWM | history miss / overflow |
+|---|---:|---:|---|
+| Baro 0 ms，GNSS 0/270 ms | 151 / 151 | 168 / 168 | 0 / 0 |
+| Baro 100 ms，GNSS 0/270 ms | 131 / 131 | 148 / 148 | 0 / 0 |
+| Baro 550 ms，GNSS 0/270 ms | 171 / 171 | 58 / 58 | 0 / 0 |
+
+Release ELF SHA256：`861f3c49c06f9da868a47503d930cbb38a76b88b7c61d9e385b52e4845b8399d`。
+Debug ELF SHA256：`a4a5a9632524f7f3afda59947ea3163ccca9adfb8b98183a6afb3e5f7d8394bd`。
+这是 Host 数学等价、静态资源和编译验收，不是板上周期测量；on-target timing、动态
+stack HWM 与外场飞行尚未实机验证。
+
+### 外场参数核对
+
+最终 `Generated/Inc/project_algorithm_parameters.h` 与本轮 baseline **逐字节相同**。
+`SilverStar.ssproject` 实际参数：GNSS horizontal/vertical/velocity sigma=1.5/2.5/0.15，
+GNSS vU scale=1.75，Baro=2.5，outage=300 ms，position/velocity/baro delay=0/270/0 ms。
+600 ms history、144/48/160/8 容量、18 checkpoint stride、560 work bound 全部未改。
+
+本轮软件门禁外场候选状态：**FIELD TEST READY = YES（软件门禁候选，非实机飞行认证）**。
+
+### 修改文件
+
+- `plugins/builtin/silverstar_core_0_0_10/payload/Tools/check_architecture.ps1`
+- `plugins/builtin/silverstar_algorithm_estimator_kf6/payload/Algorithm/Estimator/KF6/Src/navigation_kf.c`
+- `plugins/builtin/silverstar_algorithm_estimator_kf6/payload/Algorithm/Estimator/KF6/Src/navigation_kf_replay.c`
+- `plugins/builtin/silverstar_core_0_0_10/payload/APP/Src/estimator_task.c`
+- `plugins/builtin/silverstar_core_0_0_10/payload/Tests/Host/test_navigation_kf_replay.c`
+- `tests/test_compliance_refactor.py`
+- `tests/replay_compliance_support.py`
+- `tests/fixtures/replay_compliance_trace.json`
+- `tests/fixtures/estimator_replay_trace.c`
+- `tests/fixtures/replay_work_limit.c`
+- `VALIDATION.md`
+
+生产源、Host fixture 和 architecture checker 已属于 reference importer 的 FCCG-owned
+清单，本轮未新增生产文件，不需要改变导入源图；原 Power of Ten checker、schema、
+manifest 和 replay header 未修改。
+
+
 ## 2026-09-17 — KF6 fixed-lag replay 与传感器建议值（诊断日志未闭环）
 
 本轮只修改 FCCG，基于 HEAD `34e16ef282402e3800c20492b32255143c0da67b`；起始工作区干净。

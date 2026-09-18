@@ -50,19 +50,108 @@ function Get-ArchitectureFiles {
     return @($files | Sort-Object -Property FullName -Unique)
 }
 
+# Only runtime-token rules opt in. Include/path rules retain raw source.
+function Get-ArchitectureRuntimeSource {
+    param([Parameter(Mandatory = $true)][AllowEmptyString()][string]$Text)
+
+    $builder = New-Object System.Text.StringBuilder
+    $state = 'normal'
+    for ($index = 0; $index -lt $Text.Length; $index++) {
+        $character = $Text[$index]
+        $next = if (($index + 1) -lt $Text.Length) {
+            $Text[$index + 1]
+        } else {
+            [char]0
+        }
+
+        if ($state -eq 'line-comment') {
+            if ($character -eq "`n") {
+                [void]$builder.Append($character)
+                $state = 'normal'
+            } else {
+                [void]$builder.Append(' ')
+            }
+            continue
+        }
+        if ($state -eq 'block-comment') {
+            if (($character -eq '*') -and ($next -eq '/')) {
+                [void]$builder.Append(' ')
+                [void]$builder.Append(' ')
+                $index++
+                $state = 'normal'
+            } elseif (($character -eq "`n") -or ($character -eq "`r")) {
+                [void]$builder.Append($character)
+            } else {
+                [void]$builder.Append(' ')
+            }
+            continue
+        }
+        if (($state -eq 'string') -or ($state -eq 'character')) {
+            $terminator = if ($state -eq 'string') { '"' } else { "'" }
+            if (($character -eq '\') -and (($index + 1) -lt $Text.Length)) {
+                [void]$builder.Append(' ')
+                [void]$builder.Append(' ')
+                $index++
+            } elseif ($character -eq $terminator) {
+                [void]$builder.Append(' ')
+                $state = 'normal'
+            } elseif (($character -eq "`n") -or ($character -eq "`r")) {
+                [void]$builder.Append($character)
+            } else {
+                [void]$builder.Append(' ')
+            }
+            continue
+        }
+
+        if (($character -eq '/') -and ($next -eq '/')) {
+            [void]$builder.Append(' ')
+            [void]$builder.Append(' ')
+            $index++
+            $state = 'line-comment'
+        } elseif (($character -eq '/') -and ($next -eq '*')) {
+            [void]$builder.Append(' ')
+            [void]$builder.Append(' ')
+            $index++
+            $state = 'block-comment'
+        } elseif ($character -eq '"') {
+            [void]$builder.Append(' ')
+            $state = 'string'
+        } elseif ($character -eq "'") {
+            [void]$builder.Append(' ')
+            $state = 'character'
+        } else {
+            [void]$builder.Append($character)
+        }
+    }
+    return $builder.ToString()
+}
+
 function Assert-NoArchitecturePattern {
     param(
         [Parameter(Mandatory = $true)][string]$Name,
         [Parameter(Mandatory = $true)][string[]]$Paths,
         [Parameter(Mandatory = $true)][string]$Pattern,
-        [string[]]$Extensions = @('.c', '.h')
+        [string[]]$Extensions = @('.c', '.h'),
+        [switch]$SanitizeRuntimeCode
     )
 
     $script:checkCount++
     $files = Get-ArchitectureFiles -Paths $Paths -Extensions $Extensions
     $diagnostics = @()
     foreach ($file in $files) {
-        $matches = @(Select-String -LiteralPath $file.FullName -Pattern $Pattern)
+        $matches = if ($SanitizeRuntimeCode) {
+            [string]$raw = Get-Content -Raw -LiteralPath $file.FullName
+            $source = Get-ArchitectureRuntimeSource -Text $raw
+            $rawLines = @($raw -split "`r?`n")
+            $lines = @($source -split "`r?`n")
+            @(for ($line = 0; $line -lt $lines.Count; $line++) {
+                if ($lines[$line] -match $Pattern) {
+                    [pscustomobject]@{ LineNumber = $line + 1; Line = $rawLines[$line] }
+                }
+            })
+        } else {
+            @(Select-String -LiteralPath $file.FullName -Pattern $Pattern)
+        }
         foreach ($match in $matches) {
             if ($diagnostics.Count -lt 8) {
                 $relative = $file.FullName.Substring($repoRoot.Length + 1)
@@ -200,8 +289,8 @@ Assert-NoArchitecturePattern -Name `
 
 Assert-NoArchitecturePattern -Name `
     'Legacy Provider/VTable/callback architecture remains in first-party runtime code.' `
-    -Paths $firstPartyRuntimePaths `
-    -Pattern ('(?i)\b[A-Za-z0-9_]*ProviderOps\b|\bprovider\b|' +
+    -Paths $firstPartyRuntimePaths -SanitizeRuntimeCode `
+    -Pattern ('(?i)\b[A-Za-z0-9_]*ProviderOps\b|\bprovider\b|\bprovider_runtime[A-Za-z0-9_]*\b|' +
         'RegisterCallback|DioIrqHandler|\bRadio\s*\.')
 
 Assert-NoArchitecturePattern -Name `

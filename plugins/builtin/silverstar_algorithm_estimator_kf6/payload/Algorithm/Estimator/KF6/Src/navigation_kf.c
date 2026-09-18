@@ -1651,6 +1651,10 @@ static void NavigationKf_GnssAvailabilityTrack(
     uint8_t valid_mask)
 {
     uint8_t group;
+    SILVERSTAR_ASSERT_OBJECT(reacquisition, NavigationKfGnssReacquisitionContext,
+                             SILVERSTAR_ASSERT_MODULE_ALGORITHM);
+    SILVERSTAR_ASSERT_OBJECT(epoch, NavigationKfGnssEpoch,
+                             SILVERSTAR_ASSERT_MODULE_ALGORITHM);
     for (group = 0U; group < NAV_KF_GNSS_GROUP_COUNT; group++)
     {
         NavigationKfGnssReacquireGroupState *state = &reacquisition->group[group];
@@ -1689,13 +1693,52 @@ static void NavigationKf_GnssAvailabilityTrack(
     }
 }
 
+static void NavigationKf_GnssDuplicateEpochReset(
+    NavigationKfGnssReacquisitionContext *reacquisition,
+    const NavigationKfGnssEpoch *epoch)
+{
+    /* A reset/duplicate cannot authorize recovery or accumulate rejects. */
+    uint8_t group;
+    for (group = 0U; group < NAV_KF_GNSS_GROUP_COUNT; group++)
+    {
+        uint32_t generation = reacquisition->group[group].generation + 1U;
+        (void)memset(&reacquisition->group[group], 0, sizeof(reacquisition->group[group]));
+        reacquisition->group[group].generation = generation;
+    }
+    reacquisition->active_mask = 0U;
+    NavigationKf_GnssEpochBaselineSet(reacquisition, epoch, 0U);
+}
+
+static void NavigationKf_GnssEpochConsistencyTrack(
+    NavigationKfGnssReacquisitionContext *reacquisition,
+    const NavigationKfGnssEpoch *epoch, uint8_t current_valid_mask)
+{
+    uint64_t dt_us;
+    float dt_s;
+    SILVERSTAR_ASSERT_OBJECT(reacquisition, NavigationKfGnssReacquisitionContext,
+                             SILVERSTAR_ASSERT_MODULE_ALGORITHM);
+    dt_us = epoch->timestamp_us - reacquisition->previous_epoch.timestamp_us;
+    if ((dt_us < ((uint64_t)
+                  SYSTEM_ESTIMATOR_GNSS_REACQUIRE_MIN_DT_MS * 1000ULL)) ||
+        (dt_us > ((uint64_t)
+                  SYSTEM_ESTIMATOR_GNSS_REACQUIRE_MAX_DT_MS * 1000ULL)))
+    {
+        NavigationKf_GnssEpochBaselineSet(
+            reacquisition, epoch, current_valid_mask);
+        return;
+    }
+    dt_s = (float)dt_us * 1.0e-6f;
+    NavigationKf_GnssConsistencyUpdate(
+        reacquisition, epoch, current_valid_mask, dt_s);
+    reacquisition->previous_epoch = *epoch;
+    reacquisition->previous_epoch.valid_group_mask = current_valid_mask;
+}
+
 void NavigationKf_GnssEpochTrack(
     NavigationKfContext *context,
     const NavigationKfGnssEpoch *epoch)
 {
     NavigationKfGnssReacquisitionContext *reacquisition;
-    uint64_t dt_us;
-    float dt_s;
     uint8_t current_valid_mask;
 
     if ((context == NULL) || (epoch == NULL) ||
@@ -1727,16 +1770,7 @@ void NavigationKf_GnssEpochTrack(
     if ((reacquisition->previous_epoch_valid != 0U) &&
         (epoch->timestamp_us <= reacquisition->previous_epoch.timestamp_us))
     {
-        /* A reset/duplicate cannot authorize recovery or accumulate rejects. */
-        uint8_t group;
-        for (group = 0U; group < NAV_KF_GNSS_GROUP_COUNT; group++)
-        {
-            uint32_t generation = reacquisition->group[group].generation + 1U;
-            (void)memset(&reacquisition->group[group], 0, sizeof(reacquisition->group[group]));
-            reacquisition->group[group].generation = generation;
-        }
-        reacquisition->active_mask = 0U;
-        NavigationKf_GnssEpochBaselineSet(reacquisition, epoch, 0U);
+        NavigationKf_GnssDuplicateEpochReset(reacquisition, epoch);
         return;
     }
     NavigationKf_GnssAvailabilityTrack(reacquisition, epoch, current_valid_mask);
@@ -1745,21 +1779,7 @@ void NavigationKf_GnssEpochTrack(
         NavigationKf_GnssEpochBaselineSet(reacquisition, epoch, current_valid_mask);
         return;
     }
-    dt_us = epoch->timestamp_us - reacquisition->previous_epoch.timestamp_us;
-    if ((dt_us < ((uint64_t)
-                  SYSTEM_ESTIMATOR_GNSS_REACQUIRE_MIN_DT_MS * 1000ULL)) ||
-        (dt_us > ((uint64_t)
-                  SYSTEM_ESTIMATOR_GNSS_REACQUIRE_MAX_DT_MS * 1000ULL)))
-    {
-        NavigationKf_GnssEpochBaselineSet(
-            reacquisition, epoch, current_valid_mask);
-        return;
-    }
-    dt_s = (float)dt_us * 1.0e-6f;
-    NavigationKf_GnssConsistencyUpdate(
-        reacquisition, epoch, current_valid_mask, dt_s);
-    reacquisition->previous_epoch = *epoch;
-    reacquisition->previous_epoch.valid_group_mask = current_valid_mask;
+    NavigationKf_GnssEpochConsistencyTrack(reacquisition, epoch, current_valid_mask);
 }
 
 static void NavigationKf_GnssGroupRangeGet(

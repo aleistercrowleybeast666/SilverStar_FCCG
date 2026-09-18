@@ -1747,6 +1747,34 @@ static NavigationReplayResult Estimator_ReplayInsert(
     return result;
 }
 
+static void Estimator_GnssReplayOutcomeCopy(
+    EstimatorGnssUpdateWork *work, uint8_t kind,
+    const NavigationReplayOutcome *outcome)
+{
+    SILVERSTAR_ASSERT_OBJECT(work, EstimatorGnssUpdateWork,
+                             SILVERSTAR_ASSERT_MODULE_APP);
+    SILVERSTAR_ASSERT_OBJECT(outcome, NavigationReplayOutcome,
+                             SILVERSTAR_ASSERT_MODULE_APP);
+    if ((kind & NAV_REPLAY_POSITION) != 0U)
+    {
+        work->replay_outcome.position = outcome->position;
+        work->replay_outcome.position_groups = outcome->position_groups;
+        (void)memcpy(work->replay_outcome.position_innovation,
+            outcome->position_innovation, sizeof(outcome->position_innovation));
+        work->replay_outcome.group_nis[0] = outcome->group_nis[0];
+        work->replay_outcome.group_nis[1] = outcome->group_nis[1];
+    }
+    if ((kind & NAV_REPLAY_VELOCITY) != 0U)
+    {
+        work->replay_outcome.velocity = outcome->velocity;
+        work->replay_outcome.velocity_groups = outcome->velocity_groups;
+        (void)memcpy(work->replay_outcome.velocity_innovation,
+            outcome->velocity_innovation, sizeof(outcome->velocity_innovation));
+        work->replay_outcome.group_nis[2] = outcome->group_nis[2];
+        work->replay_outcome.group_nis[3] = outcome->group_nis[3];
+    }
+}
+
 static void Estimator_GnssReplay(uint64_t state_timestamp_us,
                                  EstimatorGnssUpdateWork *work)
 {
@@ -1755,6 +1783,8 @@ static void Estimator_GnssReplay(uint64_t state_timestamp_us,
     uint64_t position_us;
     uint64_t velocity_us;
     uint8_t part;
+    SILVERSTAR_ASSERT_OBJECT(work, EstimatorGnssUpdateWork,
+                             SILVERSTAR_ASSERT_MODULE_APP);
     (void)memset(&event, 0, sizeof(event));
     work->replay_outcome.position = NAV_KF_UPDATE_REJECTED_INVALID;
     work->replay_outcome.velocity = NAV_KF_UPDATE_REJECTED_INVALID;
@@ -1788,24 +1818,7 @@ static void Estimator_GnssReplay(uint64_t state_timestamp_us,
         if (position_us == velocity_us)
         { event.kind = NAV_REPLAY_POSITION | NAV_REPLAY_VELOCITY; }
         (void)Estimator_ReplayInsert(&event, &outcome);
-        if ((event.kind & NAV_REPLAY_POSITION) != 0U)
-        {
-            work->replay_outcome.position = outcome.position;
-            work->replay_outcome.position_groups = outcome.position_groups;
-            (void)memcpy(work->replay_outcome.position_innovation,
-                outcome.position_innovation, sizeof(outcome.position_innovation));
-            work->replay_outcome.group_nis[0] = outcome.group_nis[0];
-            work->replay_outcome.group_nis[1] = outcome.group_nis[1];
-        }
-        if ((event.kind & NAV_REPLAY_VELOCITY) != 0U)
-        {
-            work->replay_outcome.velocity = outcome.velocity;
-            work->replay_outcome.velocity_groups = outcome.velocity_groups;
-            (void)memcpy(work->replay_outcome.velocity_innovation,
-                outcome.velocity_innovation, sizeof(outcome.velocity_innovation));
-            work->replay_outcome.group_nis[2] = outcome.group_nis[2];
-            work->replay_outcome.group_nis[3] = outcome.group_nis[3];
-        }
+        Estimator_GnssReplayOutcomeCopy(work, event.kind, &outcome);
         if (position_us == velocity_us) { break; }
     }
     (void)memcpy(s_snapshot.position_innovation, work->replay_outcome.position_innovation,

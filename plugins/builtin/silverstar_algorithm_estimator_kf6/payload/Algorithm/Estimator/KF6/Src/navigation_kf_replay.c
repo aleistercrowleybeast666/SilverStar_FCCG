@@ -1,5 +1,6 @@
 #include "navigation_kf_replay.h"
 #include "system_user_config.h"
+#include "silverstar_assert.h"
 
 #include <math.h>
 #include <stddef.h>
@@ -70,6 +71,10 @@ static uint16_t NavigationReplay_EventStore(
     NavigationReplayContext *history, const NavigationReplayEvent *event)
 {
     uint16_t slot;
+    SILVERSTAR_ASSERT_OBJECT(history, NavigationReplayContext,
+                             SILVERSTAR_ASSERT_MODULE_ALGORITHM);
+    SILVERSTAR_ASSERT_OBJECT(event, NavigationReplayEvent,
+                             SILVERSTAR_ASSERT_MODULE_ALGORITHM);
     if (event->kind == NAV_REPLAY_BAROMETER)
     {
         for (slot = 0U; slot < NAV_REPLAY_BARO_CAPACITY; slot++)
@@ -99,43 +104,96 @@ static uint16_t NavigationReplay_EventStore(
     return UINT16_MAX;
 }
 
-static void NavigationReplay_Prune(NavigationReplayContext *history)
+static void NavigationReplay_CheckpointsPrune(NavigationReplayContext *history)
 {
-    uint64_t oldest;
-    uint16_t remove = 0U;
+    uint16_t guard;
+    SILVERSTAR_ASSERT_OBJECT(history, NavigationReplayContext,
+                             SILVERSTAR_ASSERT_MODULE_ALGORITHM);
+    SILVERSTAR_ASSERT(history->checkpoint_count <= NAV_REPLAY_CHECKPOINT_CAPACITY, SILVERSTAR_ASSERT_MODULE_ALGORITHM,
+                      SILVERSTAR_ASSERT_REASON_STATE_INVARIANT);
     /* Keep the nearest checkpoint at or before the time-window boundary.
      * Do not silently shorten the promised window at a higher input rate. */
-    while ((history->checkpoint_count > 1U) &&
+    for (guard = 0U; guard < NAV_REPLAY_CHECKPOINT_CAPACITY; guard++)
+    {
+        if (!((history->checkpoint_count > 1U) &&
            (history->present_us >= NAV_REPLAY_WINDOW_US) &&
            (history->storage->checkpoints[1].timestamp_us <=
-            history->present_us - NAV_REPLAY_WINDOW_US))
-    {
+            history->present_us - NAV_REPLAY_WINDOW_US)))
+        {
+            break;
+        }
         history->checkpoint_count--;
         (void)memmove(history->storage->checkpoints, &history->storage->checkpoints[1],
                       history->checkpoint_count * sizeof(history->storage->checkpoints[0]));
     }
-    oldest = history->storage->checkpoints[0].timestamp_us;
-    while ((history->imu_count != 0U) &&
-           (history->storage->imu[history->imu_head].end_us <= oldest))
+    SILVERSTAR_ASSERT(!((history->checkpoint_count > 1U) &&
+           (history->present_us >= NAV_REPLAY_WINDOW_US) &&
+           (history->storage->checkpoints[1].timestamp_us <=
+            history->present_us - NAV_REPLAY_WINDOW_US)), SILVERSTAR_ASSERT_MODULE_ALGORITHM,
+                      SILVERSTAR_ASSERT_REASON_LOOP_BOUND);
+}
+
+static void NavigationReplay_ImuPrune(NavigationReplayContext *history, uint64_t oldest)
+{
+    uint16_t guard;
+    SILVERSTAR_ASSERT_OBJECT(history, NavigationReplayContext,
+                             SILVERSTAR_ASSERT_MODULE_ALGORITHM);
+    SILVERSTAR_ASSERT((history->imu_count <= NAV_REPLAY_IMU_CAPACITY) && (history->imu_head < NAV_REPLAY_IMU_CAPACITY), SILVERSTAR_ASSERT_MODULE_ALGORITHM,
+                      SILVERSTAR_ASSERT_REASON_STATE_INVARIANT);
+    for (guard = 0U; guard < NAV_REPLAY_IMU_CAPACITY; guard++)
     {
+        if (!((history->imu_count != 0U) &&
+           (history->storage->imu[history->imu_head].end_us <= oldest)))
+        {
+            break;
+        }
         history->imu_head = (uint16_t)((history->imu_head + 1U) %
                                        NAV_REPLAY_IMU_CAPACITY);
         history->imu_count--;
     }
-    while ((remove < history->event_count) &&
-           (NavigationReplay_EventTimeGet(history, remove) < oldest))
+    SILVERSTAR_ASSERT(!((history->imu_count != 0U) &&
+           (history->storage->imu[history->imu_head].end_us <= oldest)), SILVERSTAR_ASSERT_MODULE_ALGORITHM,
+                      SILVERSTAR_ASSERT_REASON_LOOP_BOUND);
+}
+
+static void NavigationReplay_EventsPrune(NavigationReplayContext *history, uint64_t oldest)
+{
+    uint16_t guard;
+    uint16_t remove = 0U;
+    SILVERSTAR_ASSERT_OBJECT(history, NavigationReplayContext,
+                             SILVERSTAR_ASSERT_MODULE_ALGORITHM);
+    SILVERSTAR_ASSERT(history->event_count <= NAV_REPLAY_EVENT_CAPACITY, SILVERSTAR_ASSERT_MODULE_ALGORITHM,
+                      SILVERSTAR_ASSERT_REASON_STATE_INVARIANT);
+    for (guard = 0U; guard < NAV_REPLAY_EVENT_CAPACITY; guard++)
     {
+        if (!((remove < history->event_count) &&
+           (NavigationReplay_EventTimeGet(history, remove) < oldest)))
+        {
+            break;
+        }
         uint16_t slot = history->event_order[remove];
         if (slot < NAV_REPLAY_GNSS_CAPACITY) { history->events[slot].kind = 0U; }
         else { history->barometer[slot - NAV_REPLAY_GNSS_CAPACITY].occupied = 0U; }
         remove++;
     }
+    SILVERSTAR_ASSERT(!((remove < history->event_count) &&
+           (NavigationReplay_EventTimeGet(history, remove) < oldest)), SILVERSTAR_ASSERT_MODULE_ALGORITHM,
+                      SILVERSTAR_ASSERT_REASON_LOOP_BOUND);
     if (remove != 0U)
     {
         history->event_count -= remove;
         (void)memmove(history->event_order, &history->event_order[remove],
                       history->event_count * sizeof(history->event_order[0]));
     }
+}
+
+static void NavigationReplay_Prune(NavigationReplayContext *history)
+{
+    uint64_t oldest;
+    NavigationReplay_CheckpointsPrune(history);
+    oldest = history->storage->checkpoints[0].timestamp_us;
+    NavigationReplay_ImuPrune(history, oldest);
+    NavigationReplay_EventsPrune(history, oldest);
 }
 
 static uint8_t NavigationReplay_ModelMatches(
@@ -156,6 +214,8 @@ static uint8_t NavigationReplay_ModelMatches(
 static uint8_t NavigationReplay_EventValid(const NavigationReplayEvent *event)
 {
     uint8_t axis;
+    SILVERSTAR_ASSERT_OBJECT(event, NavigationReplayEvent,
+                             SILVERSTAR_ASSERT_MODULE_ALGORITHM);
     if ((event->kind == 0U) || (event->kind > NAV_REPLAY_BAROMETER) ||
         (event->vertical_valid > 1U) || (event->receive_timestamp_us == 0U))
     { return 0U; }
@@ -180,27 +240,29 @@ static uint8_t NavigationReplay_EventValid(const NavigationReplayEvent *event)
     return 1U;
 }
 
-NavigationReplayResult NavigationReplay_Predict(
-    NavigationReplayContext *history, NavigationKfContext *state,
-    uint64_t timestamp_us, const float delta_velocity[3], float dt_s)
+static uint8_t NavigationReplay_PredictionInputValid(
+    const NavigationReplayContext *history, const NavigationKfContext *state,
+    const float delta_velocity[3], float dt_s)
 {
-    NavigationReplayImu *imu;
-    uint64_t duration_us;
     uint8_t index;
     if ((history == NULL) || (state == NULL) || (delta_velocity == NULL) ||
         (history->faulted != 0U) || (history->checkpoint_count == 0U) ||
         (!isfinite(dt_s)) || (dt_s <= 0.0f) || (dt_s > SYSTEM_KF_PREDICTION_DT_MAX_S))
-    { return NavigationReplay_Reject(history, NAV_REPLAY_INVALID); }
+    { return 0U; }
     for (index = 0U; index < 3U; index++)
     {
         if (!isfinite(delta_velocity[index]))
-        { return NavigationReplay_Reject(history, NAV_REPLAY_INVALID); }
+        { return 0U; }
     }
-    if (NavigationReplay_ModelMatches(history, state) == 0U)
-    {
-        history->faulted = 1U;
-        return NavigationReplay_Reject(history, NAV_REPLAY_EPOCH_MISMATCH);
-    }
+    return 1U;
+}
+
+static NavigationReplayResult NavigationReplay_PredictionTimeValidate(
+    NavigationReplayContext *history, uint64_t timestamp_us, float dt_s)
+{
+    uint64_t duration_us;
+    SILVERSTAR_ASSERT_OBJECT(history, NavigationReplayContext,
+                             SILVERSTAR_ASSERT_MODULE_ALGORITHM);
     duration_us = (uint64_t)((double)dt_s * 1000000.0 + 0.5);
     if ((history->prediction_count == 0U) && (history->present_us == 0U) &&
         (timestamp_us >= duration_us))
@@ -216,6 +278,12 @@ NavigationReplayResult NavigationReplay_Predict(
         history->faulted = 1U;
         return NavigationReplay_Reject(history, NAV_REPLAY_DISCONTINUITY);
     }
+    return NAV_REPLAY_OK;
+}
+
+static NavigationReplayResult NavigationReplay_PredictionCapacityValidate(
+    NavigationReplayContext *history)
+{
     NavigationReplay_Prune(history);
     if ((history->imu_count >= NAV_REPLAY_IMU_CAPACITY) ||
         ((((history->prediction_count + 1U) % NAV_REPLAY_CHECKPOINT_STRIDE) == 0U) &&
@@ -224,12 +292,18 @@ NavigationReplayResult NavigationReplay_Predict(
         history->faulted = 1U;
         return NavigationReplay_Reject(history, NAV_REPLAY_OVERFLOW);
     }
-    history->working = *state;
-    if (NavigationKf_Predict(&history->working, delta_velocity, dt_s) == 0U)
-    {
-        history->faulted = 1U;
-        return NavigationReplay_Reject(history, NAV_REPLAY_NUMERIC_ERROR);
-    }
+    return NAV_REPLAY_OK;
+}
+
+static void NavigationReplay_PredictionStore(
+    NavigationReplayContext *history, NavigationKfContext *state,
+    uint64_t timestamp_us, const float delta_velocity[3], float dt_s)
+{
+    NavigationReplayImu *imu;
+    SILVERSTAR_ASSERT_OBJECT(history, NavigationReplayContext,
+                             SILVERSTAR_ASSERT_MODULE_ALGORITHM);
+    SILVERSTAR_ASSERT(history->imu_count < NAV_REPLAY_IMU_CAPACITY, SILVERSTAR_ASSERT_MODULE_ALGORITHM,
+                      SILVERSTAR_ASSERT_REASON_STATE_INVARIANT);
     imu = &history->storage->imu[(history->imu_head + history->imu_count) %
                         NAV_REPLAY_IMU_CAPACITY];
     imu->start_us = history->present_us;
@@ -247,6 +321,35 @@ NavigationReplayResult NavigationReplay_Predict(
         history->checkpoint_count++;
         NavigationReplay_Prune(history);
     }
+}
+
+NavigationReplayResult NavigationReplay_Predict(
+    NavigationReplayContext *history, NavigationKfContext *state,
+    uint64_t timestamp_us, const float delta_velocity[3], float dt_s)
+{
+    NavigationReplayResult result;
+    if (NavigationReplay_PredictionInputValid(history, state, delta_velocity, dt_s) == 0U)
+    { return NavigationReplay_Reject(history, NAV_REPLAY_INVALID); }
+    SILVERSTAR_ASSERT_OBJECT(history, NavigationReplayContext,
+                             SILVERSTAR_ASSERT_MODULE_ALGORITHM);
+    SILVERSTAR_ASSERT_OBJECT(history->storage, NavigationReplayStorage,
+                             SILVERSTAR_ASSERT_MODULE_ALGORITHM);
+    if (NavigationReplay_ModelMatches(history, state) == 0U)
+    {
+        history->faulted = 1U;
+        return NavigationReplay_Reject(history, NAV_REPLAY_EPOCH_MISMATCH);
+    }
+    result = NavigationReplay_PredictionTimeValidate(history, timestamp_us, dt_s);
+    if (result != NAV_REPLAY_OK) { return result; }
+    result = NavigationReplay_PredictionCapacityValidate(history);
+    if (result != NAV_REPLAY_OK) { return result; }
+    history->working = *state;
+    if (NavigationKf_Predict(&history->working, delta_velocity, dt_s) == 0U)
+    {
+        history->faulted = 1U;
+        return NavigationReplay_Reject(history, NAV_REPLAY_NUMERIC_ERROR);
+    }
+    NavigationReplay_PredictionStore(history, state, timestamp_us, delta_velocity, dt_s);
     history->diagnostics.last_result = NAV_REPLAY_OK;
     return NAV_REPLAY_OK;
 }
@@ -262,6 +365,8 @@ NavigationReplayResult NavigationReplay_ReceiveTrack(
     { return NavigationReplay_Reject(history, NAV_REPLAY_INVALID); }
     if (receive_epoch->timestamp_us < history->epoch_start_us)
     { return NavigationReplay_Reject(history, NAV_REPLAY_HISTORY_MISS); }
+    SILVERSTAR_ASSERT_OBJECT(history, NavigationReplayContext,
+                             SILVERSTAR_ASSERT_MODULE_ALGORITHM);
     /* This is the existing availability/consistency implementation. The only
      * clock supplied to it is the actual packet receive clock. Never replay it. */
     NavigationKf_GnssEpochTrack(&history->receive_tracker, receive_epoch);
@@ -289,6 +394,10 @@ static void NavigationReplay_EvidenceApply(NavigationKfContext *state,
 {
     uint8_t group;
     NavigationKfGnssReacquisitionContext *reacquisition = &state->gnss_reacquisition;
+    SILVERSTAR_ASSERT_OBJECT(state, NavigationKfContext,
+                             SILVERSTAR_ASSERT_MODULE_ALGORITHM);
+    SILVERSTAR_ASSERT_OBJECT(event, NavigationReplayEvent,
+                             SILVERSTAR_ASSERT_MODULE_ALGORITHM);
     for (group = 0U; group < NAV_KF_GNSS_GROUP_COUNT; group++)
     {
         uint8_t bit = NAV_KF_GNSS_GROUP_MASK(group);
@@ -334,6 +443,10 @@ static NavigationReplayResult NavigationReplay_EventApply(NavigationKfContext *s
                                         NavigationReplayOutcome *outcome)
 {
     uint8_t group;
+    SILVERSTAR_ASSERT_OBJECT(state, NavigationKfContext,
+                             SILVERSTAR_ASSERT_MODULE_ALGORITHM);
+    SILVERSTAR_ASSERT_OBJECT(event, NavigationReplayEvent,
+                             SILVERSTAR_ASSERT_MODULE_ALGORITHM);
     NavigationReplay_OutcomeReset(outcome);
     NavigationReplay_EvidenceApply(state, event);
     if (((event->kind & NAV_REPLAY_POSITION) != 0U) &&
@@ -410,6 +523,62 @@ static NavigationReplayResult NavigationReplay_SegmentPredict(
         NAV_REPLAY_OK : NAV_REPLAY_NUMERIC_ERROR;
 }
 
+static NavigationReplayResult NavigationReplay_IntervalApply(
+    NavigationReplayContext *history, const NavigationReplayImu *imu,
+    uint64_t *cursor, uint64_t end, uint16_t *event_index,
+    uint16_t inserted, NavigationReplayOutcome *outcome)
+{
+    uint16_t guard;
+    NavigationReplayOutcome ignored;
+    SILVERSTAR_ASSERT_OBJECT(history, NavigationReplayContext,
+                             SILVERSTAR_ASSERT_MODULE_ALGORITHM);
+    SILVERSTAR_ASSERT(*event_index <= history->event_count, SILVERSTAR_ASSERT_MODULE_ALGORITHM,
+                      SILVERSTAR_ASSERT_REASON_STATE_INVARIANT);
+    for (guard = 0U; guard < NAV_REPLAY_EVENT_CAPACITY; guard++)
+    {
+        if (!(((*event_index) < history->event_count) &&
+               (NavigationReplay_EventTimeGet(history, (*event_index)) < end ||
+                ((imu == NULL) && (NavigationReplay_EventTimeGet(history, (*event_index)) == end))))) { break; }
+
+        const NavigationReplayEvent *event = NavigationReplay_EventGet(history, (*event_index));
+        NavigationReplayResult result;
+        if (event->measurement_timestamp_us > (*cursor))
+        {
+            if (imu == NULL) { return NAV_REPLAY_DISCONTINUITY; }
+            result = NavigationReplay_SegmentPredict(history, imu, (*cursor),
+                event->measurement_timestamp_us);
+            if (result != NAV_REPLAY_OK) { return result; }
+            (*cursor) = event->measurement_timestamp_us;
+        }
+        if (++history->diagnostics.last_steps > NAV_REPLAY_MAX_STEPS)
+        { return NAV_REPLAY_WORK_LIMIT; }
+        result = NavigationReplay_EventApply(&history->working, event,
+            ((*event_index) == inserted) ? outcome : &ignored);
+        if (result != NAV_REPLAY_OK) { return result; }
+        (*event_index)++;
+    }
+    SILVERSTAR_ASSERT(!(((*event_index) < history->event_count) &&
+               (NavigationReplay_EventTimeGet(history, (*event_index)) < end ||
+                ((imu == NULL) && (NavigationReplay_EventTimeGet(history, (*event_index)) == end)))), SILVERSTAR_ASSERT_MODULE_ALGORITHM,
+                      SILVERSTAR_ASSERT_REASON_LOOP_BOUND);
+    return NAV_REPLAY_OK;
+}
+
+static uint16_t NavigationReplay_FirstEventFind(
+    const NavigationReplayContext *history, uint64_t cursor)
+{
+    uint16_t index;
+    for (index = 0U; index < NAV_REPLAY_EVENT_CAPACITY; index++)
+    {
+        if ((index >= history->event_count) ||
+            (NavigationReplay_EventTimeGet(history, index) >= cursor))
+        { break; }
+    }
+    SILVERSTAR_ASSERT((index >= history->event_count) || (NavigationReplay_EventTimeGet(history, index) >= cursor), SILVERSTAR_ASSERT_MODULE_ALGORITHM,
+                      SILVERSTAR_ASSERT_REASON_LOOP_BOUND);
+    return index;
+}
+
 static NavigationReplayResult NavigationReplay_Rebuild(
     NavigationReplayContext *history, uint8_t checkpoint, uint16_t inserted,
     NavigationReplayOutcome *outcome)
@@ -417,42 +586,29 @@ static NavigationReplayResult NavigationReplay_Rebuild(
     uint16_t event_index = 0U;
     uint16_t imu_index;
     uint8_t next_checkpoint = (uint8_t)(checkpoint + 1U);
-    uint64_t cursor = history->storage->checkpoints[checkpoint].timestamp_us;
-    NavigationReplayOutcome ignored;
+    uint64_t cursor;
+    SILVERSTAR_ASSERT_OBJECT(history, NavigationReplayContext,
+                             SILVERSTAR_ASSERT_MODULE_ALGORITHM);
+    SILVERSTAR_ASSERT(checkpoint < history->checkpoint_count, SILVERSTAR_ASSERT_MODULE_ALGORITHM,
+                      SILVERSTAR_ASSERT_REASON_STATE_INVARIANT);
+    SILVERSTAR_ASSERT(history->imu_count <= NAV_REPLAY_IMU_CAPACITY,
+                      SILVERSTAR_ASSERT_MODULE_ALGORITHM,
+                      SILVERSTAR_ASSERT_REASON_BUFFER_CAPACITY);
+    cursor = history->storage->checkpoints[checkpoint].timestamp_us;
     history->working = history->storage->checkpoints[checkpoint].state;
-    while ((event_index < history->event_count) &&
-           (NavigationReplay_EventTimeGet(history, event_index) < cursor))
-    { event_index++; }
+    event_index = NavigationReplay_FirstEventFind(history, cursor);
     for (imu_index = 0U; imu_index <= history->imu_count; imu_index++)
     {
         const NavigationReplayImu *imu = (imu_index < history->imu_count) ?
             &history->storage->imu[(history->imu_head + imu_index) % NAV_REPLAY_IMU_CAPACITY] : NULL;
         uint64_t end = (imu != NULL) ? imu->end_us : history->present_us;
         if ((imu != NULL) && (end <= cursor)) { continue; }
-        while ((event_index < history->event_count) &&
-               (NavigationReplay_EventTimeGet(history, event_index) < end ||
-                ((imu == NULL) && (NavigationReplay_EventTimeGet(history, event_index) == end))))
-        {
-            const NavigationReplayEvent *event = NavigationReplay_EventGet(history, event_index);
-            NavigationReplayResult result;
-            if (event->measurement_timestamp_us > cursor)
-            {
-                if (imu == NULL) { return NAV_REPLAY_DISCONTINUITY; }
-                result = NavigationReplay_SegmentPredict(history, imu, cursor,
-                    event->measurement_timestamp_us);
-                if (result != NAV_REPLAY_OK) { return result; }
-                cursor = event->measurement_timestamp_us;
-            }
-            if (++history->diagnostics.last_steps > NAV_REPLAY_MAX_STEPS)
-            { return NAV_REPLAY_WORK_LIMIT; }
-            result = NavigationReplay_EventApply(&history->working, event,
-                (event_index == inserted) ? outcome : &ignored);
-            if (result != NAV_REPLAY_OK) { return result; }
-            event_index++;
-        }
+        NavigationReplayResult result = NavigationReplay_IntervalApply(
+            history, imu, &cursor, end, &event_index, inserted, outcome);
+        if (result != NAV_REPLAY_OK) { return result; }
         if ((imu != NULL) && (end > cursor))
         {
-            NavigationReplayResult result = NavigationReplay_SegmentPredict(history, imu, cursor, end);
+            result = NavigationReplay_SegmentPredict(history, imu, cursor, end);
             if (result != NAV_REPLAY_OK) { return result; }
             cursor = end;
             if ((next_checkpoint < history->checkpoint_count) &&
@@ -466,25 +622,28 @@ static NavigationReplayResult NavigationReplay_Rebuild(
     return NAV_REPLAY_OK;
 }
 
-NavigationReplayResult NavigationReplay_Insert(
-    NavigationReplayContext *history, NavigationKfContext *state,
-    const NavigationReplayEvent *event, NavigationReplayOutcome *outcome)
+static uint8_t NavigationReplay_InsertInputValid(
+    const NavigationReplayContext *history, const NavigationKfContext *state,
+    const NavigationReplayEvent *event, const NavigationReplayOutcome *outcome)
 {
-    uint16_t index = 0U;
-    uint16_t slot;
-    uint8_t checkpoint = 0U;
-    uint64_t age;
-    NavigationReplayResult result = NAV_REPLAY_OK;
-    if (outcome != NULL) { NavigationReplay_OutcomeReset(outcome); }
     if ((history == NULL) || (state == NULL) || (event == NULL) || (outcome == NULL) ||
         (history->faulted != 0U) || (history->checkpoint_count == 0U) ||
         (NavigationReplay_EventValid(event) == 0U) ||
         (event->measurement_timestamp_us > history->present_us))
-    { return NavigationReplay_Reject(history, NAV_REPLAY_INVALID); }
+    { return 0U; }
+    return 1U;
+}
+
+static NavigationReplayResult NavigationReplay_InsertValidate(
+    NavigationReplayContext *history, const NavigationKfContext *state,
+    const NavigationReplayEvent *event)
+{
+    SILVERSTAR_ASSERT_OBJECT(history, NavigationReplayContext,
+                             SILVERSTAR_ASSERT_MODULE_ALGORITHM);
     history->diagnostics.last_steps = 0U;
     if ((event->epoch != history->epoch) || (NavigationReplay_ModelMatches(history, state) == 0U))
     { return NavigationReplay_Reject(history, NAV_REPLAY_EPOCH_MISMATCH); }
-    age = history->present_us - event->measurement_timestamp_us;
+    uint64_t age = history->present_us - event->measurement_timestamp_us;
     if ((age > NAV_REPLAY_WINDOW_US) ||
         (event->measurement_timestamp_us < history->epoch_start_us) ||
         (event->receive_timestamp_us < history->epoch_start_us) ||
@@ -492,8 +651,28 @@ NavigationReplayResult NavigationReplay_Insert(
     { return NavigationReplay_Reject(history, NAV_REPLAY_HISTORY_MISS); }
     if (history->event_count >= NAV_REPLAY_EVENT_CAPACITY)
     { return NavigationReplay_Reject(history, NAV_REPLAY_OVERFLOW); }
-    while ((index < history->event_count) && NavigationReplay_EventBefore(NavigationReplay_EventGet(history, index), event))
-    { index++; }
+    return NAV_REPLAY_OK;
+}
+
+static uint16_t NavigationReplay_EventIndexFind(
+    NavigationReplayContext *history, const NavigationReplayEvent *event)
+{
+    uint16_t index;
+    for (index = 0U; index < NAV_REPLAY_EVENT_CAPACITY; index++)
+    {
+        if ((index >= history->event_count) ||
+            !NavigationReplay_EventBefore(NavigationReplay_EventGet(history, index), event))
+        { break; }
+    }
+    SILVERSTAR_ASSERT((index >= history->event_count) || !NavigationReplay_EventBefore(NavigationReplay_EventGet(history, index), event), SILVERSTAR_ASSERT_MODULE_ALGORITHM,
+                      SILVERSTAR_ASSERT_REASON_LOOP_BOUND);
+    return index;
+}
+
+static NavigationReplayResult NavigationReplay_EventCommit(
+    NavigationReplayContext *history, const NavigationReplayEvent *event, uint16_t index)
+{
+    uint16_t slot;
     if ((index < history->event_count) && !NavigationReplay_EventBefore(event, NavigationReplay_EventGet(history, index)))
     { return NavigationReplay_Reject(history, NAV_REPLAY_INVALID); }
     slot = NavigationReplay_EventStore(history, event);
@@ -505,54 +684,91 @@ NavigationReplayResult NavigationReplay_Insert(
     history->event_count++;
     if (history->event_count > history->diagnostics.event_high_water)
     { history->diagnostics.event_high_water = history->event_count; }
+    return NAV_REPLAY_OK;
+}
+
+static uint8_t NavigationReplay_CheckpointFind(
+    const NavigationReplayContext *history, uint64_t timestamp_us)
+{
+    uint8_t checkpoint = 0U;
+    uint8_t guard;
+    for (guard = 0U; guard < NAV_REPLAY_CHECKPOINT_CAPACITY; guard++)
+    {
+        if ((checkpoint + 1U >= history->checkpoint_count) ||
+            (history->storage->checkpoints[checkpoint + 1U].timestamp_us > timestamp_us))
+        { break; }
+        checkpoint++;
+    }
+    SILVERSTAR_ASSERT((checkpoint + 1U >= history->checkpoint_count) || (history->storage->checkpoints[checkpoint + 1U].timestamp_us > timestamp_us), SILVERSTAR_ASSERT_MODULE_ALGORITHM,
+                      SILVERSTAR_ASSERT_REASON_LOOP_BOUND);
+    return checkpoint;
+}
+
+static NavigationReplayResult NavigationReplay_ApplyFailure(
+    NavigationReplayContext *history, NavigationReplayOutcome *outcome,
+    NavigationReplayResult result)
+{
+    /* Partial checkpoints must never be reused; current state is uncommitted. */
+    history->faulted = 1U;
+    NavigationReplay_OutcomeReset(outcome);
+    if (result == NAV_REPLAY_NUMERIC_ERROR)
+    {
+        outcome->position = NAV_KF_UPDATE_NUMERIC_ERROR;
+        outcome->velocity = NAV_KF_UPDATE_NUMERIC_ERROR;
+        outcome->barometer = NAV_KF_UPDATE_NUMERIC_ERROR;
+    }
+    return NavigationReplay_Reject(history, result);
+}
+
+static NavigationReplayResult NavigationReplay_InsertedApply(
+    NavigationReplayContext *history, NavigationKfContext *state,
+    const NavigationReplayEvent *event, uint16_t index,
+    NavigationReplayOutcome *outcome)
+{
+    uint64_t age = history->present_us - event->measurement_timestamp_us;
+    NavigationReplayResult result;
+    SILVERSTAR_ASSERT_OBJECT(history, NavigationReplayContext,
+                             SILVERSTAR_ASSERT_MODULE_ALGORITHM);
+    SILVERSTAR_ASSERT(index < history->event_count, SILVERSTAR_ASSERT_MODULE_ALGORITHM,
+                      SILVERSTAR_ASSERT_REASON_STATE_INVARIANT);
     if ((age == 0U) && (index == history->event_count - 1U))
     {
-        /* Original current-state fast path; still retain the event for future rewind. */
+        /* Original current-state fast path, retaining the historical event. */
         history->working = *state;
         result = NavigationReplay_EventApply(&history->working, event, outcome);
-        if (result != NAV_REPLAY_OK)
-        {
-            history->faulted = 1U;
-            NavigationReplay_OutcomeReset(outcome);
-            if (result == NAV_REPLAY_NUMERIC_ERROR)
-            {
-                outcome->position = NAV_KF_UPDATE_NUMERIC_ERROR;
-                outcome->velocity = NAV_KF_UPDATE_NUMERIC_ERROR;
-                outcome->barometer = NAV_KF_UPDATE_NUMERIC_ERROR;
-            }
-            return NavigationReplay_Reject(history, result);
-        }
-        *state = history->working;
     }
     else
     {
-        while ((checkpoint + 1U < history->checkpoint_count) &&
-               (history->storage->checkpoints[checkpoint + 1U].timestamp_us <= event->measurement_timestamp_us))
-        { checkpoint++; }
+        uint8_t checkpoint = NavigationReplay_CheckpointFind(history, event->measurement_timestamp_us);
         history->diagnostics.replay_count++;
         if (age > history->diagnostics.max_rewind_age_us)
         { history->diagnostics.max_rewind_age_us = (uint32_t)age; }
         result = NavigationReplay_Rebuild(history, checkpoint, index, outcome);
-        if (result == NAV_REPLAY_OK) { *state = history->working; }
-        else
-        {
-            /* Current x/P remains intact. History may have partial checkpoints;
-             * fail closed until a new mission epoch, never current-update fallback. */
-            history->faulted = 1U;
-            NavigationReplay_OutcomeReset(outcome);
-            if (result == NAV_REPLAY_NUMERIC_ERROR)
-            {
-                outcome->position = NAV_KF_UPDATE_NUMERIC_ERROR;
-                outcome->velocity = NAV_KF_UPDATE_NUMERIC_ERROR;
-                outcome->barometer = NAV_KF_UPDATE_NUMERIC_ERROR;
-            }
-            return NavigationReplay_Reject(history, result);
-        }
     }
+    if (result != NAV_REPLAY_OK)
+    { return NavigationReplay_ApplyFailure(history, outcome, result); }
+    *state = history->working;
     if (history->diagnostics.last_steps > history->diagnostics.max_steps)
     { history->diagnostics.max_steps = history->diagnostics.last_steps; }
     history->diagnostics.last_result = result;
     return result;
+}
+
+NavigationReplayResult NavigationReplay_Insert(
+    NavigationReplayContext *history, NavigationKfContext *state,
+    const NavigationReplayEvent *event, NavigationReplayOutcome *outcome)
+{
+    uint16_t index;
+    NavigationReplayResult result;
+    if (outcome != NULL) { NavigationReplay_OutcomeReset(outcome); }
+    if (NavigationReplay_InsertInputValid(history, state, event, outcome) == 0U)
+    { return NavigationReplay_Reject(history, NAV_REPLAY_INVALID); }
+    result = NavigationReplay_InsertValidate(history, state, event);
+    if (result != NAV_REPLAY_OK) { return result; }
+    index = NavigationReplay_EventIndexFind(history, event);
+    result = NavigationReplay_EventCommit(history, event, index);
+    if (result != NAV_REPLAY_OK) { return result; }
+    return NavigationReplay_InsertedApply(history, state, event, index, outcome);
 }
 
 void NavigationReplay_RuntimeRecord(NavigationReplayContext *history,

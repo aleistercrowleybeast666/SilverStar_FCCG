@@ -395,8 +395,35 @@ static void Test_NominalFullRate(unsigned int barometer_delay_steps)
         (unsigned int)s_delayed_history.diagnostics.event_high_water);
 }
 
+static void Test_NumericFailureAndInvalidPointers(void)
+{
+    const float delta[3] = {0.0f, 0.0f, 0.0f};
+    NavigationReplayOutcome outcome;
+    NavigationReplayEvent event = Test_Event(1U, NAV_REPLAY_BAROMETER);
+    Test_Initialize();
+    TEST_CHECK(NavigationReplay_Predict(NULL, &s_delayed, 1005000ULL, delta, 0.005f) == NAV_REPLAY_INVALID);
+    TEST_CHECK(NavigationReplay_Predict(&s_delayed_history, NULL, 1005000ULL, delta, 0.005f) == NAV_REPLAY_INVALID);
+    TEST_CHECK(NavigationReplay_Predict(&s_delayed_history, &s_delayed, 1005000ULL, NULL, 0.005f) == NAV_REPLAY_INVALID);
+    TEST_CHECK(NavigationReplay_Insert(NULL, &s_delayed, &event, &outcome) == NAV_REPLAY_INVALID);
+    TEST_CHECK(NavigationReplay_Insert(&s_delayed_history, NULL, &event, &outcome) == NAV_REPLAY_INVALID);
+    TEST_CHECK(NavigationReplay_Insert(&s_delayed_history, &s_delayed, NULL, &outcome) == NAV_REPLAY_INVALID);
+    TEST_CHECK(NavigationReplay_Insert(&s_delayed_history, &s_delayed, &event, NULL) == NAV_REPLAY_INVALID);
+    TEST_CHECK(NavigationReplay_Predict(&s_delayed_history, &s_delayed, 1005000ULL, delta, 0.005f) == NAV_REPLAY_OK);
+    TEST_CHECK(NavigationReplay_Predict(&s_delayed_history, &s_delayed, 1010000ULL, delta, 0.005f) == NAV_REPLAY_OK);
+    s_wrong = s_delayed;
+    /* Fault injection in the historical state, not in external measurement data. */
+    s_delayed_storage.checkpoints[0].state.state[0] = NAN;
+    TEST_CHECK(NavigationReplay_Insert(&s_delayed_history, &s_delayed, &event, &outcome) == NAV_REPLAY_NUMERIC_ERROR);
+    TEST_CHECK(memcmp(&s_delayed, &s_wrong, sizeof(s_delayed)) == 0);
+    TEST_CHECK(s_delayed_history.faulted == 1U);
+    TEST_CHECK(outcome.barometer == NAV_KF_UPDATE_NUMERIC_ERROR);
+    TEST_CHECK(NavigationReplay_Predict(&s_delayed_history, &s_delayed, 1015000ULL, delta, 0.005f) == NAV_REPLAY_INVALID);
+    TEST_CHECK(memcmp(&s_delayed, &s_wrong, sizeof(s_delayed)) == 0);
+}
+
 int main(void)
 {
+    Test_NumericFailureAndInvalidPointers();
     Test_NominalFullRate(0U);
     Test_NominalFullRate(20U);
     Test_NominalFullRate(110U); /* Configured maximum 550 ms. */
