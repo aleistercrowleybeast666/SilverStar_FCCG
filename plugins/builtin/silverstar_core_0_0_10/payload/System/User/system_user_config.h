@@ -231,8 +231,8 @@
 #define SYSTEM_LOG_RETRY_PERIOD_US                 1000000ULL
 #define SYSTEM_LOG_POST_LANDING_GRACE_MS              1000U
 #define SYSTEM_LOG_AGGREGATION_BUFFER_SIZE            4096U
-#define SYSTEM_LOG_RECORD_QUEUE_DEPTH                   64U
-#define SYSTEM_LOG_ESTIMATOR_QUEUE_DEPTH                32U
+#define SYSTEM_LOG_RECORD_QUEUE_DEPTH                   80U
+#define SYSTEM_LOG_ESTIMATOR_QUEUE_DEPTH                48U
 #define SYSTEM_LOG_FILE_INDEX_MAX                     9999U
 #define SYSTEM_LOG_PROFILE_ID                             0U
 

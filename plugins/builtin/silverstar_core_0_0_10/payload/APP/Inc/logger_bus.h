@@ -53,9 +53,6 @@ LoggerBusResult LoggerBus_StreamingReady(void);
 LoggerBusStartupState LoggerBus_StartupStateGet(void);
 LoggerBusResult LoggerBus_Init(void);
 void LoggerBus_Reset(void);
-LoggerBusResult LoggerBus_SamplePush(
-    uint64_t timestamp_us, uint32_t valid_flags,
-    const FlightLogSampleRecord *record);
 LoggerBusResult LoggerBus_EventPush(
     uint64_t timestamp_us, FlightLogEventId event_id,
     uint32_t arg0, uint32_t arg1);
@@ -67,9 +64,6 @@ LoggerBusResult LoggerBus_EstimatorPush(
 LoggerBusResult LoggerBus_SystemConfigPush(uint64_t timestamp_us);
 LoggerBusResult LoggerBus_MissionConfigPush(uint64_t timestamp_us);
 LoggerBusResult LoggerBus_DecoderProfileDescriptorPush(uint64_t timestamp_us);
-LoggerBusResult LoggerBus_RawSensorPush(
-    uint64_t timestamp_us, uint32_t valid_flags,
-    const FlightLogRawSensorRecord *record);
 LoggerBusResult LoggerBus_PureInsPush(
     uint64_t timestamp_us, uint32_t valid_flags,
     const FlightLogPureInsRecord *record);
@@ -87,9 +81,6 @@ LoggerBusResult LoggerBus_TelemetryDiagnosticPush(
     const FlightLogTelemetryDiagnosticRecord *record);
 LoggerBusResult LoggerBus_InitialStatePush(
     uint64_t timestamp_us, const FlightLogInitialStateRecord *record);
-LoggerBusResult LoggerBus_ImuNativePush(
-    uint64_t timestamp_us, uint32_t valid_flags,
-    const FlightLogImuNativeRecord *record);
 LoggerBusResult LoggerBus_GnssNativePush(
     uint64_t timestamp_us, uint32_t valid_flags,
     const FlightLogGnssNativeRecord *record);
@@ -99,9 +90,6 @@ LoggerBusResult LoggerBus_BaroNativePush(
 LoggerBusResult LoggerBus_MagNativePush(
     uint64_t timestamp_us, uint32_t valid_flags,
     const FlightLogMagNativeRecord *record);
-LoggerBusResult LoggerBus_HardwareQuaternionNativePush(
-    uint64_t timestamp_us, uint32_t valid_flags,
-    const FlightLogHardwareQuaternionNativeRecord *record);
 LoggerBusResult LoggerBus_InertialIncrementPush(
     uint64_t timestamp_us, uint32_t valid_flags,
     const FlightLogInertialIncrementRecord *record);
@@ -129,5 +117,17 @@ LoggerBusResult LoggerBus_EstimatorPop(FlightLogRecord *record);
 LoggerBusResult LoggerBus_NextPop(FlightLogRecord *record);
 uint16_t LoggerBus_Count(void);
 uint32_t LoggerBus_OverflowCountGet(void);
+
+LoggerBusResult LoggerBus_EstimatorStepPush(
+    uint64_t timestamp_us, const FlightLogEstimatorStepRecord *record);
+
+LoggerBusResult LoggerBus_NavigationSnapshotPush(uint64_t timestamp_us,
+    const FlightLogEstimatorRecord *state, const FlightLogKf6FullPRecord *covariance);
+
+LoggerBusResult LoggerBus_GnssRecoveryPush(
+    uint64_t timestamp_us, const FlightLogGnssRecoveryRecord *record);
+
+LoggerBusResult LoggerBus_LandingDiagnosticPush(
+    uint64_t timestamp_us, const FlightLogLandingDiagnosticRecord *record);
 
 #endif /* __LOGGER_BUS_H */

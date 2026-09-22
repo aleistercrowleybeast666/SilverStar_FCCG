@@ -27,7 +27,7 @@ typedef struct
 typedef struct
 {
     uint64_t timestamp_us;
-
+    uint64_t interval_start_timestamp_us;
     float delta_theta_b[3];
     float delta_theta_b_coning_corrected[3];
     float delta_velocity_b[3];
@@ -51,7 +51,20 @@ typedef struct
 {
     InsAlgorithmSample sample_history[2];
     uint8_t sample_count;
+    uint32_t update_count;
+    uint32_t health_flags;
+} InsInertialContext;
 
+typedef enum
+{
+    INS_INERTIAL_UPDATE_READY = 0,
+    INS_INERTIAL_UPDATE_WAITING,
+    INS_INERTIAL_UPDATE_INVALID
+} InsInertialUpdateResult;
+
+typedef struct
+{
+    InsInertialContext inertial;
     float velocity_n_mps[3];
     float position_n_m[3];
     float q_nb_propagated[4];
@@ -61,6 +74,10 @@ typedef struct
     uint32_t health_flags;
     uint8_t q_nb_propagated_valid;
 } InsMechanizationContext;
+
+void InsInertial_Reset(InsInertialContext *context);
+InsInertialUpdateResult InsInertial_Update(InsInertialContext *context,
+    const InsAlgorithmSample *sample, InsState *increment);
 
 void InsMechanization_Init(InsMechanizationContext *context,
                            float gravity_mps2);

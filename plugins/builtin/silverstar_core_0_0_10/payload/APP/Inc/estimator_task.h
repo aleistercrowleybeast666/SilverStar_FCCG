@@ -38,6 +38,7 @@ typedef struct
     float position_enu_m[3];
     float velocity_enu_mps[3];
     float q_nb[4];
+    float acceleration_enu_mps2[3];
     float covariance_diagonal[6];
     float covariance[6][6];
     float gnss_position_enu_m[3];

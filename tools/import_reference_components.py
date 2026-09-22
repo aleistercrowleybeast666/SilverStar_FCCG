@@ -37,6 +37,7 @@ REFERENCE_OVERLAY_ROOT = WORKSPACE_ROOT / "tools" / "reference_overlays"
 RUNTIME_SAFETY_CORE_FILES = (
     "APP/Inc/app_task_config.h", "APP/Src/app_tasks.c", "APP/Src/estimator_task.c",
     "Common/Inc/silverstar_assert.h", "Common/Src/silverstar_assert.c",
+    "Common/Inc/common_spsc_queue.h", "Common/Src/common_spsc_queue.c",
     "System/Inc/system_task_stack.h", "System/Alignment/Src/system_alignment.c",
     "System/Calibration/Inc/system_calibration.h",
     "System/Calibration/Src/system_calibration.c",
@@ -1035,6 +1036,9 @@ def _Components_Get(
             "Tests/Host/Fixtures/algorithm_noise_absent.h",
             "APP/Inc/app_task_config.h",
             "APP/Inc/logger_bus.h",
+            "APP/Inc/device_native_log.h",
+            "System/Inc/system_log_policy.h",
+            "System/Inc/system_flight_recovery.h",
             "APP/Inc/logger_task.h",
             "APP/Src/logger_bus.c",
             "Interfaces/Inc/system_storage_if.h",
@@ -2692,6 +2696,8 @@ def _Components_Get(
                 )
                 for relative in (
                     "Protocol/SSLOG/Inc/sslog_protocol.h",
+                    "Protocol/SSLOG/Inc/sslog_records.h",
+                    "Protocol/SSLOG/Src/sslog_records.c",
                     "Protocol/SSLOG/schema/sslog_parser_metadata.json",
                     "Protocol/SSLOG/schema/sslog_schema.json",
                 )
@@ -2769,12 +2775,21 @@ def _Components_Get(
         # Recommendation metadata and timestamp contracts are package-owned.
         if component_id == core_id:
             for relative in (
-                "APP/Inc/estimator_bus.h", "APP/Src/estimator_task.c", "APP/Src/device_task.c",
+                "APP/Inc/estimator_bus.h", "APP/Inc/estimator_task.h", "APP/Src/estimator_task.c", "APP/Src/device_task.c",
+                "APP/Src/flight_task.c", "System/Src/system_gnss_quality.c",
+                "System/Inc/system_estimator_diagnostics.h", "System/Src/system_estimator_diagnostics.c",
+                "Tests/Host/test_sensor_quality.c", "Tests/Host/test_flight_recovery.c",
                 "System/Inc/system_time.h", "System/Src/system_time.c",
                 "Interfaces/Inc/system_gnss_if.h", "Interfaces/Inc/system_barometer_if.h",
                 "Tests/Host/test_navigation_kf_replay.c", "Tests/Host/test_profiles.c", "Tests/Host/test_air_kf.c", "Tests/Host/test_jy901b_adapter.c", "Tests/Host/run_tests.ps1",
             ):
                 component["fccg_owned_files"][relative] = f"plugins/builtin/{slug}/payload/{relative}"
+        if component_id in ("silverstar.flight_logic.cycle.reference", "silverstar.flight_logic.landing.baro_imu_window", "silverstar.algorithm.ins.coning2_sculling2"):
+            for owned_file in (builtin_manifest_path.parent / "payload").rglob("*"):
+                if owned_file.is_file() and owned_file.suffix in (".c", ".h"):
+                    relative = owned_file.relative_to(builtin_manifest_path.parent / "payload").as_posix()
+                    component["fccg_owned_files"][relative] = f"plugins/builtin/{slug}/payload/{relative}"
+                    component["manifest"]["metadata"].setdefault("source_origins", {})[relative] = "fccg_field_runtime"
         if component["manifest"]["type"] == "device" and builtin_manifest_path.is_file():
             owned_device = json.loads(builtin_manifest_path.read_text(encoding="utf-8"))
             recommendations = owned_device.get("metadata", {}).get("sensor_recommendations")
@@ -4759,6 +4774,10 @@ def Components_Import(reference: Path, *, force: bool = False) -> dict[str, Any]
                 ).read_bytes()
             ).hexdigest()
             expected = provenance["protocol_source_sha256"][reference_path]
+            if reference_path == "Protocol/SSLOG/Src/sslog_records.c":
+                owned_source = BUILTIN_ROOT / package / "payload" / payload_path
+                expected = hashlib.sha256(owned_source.read_bytes()).hexdigest()
+                provenance.setdefault("fccg_protocol_source_sha256", {})[reference_path] = expected
             if actual != expected:
                 raise RuntimeError(
                     f"Protocol source changed during plugin split: {reference_path}"

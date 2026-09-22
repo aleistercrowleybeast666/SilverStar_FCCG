@@ -17,6 +17,42 @@ static uint8_t s_estimator_gnss_diagnostics_valid;
 static uint8_t s_kf_diagnostics_valid;
 static uint8_t s_ins_diagnostics_valid;
 
+#define SYSTEM_BARO_EVENT_WAIT_LIMIT_US 1000000ULL
+
+uint8_t SystemEstimatorBaroDiagnostics_EventPending(
+    SystemEstimatorBaroDiagnostics *diagnostics)
+{
+    SystemEstimatorBaroUpdateState state;
+    uint8_t anomaly;
+    if (diagnostics == NULL) { return 0U; }
+    SILVERSTAR_ASSERT_OBJECT(diagnostics, SystemEstimatorBaroDiagnostics,
+                             SILVERSTAR_ASSERT_MODULE_SYSTEM);
+    state = diagnostics->last_update_state;
+    if (state == SYSTEM_ESTIMATOR_BARO_UPDATE_WAIT_STATE_CATCHUP)
+    {
+        if ((diagnostics->wait_start_timestamp_us == 0U) ||
+            (diagnostics->last_update_timestamp_us < diagnostics->wait_start_timestamp_us))
+        { diagnostics->wait_start_timestamp_us = diagnostics->last_update_timestamp_us; }
+        if (diagnostics->last_update_timestamp_us - diagnostics->wait_start_timestamp_us <
+            SYSTEM_BARO_EVENT_WAIT_LIMIT_US)
+        { return 0U; }
+    }
+    else { diagnostics->wait_start_timestamp_us = 0U; }
+    anomaly = (uint8_t)((state != SYSTEM_ESTIMATOR_BARO_UPDATE_NONE) &&
+        (state != SYSTEM_ESTIMATOR_BARO_UPDATE_ACCEPTED) &&
+        (state != SYSTEM_ESTIMATOR_BARO_UPDATE_SOFTENED));
+    if ((anomaly == 0U) && (diagnostics->event_anomaly_active == 0U))
+    { return 0U; }
+    if ((anomaly != 0U) && (diagnostics->event_anomaly_active != 0U) &&
+        (diagnostics->event_state == state) &&
+        (diagnostics->event_reason == diagnostics->last_skip_reason))
+    { return 0U; }
+    diagnostics->event_state = state;
+    diagnostics->event_reason = diagnostics->last_skip_reason;
+    diagnostics->event_anomaly_active = anomaly;
+    return 1U;
+}
+
 static PlatformCriticalState SystemEstimatorBaroDiagnostics_IrqLock(void)
 {
     return PlatformCritical_Enter();

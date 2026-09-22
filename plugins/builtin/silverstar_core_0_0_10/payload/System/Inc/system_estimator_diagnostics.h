@@ -65,7 +65,15 @@ typedef struct
     uint8_t source_supported;
     uint8_t sample_valid;
     uint8_t origin_pressure_valid;
+    /* Event admission is independent of the latest scheduling diagnostic. */
+    uint64_t wait_start_timestamp_us;
+    SystemEstimatorBaroUpdateState event_state;
+    SystemEstimatorBaroSkipReason event_reason;
+    uint8_t event_anomaly_active;
 } SystemEstimatorBaroDiagnostics;
+
+uint8_t SystemEstimatorBaroDiagnostics_EventPending(
+    SystemEstimatorBaroDiagnostics *diagnostics);
 
 typedef enum
 {
@@ -130,6 +138,21 @@ typedef enum
 
 typedef struct
 {
+    uint32_t quality_reject_mask;
+    uint32_t consistency_count;
+    uint32_t inflation_attempt_count;
+    uint32_t reanchor_count;
+    float inflation_factor;
+    uint8_t valid;
+    uint8_t update_result;
+    uint8_t outage;
+    uint8_t recovery_active;
+    uint8_t reanchor_reason; /* 1: qualified outage, bounded inflation exhausted. */
+} SystemEstimatorGnssGroupDiagnostics;
+
+typedef struct
+{
+    SystemEstimatorGnssGroupDiagnostics group[4];
     uint64_t last_measurement_timestamp_us;
     uint64_t last_state_timestamp_us;
     uint32_t measurement_age_ms;

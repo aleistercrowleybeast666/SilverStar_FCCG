@@ -11,6 +11,8 @@ typedef struct
 {
     SystemLogStreamConfig config;
     uint32_t emission_count;
+    uint64_t last_emission_us;
+    uint8_t emission_time_valid;
 } SystemLogStreamRuntime;
 
 static SystemLogStreamRuntime s_streams[SSLOG_RECORD_COUNT];
@@ -125,11 +127,24 @@ SystemDeviceResult SystemLogPolicy_StreamConfigure(
     SystemLogPolicy_Init();
     state = PlatformCritical_Enter();
     index = SystemLogPolicy_StreamIndexFind(config->record_type);
+    if (index >= 0)
+    {
+        const SystemLogStreamConfig *declared =
+            ProjectLogConfig_StreamByIndexGet((uint16_t)index);
+        if ((declared == NULL) || (config->policy != declared->policy) ||
+            ((declared->policy == SSLOG_STREAM_POLICY_EVERY) &&
+             ((config->decimation != 1U) || (config->period_us != 0U))))
+        {
+            PlatformCritical_Exit(state);
+            return SYSTEM_DEVICE_INVALID_ARGUMENT;
+        }
+    }
     frozen = s_frozen;
     if ((index >= 0) && (frozen == 0U))
     {
         s_streams[(uint16_t)index].config = *config;
         s_streams[(uint16_t)index].emission_count = 0U;
+        s_streams[(uint16_t)index].emission_time_valid = 0U;
     }
     PlatformCritical_Exit(state);
     if (index < 0) { return SYSTEM_DEVICE_INVALID_ARGUMENT; }
@@ -176,6 +191,50 @@ void SystemLogPolicy_EmissionReset(void)
     for (index = 0U; index < SSLOG_RECORD_COUNT; index++)
     {
         s_streams[index].emission_count = 0U;
+        s_streams[index].emission_time_valid = 0U;
+    }
+    PlatformCritical_Exit(state);
+}
+
+uint8_t SystemLogPolicy_ShouldEmitAt(FlightLogRecordType record_type,
+    uint64_t timestamp_us)
+{
+    PlatformCriticalState state;
+    int16_t index;
+    uint8_t emit = 0U;
+    SystemLogPolicy_Init();
+    state = PlatformCritical_Enter();
+    index = SystemLogPolicy_StreamIndexFind(record_type);
+    if ((index >= 0) && (s_streams[(uint16_t)index].config.enabled != 0U))
+    {
+        SystemLogStreamRuntime *stream = &s_streams[(uint16_t)index];
+        SILVERSTAR_ASSERT(stream->config.decimation > 0U,
+            SILVERSTAR_ASSERT_MODULE_SYSTEM, SILVERSTAR_ASSERT_REASON_LENGTH_RANGE);
+        SILVERSTAR_ASSERT(stream->emission_time_valid <= 1U,
+            SILVERSTAR_ASSERT_MODULE_SYSTEM, SILVERSTAR_ASSERT_REASON_STATE_INVARIANT);
+        uint8_t due = (uint8_t)((stream->config.period_us == 0U) ||
+            (stream->emission_time_valid == 0U) ||
+            (timestamp_us < stream->last_emission_us) ||
+            ((timestamp_us - stream->last_emission_us) >= stream->config.period_us));
+        if (due != 0U)
+        {
+            emit = (uint8_t)((stream->emission_count % stream->config.decimation) == 0U);
+            stream->emission_count++;
+        }
+    }
+    PlatformCritical_Exit(state);
+    return emit;
+}
+
+void SystemLogPolicy_EmissionTimeRecord(FlightLogRecordType record_type,
+    uint64_t timestamp_us)
+{
+    PlatformCriticalState state = PlatformCritical_Enter();
+    int16_t index = SystemLogPolicy_StreamIndexFind(record_type);
+    if (index >= 0)
+    {
+        s_streams[(uint16_t)index].last_emission_us = timestamp_us;
+        s_streams[(uint16_t)index].emission_time_valid = 1U;
     }
     PlatformCritical_Exit(state);
 }

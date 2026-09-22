@@ -25,6 +25,10 @@ SystemDeviceResult SystemLogPolicy_StreamConfigure(
     const SystemLogStreamConfig *config);
 uint8_t SystemLogPolicy_IsEnabled(FlightLogRecordType record_type);
 uint8_t SystemLogPolicy_ShouldEmit(FlightLogRecordType record_type);
+uint8_t SystemLogPolicy_ShouldEmitAt(FlightLogRecordType record_type,
+    uint64_t timestamp_us);
+void SystemLogPolicy_EmissionTimeRecord(FlightLogRecordType record_type,
+    uint64_t timestamp_us);
 void SystemLogPolicy_EmissionReset(void);
 uint8_t SystemLogPolicy_IsFrozen(void);
 void SystemLogPolicy_Freeze(void);

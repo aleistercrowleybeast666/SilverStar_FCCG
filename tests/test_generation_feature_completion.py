@@ -199,7 +199,7 @@ def test_logging_signals_are_deferred_and_widgets_survive_fifty_changes(
             if table.cellWidget(index, 0)
             .findChild(StandardCheckBox)
             .property("streamId")
-            == "FLIGHT_LOG_RECORD_HW_QUAT_NATIVE"
+            == "FLIGHT_LOG_RECORD_MAG_NATIVE"
         )
         check = table.cellWidget(row, 0).findChild(StandardCheckBox)
         decimation = table.cellWidget(row, 3)
@@ -220,7 +220,7 @@ def test_logging_signals_are_deferred_and_widgets_survive_fifty_changes(
         stream = next(
             item
             for item in window._model.logging_streams
-            if item.record == "FLIGHT_LOG_RECORD_HW_QUAT_NATIVE"
+            if item.record == "FLIGHT_LOG_RECORD_MAG_NATIVE"
         )
         assert not stream.enabled
         assert stream.decimation == 51

@@ -34,7 +34,7 @@ def test_gui_service_loads_catalog_opens_project_and_previews(
         window._Project_Open(project_file)
         assert window.current_project_value.text() == "GeneratedReference"
         logging_table = window.flight_configuration_page.logging_table
-        assert logging_table.rowCount() == 29
+        assert logging_table.rowCount() == 28
         periodic_row = next(
             row
             for row in range(logging_table.rowCount())
@@ -44,7 +44,8 @@ def test_gui_service_loads_catalog_opens_project_and_previews(
             == "FLIGHT_LOG_RECORD_TELEMETRY_DIAG"
         )
         period_editor = logging_table.cellWidget(periodic_row, 4)
-        assert period_editor.unit_combo.currentData() == "ms"
+        assert period_editor.unit_combo.currentData() == "s"
+        period_editor.unit_combo.setCurrentIndex(period_editor.unit_combo.findData("ms"))
         period_editor.value_spin.setValue(250)
         window._ProjectModel_Sync()
         assert next(

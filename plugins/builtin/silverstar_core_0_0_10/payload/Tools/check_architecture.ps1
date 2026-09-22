@@ -891,8 +891,8 @@ Assert-FileContainsPattern `
 Assert-FileContainsPattern `
     -RelativePath 'Generated\Src\project_log_config.c' `
     -Pattern ('FLIGHT_LOG_RECORD_TELEMETRY_DIAG\s*,\s*1U\s*,\s*1U\s*,' +
-        '\s*200000UL\s*,\s*SSLOG_STREAM_POLICY_PERIODIC') `
-    -Message 'TELEMETRY_DIAG default producer cadence is not enabled at 200000 us.'
+        '\s*1000000UL\s*,\s*SSLOG_STREAM_POLICY_PERIODIC') `
+    -Message 'TELEMETRY_DIAG default producer cadence is not enabled at 1000000 us.'
 Assert-FileContainsPattern `
     -RelativePath 'Generated\Src\project_device_instances.c' `
     -Pattern '\bProjectDeviceInstance_DescriptorGet\s*\(' `
@@ -941,7 +941,7 @@ Assert-FileContainsPattern `
     -Pattern 'SystemSourceSelector_ImuSelectAndLock\s*\(' `
     -Message 'Pre-start IMU source lock is missing.'
 foreach ($nativeFacade in @(
-    'Imu', 'Gnss', 'Barometer', 'Magnetometer', 'Attitude', 'Power')) {
+    'Gnss', 'Barometer', 'Magnetometer', 'Power')) {
     Assert-FileContainsPattern `
         -RelativePath 'APP\Src\device_native_log.c' `
         -Pattern ('\bProject' + $nativeFacade +
@@ -949,11 +949,9 @@ foreach ($nativeFacade in @(
         -Message "Native log producer does not enumerate $nativeFacade instances."
 }
 foreach ($nativeBaseline in @(
-    @{ Variable = 'imu'; Macro = 'PROJECT_IMU_INSTANCE_COUNT_MAX' },
     @{ Variable = 'gnss'; Macro = 'PROJECT_GNSS_INSTANCE_COUNT_MAX' },
     @{ Variable = 'barometer'; Macro = 'PROJECT_BAROMETER_INSTANCE_COUNT_MAX' },
     @{ Variable = 'magnetometer'; Macro = 'PROJECT_MAGNETOMETER_INSTANCE_COUNT_MAX' },
-    @{ Variable = 'attitude'; Macro = 'PROJECT_ATTITUDE_INSTANCE_COUNT_MAX' },
     @{ Variable = 'power'; Macro = 'PROJECT_POWER_INSTANCE_COUNT_MAX' })) {
     Assert-FileContainsPattern `
         -RelativePath 'APP\Src\device_native_log.c' `
@@ -1021,7 +1019,7 @@ $sslogProtocolContent = Get-Content -Raw -LiteralPath (
     Join-Path $repoRoot 'Protocol\SSLOG\Inc\sslog_protocol.h')
 Assert-ArchitectureCondition `
     -Condition (([regex]::Matches($sslogProtocolContent,
-        '\buint16_t\s+source_descriptor_id\s*;')).Count -eq 6) `
+        '\buint16_t\s+source_descriptor_id\s*;')).Count -eq 4) `
     -Message 'POWER/native source descriptor fields are incomplete or duplicated.'
 Assert-NoArchitecturePattern -Name `
     'SSLOG protocol directly copies or casts a C payload struct as wire bytes.' `
@@ -1077,11 +1075,11 @@ try {
         ConvertFrom-Json
     $sslogHeader = Get-Content -Raw -LiteralPath $sslogHeaderPath
     $sslogRecords = @($sslogSchema.records)
-    Assert-ArchitectureCondition -Condition ($sslogRecords.Count -eq 29) `
-        -Message 'SSLOG Record Catalog record count is not 29.'
+    Assert-ArchitectureCondition -Condition ($sslogRecords.Count -eq 28) `
+        -Message 'SSLOG Record Catalog record count is not 28.'
     Assert-ArchitectureCondition `
-        -Condition (@($sslogParserMetadata.records).Count -eq 29) `
-        -Message 'SSLOG parser metadata record count is not 29.'
+        -Condition (@($sslogParserMetadata.records).Count -eq $sslogRecords.Count) `
+        -Message 'SSLOG parser metadata record count differs from catalog.'
     $sslogIds = @($sslogRecords | ForEach-Object { $_.id })
     Assert-ArchitectureCondition `
         -Condition (($sslogIds | Sort-Object -Unique).Count -eq

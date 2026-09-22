@@ -3,6 +3,9 @@
 
 #include <stdint.h>
 
+#define FLIGHT_LANDING_COVERAGE_GAP_US 20000ULL
+#define FLIGHT_LANDING_MAXIMUM_BAD_US 200000ULL
+
 typedef enum
 {
     FLIGHT_LANDING_INIT_OK = 0,
@@ -61,6 +64,26 @@ typedef struct
     float gyro_norm_radps;
     float gravity_error_mps2;
 } FlightLandingImuMetrics;
+
+/* One fixed-duration candidate bucket: no sample-count weighting or allocation. */
+typedef struct
+{
+    uint64_t start_us;
+    uint64_t last_us;
+    uint64_t valid_us;
+    uint64_t still_us;
+    uint64_t bad_us;
+    uint64_t maximum_bad_us;
+    uint64_t last_good_us;
+    uint8_t previous_valid;
+    uint8_t previous_still;
+} FlightLandingTimeWindow;
+
+void FlightLanding_TimeWindowReset(FlightLandingTimeWindow *window, uint64_t start_us);
+FlightLandingResult FlightLanding_TimeWindowAdd(FlightLandingTimeWindow *window,
+    uint64_t timestamp_us, uint8_t valid, uint8_t still);
+FlightLandingConditionResult FlightLanding_TimeWindowEvaluate(
+    const FlightLandingTimeWindow *window, uint64_t duration_us);
 
 FlightLandingInitResult FlightLanding_ContextInit(
     FlightLandingContext *context,

@@ -965,6 +965,14 @@ def Project_Validate(model: ProjectModel, catalog: PluginCatalog) -> ProjectVali
             stream = streams.get(definition.record)
             if stream is None:
                 continue
+            if stream.policy != definition.default_stream.policy or (
+                definition.default_stream.policy == "EVERY"
+                and (stream.decimation != 1 or stream.period_us != 0)
+            ):
+                issues.append(ValidationIssue(
+                    "error", "logging_cadence",
+                    f"Stream must preserve protocol cadence: {definition.record}",
+                ))
             availability = LogAvailability_Get(definition, model, catalog)
             if not availability.available and stream.enabled:
                 issues.append(

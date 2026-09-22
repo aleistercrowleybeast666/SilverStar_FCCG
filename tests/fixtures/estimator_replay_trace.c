@@ -7,11 +7,33 @@ static uint64_t TestApp_Hash(uint64_t hash, const void *data, size_t size)
     return hash;
 }
 
+static int TestApp_GroupDiagnostics(void)
+{
+    EstimatorGnssUpdateWork work;
+    (void)memset(&work, 0, sizeof(work));
+    work.sample.valid_group_mask = 15U;
+    work.position_group_result.horizontal_attempted = 1U;
+    work.position_group_result.vertical_attempted = 1U;
+    work.velocity_group_result.horizontal_attempted = 1U;
+    work.velocity_group_result.vertical_attempted = 1U;
+    work.position_group_result.horizontal_result = NAV_KF_UPDATE_ACCEPTED;
+    work.position_group_result.vertical_result = NAV_KF_UPDATE_REJECTED_NIS;
+    work.velocity_group_result.horizontal_result = NAV_KF_UPDATE_SOFT_WEIGHTED;
+    work.velocity_group_result.vertical_result = NAV_KF_UPDATE_REJECTED_INVALID;
+    /* The reusable replay_outcome only describes the last insertion. */
+    Estimator_GnssGroupDiagnosticsRefresh(&work);
+    return s_estimator.gnss_diagnostics.group[0].update_result != NAV_KF_UPDATE_ACCEPTED ||
+        s_estimator.gnss_diagnostics.group[1].update_result != NAV_KF_UPDATE_REJECTED_NIS ||
+        s_estimator.gnss_diagnostics.group[2].update_result != NAV_KF_UPDATE_SOFT_WEIGHTED ||
+        s_estimator.gnss_diagnostics.group[3].update_result != NAV_KF_UPDATE_REJECTED_INVALID;
+}
+
 int main(void)
 {
     unsigned int step, axis;
     uint64_t hash = UINT64_C(14695981039346656037);
     static NavigationReplayStorage storage;
+    if (TestApp_GroupDiagnostics() != 0) { return 3; }
     NavigationKf_Init(&s_estimator.kf);
     NavigationKf_Reset(&s_estimator.kf);
     NavigationReplay_Reset(&s_replay, &storage, &s_estimator.kf, 1000000ULL, 7U);
@@ -42,6 +64,25 @@ int main(void)
                 work.epoch.velocity_std_mps[axis] = 0.2f;
             }
             Estimator_GnssReplay(timestamp, &work);
+            if ((work.measurement.position_measurement_timestamp_us != timestamp -
+                 (uint64_t)SYSTEM_ESTIMATOR_GNSS_POSITION_MEASUREMENT_DELAY_MS * 1000ULL) ||
+                (work.measurement.velocity_measurement_timestamp_us != timestamp -
+                 (uint64_t)SYSTEM_ESTIMATOR_GNSS_VELOCITY_MEASUREMENT_DELAY_MS * 1000ULL) ||
+                (work.measurement.receive_operation_sequence == 0U) ||
+                (work.measurement.receive_operation_sequence >= work.measurement.position_operation_sequence) ||
+                (work.measurement.receive_operation_sequence >= work.measurement.velocity_operation_sequence) ||
+                (work.measurement.replay_generation != s_replay.diagnostics.replay_count))
+            { fprintf(stderr, "Actual operation timing was not recorded\n"); return 4; }
+            if (((SYSTEM_ESTIMATOR_GNSS_POSITION_MEASUREMENT_DELAY_MS >
+                  SYSTEM_ESTIMATOR_GNSS_VELOCITY_MEASUREMENT_DELAY_MS) &&
+                 (work.measurement.position_operation_sequence >= work.measurement.velocity_operation_sequence)) ||
+                ((SYSTEM_ESTIMATOR_GNSS_POSITION_MEASUREMENT_DELAY_MS <
+                  SYSTEM_ESTIMATOR_GNSS_VELOCITY_MEASUREMENT_DELAY_MS) &&
+                 (work.measurement.position_operation_sequence <= work.measurement.velocity_operation_sequence)) ||
+                ((SYSTEM_ESTIMATOR_GNSS_POSITION_MEASUREMENT_DELAY_MS ==
+                  SYSTEM_ESTIMATOR_GNSS_VELOCITY_MEASUREMENT_DELAY_MS) &&
+                 (work.measurement.position_operation_sequence != work.measurement.velocity_operation_sequence)))
+            { fprintf(stderr, "Split/combined GNSS operation ordering differs\n"); return 5; }
             hash = TestApp_Hash(hash, &work.replay_outcome, sizeof(work.replay_outcome));
             hash = TestApp_Hash(hash, &s_snapshot, sizeof(s_snapshot));
         }

@@ -193,7 +193,7 @@ static void Test_ReceiveClockAndTimeSync(void)
     TEST_CHECK(measurement == 0x100000010ULL - 270000ULL);
 }
 
-static void Test_ZeroDelayLegacy(void)
+static void Test_ZeroDelayDirectReference(void)
 {
     unsigned int step, axis;
     NavigationReplayOutcome outcome;
@@ -227,10 +227,10 @@ static void Test_ZeroDelayLegacy(void)
             TEST_CHECK(NavigationReplay_ReceiveTrack(&s_delayed_history, &epoch, &event) == NAV_REPLAY_OK);
             (void)NavigationKf_UpdateGnssPositionSeparated(&s_reference, event.position, event.position_variance, &position);
             (void)NavigationKf_UpdateGnssVelocitySeparated(&s_reference, event.velocity, event.velocity_variance, 1U, &velocity);
-            NavigationKf_GnssGroupResultProcess(&s_reference, NAV_KF_GNSS_GROUP_POSITION_HORIZONTAL, position.horizontal_result);
-            NavigationKf_GnssGroupResultProcess(&s_reference, NAV_KF_GNSS_GROUP_POSITION_VERTICAL, position.vertical_result);
-            NavigationKf_GnssGroupResultProcess(&s_reference, NAV_KF_GNSS_GROUP_VELOCITY_HORIZONTAL, velocity.horizontal_result);
-            NavigationKf_GnssGroupResultProcess(&s_reference, NAV_KF_GNSS_GROUP_VELOCITY_VERTICAL, velocity.vertical_result);
+            (void)NavigationKf_GnssGroupRecover(&s_reference, NAV_KF_GNSS_GROUP_POSITION_HORIZONTAL, position.horizontal_result, event.position, event.position_variance, epoch.timestamp_us);
+            (void)NavigationKf_GnssGroupRecover(&s_reference, NAV_KF_GNSS_GROUP_POSITION_VERTICAL, position.vertical_result, event.position, event.position_variance, epoch.timestamp_us);
+            (void)NavigationKf_GnssGroupRecover(&s_reference, NAV_KF_GNSS_GROUP_VELOCITY_HORIZONTAL, velocity.horizontal_result, event.velocity, event.velocity_variance, epoch.timestamp_us);
+            (void)NavigationKf_GnssGroupRecover(&s_reference, NAV_KF_GNSS_GROUP_VELOCITY_VERTICAL, velocity.vertical_result, event.velocity, event.velocity_variance, epoch.timestamp_us);
             TEST_CHECK(NavigationReplay_Insert(&s_delayed_history, &s_delayed, &event, &outcome) == NAV_REPLAY_OK);
             event.kind = NAV_REPLAY_BAROMETER;
             (void)NavigationKf_UpdateBaroAltitude(&s_reference, event.altitude, event.altitude_variance);
@@ -421,14 +421,184 @@ static void Test_NumericFailureAndInvalidPointers(void)
     TEST_CHECK(memcmp(&s_delayed, &s_wrong, sizeof(s_delayed)) == 0);
 }
 
+static void Test_IndependentReplayGroups(void)
+{
+    unsigned int group;
+    const float delta[3] = {0.0f, 0.0f, 0.0f};
+    for (group = 0U; group < 4U; group++)
+    {
+        NavigationReplayEvent event = Test_Event(1U,
+            (group < 2U) ? NAV_REPLAY_POSITION : NAV_REPLAY_VELOCITY);
+        NavigationReplayOutcome outcome;
+        unsigned int axis;
+        Test_Initialize();
+        event.valid_group_mask = (uint8_t)(1U << group);
+        for (axis = 0U; axis < 3U; axis++)
+        {
+            if (((axis < 2U) ? 0U : 1U) != (group & 1U))
+            { event.position[axis] = NAN; event.velocity[axis] = NAN; }
+        }
+        TEST_CHECK(NavigationReplay_Predict(&s_delayed_history, &s_delayed,
+            1005000ULL, delta, 0.005f) == NAV_REPLAY_OK);
+        TEST_CHECK(NavigationReplay_Insert(&s_delayed_history, &s_delayed,
+            &event, &outcome) == NAV_REPLAY_OK);
+        TEST_CHECK(s_delayed.gnss_group_accept_count[group] == 1U);
+        TEST_CHECK(s_delayed.gnss_group_accept_count[group ^ 1U] == 0U);
+    }
+}
+
+static void Test_ReanchorDelayed(uint8_t outage)
+{
+    NavigationReplayEvent pending[32];
+    NavigationReplayOutcome outcome;
+    NavigationKfGnssEpoch epoch;
+    const float delta[3] = {0.0f, 0.0f, 0.0f};
+    unsigned int step;
+    Test_Initialize();
+    s_reference.state[0] = 100000.0f;
+    s_reference.state[1] = -100000.0f;
+    s_delayed = s_reference;
+    NavigationReplay_Reset(&s_reference_history, &s_reference_storage, &s_reference, 1000000ULL, 7U);
+    NavigationReplay_Reset(&s_delayed_history, &s_delayed_storage, &s_delayed, 1000000ULL, 7U);
+    (void)memset(pending, 0, sizeof(pending));
+    for (step = 1U; step <= 1020U; step++)
+    {
+        uint64_t timestamp = 1000000ULL + step * 5000ULL;
+        TEST_CHECK(NavigationReplay_Predict(&s_reference_history, &s_reference, timestamp, delta, 0.005f) == NAV_REPLAY_OK);
+        TEST_CHECK(NavigationReplay_Predict(&s_delayed_history, &s_delayed, timestamp, delta, 0.005f) == NAV_REPLAY_OK);
+        if ((step <= 1000U) && ((step % 8U == 0U) && ((outage == 0U) || (step == 8U) || (step >= 208U))))
+        {
+            NavigationReplayEvent event = Test_Event(step, NAV_REPLAY_POSITION);
+            event.valid_group_mask = 1U;
+            event.position[0] = 0.0f;
+            event.position[1] = 0.0f;
+            (void)memset(&epoch, 0, sizeof(epoch));
+            epoch.timestamp_us = timestamp + 100000ULL;
+            epoch.valid_group_mask = 5U; /* Receiver velocity confirms position consistency. */
+            epoch.position_std_m[0] = epoch.position_std_m[1] = 1.5f;
+            epoch.velocity_std_mps[0] = epoch.velocity_std_mps[1] = 0.2f;
+            TEST_CHECK(NavigationReplay_ReceiveTrack(&s_reference_history, &epoch, &event) == NAV_REPLAY_OK);
+            event.valid_group_mask = 1U;
+            pending[step % 32U] = event;
+            TEST_CHECK(NavigationReplay_Insert(&s_reference_history, &s_reference, &event, &outcome) == NAV_REPLAY_OK);
+        }
+        if (step > 20U)
+        {
+            NavigationReplayEvent *event = &pending[(step - 20U) % 32U];
+            if (event->sequence == step - 20U)
+            {
+                TEST_CHECK(NavigationReplay_Insert(&s_delayed_history, &s_delayed, event, &outcome) == NAV_REPLAY_OK);
+                event->sequence = 0U;
+            }
+        }
+    }
+    TEST_CHECK(s_reference.gnss_reacquisition.reanchor_count[0] == outage);
+    TEST_CHECK(s_delayed.gnss_reacquisition.reanchor_count[0] == outage);
+    TEST_CHECK(s_delayed.gnss_reacquisition.reanchor_count[1] == 0U);
+    TEST_CHECK(s_delayed.gnss_reacquisition.reanchor_count[2] == 0U);
+    TEST_CHECK(s_delayed.gnss_reacquisition.reanchor_count[3] == 0U);
+    Test_Compare();
+}
+
+static void Test_ReanchorGroupCovariance(void)
+{
+    unsigned int group;
+    for (group = 0U; group < 4U; group++)
+    {
+        NavigationKfContext state;
+        NavigationKfContext before;
+        NavigationKfGnssReacquireGroupState *recovery;
+        const float observation[3] = {100.0f, 200.0f, 300.0f};
+        const float variance[3] = {2.0f, 3.0f, 4.0f};
+        float lower[6][6] = {{0.0f}};
+        unsigned int first = (group < 2U) ? ((group == 0U) ? 0U : 2U) : ((group == 2U) ? 3U : 5U);
+        unsigned int dimension = ((group & 1U) == 0U) ? 2U : 1U;
+        unsigned int row, col, k;
+        NavigationKf_Init(&state);
+        NavigationKf_Reset(&state);
+        for (row = 0U; row < 6U; row++)
+        {
+            state.state[row] = (float)row;
+            for (col = 0U; col < 6U; col++)
+            { state.covariance[row][col] = (row == col) ? 2.0f : 0.1f; }
+        }
+        recovery = &state.gnss_reacquisition.group[group];
+        recovery->outage = 1U;
+        recovery->active = 1U;
+        recovery->consistency_start_us = 1000000ULL;
+        recovery->consistent_count = 100U;
+        recovery->inflation_attempt_count = 8U;
+        recovery->epochs_since_inflation = 10U;
+        state.gnss_reacquisition.previous_epoch.valid_group_mask = (uint8_t)(1U << group);
+        before = state;
+        TEST_CHECK(NavigationKf_GnssGroupRecover(&state, (NavigationKfGnssGroup)group,
+            NAV_KF_UPDATE_REJECTED_NIS, observation, variance, 1999999ULL) == NAV_KF_UPDATE_REJECTED_NIS);
+        TEST_CHECK(memcmp(before.state, state.state, sizeof(state.state)) == 0);
+        TEST_CHECK(memcmp(before.covariance, state.covariance, sizeof(state.covariance)) == 0);
+        TEST_CHECK(NavigationKf_GnssGroupRecover(&state, (NavigationKfGnssGroup)group,
+            NAV_KF_UPDATE_REJECTED_NIS, observation, variance, 2000000ULL) == NAV_KF_UPDATE_ACCEPTED);
+        TEST_CHECK(state.gnss_reacquisition.reanchor_count[group] == 1U);
+        for (row = 0U; row < 6U; row++)
+        {
+            uint8_t selected = (uint8_t)((row >= first) && (row < first + dimension));
+            TEST_CHECK(state.state[row] == ((selected != 0U) ? observation[row % 3U] : before.state[row]));
+            for (col = 0U; col < 6U; col++)
+            {
+                uint8_t selected_col = (uint8_t)((col >= first) && (col < first + dimension));
+                if ((selected == 0U) && (selected_col == 0U))
+                { TEST_CHECK(state.covariance[row][col] == before.covariance[row][col]); }
+                TEST_CHECK(state.covariance[row][col] == state.covariance[col][row]);
+            }
+            for (col = 0U; col <= row; col++)
+            {
+                float residual = state.covariance[row][col];
+                for (k = 0U; k < col; k++) { residual -= lower[row][k] * lower[col][k]; }
+                if (row == col) { TEST_CHECK(residual > 0.0f); lower[row][col] = sqrtf(residual); }
+                else { lower[row][col] = residual / lower[col][col]; }
+            }
+        }
+    }
+}
+
+static void Test_ReanchorInvalidCovariance(void)
+{
+    NavigationKfContext state;
+    NavigationKfContext before;
+    NavigationKfGnssReacquireGroupState *recovery;
+    const float observation[3] = {1.0f, 2.0f, 3.0f};
+    const float variance[3] = {2.0f, 2.0f, 2.0f};
+    NavigationKf_Init(&state);
+    NavigationKf_Reset(&state);
+    recovery = &state.gnss_reacquisition.group[0];
+    recovery->outage = recovery->active = 1U;
+    recovery->consistency_start_us = 1000000ULL;
+    recovery->consistent_count = 100U;
+    recovery->inflation_attempt_count = 8U;
+    recovery->epochs_since_inflation = 10U;
+    state.gnss_reacquisition.previous_epoch.valid_group_mask = 1U;
+    state.covariance[4][4] = state.covariance[5][5] = 1.0f;
+    state.covariance[4][5] = state.covariance[5][4] = 2.0f;
+    before = state;
+    TEST_CHECK(NavigationKf_GnssGroupRecover(&state, NAV_KF_GNSS_GROUP_POSITION_HORIZONTAL,
+        NAV_KF_UPDATE_REJECTED_NIS, observation, variance, 2000000ULL) == NAV_KF_UPDATE_NUMERIC_ERROR);
+    TEST_CHECK(memcmp(before.state, state.state, sizeof(state.state)) == 0);
+    TEST_CHECK(memcmp(before.covariance, state.covariance, sizeof(state.covariance)) == 0);
+    TEST_CHECK(state.gnss_reacquisition.reanchor_count[0] == 0U);
+}
+
 int main(void)
 {
+    Test_ReanchorInvalidCovariance();
+    Test_ReanchorGroupCovariance();
+    Test_IndependentReplayGroups();
+    Test_ReanchorDelayed(1U);
+    Test_ReanchorDelayed(0U);
     Test_NumericFailureAndInvalidPointers();
     Test_NominalFullRate(0U);
     Test_NominalFullRate(20U);
     Test_NominalFullRate(110U); /* Configured maximum 550 ms. */
     Test_HardInputAndRateCapacity();
-    Test_ZeroDelayLegacy();
+    Test_ZeroDelayDirectReference();
     Test_BarometerBetweenImuSamples();
     Test_OverflowEpochAndDiscontinuity();
     Test_MixedAndWrap();

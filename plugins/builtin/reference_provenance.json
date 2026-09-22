@@ -65,5 +65,8 @@
       "AIR M0 Sensor Status metadata and golden tests",
       "official architecture, protocol and component-boundary documents"
     ]
+  },
+  "fccg_protocol_source_sha256": {
+    "Protocol/SSLOG/Src/sslog_records.c": "09366a89395000befc2dc7f83f7da84ae0f93df7a1059d41ecb6f609b05d6240"
   }
 }

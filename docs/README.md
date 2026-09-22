@@ -18,6 +18,7 @@
 - [`GUI_STYLE_GUIDE.md`](GUI_STYLE_GUIDE.md)
 - [KF6 outage recovery](KF6_OUTAGE_RECOVERY.md)
 - [KF6 固定滞后重放与时间同步](KF6_FIXED_LAG_REPLAY.md)
+- [联合外场修改报告](JOINT_FIELD_REWORK.md)
 
 ## 共同协议契约
 - [`AIR_CALIBRATION_CONTRACT.md`](AIR_CALIBRATION_CONTRACT.md)

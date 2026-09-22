@@ -3,23 +3,29 @@ import shutil
 import subprocess
 
 from silverstar_fccg.app.service import FccgService
-from replay_compliance_support import estimator_trace_run, replay_trace_run, replay_work_limit_run
+from replay_compliance_support import estimator_trace_run, replay_trace_run, replay_work_limit_run, barometer_operation_run
 
 
-def test_replay_matches_pre_refactor_operations(tmp_path, workspace_root):
+def test_replay_recovery_contract_and_app_order(tmp_path, workspace_root):
     service = FccgService(workspace_root)
     project = tmp_path / "generated"
     service.Project_Save(service.ReferenceProject_Create("ComplianceTrace"), project,
                          confirm_dangerous=True)
     actual = replay_trace_run(project, project / "build/FCCG/Host/Trace",
                               project / "Tests/Host/test_navigation_kf_replay.c")
-    expected = json.loads((workspace_root / "tests/fixtures/replay_compliance_trace.json").read_text())
+    # Group isolation and controlled re-anchor intentionally supersede the old
+    # math-preserving refactor baseline, which remains historical evidence.
+    # The C fixture also checks independent direct/on-time x/P references, SPD,
+    # no-outage rejection, and the wrong-current-state negative control.
+    expected = json.loads((workspace_root / "tests/fixtures/navigation_recovery_trace.json").read_text())
     assert actual == expected["traces"], "KF/history/outcome operation trace changed"
     replay_work_limit_run(project, project / "build/FCCG/Host/WorkLimit",
                           workspace_root / "tests/fixtures/replay_work_limit.c")
     app = estimator_trace_run(project, project / "build/FCCG/Host/AppTrace",
                                workspace_root / "tests/fixtures/estimator_replay_trace.c")
     assert app == expected["app_traces"], "App packet ordering/outcome trace changed"
+    barometer_operation_run(project, project / "build/FCCG/Host/BaroTiming",
+                            workspace_root / "tests/fixtures/barometer_operation_timing.c")
 
 
 def test_architecture_runtime_tokens_and_raw_boundaries(tmp_path, workspace_root):

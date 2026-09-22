@@ -89,7 +89,7 @@ static void Test_GnssThresholdDiagnostics(void)
                 SYSTEM_GNSS_REJECT_SACC) != 0U);
 
     sample = Test_GnssSampleMake(now_us);
-    sample.sample_timestamp_us = now_us -
+    sample.receive_timestamp_us = now_us -
         ((uint64_t)SYSTEM_GNSS_MAX_SAMPLE_AGE_MS * 1000ULL) - 1ULL;
     (void)SystemGnssQuality_Evaluate(&sample, now_us);
     TEST_CHECK((sample.position_reject_mask &
@@ -141,7 +141,7 @@ static void Test_GnssFieldCapabilities(void)
     sample.supported_fields &= ~SYSTEM_GNSS_FIELD_VELOCITY_HORIZONTAL;
     sample.valid_fields &= ~SYSTEM_GNSS_FIELD_VELOCITY_HORIZONTAL;
     (void)SystemGnssQuality_Evaluate(&sample, now_us);
-    TEST_CHECK(sample.velocity_valid_mask == 0U);
+    TEST_CHECK(sample.velocity_valid_mask == SYSTEM_GNSS_VEL_VALID_U);
 }
 
 static void Test_BarometerFields(void)
@@ -227,8 +227,79 @@ static void Test_BarometerUpdateCounters(void)
                SYSTEM_ESTIMATOR_BARO_UPDATE_WAIT_STATE_CATCHUP);
 }
 
+static void Test_GnssIndependentGroups(void)
+{
+    const uint64_t now_us = 6000000ULL;
+    SystemGnssSample sample = Test_GnssSampleMake(now_us);
+    sample.horizontal_accuracy_m = 4.06f;
+    sample.vertical_accuracy_m = 10.01f;
+    (void)SystemGnssQuality_Evaluate(&sample, now_us);
+    TEST_CHECK(sample.valid_group_mask == 13U);
+    TEST_CHECK(sample.group_reject_mask[0] == 0U);
+    TEST_CHECK(sample.group_reject_mask[1] == SYSTEM_GNSS_REJECT_VACC);
+    TEST_CHECK(sample.position_usable == 0U);
+    sample = Test_GnssSampleMake(now_us);
+    sample.horizontal_accuracy_m = SYSTEM_GNSS_MAX_HORIZONTAL_ACCURACY_M + 1.0f;
+    (void)SystemGnssQuality_Evaluate(&sample, now_us);
+    TEST_CHECK(sample.valid_group_mask == 14U);
+    TEST_CHECK(sample.group_reject_mask[1] == 0U);
+    sample = Test_GnssSampleMake(now_us);
+    sample.valid_fields &= ~SYSTEM_GNSS_FIELD_VELOCITY_HORIZONTAL;
+    (void)SystemGnssQuality_Evaluate(&sample, now_us);
+    TEST_CHECK(sample.valid_group_mask == 11U);
+    TEST_CHECK(sample.group_reject_mask[3] == 0U);
+    sample = Test_GnssSampleMake(now_us);
+    sample.valid_fields &= ~SYSTEM_GNSS_FIELD_VELOCITY_VERTICAL;
+    (void)SystemGnssQuality_Evaluate(&sample, now_us);
+    TEST_CHECK(sample.valid_group_mask == 7U);
+}
+
+static void Test_BarometerEventAdmission(void)
+{
+    SystemEstimatorBaroDiagnostics diagnostics;
+    uint32_t index;
+    uint32_t events = 0U;
+    (void)memset(&diagnostics, 0, sizeof(diagnostics));
+    /* 60 seconds at 200 Hz with a normal catch-up between every update. */
+    for (index = 1U; index <= 12000U; index++)
+    {
+        SystemEstimatorBaroDiagnostics_UpdateRecord(&diagnostics,
+            SYSTEM_ESTIMATOR_BARO_UPDATE_WAIT_STATE_CATCHUP,
+            SYSTEM_ESTIMATOR_BARO_SKIP_WAIT_STATE_CATCHUP, index * 5000ULL, 0U);
+        events += SystemEstimatorBaroDiagnostics_EventPending(&diagnostics);
+        TEST_CHECK(diagnostics.last_update_state == SYSTEM_ESTIMATOR_BARO_UPDATE_WAIT_STATE_CATCHUP);
+        SystemEstimatorBaroDiagnostics_UpdateRecord(&diagnostics,
+            SYSTEM_ESTIMATOR_BARO_UPDATE_ACCEPTED, SYSTEM_ESTIMATOR_BARO_SKIP_NONE,
+            index * 5000ULL + 1U, 1U);
+        events += SystemEstimatorBaroDiagnostics_EventPending(&diagnostics);
+    }
+    TEST_CHECK(events == 0U);
+    TEST_CHECK(diagnostics.accepted_count == 12000U);
+    SystemEstimatorBaroDiagnostics_UpdateRecord(&diagnostics,
+        SYSTEM_ESTIMATOR_BARO_UPDATE_STALE, SYSTEM_ESTIMATOR_BARO_SKIP_STALE, 61000000U, 1U);
+    TEST_CHECK(SystemEstimatorBaroDiagnostics_EventPending(&diagnostics) == 1U);
+    TEST_CHECK(SystemEstimatorBaroDiagnostics_EventPending(&diagnostics) == 0U);
+    SystemEstimatorBaroDiagnostics_UpdateRecord(&diagnostics,
+        SYSTEM_ESTIMATOR_BARO_UPDATE_WAIT_STATE_CATCHUP,
+        SYSTEM_ESTIMATOR_BARO_SKIP_WAIT_STATE_CATCHUP, 61005000U, 0U);
+    TEST_CHECK(SystemEstimatorBaroDiagnostics_EventPending(&diagnostics) == 0U);
+    SystemEstimatorBaroDiagnostics_UpdateRecord(&diagnostics,
+        SYSTEM_ESTIMATOR_BARO_UPDATE_ACCEPTED, SYSTEM_ESTIMATOR_BARO_SKIP_NONE, 61010000U, 1U);
+    TEST_CHECK(SystemEstimatorBaroDiagnostics_EventPending(&diagnostics) == 1U);
+    TEST_CHECK(SystemEstimatorBaroDiagnostics_EventPending(&diagnostics) == 0U);
+    SystemEstimatorBaroDiagnostics_UpdateRecord(&diagnostics,
+        SYSTEM_ESTIMATOR_BARO_UPDATE_WAIT_STATE_CATCHUP,
+        SYSTEM_ESTIMATOR_BARO_SKIP_WAIT_STATE_CATCHUP, 62000000U, 0U);
+    TEST_CHECK(SystemEstimatorBaroDiagnostics_EventPending(&diagnostics) == 0U);
+    diagnostics.last_update_timestamp_us = 63000000U;
+    TEST_CHECK(SystemEstimatorBaroDiagnostics_EventPending(&diagnostics) == 1U);
+    TEST_CHECK(SystemEstimatorBaroDiagnostics_EventPending(&diagnostics) == 0U);
+}
+
 int main(void)
 {
+    Test_GnssIndependentGroups();
+    Test_BarometerEventAdmission();
     Test_GnssThresholdDiagnostics();
     Test_GnssFieldCapabilities();
     Test_BarometerFields();

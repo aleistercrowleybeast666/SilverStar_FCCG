@@ -48,7 +48,7 @@ def test_logging_metadata_declares_cadence_and_legacy_policy_fallback(
         definition.record: definition
         for definition in ProtocolLogDefinitions_Get(model, builtin_catalog)
     }
-    assert len(definitions) == 29
+    assert len(definitions) == 28
     assert definitions[
         "FLIGHT_LOG_RECORD_DECODER_PROFILE_DESCRIPTOR"
     ].cadence.kind == "one_shot"
@@ -61,15 +61,15 @@ def test_logging_metadata_declares_cadence_and_legacy_policy_fallback(
         record_catalog["records"], parser_metadata["records"], strict=True
     ):
         assert parser_record["default_stream"] == catalog_record["default_stream"]
-    assert definitions["FLIGHT_LOG_RECORD_IMU_NATIVE"].default_stream.enabled
-    assert not definitions["FLIGHT_LOG_RECORD_MAG_NATIVE"].default_stream.enabled
-    assert definitions["FLIGHT_LOG_RECORD_IMU_NATIVE"].cadence == replace(
-        definitions["FLIGHT_LOG_RECORD_IMU_NATIVE"].cadence,
+    assert definitions["FLIGHT_LOG_RECORD_IMU_CORRECTED"].default_stream.enabled
+    assert definitions["FLIGHT_LOG_RECORD_MAG_NATIVE"].default_stream.enabled
+    assert definitions["FLIGHT_LOG_RECORD_IMU_CORRECTED"].cadence == replace(
+        definitions["FLIGHT_LOG_RECORD_IMU_CORRECTED"].cadence,
         kind=LogCadenceKind.SOURCE,
         source="imu",
     )
     assert (
-        definitions["FLIGHT_LOG_RECORD_IMU_NATIVE"].cadence.DisplayName_Get(
+        definitions["FLIGHT_LOG_RECORD_IMU_CORRECTED"].cadence.DisplayName_Get(
             "zh_CN"
         )
         == "取决于IMU数据更新"
@@ -88,7 +88,7 @@ def test_logging_metadata_declares_cadence_and_legacy_policy_fallback(
     )
     assert definitions[
         "FLIGHT_LOG_RECORD_TELEMETRY_DIAG"
-    ].default_stream.period_us == 200_000
+    ].default_stream.period_us == 1_000_000
     assert definitions["FLIGHT_LOG_RECORD_STATS"].producer_components == (
         "silverstar.core.device_task",
     )
@@ -116,7 +116,7 @@ def test_logging_metadata_declares_cadence_and_legacy_policy_fallback(
     assert streams["FLIGHT_LOG_RECORD_STATS"].enabled
     assert streams["FLIGHT_LOG_RECORD_STATS"].period_us == 1_000_000
     assert streams["FLIGHT_LOG_RECORD_TELEMETRY_DIAG"].enabled
-    assert streams["FLIGHT_LOG_RECORD_TELEMETRY_DIAG"].period_us == 200_000
+    assert streams["FLIGHT_LOG_RECORD_TELEMETRY_DIAG"].period_us == 1_000_000
 
     records = []
     expected = {
@@ -180,7 +180,7 @@ def test_logging_gui_uses_semantic_cadence_and_preserves_microseconds(
         assert stats_cadence.unit_combo.currentData() == "s"
 
         semantic_rows = {
-            "FLIGHT_LOG_RECORD_IMU_NATIVE": "取决于IMU数据更新",
+            "FLIGHT_LOG_RECORD_IMU_CORRECTED": "取决于IMU数据更新",
             "FLIGHT_LOG_RECORD_GNSS_MEASUREMENT": "每次相关量测",
             "FLIGHT_LOG_RECORD_EVENT": "取决于相关事件",
             "FLIGHT_LOG_RECORD_SYSTEM_CONFIG": "一次性",
@@ -194,7 +194,7 @@ def test_logging_gui_uses_semantic_cadence_and_preserves_microseconds(
             assert "0 us" not in cadence.text_label.text()
 
         decimation_row = _StreamRow_Get(
-            window, "FLIGHT_LOG_RECORD_IMU_NATIVE"
+            window, "FLIGHT_LOG_RECORD_MAG_NATIVE"
         )
         decimation_editor = table.cellWidget(decimation_row, 3)
         assert isinstance(decimation_editor, QSpinBox)
@@ -202,6 +202,10 @@ def test_logging_gui_uses_semantic_cadence_and_preserves_microseconds(
         assert decimation_editor.suffix() == " 次记录 1 次"
         assert decimation_editor.toolTip() == "每 N 次数据更新记录 1 次"
         for stream_id in (
+            "FLIGHT_LOG_RECORD_IMU_CORRECTED",
+            "FLIGHT_LOG_RECORD_INERTIAL_INCREMENT",
+            "FLIGHT_LOG_RECORD_GNSS_NATIVE",
+            "FLIGHT_LOG_RECORD_BARO_NATIVE",
             "FLIGHT_LOG_RECORD_STATS",
             "FLIGHT_LOG_RECORD_EVENT",
             "FLIGHT_LOG_RECORD_SYSTEM_CONFIG",

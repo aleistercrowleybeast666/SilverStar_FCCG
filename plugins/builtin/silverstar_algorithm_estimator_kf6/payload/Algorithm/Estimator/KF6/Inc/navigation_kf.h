@@ -33,6 +33,7 @@ typedef enum
 typedef struct
 {
     uint64_t availability_timestamp_us;
+    uint64_t consistency_start_us;
     uint32_t generation; /* receive-side loss/reset certificate */
     uint8_t outage;
     uint8_t loss_latched;
@@ -60,6 +61,7 @@ typedef struct
     NavigationKfGnssEpoch previous_epoch;
     NavigationKfGnssReacquireGroupState group[NAV_KF_GNSS_GROUP_COUNT];
     uint32_t reacquire_count;
+    uint32_t reanchor_count[NAV_KF_GNSS_GROUP_COUNT];
     uint32_t last_inflation_attempt;
     float last_inflation_factor;
     uint8_t consistency_mask;
@@ -117,6 +119,15 @@ typedef struct
     uint8_t initialized;
 } NavigationKfContext;
 
+NavigationKfUpdateResult NavigationKf_UpdateGnssPositionGroups(
+    NavigationKfContext *context, const float position_enu_m[3],
+    const float variance_m2[3], uint8_t valid_group_mask,
+    NavigationKfGnssSeparatedUpdateResult *result);
+NavigationKfUpdateResult NavigationKf_UpdateGnssVelocityGroups(
+    NavigationKfContext *context, const float velocity_enu_mps[3],
+    const float variance_m2ps2[3], uint8_t valid_group_mask,
+    NavigationKfGnssSeparatedUpdateResult *result);
+
 void NavigationKf_Init(NavigationKfContext *context);
 void NavigationKf_Reset(NavigationKfContext *context);
 uint8_t NavigationKf_ResetWithCovariance(
@@ -164,6 +175,10 @@ void NavigationKf_SetNisThresholds(
 void NavigationKf_GnssEpochTrack(
     NavigationKfContext *context,
     const NavigationKfGnssEpoch *epoch);
+NavigationKfUpdateResult NavigationKf_GnssGroupRecover(
+    NavigationKfContext *context, NavigationKfGnssGroup group,
+    NavigationKfUpdateResult result, const float observation[3],
+    const float variance[3], uint64_t receive_timestamp_us);
 void NavigationKf_GnssGroupResultProcess(
     NavigationKfContext *context,
     NavigationKfGnssGroup group,

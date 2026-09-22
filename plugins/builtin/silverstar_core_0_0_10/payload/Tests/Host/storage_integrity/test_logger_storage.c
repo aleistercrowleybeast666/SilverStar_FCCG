@@ -46,6 +46,8 @@ static uint64_t s_start_us;
 static uint64_t s_production_begin_us;
 static uint64_t s_production_end_us;
 static uint32_t s_start_accepted;
+static uint32_t s_last_jitter_transaction;
+static uint32_t s_jitter_count;
 static SystemStartupReport s_startup;
 
 PlatformCriticalState PlatformCritical_Enter(void) { return 0U; }
@@ -79,10 +81,6 @@ static void Fixture_DefaultFrame(uint32_t frame, uint64_t now)
     FlightLogRecord r = {0};
     s_device_steps++;
     s_flight_steps++;
-    Fixture_ResultCheck(LoggerBus_ImuNativePush(now, frame, &r.payload.imu_native));
-    Fixture_ResultCheck(LoggerBus_BaroNativePush(now, frame, &r.payload.baro_native));
-    Fixture_ResultCheck(LoggerBus_HardwareQuaternionNativePush(now, frame, &r.payload.hw_quat_native));
-    if (frame % 8U == 0U) { Fixture_ResultCheck(LoggerBus_GnssNativePush(now, frame, &r.payload.gnss_native)); }
     if (frame % 4U == 0U) { Fixture_ResultCheck(LoggerBus_PowerPush(now, &r.payload.power)); }
     if (frame == 1U) { Fixture_ResultCheck(LoggerBus_CalibrationResultPush(now, &r.payload.calibration_result)); }
     if (frame == 1000U) { Fixture_ResultCheck(LoggerBus_AlignmentResultPush(now, &r.payload.alignment_result)); }
@@ -94,19 +92,23 @@ static void Fixture_DefaultFrame(uint32_t frame, uint64_t now)
         Fixture_ResultCheck(LoggerBus_EventPush(now, FLIGHT_LOG_EVENT_MISSION_START, 0U, 0U));
     }
     if (frame < 1200U) { return; }
+    Fixture_ResultCheck(LoggerBus_BaroNativePush(now, frame, &r.payload.baro_native));
+    if (frame % 8U == 0U) { Fixture_ResultCheck(LoggerBus_GnssNativePush(now, frame, &r.payload.gnss_native)); }
     Fixture_ResultCheck(LoggerBus_ImuCorrectedPush(now, frame, &r.payload.imu_corrected));
     if (frame % 2U == 0U)
     {
         Fixture_ResultCheck(LoggerBus_InertialIncrementPush(now, frame, &r.payload.inertial_increment));
-        Fixture_ResultCheck(LoggerBus_SamplePush(now, frame, &r.payload.sample));
-        Fixture_ResultCheck(LoggerBus_RawSensorPush(now, frame, &r.payload.raw_sensor));
-        Fixture_ResultCheck(LoggerBus_PureInsPush(now, frame, &r.payload.pure_ins));
+        Fixture_ResultCheck(LoggerBus_EstimatorStepPush(now, &r.payload.estimator_step));
         Fixture_ResultCheck(LoggerBus_EstimatorPush(now, frame, &r.payload.estimator));
         Fixture_ResultCheck(LoggerBus_Kf6DiagnosticPush(now, frame, &r.payload.kf6_diagnostic));
         Fixture_ResultCheck(LoggerBus_Kf6FullPPush(now, &r.payload.kf6_full_p));
         Fixture_ResultCheck(LoggerBus_BaroMeasurementPush(now, frame, &r.payload.baro_measurement));
     }
-    if (frame % 8U == 0U) { Fixture_ResultCheck(LoggerBus_GnssMeasurementPush(now, frame, &r.payload.gnss_measurement)); }
+    if (frame % 8U == 0U)
+    {
+        Fixture_ResultCheck(LoggerBus_GnssMeasurementPush(now, frame, &r.payload.gnss_measurement));
+        Fixture_ResultCheck(LoggerBus_GnssRecoveryPush(now, &r.payload.gnss_recovery));
+    }
     if (frame % 40U == 0U) { Fixture_ResultCheck(LoggerBus_TelemetryDiagnosticPush(now, &r.payload.telemetry_diagnostic)); }
     if (frame % 200U == 0U)
     {
@@ -137,11 +139,11 @@ static LoggerBusResult Fixture_RecordPush(uint32_t index, uint64_t now)
     { return LoggerBus_EstimatorPush(now, index, &record.payload.estimator); }
     switch (index % 5U)
     {
-        case 0U: return LoggerBus_ImuNativePush(now, index, &record.payload.imu_native);
+        case 0U: return LoggerBus_ImuCorrectedPush(now, index, &record.payload.imu_corrected);
         case 1U: return LoggerBus_ImuCorrectedPush(now, index, &record.payload.imu_corrected);
         case 2U: return LoggerBus_GnssNativePush(now, index, &record.payload.gnss_native);
         case 3U: return LoggerBus_BaroNativePush(now, index, &record.payload.baro_native);
-        default: return LoggerBus_HardwareQuaternionNativePush(now, index, &record.payload.hw_quat_native);
+        default: return LoggerBus_MagNativePush(now, index, &record.payload.mag_native);
     }
 }
 
@@ -227,6 +229,16 @@ BaseType_t xQueueReceive(QueueHandle_t queue, void *data, TickType_t ticks)
         s_open_stall_done = 1U;
         Fixture_Produce();
     }
+    if (s_running && s_startup_burst_test && s_dma_pending && s_dma_write &&
+        ticks != 0U && s_produced > 1200U && s_dma_transactions % 128U == 0U &&
+        s_dma_transactions != s_last_jitter_transaction)
+    {
+        /* Genuine in-flight DMA: producers continue during a bounded 20--100 ms stall. */
+        s_last_jitter_transaction = s_dma_transactions;
+        s_ticks += 20U * (1U + s_jitter_count % 5U);
+        s_jitter_count++;
+        Fixture_Produce();
+    }
     BaseType_t result = Fixture_BaseReceive(queue, data, ticks);
     Fixture_Produce();
     return result;
@@ -281,6 +293,11 @@ static int Test_Writer(const char *output)
             SYSTEM_LOG_PREFLIGHT_CORRECTED_IMU_ENABLE);
     }
     CHECK(LoggerBus_DiagnosticsGet(&bus) == LOGGER_BUS_RESULT_OK);
+    printf("LOGGER_QUEUE_OBSERVED normal=%u/%u estimator=%u/%u drops=%lu producer_failures=%lu jitter_count=%lu\n",
+        bus.normal_high_water, SYSTEM_LOG_RECORD_QUEUE_DEPTH,
+        bus.estimator_high_water, SYSTEM_LOG_ESTIMATOR_QUEUE_DEPTH,
+        (unsigned long)bus.overflow_count, (unsigned long)s_producer_failures,
+        (unsigned long)s_jitter_count);
     CHECK(LoggerTask_DiagnosticsGet(&task) == SYSTEM_DEVICE_OK && task.io_fault == 0U);
     CHECK(SystemStorage_HealthGet(&storage) == SYSTEM_DEVICE_OK && storage.error_count == 0U);
     CHECK(bus.normal_count == 0U && bus.estimator_count == 0U);
@@ -293,6 +310,7 @@ static int Test_Writer(const char *output)
     CHECK(task.drain_count == bus.dequeued_count && task.iteration_count >= task.drain_count);
     if (s_startup_burst_test)
     {
+        CHECK(s_jitter_count >= 5U);
         CHECK(s_overflow_test || s_producer_failures == 0U);
         CHECK(s_device_steps == TEST_RECORD_COUNT && s_flight_steps == TEST_RECORD_COUNT);
         CHECK(s_first_delay_ticks != 10U);
@@ -326,6 +344,7 @@ static int Test_Writer(const char *output)
         (unsigned long)bus.bootstrap_suppressed_count, (unsigned long long)task.streaming_ready_us,
         (unsigned long)s_first_delay_ticks, (unsigned)sizeof(FlightLogRecord),
         SYSTEM_LOG_RECORD_QUEUE_DEPTH, SYSTEM_LOG_ESTIMATOR_QUEUE_DEPTH);
+    printf("LOGGER_JITTER count=%lu range_ms=20-100\n", (unsigned long)s_jitter_count);
     printf("LOGGER_CAUSALITY capacity_reject=%lu state_reject=%lu append_fail=%lu flush_fail=%lu discard_bytes=%lu opens=%lu/%lu write_avg_us=%llu steps=%lu/%lu\n",
         (unsigned long)bus.capacity_reject_count, (unsigned long)bus.state_reject_count,
         (unsigned long)task.append_failure_count, (unsigned long)task.flush_failure_count,

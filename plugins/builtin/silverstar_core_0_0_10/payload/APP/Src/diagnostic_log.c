@@ -4,7 +4,7 @@
 #include <string.h>
 
 #include "imu_sample_bus.h"
-#include "ins_task.h"
+#include "estimator_task.h"
 #include "logger_bus.h"
 #include "silverstar_assert.h"
 #include "system_lifecycle.h"
@@ -44,7 +44,7 @@ static uint8_t DiagnosticLog_PeriodReached(
 static void DiagnosticLog_StatsRecordBuild(FlightLogStatsRecord *record)
 {
     ImuSampleBusStats imu_bus_stats;
-    InsOutputSnapshot ins_snapshot;
+    EstimatorOutputSnapshot navigation;
 
     if (record == NULL)
     {
@@ -56,10 +56,10 @@ static void DiagnosticLog_StatsRecordBuild(FlightLogStatsRecord *record)
     ImuSampleBus_StatsGet(&imu_bus_stats);
     record->imu_queue_overflow_count = imu_bus_stats.overflow_count;
     record->logger_queue_overflow_count = LoggerBus_OverflowCountGet();
-    if (Ins_GetLatestSnapshot(&ins_snapshot) != 0U)
+    if (Estimator_GetLatestSnapshot(&navigation) != 0U)
     {
-        record->ins_update_count = ins_snapshot.update_seq;
-        record->health_flags = ins_snapshot.health_flags;
+        record->ins_update_count = navigation.update_sequence;
+        record->health_flags = navigation.health_flags;
     }
 }
 

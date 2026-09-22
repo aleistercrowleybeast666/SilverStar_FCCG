@@ -4,6 +4,7 @@
 
 #include "project_log_decoder_profile.h"
 #include "sslog_protocol.h"
+#include "system_user_config.h"
 
 static const FlightLogRecordType s_golden_record_types[] =
 {
@@ -11,13 +12,13 @@ static const FlightLogRecordType s_golden_record_types[] =
     FLIGHT_LOG_RECORD_SYSTEM_CONFIG,
     FLIGHT_LOG_RECORD_DEVICE_DESCRIPTOR,
     FLIGHT_LOG_RECORD_LOG_STREAM_DESCRIPTOR,
-    FLIGHT_LOG_RECORD_IMU_NATIVE,
+    FLIGHT_LOG_RECORD_IMU_CORRECTED,
     FLIGHT_LOG_RECORD_GNSS_NATIVE,
     FLIGHT_LOG_RECORD_BARO_NATIVE,
     FLIGHT_LOG_RECORD_EVENT,
     FLIGHT_LOG_RECORD_STATS,
     FLIGHT_LOG_RECORD_TELEMETRY_DIAG,
-    FLIGHT_LOG_RECORD_SAMPLE,
+    FLIGHT_LOG_RECORD_INERTIAL_INCREMENT,
     FLIGHT_LOG_RECORD_PURE_INS,
     FLIGHT_LOG_RECORD_ESTIMATOR
 };
@@ -60,7 +61,7 @@ static void GoldenSample_RecordPrepare(
         case FLIGHT_LOG_RECORD_SYSTEM_CONFIG:
             record->payload.system_config.version[0] = 0U;
             record->payload.system_config.version[1] = 0U;
-            record->payload.system_config.version[2] = 9U;
+            record->payload.system_config.version[2] = SILVERSTAR_VERSION_PATCH;
             record->payload.system_config.profile_id = 1UL;
             record->payload.system_config.configured_imu_rate_hz = 100U;
             record->payload.system_config.configured_gnss_rate_hz = 10U;
@@ -77,21 +78,20 @@ static void GoldenSample_RecordPrepare(
             break;
         case FLIGHT_LOG_RECORD_LOG_STREAM_DESCRIPTOR:
             record->payload.stream_descriptor.record_type =
-                (uint8_t)FLIGHT_LOG_RECORD_IMU_NATIVE;
+                (uint8_t)FLIGHT_LOG_RECORD_IMU_CORRECTED;
             record->payload.stream_descriptor.enabled = 1U;
             record->payload.stream_descriptor.policy =
                 (uint8_t)SSLOG_STREAM_POLICY_DECIMATION;
             record->payload.stream_descriptor.decimation = 1U;
             break;
-        case FLIGHT_LOG_RECORD_IMU_NATIVE:
-            record->payload.imu_native.source_descriptor_id = 1U;
-            record->payload.imu_native.instance_id = 0U;
-            record->payload.imu_native.sequence = sequence;
-            record->payload.imu_native.sample_timestamp_us =
+        case FLIGHT_LOG_RECORD_IMU_CORRECTED:
+            record->payload.imu_corrected.source_id = 1U;
+            record->payload.imu_corrected.virtual_imu_id = 0U;
+            record->payload.imu_corrected.sequence = sequence;
+            record->payload.imu_corrected.sample_timestamp_us =
                 record->timestamp_us;
-            record->payload.imu_native.accel_raw[2] = 16384;
-            record->payload.imu_native.accel_b_mps2[2] = 9.80665f;
-            record->payload.imu_native.valid_mask = 0x3FUL;
+            record->payload.imu_corrected.accel_b_mps2[2] = 9.80665f;
+            record->payload.imu_corrected.valid_mask = 0x3FUL;
             break;
         case FLIGHT_LOG_RECORD_GNSS_NATIVE:
             record->payload.gnss_native.source_descriptor_id = 2U;
@@ -111,7 +111,6 @@ static void GoldenSample_RecordPrepare(
             record->payload.baro_native.sequence = sequence;
             record->payload.baro_native.sample_timestamp_us =
                 record->timestamp_us;
-            record->payload.baro_native.pressure_raw_pa = 101325;
             record->payload.baro_native.pressure_pa = 101325.0f;
             record->payload.baro_native.valid_mask = 3UL;
             break;
@@ -128,12 +127,11 @@ static void GoldenSample_RecordPrepare(
             record->payload.telemetry_diagnostic.last_rssi_dbm = -72;
             record->payload.telemetry_diagnostic.online = 1U;
             break;
-        case FLIGHT_LOG_RECORD_SAMPLE:
-            record->payload.sample.sample_seq = sequence;
-            record->payload.sample.accel_b_mps2[2] = 9.80665f;
-            record->payload.sample.q_nb[0] = 1.0f;
-            record->payload.sample.alignment_valid = 1U;
-            record->payload.sample.ins_valid = 1U;
+        case FLIGHT_LOG_RECORD_INERTIAL_INCREMENT:
+            record->payload.inertial_increment.sequence = sequence;
+            record->payload.inertial_increment.interval_end_timestamp_us = record->timestamp_us;
+            record->payload.inertial_increment.interval_start_timestamp_us = record->timestamp_us - 10000ULL;
+            record->payload.inertial_increment.dt_s = 0.01f;
             break;
         case FLIGHT_LOG_RECORD_PURE_INS:
             record->payload.pure_ins.update_sequence = sequence;
@@ -173,7 +171,7 @@ static int GoldenSample_FileWrite(const char *path)
     header.position_axis_order[1] = 1U;
     header.position_axis_order[2] = 2U;
     header.local_gravity_mps2 = 9.80665f;
-    header.firmware_version[2] = 9U;
+    header.firmware_version[2] = SILVERSTAR_VERSION_PATCH;
     if (FlightLog_FileHeaderSerialize(&header, buffer, sizeof(buffer), &size) !=
         FLIGHT_LOG_SERIALIZE_RESULT_OK)
     {

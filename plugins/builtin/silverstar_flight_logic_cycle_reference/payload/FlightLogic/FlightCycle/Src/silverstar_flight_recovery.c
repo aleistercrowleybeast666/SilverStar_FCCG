@@ -49,6 +49,8 @@ static uint32_t s_last_landing_ins_sequence;
 static uint8_t s_last_landing_ins_valid;
 static FlightDeploymentContext s_deployment_context;
 static FlightLandingContext s_landing_context;
+static FlightLandingTimeWindow s_landing_imu_window;
+static uint64_t s_landing_baro_covered_us;
 static FlightLandingBarometerRegression s_baro_trigger_window;
 static FlightLandingBarometerRegression s_baro_candidate_window;
 static uint64_t s_landing_candidate_start_us;
@@ -560,10 +562,41 @@ static uint8_t SystemFlightRecovery_PostImpactStillnessGet(
         accel_norm) == FLIGHT_LANDING_CONDITION_MET);
 }
 
+static void SystemFlightRecovery_LandingDiagnosticCapture(
+    SystemFlightRecoveryStatus *status, uint8_t transition,
+    SystemLandingResetReason reason)
+{
+    SystemLandingDiagnostic *diagnostic = &status->landing_diagnostic;
+    SILVERSTAR_ASSERT_OBJECT(status, SystemFlightRecoveryStatus, SILVERSTAR_ASSERT_MODULE_FLIGHT_LOGIC);
+    SILVERSTAR_ASSERT(transition <= 3U,
+        SILVERSTAR_ASSERT_MODULE_FLIGHT_LOGIC, SILVERSTAR_ASSERT_REASON_ENUM_RANGE);
+    uint64_t elapsed_us = (status->last_process_timestamp_us > s_landing_candidate_start_us) ?
+        status->last_process_timestamp_us - s_landing_candidate_start_us : 0ULL;
+    diagnostic->evaluation_timestamp_us = status->last_process_timestamp_us;
+    diagnostic->candidate_start_timestamp_us = s_landing_candidate_start_us;
+    diagnostic->sequence++;
+    diagnostic->transition = transition;
+    diagnostic->reset_reason = reason;
+    diagnostic->candidate_elapsed_us = (elapsed_us > UINT32_MAX) ? UINT32_MAX : (uint32_t)elapsed_us;
+    diagnostic->valid_coverage = (elapsed_us != 0ULL) ?
+        (float)s_landing_imu_window.valid_us / (float)elapsed_us : 0.0f;
+    diagnostic->still_ratio = (s_landing_imu_window.valid_us != 0ULL) ?
+        (float)s_landing_imu_window.still_us / (float)s_landing_imu_window.valid_us : 0.0f;
+    diagnostic->maximum_bad_duration_us = (s_landing_imu_window.maximum_bad_us > UINT32_MAX) ?
+        UINT32_MAX : (uint32_t)s_landing_imu_window.maximum_bad_us;
+    diagnostic->baro_slope_mps = 0.0f;
+    diagnostic->baro_span_m = 0.0f;
+    (void)SystemFlightRecovery_BaroRegressionGet(&s_baro_candidate_window,
+        &diagnostic->baro_slope_mps, &diagnostic->baro_span_m);
+    diagnostic->baro_coverage = (elapsed_us != 0ULL) ?
+        (float)s_landing_baro_covered_us / (float)elapsed_us : 0.0f;
+}
+
 static SystemDeviceResult SystemFlightRecovery_LandingComplete(
     SystemFlightRecoveryStatus *status,
     const SystemFlightRecoveryInput *input)
 {
+    SystemFlightRecovery_LandingDiagnosticCapture(status, 3U, SYSTEM_LANDING_RESET_NONE);
     status->landing_confirming = 0U;
     status->landing_detected = 1U;
     status->landing_state = SYSTEM_FLIGHT_LANDING_STATE_LANDED;
@@ -752,10 +785,12 @@ static uint8_t SystemFlightRecovery_BarometerSampleValid(
 }
 
 static void SystemFlightRecovery_BaroMonitorReset(
-    SystemFlightRecoveryStatus *status)
+    SystemFlightRecoveryStatus *status, SystemLandingResetReason reason)
 {
     SILVERSTAR_ASSERT_OBJECT(status, SystemFlightRecoveryStatus,
                              SILVERSTAR_ASSERT_MODULE_FLIGHT_LOGIC);
+    if (status->landing_candidate_active != 0U)
+    { SystemFlightRecovery_LandingDiagnosticCapture(status, 2U, reason); }
     SystemFlightRecovery_BaroRegressionReset(&s_baro_trigger_window);
     SystemFlightRecovery_BaroRegressionReset(&s_baro_candidate_window);
     s_landing_candidate_start_us = 0ULL;
@@ -782,8 +817,12 @@ static void SystemFlightRecovery_BaroCandidateStart(
     SystemFlightRecoveryStatus *status,
     uint64_t timestamp_us)
 {
+    SILVERSTAR_ASSERT_OBJECT(status, SystemFlightRecoveryStatus,
+                             SILVERSTAR_ASSERT_MODULE_FLIGHT_LOGIC);
     SystemFlightRecovery_BaroRegressionReset(&s_baro_candidate_window);
     s_landing_candidate_start_us = timestamp_us;
+    FlightLanding_TimeWindowReset(&s_landing_imu_window, timestamp_us);
+    s_landing_baro_covered_us = 0U;
     s_landing_candidate_first_imu_us = 0ULL;
     s_landing_candidate_last_imu_us = 0ULL;
     s_landing_candidate_imu_count = 0U;
@@ -797,6 +836,7 @@ static void SystemFlightRecovery_BaroCandidateStart(
     status->landing_candidate_imu_count = 0U;
     status->landing_state =
         SYSTEM_FLIGHT_LANDING_STATE_BARO_IMU_CANDIDATE;
+    SystemFlightRecovery_LandingDiagnosticCapture(status, 1U, SYSTEM_LANDING_RESET_NONE);
 }
 
 static uint8_t SystemFlightRecovery_BaroCandidateImuAdd(
@@ -804,12 +844,14 @@ static uint8_t SystemFlightRecovery_BaroCandidateImuAdd(
     const SystemFlightRecoveryInput *input)
 {
     FlightLandingImuMetrics metrics;
+    uint8_t valid;
+    uint8_t still;
 
     SILVERSTAR_ASSERT_OBJECT(status, SystemFlightRecoveryStatus,
                              SILVERSTAR_ASSERT_MODULE_FLIGHT_LOGIC);
     SILVERSTAR_ASSERT_OBJECT(input, SystemFlightRecoveryInput,
                              SILVERSTAR_ASSERT_MODULE_FLIGHT_LOGIC);
-    if (FlightLanding_ImuMetricsGet(
+    valid = (uint8_t)(FlightLanding_ImuMetricsGet(
             &s_landing_context,
             input->now_us,
             input->inertial_timestamp_us,
@@ -818,10 +860,15 @@ static uint8_t SystemFlightRecovery_BaroCandidateImuAdd(
             input->corrected_gyro_valid,
             input->corrected_accel_b_mps2,
             input->corrected_gyro_b_radps,
-            &metrics) != FLIGHT_LANDING_RESULT_OK)
-    {
-        return 0U;
-    }
+            &metrics) == FLIGHT_LANDING_RESULT_OK);
+    still = (uint8_t)((valid != 0U) &&
+        (metrics.gyro_norm_radps < s_landing_context.config.still_gyro_threshold_radps) &&
+        (metrics.gravity_error_mps2 < s_landing_context.config.still_accel_tolerance_mps2));
+    if (FlightLanding_TimeWindowAdd(&s_landing_imu_window,
+            input->inertial_timestamp_us, valid, still) != FLIGHT_LANDING_RESULT_OK)
+    { return 0U; }
+    if (s_landing_imu_window.maximum_bad_us > FLIGHT_LANDING_MAXIMUM_BAD_US) { return 0U; }
+    if (valid == 0U) { return 1U; }
     if (s_landing_candidate_imu_count == 0U)
     {
         s_landing_candidate_first_imu_us = input->inertial_timestamp_us;
@@ -847,11 +894,7 @@ static uint8_t SystemFlightRecovery_BaroCandidateImuAdd(
         s_landing_candidate_max_accel_norm;
     status->landing_candidate_gravity_error_mps2 =
         s_landing_candidate_max_gravity_error;
-    return (uint8_t)(
-        (metrics.gyro_norm_radps <
-         s_landing_context.config.still_gyro_threshold_radps) &&
-        (metrics.gravity_error_mps2 <
-         s_landing_context.config.still_accel_tolerance_mps2));
+    return 1U;
 }
 
 static void SystemFlightRecovery_BarometerStatusUpdate(
@@ -931,15 +974,27 @@ static uint8_t SystemFlightRecovery_BaroCandidateSamplesProcess(
                              SILVERSTAR_ASSERT_MODULE_FLIGHT_LOGIC);
     SILVERSTAR_ASSERT_OBJECT(input, SystemFlightRecoveryInput,
                              SILVERSTAR_ASSERT_MODULE_FLIGHT_LOGIC);
-    if ((status->barometer_valid == 0U) ||
+    if (((status->barometer_valid == 0U) &&
+         (SystemFlightRecovery_SampleIsFresh(input->now_us,
+             (s_baro_candidate_window.count != 0U) ?
+             s_baro_candidate_window.last_timestamp_us : s_landing_candidate_start_us) == 0U)) ||
         (SystemFlightRecovery_SampleIsFresh(
-            input->now_us, input->inertial_timestamp_us) == 0U))
+            input->now_us, (input->inertial_timestamp_us != 0U) ?
+                input->inertial_timestamp_us : s_landing_imu_window.last_us) == 0U))
     {
-        SystemFlightRecovery_BaroMonitorReset(status);
+        SystemFlightRecovery_BaroMonitorReset(status,
+            (status->barometer_valid == 0U) ? SYSTEM_LANDING_RESET_BARO_STALE :
+                SYSTEM_LANDING_RESET_IMU_INVALID);
         return 0U;
     }
-    if (baro_new != 0U)
+    if ((baro_new != 0U) && (status->barometer_valid != 0U))
     {
+        uint64_t previous_us = (s_baro_candidate_window.count != 0U) ?
+            s_baro_candidate_window.last_timestamp_us : s_landing_candidate_start_us;
+        if ((input->barometer_timestamp_us > previous_us) &&
+            (input->barometer_timestamp_us - previous_us <=
+             ((uint64_t)SYSTEM_FLIGHT_LANDING_SAMPLE_MAX_AGE_MS * 1000ULL)))
+        { s_landing_baro_covered_us += input->barometer_timestamp_us - previous_us; }
         if ((input->barometer_timestamp_us <=
              s_landing_candidate_start_us) ||
             (SystemFlightRecovery_BaroRegressionAdd(
@@ -947,7 +1002,7 @@ static uint8_t SystemFlightRecovery_BaroCandidateSamplesProcess(
                 input->barometer_timestamp_us,
                 input->barometer_altitude_m) == 0U))
         {
-            SystemFlightRecovery_BaroMonitorReset(status);
+            SystemFlightRecovery_BaroMonitorReset(status, SYSTEM_LANDING_RESET_TIMESTAMP_DISCONTINUITY);
             return 0U;
         }
         status->landing_candidate_baro_count =
@@ -956,10 +1011,13 @@ static uint8_t SystemFlightRecovery_BaroCandidateSamplesProcess(
     if ((inertial_new != 0U) &&
         (SystemFlightRecovery_BaroCandidateImuAdd(status, input) == 0U))
     {
-        SystemFlightRecovery_BaroMonitorReset(status);
+        SystemFlightRecovery_BaroMonitorReset(status,
+            (s_landing_imu_window.maximum_bad_us > FLIGHT_LANDING_MAXIMUM_BAD_US) ?
+                SYSTEM_LANDING_RESET_IMU_CONTINUOUS_MOTION : SYSTEM_LANDING_RESET_TIMESTAMP_DISCONTINUITY);
         return 0U;
     }
-    return (uint8_t)((s_baro_candidate_window.count != 0U) &&
+    return (uint8_t)((status->barometer_valid != 0U) &&
+                     (s_baro_candidate_window.count != 0U) &&
                      (s_landing_candidate_imu_count != 0U));
 }
 
@@ -993,20 +1051,20 @@ static uint8_t SystemFlightRecovery_BaroCandidateTimingCheck(
     {
         return 0U;
     }
-    baro_coverage_us = s_baro_candidate_window.last_timestamp_us -
-                       s_baro_candidate_window.first_timestamp_us;
-    imu_coverage_us = s_landing_candidate_last_imu_us -
-                      s_landing_candidate_first_imu_us;
+    baro_coverage_us = s_landing_baro_covered_us;
+    imu_coverage_us = s_landing_imu_window.valid_us;
     if ((s_baro_candidate_window.count <
          SYSTEM_FLIGHT_LANDING_BARO_MIN_SAMPLES) ||
-        (s_landing_candidate_imu_count <
-         SYSTEM_FLIGHT_LANDING_IMU_MIN_SAMPLES) ||
+        (FlightLanding_TimeWindowEvaluate(&s_landing_imu_window,
+             candidate_duration_us) != FLIGHT_LANDING_CONDITION_MET) ||
         (baro_coverage_us < minimum_coverage_us) ||
         (imu_coverage_us < minimum_coverage_us) ||
         (SystemFlightRecovery_BaroRegressionGet(
             &s_baro_candidate_window, slope_mps, span_m) == 0U))
     {
-        SystemFlightRecovery_BaroMonitorReset(status);
+        SystemFlightRecovery_BaroMonitorReset(status,
+            (baro_coverage_us < minimum_coverage_us) ? SYSTEM_LANDING_RESET_BARO_COVERAGE :
+                SYSTEM_LANDING_RESET_IMU_COVERAGE);
         return 0U;
     }
     return 1U;
@@ -1041,6 +1099,9 @@ static SystemDeviceResult SystemFlightRecovery_BaroImuLandingProcess(
     if (SystemFlightRecovery_BaroCandidateSamplesProcess(
             status, input, baro_new, inertial_new) == 0U)
     { return SYSTEM_DEVICE_OK; }
+    if ((input->now_us < s_landing_imu_window.last_good_us) ||
+        (input->now_us - s_landing_imu_window.last_good_us > FLIGHT_LANDING_COVERAGE_GAP_US))
+    { return SYSTEM_DEVICE_OK; }
     if (SystemFlightRecovery_BaroCandidateTimingCheck(
             status, candidate_duration_us, minimum_coverage_us,
             &slope_mps, &span_m) == 0U)
@@ -1051,11 +1112,12 @@ static SystemDeviceResult SystemFlightRecovery_BaroImuLandingProcess(
             &s_landing_context,
             slope_mps,
             span_m,
-            s_landing_candidate_max_gyro_norm,
-            s_landing_candidate_max_gravity_error) !=
+            0.0f, 0.0f) !=
         FLIGHT_LANDING_CONDITION_MET)
     {
-        SystemFlightRecovery_BaroMonitorReset(status);
+        SystemFlightRecovery_BaroMonitorReset(status,
+            (span_m > s_landing_context.config.barometer_max_span_m) ? SYSTEM_LANDING_RESET_BARO_SPAN :
+                SYSTEM_LANDING_RESET_BARO_SLOPE);
         return SYSTEM_DEVICE_OK;
     }
     return SystemFlightRecovery_LandingComplete(status, input);
@@ -1074,7 +1136,7 @@ static void SystemFlightRecovery_LandingTrackingReset(
     (void)SystemFlightRecovery_BarometerSampleIsNew(input);
     s_recovery_enter_timestamp_us = 0ULL;
     s_landing_confirm_start_sample_us = 0ULL;
-    SystemFlightRecovery_BaroMonitorReset(status);
+    SystemFlightRecovery_BaroMonitorReset(status, SYSTEM_LANDING_RESET_NONE);
     status->landing_confirming = 0U;
     status->landing_state = SYSTEM_FLIGHT_LANDING_STATE_WAIT_RECOVERY;
 }
@@ -1140,7 +1202,7 @@ static SystemDeviceResult SystemFlightRecovery_LandingProcess(
         if (s_recovery_enter_timestamp_us == 0ULL)
         {
             s_recovery_enter_timestamp_us = input->now_us;
-            SystemFlightRecovery_BaroMonitorReset(status);
+            SystemFlightRecovery_BaroMonitorReset(status, SYSTEM_LANDING_RESET_NONE);
         }
         return SystemFlightRecovery_BaroImuLandingProcess(status, input);
     }

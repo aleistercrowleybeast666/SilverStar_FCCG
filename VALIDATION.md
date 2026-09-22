@@ -1,4 +1,152 @@
-# Validation — 2026-09-12 Algorithm actual parameters / decoder 1.2
+# Validation — 2026-09-22 joint field-log contract
+
+## FCCG 当前验收
+
+本节替代此前本轮未完成的草稿。正式契约见
+[FIELD_LOG_REPLAY_CONTRACT.md](docs/FIELD_LOG_REPLAY_CONTRACT.md)。
+FCCG 与 FLP 的生成日志数值链已经验证；GSHC 完整回归与原 spec 打包启动通过，见联合报告和 GSHC 根 VALIDATION.md。
+没有 commit、push、tag、Release、烧录或修改只读参考固件。
+
+### 代码与正式记录
+
+修改范围包括公共惯性前端、KF6/replay、GNSS quality、landing、APP 日志生产路径、
+SSLOG codec/Catalog/semantics、日志策略、导入器 ownership 和对应 Host/Python 测试。
+SAMPLE、RAW_SENSOR、IMU_NATIVE、HW_QUAT_NATIVE 退出生产类型、codec、Catalog 和生成别名；
+原 ID 空洞保留，不重新编号。KF6 不再维护 Pure INS 导航旁路，不产出 PURE_INS。
+Pure INS 选择仍单独运行、记录；KF6 自身提供 q/p/v/线加速度。
+
+正式 Catalog 共 28 项：
+
+EVENT, STATS, ESTIMATOR, SYSTEM_CONFIG, PURE_INS, KF6_DIAGNOSTIC, KF6_FULL_P, POWER, HEALTH, TELEMETRY_DIAG, INITIAL_STATE, GNSS_NATIVE, BARO_NATIVE, MAG_NATIVE, INERTIAL_INCREMENT, GNSS_MEASUREMENT, BARO_MEASUREMENT, IMU_CORRECTED, CALIBRATION_RESULT, ALIGNMENT_RESULT, MISSION_CONFIG, DEVICE_DESCRIPTOR, ALGORITHM_DESCRIPTOR, LOG_STREAM_DESCRIPTOR, DECODER_PROFILE_DESCRIPTOR, ESTIMATOR_STEP, GNSS_RECOVERY, LANDING_DIAGNOSTIC
+
+GNSS、BARO 各自保留 observation 与 estimator measurement；ESTIMATOR_STEP 给出实际预测
+操作序号、源 increment、present、epoch、结果；GNSS_RECOVERY 与 LANDING_DIAGNOSTIC
+保留分组恢复事务及低流量着陆状态变化。EVERY 输入不得设置 decimation/period。
+
+### GNSS 与 landing
+
+Pos EN、Pos U、Vel EN、Vel U 独立 quality/update/NIS/recovery。hAcc=4.06 m、vAcc=10.01 m
+仍允许 Pos EN。飞前 origin 门禁保持严格，未建立 origin 的本次任务不启用 GNSS 融合。
+失联、质量无效与估计器 NIS 拒绝分别表达。
+
+恢复顺序为 outage → 连续一致返回 → 正常更新 → inflation → controlled group re-anchor。
+重锚须有真实 availability outage、至少 3 个一致样本、1 s 持续返回、8 次膨胀尝试耗尽，
+并保持原恢复间隔。仅 NIS 连续拒绝不能授权。受影响 state 设置到观测、R 构造其协方差块、
+cross covariance 清零，有限阶 Cholesky 检查后提交。历史量测在历史 x/P/内部状态上重锚，
+再重放，不改变其他组、姿态、origin 或时钟。Host 覆盖公里漂移、单点异常、组隔离、SPD。
+
+Landing 物理门限仍是 gyro 0.10 rad/s、|a|-g 0.5 m/s²、baro slope 1.0/0.30 m/s、
+span 1.0 m、candidate 3 s。固定时间累计 bucket 要求 IMU valid coverage >=90%、
+有效时间中 still >=95%、连续 bad <=200 ms、末尾近期合格。短暂 baro miss 在原
+100 ms freshness 内等待。100/200/400 Hz、尖峰、短缺测、持续运动、20 Hz baro 有覆盖。
+FlightTask 先读 snapshot 后读 evaluation time，时间竞争的实际 APP fixture 通过。
+200 Hz / 60 s BARO 正常 WAIT↔ACCEPTED 共 12000 次接受、0 次调度 EVENT。
+
+### Existing Time Synchronization vs Fixed-Lag Replay
+
+已有时间链为 sensor native/receive → provider/adapter → sensor hub → SystemTime
+统一 MCU/estimator measurement timestamp → estimator → SSLOG。原 SystemTime 负责既有
+计数扩展、wrap/offset、MCU/mission 转换和量测时间解析，不复制第二套时钟系统。
+当前 JY901B 没有可信 native sample epoch，使用 receive - configured baro delay；
+可信 native 时间经已有同步机制转换后直接使用，不重复减 delay。NEO-M9N 当前 solution
+以 MCU receive epoch 进入此链；iTOW 本身不意味着已完成历史融合。
+
+Time synchronization 确定时间坐标；fixed-lag 引擎恢复历史 x/P/内部恢复状态，在量测
+时刻 update，再 replay IMU/GNSS/BARO 到 present。GNSS/Barometer 共用同一有界引擎，
+delay=0 保留 fast path。本轮新增真实 operation/present/epoch/result 日志与分组重锚，
+FLP 直接消费这些时间与执行事实。错误的“修改 timestamp + current-state update”有负对照。
+
+### 真实生成、构建与完整测试
+
+生成工程 `tests/artifacts/joint/SS_TEST_19`，由 ReferenceProject_Create/Project_Save 创建。
+参数延迟混合对照工程 `SS_TEST_20` 为 pos 40 ms / vel 270 ms / baro 100 ms。
+两者保留 project format 12、decoder/semantics 1.2、Platform 0.0.10、AIR/GSP wire 不变。
+
+| 检查 | 实际结果 |
+| --- | --- |
+| FCCG 全套 Python | 415 passed / 1 skipped，963.12 s |
+| 生成工程 Release | all、stack-report、memory-report、artifact-check 通过 |
+| 生成工程 Debug | all、stack-report、memory-report、artifact-check 通过 |
+| Architecture | 262 checks，0 failures |
+| Power of Ten | 6072 checks，95 files，2278 functions |
+| Host | 68 executables，4386469 checks，0 failures |
+| Host 编译契约 | 8 compile-pass，16 expected compile-rejection |
+| Storage integrity | 4/4，通过实际 codec/FatFs/diskio 与延迟 DMA |
+
+Python skip 为既有只读参考固件任务仍活跃的保护分支，未停止该任务。
+日志：`tests/artifacts/joint/pytest-full19.log`、`ss19-release.log`、`ss19-debug.log`、`ss19-host.log`。
+本轮未执行实机烧录/飞行、物理 SD 卡延迟/耐久或新的全图 static-analysis 验收。
+
+### Logger 速率、RAM 与抖动
+
+模型输入为 IMU 200 Hz、increment/step 100 Hz、baro observation 200 Hz/measurement 100 Hz、
+GNSS observation/measurement/recovery 各 25 Hz。导航与简要 KF 诊断各 25 Hz、full P 5 Hz、
+POWER 10 Hz、telemetry/stats/health 各 1 Hz：**843 records/s，79908 bytes/s**（含每帧 28 B
+开销，不含事件/关键快照/启动描述符）。MAG 无当前 producer；不同实际设备率需重新测量。
+
+正常配置 20–100 ms storage jitter：normal HWM **76/80**，estimator HWM **44/48**；
+163694 accepted、0 drops、0 producer failures、254 次 jitter。max write 128000 us、
+max sync 108000 us、max logger iteration 316120 us（包括多步调用及模型驱动开销）。
+有限过载 163759 accepted / 436 observable drops / 14 producer failures，CRC/framing 完整，
+序号缺口与 drop 计数一致。Host 调度模型不是实机最坏时延保证。
+
+64/32 初测溢出后才调整为 80/48；并修复 CommonSpscQueue uint16 计数回绕对非 2 次幂容量
+的索引错误。独立 head_index/tail_index 按 capacity 回绕，队列计数与同步语义保留。
+容量 1/3/48/64/80 各 140000 个值跨两次计数回绕逐值核验。修复前曾出现 CRC 合法但
+重复/缺失记录，修复后严格预期条数通过；未放宽验收计数。
+
+| bytes | Release | Debug |
+| --- | ---: | ---: |
+| FLASH / bin | 272312 | 289568 |
+| ELF file | 2869532 | 4256728 |
+| main SRAM | 101728 | 101752 |
+| main SRAM 剩余 | 29344 | 29320 |
+| CCMRAM | 64160 | 64160 |
+| CCMRAM 剩余 | 1376 | 1376 |
+| heap / runtime allocator symbols | 0 / 0 | 0 / 0 |
+| INS stack estimate / margin | 2152 / 920 | 2048 / 1024 |
+| Estimator stack estimate / margin | 2676 / 1420 | 2700 / 1396 |
+| Logger stack estimate / margin | 1328 / 1744 | 1320 / 1752 |
+
+相对同轮日志改造前 SS_TEST_10，main SRAM 增加 4560 B，CCM 增加 48 B；
+normal/estimator record storage 为 16000/9600 B。artifact 软预算由 96 KiB 调为 100 KiB，
+明确容纳本轮全速记录和有界队列；物理 128 KiB、CCM、heap 和栈门禁不变。CCM 余量仍小。
+
+最终文档检查：`tests/test_documentation.py` **6 passed，0.27 s**，`fccg-doc-final2.log`。
+联合报告位于根 [JOINT_FIELD_REWORK.md](JOINT_FIELD_REWORK.md)，保留用户指定的时间同步/重放英文章节。
+
+### 最终 GUI 补验与现有边界
+
+中英 / Light / Dark × 100% / 200% DPI 共 8 个 offscreen 场景，五页切换完成；
+截图在 `tests/artifacts/joint/fccg-gui-dpi1` / `fccg-gui-dpi2`，加载系统字体并处理 Qt deferred-delete 后抓取。
+请求 1000×700 时，既有 `MainWindow.setMinimumSize(1080, 700)` 使实际窗口为 **1080×700**。
+因此不宣称 FCCG 1000×700 通过；本轮没有修改 FCCG 窗口布局。实际 GPU/触屏不在验收内。
+
+### C → decoder → FLP 数值验证
+
+`tests/joint_navigation_support.py` 编译生成工程真实 C frontend、KF6、replay、SSLOG codec，
+`tests/fixtures/joint_navigation_golden.c` 输出日志。FLP LogOpenCoordinator 严格匹配同源 decoder。
+
+| 场景 | 输出数 | p 最大绝对差 | v 最大绝对差 | P 最大绝对差 |
+| --- | ---: | ---: | ---: | ---: |
+| 常规基准 | 400 | 2.24e-8 | 9.43e-8 | 1.20e-7 |
+| pos 40 / vel 270 / baro 100 ms | 400 | 3.73e-8 | 9.45e-8 | 3.58e-7 |
+| 公里漂移恢复 | 2000 | 5.59e-9 | 1.40e-9 | 1.20e-7 |
+
+q 完全一致；operation/result/replay generation mismatch 均为空。公里漂移最大位置约
+5607.916 m，重锚次数 [1,0,1,0]；垂直组未重置。corrected IMU → increment 独立逐区间
+dt/边界/增量核验通过，无再次 calibration。日志 CRC、解码、序号缺口、重同步均无错误。
+FLP 仍为 APPROXIMATE，数值验收不扩展成未测硬件/外场/全部边界的 EXACT 承诺。
+
+| 产物 | SHA-256 |
+| --- | --- |
+| `SilverStar.ssproject` | `95d649d450f42a0cba11dad5a0b7488e6012d9867d0860b3969371ade297b2de` |
+| `JointContract.ssdecoder` | `1ff6699a4584f9ace43763daa84541ade7df475712655ac7e32c4f5dedfd4631` |
+| `build\FCCG\SilverStar_F407\Debug\SilverStar_0_0_10.elf` | `1e2b214e1f33e125bef7052d1099a3e8160c527e2df373bc70dfde33b9aaaa90` |
+| `build\FCCG\SilverStar_F407\Release\SilverStar_0_0_10.elf` | `b494e756b1b8dcd7c9d3cf4f4088ac5ac2f22140df9270e5b02eea3b56cd56ce` |
+
+旧/新惯性 frontend 的 1000 次 C 轨迹逐字节相同，SHA-256
+`2708f4f20b758ea7b4ca4963bc8cae97f59ca47a45d365bc2315e3078b2ace22`。
 
 ## 2026-09-18 — architecture-check 与 KF6 Power of Ten 合规修复
 

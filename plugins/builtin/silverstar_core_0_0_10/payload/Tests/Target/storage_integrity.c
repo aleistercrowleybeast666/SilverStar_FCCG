@@ -54,9 +54,9 @@ static StorageIntegrityResult StorageIntegrity_BytesCheck(void)
 static FlightLogSerializeResult StorageIntegrity_RecordBuild(uint32_t index, uint16_t *length)
 {
     static const FlightLogRecordType types[] = {
-        FLIGHT_LOG_RECORD_IMU_NATIVE, FLIGHT_LOG_RECORD_IMU_CORRECTED,
+        FLIGHT_LOG_RECORD_IMU_CORRECTED,
         FLIGHT_LOG_RECORD_GNSS_NATIVE, FLIGHT_LOG_RECORD_BARO_NATIVE,
-        FLIGHT_LOG_RECORD_HW_QUAT_NATIVE, FLIGHT_LOG_RECORD_ALIGNMENT_RESULT,
+        FLIGHT_LOG_RECORD_ALIGNMENT_RESULT,
         FLIGHT_LOG_RECORD_CALIBRATION_RESULT, FLIGHT_LOG_RECORD_MISSION_CONFIG,
         FLIGHT_LOG_RECORD_INITIAL_STATE, FLIGHT_LOG_RECORD_EVENT, FLIGHT_LOG_RECORD_STATS};
     (void)memset(&s_test_record, 0, sizeof(s_test_record));

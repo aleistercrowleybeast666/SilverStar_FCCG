@@ -222,13 +222,12 @@ static uint8_t NavigationReplay_EventValid(const NavigationReplayEvent *event)
     for (axis = 0U; axis < 3U; axis++)
     {
         if (((event->kind & NAV_REPLAY_POSITION) != 0U) &&
-            ((event->valid_group_mask & 3U) != 0U) &&
+            ((event->valid_group_mask & ((axis < 2U) ? 1U : 2U)) != 0U) &&
             ((!isfinite(event->position[axis])) || (!isfinite(event->position_variance[axis])) ||
              (event->position_variance[axis] <= 0.0f)))
         { return 0U; }
         if (((event->kind & NAV_REPLAY_VELOCITY) != 0U) &&
-            ((event->valid_group_mask & 4U) != 0U) &&
-            ((axis < 2U) || (event->vertical_valid != 0U)) &&
+            ((event->valid_group_mask & ((axis < 2U) ? 4U : 8U)) != 0U) &&
             ((!isfinite(event->velocity[axis])) || (!isfinite(event->velocity_variance[axis])) ||
              (event->velocity_variance[axis] <= 0.0f)))
         { return 0U; }
@@ -379,6 +378,7 @@ NavigationReplayResult NavigationReplay_ReceiveTrack(
     {
         event->evidence[group].availability_timestamp_us =
             tracker->group[group].availability_timestamp_us;
+        event->evidence[group].consistency_start_us = tracker->group[group].consistency_start_us;
         event->evidence[group].generation = tracker->group[group].generation;
         event->evidence[group].consistent_count = tracker->group[group].consistent_count;
         event->evidence[group].outage = tracker->group[group].outage;
@@ -416,6 +416,7 @@ static void NavigationReplay_EvidenceApply(NavigationKfContext *state,
         target->availability_timestamp_us = source->availability_timestamp_us;
         target->loss_latched = source->loss_latched;
         target->consistent_count = source->consistent_count;
+        target->consistency_start_us = source->consistency_start_us;
         if (source->recovery_valid == 0U)
         {
             target->reject_streak = 0U;
@@ -438,11 +439,46 @@ static void NavigationReplay_OutcomeReset(NavigationReplayOutcome *outcome)
     outcome->barometer = NAV_KF_UPDATE_REJECTED_INVALID;
 }
 
+static NavigationReplayResult NavigationReplay_GroupRecoveryApply(
+    NavigationKfContext *state, const NavigationReplayEvent *event,
+    NavigationReplayOutcome *outcome)
+{
+    uint8_t group;
+    SILVERSTAR_ASSERT_OBJECT(state, NavigationKfContext, SILVERSTAR_ASSERT_MODULE_ALGORITHM);
+    SILVERSTAR_ASSERT_OBJECT(event, NavigationReplayEvent, SILVERSTAR_ASSERT_MODULE_ALGORITHM);
+    /* Keep the legacy same-epoch ordering: both updates, then all results. */
+    for (group = 0U; group < NAV_KF_GNSS_GROUP_COUNT; group++)
+    {
+        NavigationKfGnssSeparatedUpdateResult *result = (group < 2U) ?
+            &outcome->position_groups : &outcome->velocity_groups;
+        uint8_t vertical = (uint8_t)(group & 1U);
+        if ((vertical != 0U) ? result->vertical_attempted : result->horizontal_attempted)
+        {
+            NavigationKfUpdateResult recovered = NavigationKf_GnssGroupRecover(state,
+                (NavigationKfGnssGroup)group,
+                (vertical != 0U) ? result->vertical_result : result->horizontal_result,
+                (group < 2U) ? event->position : event->velocity,
+                (group < 2U) ? event->position_variance : event->velocity_variance,
+                event->receive_timestamp_us);
+            if ((recovered == NAV_KF_UPDATE_ACCEPTED) &&
+                (((vertical != 0U) ? result->vertical_result : result->horizontal_result) == NAV_KF_UPDATE_REJECTED_NIS))
+            {
+                if (group < 2U) { outcome->position = NAV_KF_UPDATE_ACCEPTED; }
+                else { outcome->velocity = NAV_KF_UPDATE_ACCEPTED; }
+            }
+            if (vertical != 0U) { result->vertical_result = recovered; }
+            else { result->horizontal_result = recovered; }
+            if (recovered == NAV_KF_UPDATE_NUMERIC_ERROR) { return NAV_REPLAY_NUMERIC_ERROR; }
+        }
+        outcome->group_nis[group] = state->last_gnss_group_nis[group];
+    }
+    return NAV_REPLAY_OK;
+}
+
 static NavigationReplayResult NavigationReplay_EventApply(NavigationKfContext *state,
                                         const NavigationReplayEvent *event,
                                         NavigationReplayOutcome *outcome)
 {
-    uint8_t group;
     SILVERSTAR_ASSERT_OBJECT(state, NavigationKfContext,
                              SILVERSTAR_ASSERT_MODULE_ALGORITHM);
     SILVERSTAR_ASSERT_OBJECT(event, NavigationReplayEvent,
@@ -452,33 +488,23 @@ static NavigationReplayResult NavigationReplay_EventApply(NavigationKfContext *s
     if (((event->kind & NAV_REPLAY_POSITION) != 0U) &&
         ((event->valid_group_mask & 3U) != 0U))
     {
-        outcome->position = NavigationKf_UpdateGnssPositionSeparated(state,
-            event->position, event->position_variance, &outcome->position_groups);
+        outcome->position = NavigationKf_UpdateGnssPositionGroups(state,
+            event->position, event->position_variance, event->valid_group_mask,
+            &outcome->position_groups);
         (void)memcpy(outcome->position_innovation, state->last_position_innovation,
                       sizeof(outcome->position_innovation));
     }
     if (((event->kind & NAV_REPLAY_VELOCITY) != 0U) &&
-        ((event->valid_group_mask & 4U) != 0U))
+        ((event->valid_group_mask & 12U) != 0U))
     {
-        outcome->velocity = NavigationKf_UpdateGnssVelocitySeparated(state,
-            event->velocity, event->velocity_variance, event->vertical_valid,
+        outcome->velocity = NavigationKf_UpdateGnssVelocityGroups(state,
+            event->velocity, event->velocity_variance, event->valid_group_mask,
             &outcome->velocity_groups);
         (void)memcpy(outcome->velocity_innovation, state->last_velocity_innovation,
                       sizeof(outcome->velocity_innovation));
     }
-    /* Keep the legacy same-epoch ordering: both updates, then all results. */
-    for (group = 0U; group < NAV_KF_GNSS_GROUP_COUNT; group++)
-    {
-        const NavigationKfGnssSeparatedUpdateResult *result = (group < 2U) ?
-            &outcome->position_groups : &outcome->velocity_groups;
-        uint8_t vertical = (uint8_t)(group & 1U);
-        if ((vertical != 0U) ? result->vertical_attempted : result->horizontal_attempted)
-        {
-            NavigationKf_GnssGroupResultProcess(state, (NavigationKfGnssGroup)group,
-                (vertical != 0U) ? result->vertical_result : result->horizontal_result);
-        }
-        outcome->group_nis[group] = state->last_gnss_group_nis[group];
-    }
+    if (NavigationReplay_GroupRecoveryApply(state, event, outcome) != NAV_REPLAY_OK)
+    { return NAV_REPLAY_NUMERIC_ERROR; }
     if ((event->kind & NAV_REPLAY_BAROMETER) != 0U)
     {
         outcome->baro_innovation = event->altitude - state->state[2];

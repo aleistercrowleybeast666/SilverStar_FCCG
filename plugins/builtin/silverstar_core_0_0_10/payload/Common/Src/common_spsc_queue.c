@@ -53,10 +53,11 @@ CommonSpscQueueResult CommonSpscQueue_Push(CommonSpscQueue *queue,
         return COMMON_SPSC_QUEUE_RESULT_FULL;
     }
 
-    index = (uint16_t)(head % queue->capacity);
+    index = queue->head_index;
     memcpy(&queue->storage[(uint32_t)index * queue->item_size],
            item,
            queue->item_size);
+    queue->head_index = (uint16_t)((index + 1U) % queue->capacity);
     atomic_thread_fence(memory_order_seq_cst);
     queue->head = (uint16_t)(head + 1U);
     queue->push_count++;
@@ -87,10 +88,11 @@ CommonSpscQueueResult CommonSpscQueue_Pop(CommonSpscQueue *queue,
     }
 
     atomic_thread_fence(memory_order_seq_cst);
-    index = (uint16_t)(tail % queue->capacity);
+    index = queue->tail_index;
     memcpy(item,
            &queue->storage[(uint32_t)index * queue->item_size],
            queue->item_size);
+    queue->tail_index = (uint16_t)((index + 1U) % queue->capacity);
     atomic_thread_fence(memory_order_seq_cst);
     queue->tail = (uint16_t)(tail + 1U);
     queue->pop_count++;
@@ -120,6 +122,8 @@ void CommonSpscQueue_Reset(CommonSpscQueue *queue)
 
     queue->head = 0U;
     queue->tail = 0U;
+    queue->head_index = 0U;
+    queue->tail_index = 0U;
     queue->push_count = 0U;
     queue->pop_count = 0U;
     queue->overflow_count = 0U;

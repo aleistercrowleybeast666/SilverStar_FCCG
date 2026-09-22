@@ -1088,9 +1088,38 @@ static NavigationKfUpdateResult NavigationKf_PositionResultFinalize(
 }
 
 NavigationKfUpdateResult NavigationKf_UpdateGnssPositionSeparated(
+    NavigationKfContext *context, const float position_enu_m[3],
+    const float variance_m2[3], NavigationKfGnssSeparatedUpdateResult *result)
+{
+    return NavigationKf_UpdateGnssPositionGroups(context, position_enu_m,
+        variance_m2, 3U, result);
+}
+
+static NavigationKfUpdateResult NavigationKf_PositionInvalidRecord(
+    NavigationKfContext *context, NavigationKfGnssSeparatedUpdateResult *result)
+{
+    SILVERSTAR_ASSERT_OBJECT(result, NavigationKfGnssSeparatedUpdateResult,
+                         SILVERSTAR_ASSERT_MODULE_ALGORITHM);
+    result->horizontal_attempted = 1U;
+    result->vertical_attempted = 1U;
+    result->horizontal_result = NAV_KF_UPDATE_REJECTED_INVALID;
+    result->vertical_result = NAV_KF_UPDATE_REJECTED_INVALID;
+    NavigationKf_GnssGroupCountersUpdate(
+        context, NAV_KF_GNSS_GROUP_POSITION_HORIZONTAL,
+        result->horizontal_result);
+    NavigationKf_GnssGroupCountersUpdate(
+        context, NAV_KF_GNSS_GROUP_POSITION_VERTICAL,
+        result->vertical_result);
+    NavigationKf_UpdateCounters(context, NAV_KF_MEASUREMENT_POSITION,
+                                NAV_KF_UPDATE_REJECTED_INVALID);
+    return NAV_KF_UPDATE_REJECTED_INVALID;
+}
+
+NavigationKfUpdateResult NavigationKf_UpdateGnssPositionGroups(
     NavigationKfContext *context,
     const float position_enu_m[3],
     const float variance_m2[3],
+    uint8_t valid_group_mask,
     NavigationKfGnssSeparatedUpdateResult *separated_result)
 {
     NavigationKfGnssSeparatedUpdateResult local_result;
@@ -1102,49 +1131,41 @@ NavigationKfUpdateResult NavigationKf_UpdateGnssPositionSeparated(
     }
     (void)memset(result, 0, sizeof(*result));
     if ((position_enu_m == NULL) || (variance_m2 == NULL))
-    {
-        result->horizontal_attempted = 1U;
-        result->vertical_attempted = 1U;
-        result->horizontal_result = NAV_KF_UPDATE_REJECTED_INVALID;
-        result->vertical_result = NAV_KF_UPDATE_REJECTED_INVALID;
-        NavigationKf_GnssGroupCountersUpdate(
-            context, NAV_KF_GNSS_GROUP_POSITION_HORIZONTAL,
-            result->horizontal_result);
-        NavigationKf_GnssGroupCountersUpdate(
-            context, NAV_KF_GNSS_GROUP_POSITION_VERTICAL,
-            result->vertical_result);
-        NavigationKf_UpdateCounters(context, NAV_KF_MEASUREMENT_POSITION,
-                                    NAV_KF_UPDATE_REJECTED_INVALID);
-        return NAV_KF_UPDATE_REJECTED_INVALID;
-    }
+    { return NavigationKf_PositionInvalidRecord(context, result); }
     SILVERSTAR_ASSERT_OBJECT(position_enu_m, float,
                              SILVERSTAR_ASSERT_MODULE_ALGORITHM);
     SILVERSTAR_ASSERT_OBJECT(variance_m2, float,
                              SILVERSTAR_ASSERT_MODULE_ALGORITHM);
-    result->horizontal_attempted = 1U;
-    result->vertical_attempted = 1U;
-    result->horizontal_result = NavigationKf_UpdateVector(
-        context, position_enu_m, variance_m2, 2U, 0U,
-        (context != NULL) ?
-            &context->last_gnss_group_nis[
-                NAV_KF_GNSS_GROUP_POSITION_HORIZONTAL] : NULL,
-        (context != NULL) ? &context->last_position_innovation[0] : NULL,
-        (context != NULL) ?
-            &context->last_position_effective_variance[0] : NULL);
-    NavigationKf_GnssGroupCountersUpdate(
-        context, NAV_KF_GNSS_GROUP_POSITION_HORIZONTAL,
-        result->horizontal_result);
-    result->vertical_result = NavigationKf_UpdateVector(
-        context, &position_enu_m[2], &variance_m2[2], 1U, 2U,
-        (context != NULL) ?
-            &context->last_gnss_group_nis[
-                NAV_KF_GNSS_GROUP_POSITION_VERTICAL] : NULL,
-        (context != NULL) ? &context->last_position_innovation[2] : NULL,
-        (context != NULL) ?
-            &context->last_position_effective_variance[2] : NULL);
-    NavigationKf_GnssGroupCountersUpdate(
-        context, NAV_KF_GNSS_GROUP_POSITION_VERTICAL,
-        result->vertical_result);
+    if ((valid_group_mask & 1U) != 0U)
+    {
+        result->horizontal_attempted = 1U;
+        result->horizontal_result = NavigationKf_UpdateVector(
+            context, position_enu_m, variance_m2, 2U, 0U,
+            (context != NULL) ?
+                &context->last_gnss_group_nis[
+                    NAV_KF_GNSS_GROUP_POSITION_HORIZONTAL] : NULL,
+            (context != NULL) ? &context->last_position_innovation[0] : NULL,
+            (context != NULL) ?
+                &context->last_position_effective_variance[0] : NULL);
+        NavigationKf_GnssGroupCountersUpdate(
+            context, NAV_KF_GNSS_GROUP_POSITION_HORIZONTAL,
+            result->horizontal_result);
+    }
+    if ((valid_group_mask & 2U) != 0U)
+    {
+        result->vertical_attempted = 1U;
+        result->vertical_result = NavigationKf_UpdateVector(
+            context, &position_enu_m[2], &variance_m2[2], 1U, 2U,
+            (context != NULL) ?
+                &context->last_gnss_group_nis[
+                    NAV_KF_GNSS_GROUP_POSITION_VERTICAL] : NULL,
+            (context != NULL) ? &context->last_position_innovation[2] : NULL,
+            (context != NULL) ?
+                &context->last_position_effective_variance[2] : NULL);
+        NavigationKf_GnssGroupCountersUpdate(
+            context, NAV_KF_GNSS_GROUP_POSITION_VERTICAL,
+            result->vertical_result);
+    }
     return NavigationKf_PositionResultFinalize(context, result);
 }
 
@@ -1240,10 +1261,19 @@ static NavigationKfUpdateResult NavigationKf_VelocityResultFinalize(
 }
 
 NavigationKfUpdateResult NavigationKf_UpdateGnssVelocitySeparated(
+    NavigationKfContext *context, const float velocity_enu_mps[3],
+    const float variance_m2ps2[3], uint8_t vertical_valid,
+    NavigationKfGnssSeparatedUpdateResult *result)
+{
+    return NavigationKf_UpdateGnssVelocityGroups(context, velocity_enu_mps,
+        variance_m2ps2, (vertical_valid != 0U) ? 12U : 4U, result);
+}
+
+NavigationKfUpdateResult NavigationKf_UpdateGnssVelocityGroups(
     NavigationKfContext *context,
     const float velocity_enu_mps[3],
     const float variance_m2ps2[3],
-    uint8_t vertical_valid,
+    uint8_t valid_group_mask,
     NavigationKfGnssSeparatedUpdateResult *separated_result)
 {
     NavigationKfGnssSeparatedUpdateResult local_result;
@@ -1257,38 +1287,41 @@ NavigationKfUpdateResult NavigationKf_UpdateGnssVelocitySeparated(
     if ((velocity_enu_mps == NULL) || (variance_m2ps2 == NULL))
     {
         return NavigationKf_VelocityInvalidRecord(
-            context, result, vertical_valid);
+            context, result, (uint8_t)((valid_group_mask & 8U) != 0U));
     }
     SILVERSTAR_ASSERT_OBJECT(velocity_enu_mps, float,
                              SILVERSTAR_ASSERT_MODULE_ALGORITHM);
     SILVERSTAR_ASSERT_OBJECT(variance_m2ps2, float,
                              SILVERSTAR_ASSERT_MODULE_ALGORITHM);
-    result->horizontal_attempted = 1U;
-    result->horizontal_result = NavigationKf_UpdateVector(
-        context, velocity_enu_mps, variance_m2ps2, 2U, 3U,
-        (context != NULL) ?
-            &context->last_gnss_group_nis[
-                NAV_KF_GNSS_GROUP_VELOCITY_HORIZONTAL] : NULL,
-        (context != NULL) ? &context->last_velocity_innovation[0] : NULL,
-        (context != NULL) ?
-            &context->last_velocity_effective_variance[0] : NULL);
-    NavigationKf_GnssGroupCountersUpdate(
-        context, NAV_KF_GNSS_GROUP_VELOCITY_HORIZONTAL,
-        result->horizontal_result);
-    if (vertical_valid != 0U)
+    if ((valid_group_mask & 4U) != 0U)
     {
-        result->vertical_attempted = 1U;
-        result->vertical_result = NavigationKf_UpdateVector(
-            context, &velocity_enu_mps[2], &variance_m2ps2[2], 1U, 5U,
+        result->horizontal_attempted = 1U;
+        result->horizontal_result = NavigationKf_UpdateVector(
+            context, velocity_enu_mps, variance_m2ps2, 2U, 3U,
             (context != NULL) ?
                 &context->last_gnss_group_nis[
-                    NAV_KF_GNSS_GROUP_VELOCITY_VERTICAL] : NULL,
-            (context != NULL) ? &context->last_velocity_innovation[2] : NULL,
+                    NAV_KF_GNSS_GROUP_VELOCITY_HORIZONTAL] : NULL,
+            (context != NULL) ? &context->last_velocity_innovation[0] : NULL,
             (context != NULL) ?
-                &context->last_velocity_effective_variance[2] : NULL);
+                &context->last_velocity_effective_variance[0] : NULL);
         NavigationKf_GnssGroupCountersUpdate(
-            context, NAV_KF_GNSS_GROUP_VELOCITY_VERTICAL,
-            result->vertical_result);
+            context, NAV_KF_GNSS_GROUP_VELOCITY_HORIZONTAL,
+            result->horizontal_result);
+    }
+    if ((valid_group_mask & 8U) != 0U)
+    {
+            result->vertical_attempted = 1U;
+            result->vertical_result = NavigationKf_UpdateVector(
+                context, &velocity_enu_mps[2], &variance_m2ps2[2], 1U, 5U,
+                (context != NULL) ?
+                    &context->last_gnss_group_nis[
+                        NAV_KF_GNSS_GROUP_VELOCITY_VERTICAL] : NULL,
+                (context != NULL) ? &context->last_velocity_innovation[2] : NULL,
+                (context != NULL) ?
+                    &context->last_velocity_effective_variance[2] : NULL);
+            NavigationKf_GnssGroupCountersUpdate(
+                context, NAV_KF_GNSS_GROUP_VELOCITY_VERTICAL,
+                result->vertical_result);
     }
     return NavigationKf_VelocityResultFinalize(context, result);
 }
@@ -1546,6 +1579,7 @@ static void NavigationKf_GnssEpochBaselineSet(
     for (group = 0U; group < NAV_KF_GNSS_GROUP_COUNT; group++)
     {
         reacquisition->group[group].consistent_count = 0U;
+        reacquisition->group[group].consistency_start_us = 0U;
     }
     reacquisition->previous_epoch = *epoch;
     reacquisition->previous_epoch.valid_group_mask = valid_mask;
@@ -1630,6 +1664,8 @@ static void NavigationKf_GnssConsistencyUpdate(
         }
         if (consistent != 0U)
         {
+            if (reacquisition->group[group].consistent_count == 0U)
+            { reacquisition->group[group].consistency_start_us = reacquisition->previous_epoch.timestamp_us; }
             if (reacquisition->group[group].consistent_count < UINT32_MAX)
             {
                 reacquisition->group[group].consistent_count++;
@@ -1639,6 +1675,7 @@ static void NavigationKf_GnssConsistencyUpdate(
         else
         {
             reacquisition->group[group].consistent_count = 0U;
+        reacquisition->group[group].consistency_start_us = 0U;
         }
     }
 }
@@ -1689,6 +1726,7 @@ static void NavigationKf_GnssAvailabilityTrack(
             state->reject_streak = 0U;
             state->accepted_streak = 0U;
             state->consistent_count = 0U;
+            state->consistency_start_us = 0U;
         }
     }
 }
@@ -1960,7 +1998,7 @@ static void NavigationKf_GnssInflationTry(
     NavigationKfGnssReacquireGroupState *state,
     NavigationKfGnssGroup group)
 {
-    float applied_factor;
+    float applied_factor = 1.0f;
 
     SILVERSTAR_ASSERT_OBJECT(context, NavigationKfContext,
                              SILVERSTAR_ASSERT_MODULE_ALGORITHM);
@@ -1969,10 +2007,10 @@ static void NavigationKf_GnssInflationTry(
     if ((state->inflation_attempt_count <
          SYSTEM_ESTIMATOR_GNSS_REACQUIRE_MAX_ATTEMPTS) &&
         (state->epochs_since_inflation >=
-         SYSTEM_ESTIMATOR_GNSS_REACQUIRE_INFLATION_INTERVAL_SAMPLES) &&
-        (NavigationKf_GnssGroupCovarianceInflate(
-             context, group, &applied_factor) != 0U))
+         SYSTEM_ESTIMATOR_GNSS_REACQUIRE_INFLATION_INTERVAL_SAMPLES))
     {
+        /* An attempt at the cap is still an attempted recovery. */
+        (void)NavigationKf_GnssGroupCovarianceInflate(context, group, &applied_factor);
         state->inflation_attempt_count++;
         state->epochs_since_inflation = 0U;
         state->last_inflation_factor = applied_factor;
@@ -2086,6 +2124,108 @@ void NavigationKf_GnssGroupResultProcess(
     }
     state->reject_streak = 0U;
     state->accepted_streak = 0U;
+}
+
+#define NAV_KF_REANCHOR_MIN_CONSISTENCY_US 1000000ULL
+
+static uint8_t NavigationKf_GnssReanchorEligible(
+    const NavigationKfGnssReacquireGroupState *state, uint64_t receive_us)
+{
+    return (uint8_t)((state->outage != 0U) && (state->active != 0U) &&
+        (state->loss_latched == 0U) && (state->consistency_start_us != 0U) &&
+        (receive_us >= state->consistency_start_us) &&
+        (receive_us - state->consistency_start_us >= NAV_KF_REANCHOR_MIN_CONSISTENCY_US) &&
+        (state->consistent_count >= SYSTEM_ESTIMATOR_GNSS_REACQUIRE_CONSISTENT_COUNT) &&
+        (state->inflation_attempt_count >= SYSTEM_ESTIMATOR_GNSS_REACQUIRE_MAX_ATTEMPTS) &&
+        (state->epochs_since_inflation >= SYSTEM_ESTIMATOR_GNSS_REACQUIRE_INFLATION_INTERVAL_SAMPLES));
+}
+
+static uint8_t NavigationKf_ReanchorCovarianceValid(const NavigationKfContext *context)
+{
+    float lower[NAV_KF_STATE_DIMENSION][NAV_KF_STATE_DIMENSION] = {{0.0f}};
+    uint8_t row;
+    uint8_t column;
+    uint8_t inner;
+    SILVERSTAR_ASSERT_OBJECT(context, NavigationKfContext, SILVERSTAR_ASSERT_MODULE_ALGORITHM);
+    for (row = 0U; row < NAV_KF_STATE_DIMENSION; row++)
+    {
+        for (column = 0U; column <= row; column++)
+        {
+            float value = context->covariance[row][column];
+            if (value != context->covariance[column][row]) { return 0U; }
+            for (inner = 0U; inner < column; inner++)
+            { value -= lower[row][inner] * lower[column][inner]; }
+            if (!isfinite(value)) { return 0U; }
+            if (row == column)
+            {
+                if (value <= 0.0f) { return 0U; }
+                lower[row][column] = sqrtf(value);
+            }
+            else { lower[row][column] = value / lower[column][column]; }
+        }
+    }
+    return 1U;
+}
+
+static uint8_t NavigationKf_GnssReanchorApply(
+    NavigationKfContext *context, NavigationKfGnssGroup group,
+    const float observation[3], const float variance[3])
+{
+    uint8_t first;
+    uint8_t dimension;
+    uint8_t axis;
+    uint8_t column;
+    float cap;
+    SILVERSTAR_ASSERT_OBJECT(context, NavigationKfContext, SILVERSTAR_ASSERT_MODULE_ALGORITHM);
+    SILVERSTAR_ASSERT_OBJECT(observation, float, SILVERSTAR_ASSERT_MODULE_ALGORITHM);
+    NavigationKf_GnssGroupRangeGet(group, &first, &dimension, &cap);
+    if ((NavigationKf_StateAndCovarianceValid(context) == 0U) ||
+        (NavigationKf_ReanchorCovarianceValid(context) == 0U)) { return 0U; }
+    for (axis = 0U; axis < dimension; axis++)
+    {
+        uint8_t local_axis = (uint8_t)((first + axis) % 3U);
+        if (!isfinite(observation[local_axis]) || !isfinite(variance[local_axis]) ||
+            (variance[local_axis] <= 0.0f)) { return 0U; }
+    }
+    /* Independent positive diagonal block + untouched SPD principal block is SPD.
+     * Receiver self-consistency authorizes discarding only this group's cross terms. */
+    for (axis = 0U; axis < dimension; axis++)
+    {
+        uint8_t index = first + axis;
+        uint8_t local_axis = index % 3U;
+        context->state[index] = observation[local_axis];
+        for (column = 0U; column < NAV_KF_STATE_DIMENSION; column++)
+        { context->covariance[index][column] = 0.0f; context->covariance[column][index] = 0.0f; }
+        context->covariance[index][index] = fmaxf(variance[local_axis], NAV_KF_P_DIAGONAL_MIN);
+    }
+    return 1U;
+}
+
+NavigationKfUpdateResult NavigationKf_GnssGroupRecover(
+    NavigationKfContext *context, NavigationKfGnssGroup group,
+    NavigationKfUpdateResult result, const float observation[3],
+    const float variance[3], uint64_t receive_timestamp_us)
+{
+    NavigationKfGnssReacquireGroupState *state;
+    if ((context == NULL) || (observation == NULL) || (variance == NULL) ||
+        (group >= NAV_KF_GNSS_GROUP_COUNT)) { return NAV_KF_UPDATE_REJECTED_INVALID; }
+    SILVERSTAR_ASSERT_OBJECT(context, NavigationKfContext, SILVERSTAR_ASSERT_MODULE_ALGORITHM);
+    SILVERSTAR_ASSERT_OBJECT(variance, float, SILVERSTAR_ASSERT_MODULE_ALGORITHM);
+    NavigationKf_GnssGroupResultProcess(context, group, result);
+    state = &context->gnss_reacquisition.group[group];
+    if ((result != NAV_KF_UPDATE_REJECTED_NIS) ||
+        ((context->gnss_reacquisition.previous_epoch.valid_group_mask &
+          NAV_KF_GNSS_GROUP_MASK(group)) == 0U) ||
+        (NavigationKf_GnssReanchorEligible(state, receive_timestamp_us) == 0U)) { return result; }
+    if (NavigationKf_GnssReanchorApply(context, group, observation, variance) == 0U)
+    { return NAV_KF_UPDATE_NUMERIC_ERROR; }
+    context->gnss_reacquisition.reanchor_count[group]++;
+    state->active = 0U;
+    state->outage = 0U;
+    state->reject_streak = 0U;
+    state->accepted_streak = 0U;
+    context->gnss_reacquisition.active_mask &= (uint8_t)~NAV_KF_GNSS_GROUP_MASK(group);
+    return NAV_KF_UPDATE_ACCEPTED;
 }
 
 void NavigationKf_SetProcessAccelStd(NavigationKfContext *context,

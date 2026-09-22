@@ -56,7 +56,7 @@ def test_real_fatfs_delayed_dma_logger_and_queue(storage_project):
     assert startup["record_counts"]["DECODER_PROFILE_DESCRIPTOR"] == 1
     for report in (normal, dropped):
         assert report["unvalidated_tail_bytes"] == 0
-        assert {"IMU_NATIVE", "IMU_CORRECTED", "GNSS_NATIVE", "BARO_NATIVE", "HW_QUAT_NATIVE",
+        assert {"IMU_CORRECTED", "GNSS_NATIVE", "BARO_NATIVE",
                 "ALIGNMENT_RESULT", "CALIBRATION_RESULT", "MISSION_CONFIG", "INITIAL_STATE",
                 "EVENT", "STATS", "ESTIMATOR"} <= set(report["record_counts"])
     wrong_hashes = dict(hashes, record_catalog_hash_128="00" * 16)
@@ -71,7 +71,7 @@ def test_default_200hz_startup_and_overload_recovery(storage_project):
         report = Audit_Bytes((output / f"logger-{mode}.sslog").read_bytes(), catalog,
                              decoder_hashes=hashes, allow_queue_drops=mode.endswith("overload"))
         assert report["passed"] and report["integrity_ok"]
-        assert report["records"] > 200000 and report["unvalidated_tail_bytes"] == 0
+        assert report["unvalidated_tail_bytes"] == 0
         assert report["sequence_reorders"] == 0
         assert report["sequence_gap_records"] == report["queue_overflow_max"]
         assert (report["queue_overflow_max"] > 0) == mode.endswith("overload")
@@ -80,10 +80,22 @@ def test_default_200hz_startup_and_overload_recovery(storage_project):
         assert counts["INITIAL_STATE"] == counts["MISSION_CONFIG"] == 1
         assert counts["SYSTEM_CONFIG"] == 2  # Bootstrap and actual START configuration.
         assert counts["DECODER_PROFILE_DESCRIPTOR"] == 1
-        assert {"IMU_NATIVE", "HW_QUAT_NATIVE", "BARO_NATIVE", "GNSS_NATIVE", "POWER",
-                "IMU_CORRECTED", "INERTIAL_INCREMENT", "SAMPLE", "RAW_SENSOR", "PURE_INS",
+        assert {"BARO_NATIVE", "GNSS_NATIVE", "POWER",
+                "IMU_CORRECTED", "INERTIAL_INCREMENT", "ESTIMATOR_STEP", "GNSS_RECOVERY",
                 "ESTIMATOR", "KF6_DIAGNOSTIC", "KF6_FULL_P", "GNSS_MEASUREMENT",
                 "BARO_MEASUREMENT", "STATS", "TELEMETRY_DIAG", "HEALTH"} <= set(counts)
+        assert not {"SAMPLE", "RAW_SENSOR", "IMU_NATIVE", "HW_QUAT_NATIVE", "PURE_INS"}.intersection(counts)
+        if not mode.endswith("overload"):
+            # Exactly 194 seconds after START: 200 Hz corrected input, 100 Hz
+            # generated/consumed increments, 25 Hz GNSS epochs, 25/5 Hz snapshots.
+            assert counts["IMU_CORRECTED"] == 38800
+            assert counts["INERTIAL_INCREMENT"] == counts["ESTIMATOR_STEP"] == 19400
+            assert counts["BARO_NATIVE"] == 38800
+            assert counts["BARO_MEASUREMENT"] == 19400
+            assert counts["GNSS_NATIVE"] == counts["GNSS_MEASUREMENT"] == 4850
+            assert counts["GNSS_RECOVERY"] == 4850
+            assert counts["ESTIMATOR"] == counts["KF6_DIAGNOSTIC"] == 4850
+            assert counts["KF6_FULL_P"] == 970
 
 
 CASES = json.loads((Path(__file__).parent / "fixtures/sslog_corruption_cases.json").read_text())
@@ -186,7 +198,7 @@ def test_sparse_preflight_producers_start_boundary_and_diagnostic_override(stora
     required = {"EVENT", "DECODER_PROFILE_DESCRIPTOR", "SYSTEM_CONFIG", "DEVICE_DESCRIPTOR",
                 "ALGORITHM_DESCRIPTOR", "LOG_STREAM_DESCRIPTOR", "CALIBRATION_RESULT",
                 "ALIGNMENT_RESULT", "MISSION_CONFIG", "INITIAL_STATE"}
-    high_rate = {"IMU_NATIVE", "IMU_CORRECTED", "BARO_NATIVE", "GNSS_NATIVE", "HW_QUAT_NATIVE"}
+    high_rate = {"IMU_CORRECTED", "BARO_NATIVE", "GNSS_NATIVE"}
     for mode in ("normal", "diagnostic"):
         for seconds in (30, 120):
             data = (output / f"preflight-{mode}-{seconds}.sslog").read_bytes()
@@ -213,7 +225,7 @@ def test_sparse_preflight_producers_start_boundary_and_diagnostic_override(stora
                 times = [t for n, t, _, _ in records if n == name]
                 assert start in times  # Producer dedup has not consumed the first START sample.
                 assert (min(times) < start) == (mode == "diagnostic")
-            for name in ("IMU_NATIVE", "IMU_CORRECTED", "HW_QUAT_NATIVE"):
+            for name in ("IMU_CORRECTED",):
                 times = [t for n, t, _, _ in records if n == name and start <= t < landing]
                 assert times == list(range(start, landing, 10000))
             for name in ("ESTIMATOR", "KF6_DIAGNOSTIC", "KF6_FULL_P", "INERTIAL_INCREMENT",

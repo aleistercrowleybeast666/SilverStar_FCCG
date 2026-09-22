@@ -17,7 +17,7 @@
 | NEO-M9N adapter | GNSS sample 与 receive timestamp 均使用 lastUpdate_us；GetTime 单独提供 iTOW，不把它当 MCU 微秒。新可信标记默认为 false。 |
 | Sensor hub | 现有惯性 TimeSyncPolicy 枚举包括多种名称，但当前运行实现只允许 PASSTHROUGH，保留 sample/receive 时间，不回滚估计器。Barometer 快照转发新增可信标记。 |
 | Estimator | 新增统一量测时间解析，在 MCU 轴上得到 measurement timestamp；之后由一个 KF history 恢复历史状态、更新、重传播。 |
-| SSLOG | 原有 native 和 measurement records 保留 sample/receive 时间和量测值；decoder 实际参数包含三种 delay。完整 replay 诊断输出尚待本轮日志追加授权。 |
+| SSLOG | 当前 native 和 measurement records 保留 sample/receive 时间和量测值；decoder 实际参数包含三种 delay。完整 replay 诊断输出已由联合修改需求授权，编码和 FLP 对接仍待实现。 |
 
 **Time Synchronization != Delayed Measurement Replay。** 原有机制解决 MCU 单调时间、
 底层计数器回绕、任务/UTC 参照及样本时间传递；没有历史 x/P 恢复、OOSM 排序或重传播。
@@ -79,8 +79,11 @@ path，事件仍进入历史供以后 replay 使用。严格的零延迟等价�
 ## GNSS true-outage 与副作用
 
 原 `NavigationKf_GnssEpochTrack` 只在每个实际接收包上执行一次，输入真实 receive
-time。现有 outage 门限、一致性公式、拒绝/接受 streak、恢复触发和协方差膨胀策略
-保留；新增 generation 仅标识真实 loss/reset，随不可变证据存入历史。
+time。现有 outage 门限、一致性公式、正常 gate 与协方差膨胀公式保留。
+四组独立 validity 进入历史；连续一致时长和 generation 随不可变证据保存。
+达到膨胀上限后的 controlled re-anchor 条件与协方差规则见
+[恢复契约](KF6_OUTAGE_RECOVERY.md)。这属于本轮有意新增的算法行为，
+不再宣称与之前只含 inflation 的恢复实现逐位相同。
 重放只应用该证据到相关 position/velocity 分组，不重新用回拨后的 measurement time
 推断掉线。连续接收不会因 velocity delay=270 ms 被判为失联。
 

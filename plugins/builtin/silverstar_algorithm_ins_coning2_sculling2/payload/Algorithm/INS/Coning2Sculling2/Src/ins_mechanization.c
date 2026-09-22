@@ -90,11 +90,10 @@ void InsMechanization_ResetNavigation(InsMechanizationContext *context)
         return;
     }
 
-    memset(context->sample_history, 0, sizeof(context->sample_history));
+    InsInertial_Reset(&context->inertial);
     memset(context->velocity_n_mps, 0, sizeof(context->velocity_n_mps));
     memset(context->position_n_m, 0, sizeof(context->position_n_m));
     memset(context->q_nb_propagated, 0, sizeof(context->q_nb_propagated));
-    context->sample_count = 0U;
     context->update_count = 0U;
     context->health_flags = INS_HEALTH_NONE;
     context->q_nb_propagated_valid = 0U;
@@ -291,12 +290,12 @@ void Ins_IntegratePositionTrapezoidal(const float previous_position_n[3],
 }
 
 static InsSamplePrepareResult InsMechanization_SamplePrepare(
-    InsMechanizationContext *context,
+    InsInertialContext *context,
     const InsAlgorithmSample *sample,
     InsState *state,
     InsMechanizationWork *work)
 {
-    SILVERSTAR_ASSERT_OBJECT(context, InsMechanizationContext,
+    SILVERSTAR_ASSERT_OBJECT(context, InsInertialContext,
                              SILVERSTAR_ASSERT_MODULE_ALGORITHM);
     SILVERSTAR_ASSERT_OBJECT(sample, InsAlgorithmSample,
                              SILVERSTAR_ASSERT_MODULE_ALGORITHM);
@@ -305,7 +304,6 @@ static InsSamplePrepareResult InsMechanization_SamplePrepare(
     SILVERSTAR_ASSERT_OBJECT(work, InsMechanizationWork,
                              SILVERSTAR_ASSERT_MODULE_ALGORITHM);
     (void)memset(state, 0, sizeof(*state));
-    Ins_StateCopyNavigation(context, state);
     if ((sample->valid_flags &
          (INS_ALGORITHM_VALID_ACCEL | INS_ALGORITHM_VALID_GYRO)) !=
         (INS_ALGORITHM_VALID_ACCEL | INS_ALGORITHM_VALID_GYRO))
@@ -315,12 +313,6 @@ static InsSamplePrepareResult InsMechanization_SamplePrepare(
         return INS_SAMPLE_PREPARE_REJECTED;
     }
     work->current_sample = *sample;
-    if (context->q_nb_propagated_valid == 0U)
-    {
-        context->health_flags |= INS_HEALTH_INVALID_QUATERNION;
-        state->health_flags = context->health_flags;
-        return INS_SAMPLE_PREPARE_REJECTED;
-    }
     if (context->sample_count == 0U)
     {
         context->sample_history[0] = work->current_sample;
@@ -337,14 +329,14 @@ static InsSamplePrepareResult InsMechanization_SamplePrepare(
 }
 
 static uint8_t InsMechanization_IncrementsPrepare(
-    InsMechanizationContext *context,
+    InsInertialContext *context,
     InsState *state,
     InsMechanizationWork *work)
 {
     float dt_1;
     float dt_2;
 
-    SILVERSTAR_ASSERT_OBJECT(context, InsMechanizationContext,
+    SILVERSTAR_ASSERT_OBJECT(context, InsInertialContext,
                              SILVERSTAR_ASSERT_MODULE_ALGORITHM);
     SILVERSTAR_ASSERT_OBJECT(work, InsMechanizationWork,
                              SILVERSTAR_ASSERT_MODULE_ALGORITHM);
@@ -471,8 +463,50 @@ static void InsMechanization_StatePublish(
         state->velocity_n_mps[index] = work->current_velocity[index];
         state->position_n_m[index] = work->current_position[index];
     }
-    context->sample_history[0] = work->current_sample;
+}
+
+void InsInertial_Reset(InsInertialContext *context)
+{
+    if (context == NULL) { return; }
+    SILVERSTAR_ASSERT_OBJECT(context, InsInertialContext,
+                             SILVERSTAR_ASSERT_MODULE_ALGORITHM);
+    (void)memset(context, 0, sizeof(*context));
+}
+
+InsInertialUpdateResult InsInertial_Update(InsInertialContext *context,
+    const InsAlgorithmSample *sample, InsState *state)
+{
+    InsMechanizationWork work;
+    InsSamplePrepareResult prepare_result;
+
+    if ((context == NULL) || (sample == NULL) || (state == NULL))
+    {
+        return INS_INERTIAL_UPDATE_INVALID;
+    }
+    SILVERSTAR_ASSERT_OBJECT(context, InsInertialContext,
+                             SILVERSTAR_ASSERT_MODULE_ALGORITHM);
+    SILVERSTAR_ASSERT_OBJECT(state, InsState,
+                             SILVERSTAR_ASSERT_MODULE_ALGORITHM);
+    prepare_result = InsMechanization_SamplePrepare(context, sample, state, &work);
+    if (prepare_result != INS_SAMPLE_PREPARE_READY)
+    {
+        return (prepare_result == INS_SAMPLE_PREPARE_WAITING) ?
+            INS_INERTIAL_UPDATE_WAITING : INS_INERTIAL_UPDATE_INVALID;
+    }
+    if (InsMechanization_IncrementsPrepare(context, state, &work) == 0U)
+    {
+        return INS_INERTIAL_UPDATE_INVALID;
+    }
+    InsMechanization_CorrectionsCompute(&work, state);
+    state->interval_start_timestamp_us = context->sample_history[0].timestamp_us;
+    state->timestamp_us = sample->timestamp_us;
+    state->dt_s = work.total_dt;
+    state->update_count = ++context->update_count;
+    state->health_flags = context->health_flags;
+    state->valid = 1U;
+    context->sample_history[0] = *sample;
     context->sample_count = 1U;
+    return INS_INERTIAL_UPDATE_READY;
 }
 
 uint8_t InsMechanization_Update(InsMechanizationContext *context,
@@ -480,7 +514,6 @@ uint8_t InsMechanization_Update(InsMechanizationContext *context,
                                 InsState *state)
 {
     InsMechanizationWork work;
-    InsSamplePrepareResult prepare_result;
 
     if ((context == NULL) || (sample == NULL) || (state == NULL))
     {
@@ -490,19 +523,26 @@ uint8_t InsMechanization_Update(InsMechanizationContext *context,
                              SILVERSTAR_ASSERT_MODULE_ALGORITHM);
     SILVERSTAR_ASSERT_OBJECT(state, InsState,
                              SILVERSTAR_ASSERT_MODULE_ALGORITHM);
-    prepare_result = InsMechanization_SamplePrepare(
-        context, sample, state, &work);
-    if (prepare_result != INS_SAMPLE_PREPARE_READY)
+    if (context->q_nb_propagated_valid == 0U)
     {
+        context->health_flags |= INS_HEALTH_INVALID_QUATERNION;
+        (void)memset(state, 0, sizeof(*state));
+        Ins_StateCopyNavigation(context, state);
         return 0U;
     }
-    if (InsMechanization_IncrementsPrepare(context, state, &work) == 0U)
+    if (InsInertial_Update(&context->inertial, sample, state) !=
+        INS_INERTIAL_UPDATE_READY)
     {
+        context->health_flags |= state->health_flags;
+        Ins_StateCopyNavigation(context, state);
         return 0U;
     }
-    InsMechanization_CorrectionsCompute(&work, state);
+    context->health_flags |= state->health_flags;
+    work.current_sample = *sample;
+    work.total_dt = state->dt_s;
     if (InsMechanization_NavigationCompute(context, &work, state) == 0U)
     {
+        state->valid = 0U;
         return 0U;
     }
     InsMechanization_StatePublish(context, &work, state);

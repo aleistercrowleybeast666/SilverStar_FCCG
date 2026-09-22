@@ -1,10 +1,11 @@
+#include "common_spsc_queue.h"
 #include <stdint.h>
 #include <string.h>
 
 #include "diagnostic_log.h"
 #include "host_platform_mock.h"
 #include "imu_sample_bus.h"
-#include "ins_task.h"
+#include "estimator_task.h"
 #include "logger_bus.h"
 #include "project_log_decoder_profile.h"
 #include "sslog_protocol.h"
@@ -17,7 +18,7 @@
 
 static SystemLifecycleState s_lifecycle_state = SYSTEM_STATE_FLIGHT;
 static ImuSampleBusStats s_imu_bus_stats;
-static InsOutputSnapshot s_ins_snapshot;
+static EstimatorOutputSnapshot s_ins_snapshot;
 static SystemTelemetryHealth s_telemetry_health;
 static SystemDeviceResult s_telemetry_health_result = SYSTEM_DEVICE_OK;
 static uint32_t s_imu_bus_stats_get_count;
@@ -38,7 +39,7 @@ void ImuSampleBus_StatsGet(ImuSampleBusStats *stats)
     }
 }
 
-uint8_t Ins_GetLatestSnapshot(InsOutputSnapshot *snapshot)
+uint8_t Estimator_GetLatestSnapshot(EstimatorOutputSnapshot *snapshot)
 {
     if (snapshot != NULL)
     {
@@ -92,8 +93,8 @@ static void Test_RecordMetadata(void)
     uint16_t index;
 
     TEST_CHECK(SslogRecords_RecordCountGet() == SSLOG_RECORD_COUNT);
-    TEST_CHECK(SSLOG_RECORD_COUNT == 29U);
-    TEST_CHECK(FLIGHT_LOG_RECORD_SAMPLE == 0x01U);
+    TEST_CHECK(SSLOG_RECORD_COUNT == 28U);
+    TEST_CHECK(SslogRecords_MetadataGet((FlightLogRecordType)0x01U) == NULL);
     TEST_CHECK(FLIGHT_LOG_RECORD_STATS == 0x03U);
     TEST_CHECK(FLIGHT_LOG_RECORD_TELEMETRY_DIAG == 0x0CU);
     TEST_CHECK(FLIGHT_LOG_RECORD_MISSION_CONFIG == 0x19U);
@@ -104,11 +105,12 @@ static void Test_RecordMetadata(void)
     TEST_CHECK(FLIGHT_LOG_POWER_PAYLOAD_SIZE == 48U);
     TEST_CHECK(FLIGHT_LOG_STATS_PAYLOAD_SIZE == 16U);
     TEST_CHECK(FLIGHT_LOG_TELEMETRY_DIAG_PAYLOAD_SIZE == 48U);
-    TEST_CHECK(FLIGHT_LOG_IMU_NATIVE_PAYLOAD_SIZE == 80U);
-    TEST_CHECK(FLIGHT_LOG_GNSS_NATIVE_PAYLOAD_SIZE == 84U);
-    TEST_CHECK(FLIGHT_LOG_BARO_NATIVE_PAYLOAD_SIZE == 48U);
+    TEST_CHECK(SslogRecords_MetadataGet((FlightLogRecordType)0x0EU) == NULL);
+    TEST_CHECK(SslogRecords_MetadataGet((FlightLogRecordType)0x06U) == NULL);
+    TEST_CHECK(FLIGHT_LOG_GNSS_NATIVE_PAYLOAD_SIZE == 112U);
+    TEST_CHECK(FLIGHT_LOG_BARO_NATIVE_PAYLOAD_SIZE == 52U);
     TEST_CHECK(FLIGHT_LOG_MAG_NATIVE_PAYLOAD_SIZE == 60U);
-    TEST_CHECK(FLIGHT_LOG_HW_QUAT_NATIVE_PAYLOAD_SIZE == 48U);
+    TEST_CHECK(SslogRecords_MetadataGet((FlightLogRecordType)0x12U) == NULL);
     TEST_CHECK(FLIGHT_LOG_DEVICE_DESCRIPTOR_PAYLOAD_SIZE == 26U);
     TEST_CHECK(FLIGHT_LOG_DECODER_PROFILE_DESCRIPTOR_PAYLOAD_SIZE == 64U);
     for (index = 0U; index < SSLOG_RECORD_COUNT; index++)
@@ -117,7 +119,7 @@ static void Test_RecordMetadata(void)
         TEST_CHECK(metadata != NULL);
         if (metadata != NULL)
         {
-            TEST_CHECK(metadata->record_version == 0U);
+            TEST_CHECK(metadata->record_version <= 1U);
             TEST_CHECK(metadata->payload_size != 0U);
             TEST_CHECK(metadata->payload_size <= SSLOG_MAX_PAYLOAD_SIZE);
             TEST_CHECK(metadata->name != NULL);
@@ -361,23 +363,23 @@ static void Test_InstanceSourceCodec(void)
 
     (void)memset(&source, 0, sizeof(source));
     (void)memset(&decoded, 0, sizeof(decoded));
-    source.record_type = FLIGHT_LOG_RECORD_IMU_NATIVE;
-    source.payload.imu_native.source_descriptor_id = 0x1234U;
-    source.payload.imu_native.instance_id = 7U;
-    source.payload.imu_native.sequence = 0x01020304UL;
-    decoded.record_type = FLIGHT_LOG_RECORD_IMU_NATIVE;
+    source.record_type = FLIGHT_LOG_RECORD_GNSS_NATIVE;
+    source.payload.gnss_native.source_descriptor_id = 0x1234U;
+    source.payload.gnss_native.instance_id = 7U;
+    source.payload.gnss_native.sequence = 0x01020304UL;
+    decoded.record_type = FLIGHT_LOG_RECORD_GNSS_NATIVE;
     payload_size = SslogRecords_PayloadSerialize(
         &source, payload, sizeof(payload));
-    TEST_CHECK(payload_size == FLIGHT_LOG_IMU_NATIVE_PAYLOAD_SIZE);
+    TEST_CHECK(payload_size == FLIGHT_LOG_GNSS_NATIVE_PAYLOAD_SIZE);
     TEST_CHECK(payload[0] == 0x34U);
     TEST_CHECK(payload[1] == 0x12U);
     TEST_CHECK(payload[2] == 7U);
     TEST_CHECK(payload[3] == 0U);
     TEST_CHECK(SslogRecords_PayloadDeserialize(
         &decoded, payload, payload_size) == payload_size);
-    TEST_CHECK(decoded.payload.imu_native.source_descriptor_id == 0x1234U);
-    TEST_CHECK(decoded.payload.imu_native.instance_id == 7U);
-    TEST_CHECK(decoded.payload.imu_native.sequence == 0x01020304UL);
+    TEST_CHECK(decoded.payload.gnss_native.source_descriptor_id == 0x1234U);
+    TEST_CHECK(decoded.payload.gnss_native.instance_id == 7U);
+    TEST_CHECK(decoded.payload.gnss_native.sequence == 0x01020304UL);
 }
 
 static void Test_SourceChangeEventPacking(void)
@@ -411,12 +413,23 @@ static void Test_StreamConfiguration(void)
     TEST_CHECK(SystemLogPolicy_StreamGet(
         FLIGHT_LOG_RECORD_TELEMETRY_DIAG, &config) == SYSTEM_DEVICE_OK);
     TEST_CHECK(config.enabled != 0U);
-    TEST_CHECK(config.period_us == 200000UL);
+    TEST_CHECK(config.period_us == 1000000UL);
     TEST_CHECK(config.policy == SSLOG_STREAM_POLICY_PERIODIC);
     TEST_CHECK(SystemLogPolicy_StreamGet(
         FLIGHT_LOG_RECORD_KF6_DIAGNOSTIC, &config) == SYSTEM_DEVICE_OK);
     TEST_CHECK(config.enabled != 0U);
-    TEST_CHECK(config.decimation == 4U);
+    TEST_CHECK(config.decimation == 1U);
+    SystemLogStreamConfig full_rate;
+    TEST_CHECK(SystemLogPolicy_StreamGet(FLIGHT_LOG_RECORD_IMU_CORRECTED,
+        &full_rate) == SYSTEM_DEVICE_OK);
+    full_rate.decimation = 2U;
+    TEST_CHECK(SystemLogPolicy_StreamConfigure(&full_rate) == SYSTEM_DEVICE_INVALID_ARGUMENT);
+    full_rate.decimation = 1U;
+    full_rate.period_us = 10000U;
+    TEST_CHECK(SystemLogPolicy_StreamConfigure(&full_rate) == SYSTEM_DEVICE_INVALID_ARGUMENT);
+    full_rate.period_us = 0U;
+    full_rate.policy = SSLOG_STREAM_POLICY_DECIMATION;
+    TEST_CHECK(SystemLogPolicy_StreamConfigure(&full_rate) == SYSTEM_DEVICE_INVALID_ARGUMENT);
     config.decimation = 3U;
     TEST_CHECK(SystemLogPolicy_StreamConfigure(&config) == SYSTEM_DEVICE_OK);
     SystemLogPolicy_EmissionReset();
@@ -451,7 +464,7 @@ static void Test_StatsProducer(void)
     (void)memset(&s_ins_snapshot, 0, sizeof(s_ins_snapshot));
     s_imu_bus_stats.overflow_count = 23UL;
     s_imu_bus_stats_get_count = 0U;
-    s_ins_snapshot.update_seq = 456UL;
+    s_ins_snapshot.update_sequence = 456UL;
     s_ins_snapshot.health_flags = 0xA5A55A5AUL;
     s_ins_snapshot_available = 1U;
     TEST_CHECK(SystemLogPolicy_StreamGet(
@@ -485,6 +498,7 @@ static void Test_StatsProducer(void)
     TEST_CHECK(LoggerBus_Pop(&record) == LOGGER_BUS_RESULT_EMPTY);
 
     s_ins_snapshot_available = 0U;
+    SystemLogPolicy_EmissionReset();
     DiagnosticLog_StatsProcess(&empty_ins_state, 1000000ULL);
     TEST_CHECK(s_imu_bus_stats_get_count == 2U);
     TEST_CHECK(LoggerBus_Pop(&record) == LOGGER_BUS_RESULT_OK);
@@ -561,6 +575,7 @@ static void Test_TelemetryDiagnosticProducer(void)
     TEST_CHECK(LoggerBus_Pop(&record) == LOGGER_BUS_RESULT_EMPTY);
 
     s_telemetry_health_result = SYSTEM_DEVICE_IO_ERROR;
+    SystemLogPolicy_EmissionReset();
     DiagnosticLog_TelemetryProcess(&retry_state, 200000ULL);
     TEST_CHECK(s_telemetry_health_get_count == 2U);
     TEST_CHECK(LoggerBus_Pop(&record) == LOGGER_BUS_RESULT_EMPTY);
@@ -631,7 +646,8 @@ static void Test_DescriptorBundle(void)
                  FLIGHT_LOG_RECORD_LOG_STREAM_DESCRIPTOR)
         {
             stream_count++;
-            TEST_CHECK(record.payload.stream_descriptor.record_version == 0U);
+            TEST_CHECK(record.payload.stream_descriptor.record_version ==
+                   SslogRecords_MetadataGet((FlightLogRecordType)record.payload.stream_descriptor.record_type)->record_version);
             TEST_CHECK(record.payload.stream_descriptor.decimation != 0U);
         }
     }
@@ -721,13 +737,13 @@ static void Test_BootstrapAdmission(void)
     LoggerBusDiagnostics diagnostics;
     SystemLogStreamConfig config;
     LoggerBus_Reset();
-    TEST_CHECK(SystemLogPolicy_StreamGet(FLIGHT_LOG_RECORD_IMU_NATIVE, &config) == SYSTEM_DEVICE_OK);
+    TEST_CHECK(SystemLogPolicy_StreamGet(FLIGHT_LOG_RECORD_GNSS_NATIVE, &config) == SYSTEM_DEVICE_OK);
     config.enabled = 1U;
     config.decimation = 1U;
     TEST_CHECK(SystemLogPolicy_StreamConfigure(&config) == SYSTEM_DEVICE_OK);
     for (unsigned index = 0U; index < 1000U; index++)
     {
-        TEST_CHECK(LoggerBus_ImuNativePush(index, 0U, &record.payload.imu_native) == LOGGER_BUS_RESULT_OK);
+        TEST_CHECK(LoggerBus_GnssNativePush(index, 0U, &record.payload.gnss_native) == LOGGER_BUS_RESULT_OK);
     }
     TEST_CHECK(LoggerBus_DiagnosticsGet(&diagnostics) == LOGGER_BUS_RESULT_OK);
     TEST_CHECK(diagnostics.startup_state == LOGGER_BOOTSTRAP);
@@ -741,9 +757,9 @@ static void Test_BootstrapAdmission(void)
     for (unsigned index = 0U; index < 4U; index++)
     { TEST_CHECK(LoggerBus_NextPop(&record) == LOGGER_BUS_RESULT_OK); }
     TEST_CHECK(LoggerBus_StreamingReady() == LOGGER_BUS_RESULT_OK);
-    TEST_CHECK(LoggerBus_ImuNativePush(5U, 0U, &record.payload.imu_native) == LOGGER_BUS_RESULT_OK);
+    TEST_CHECK(LoggerBus_GnssNativePush(5U, 0U, &record.payload.gnss_native) == LOGGER_BUS_RESULT_OK);
     TEST_CHECK(LoggerBus_NextPop(&record) == LOGGER_BUS_RESULT_OK);
-    TEST_CHECK(record.record_type == FLIGHT_LOG_RECORD_IMU_NATIVE);
+    TEST_CHECK(record.record_type == FLIGHT_LOG_RECORD_GNSS_NATIVE);
     TEST_CHECK(LoggerBus_DiagnosticsGet(&diagnostics) == LOGGER_BUS_RESULT_OK);
     TEST_CHECK(diagnostics.accepted_count == 5U && diagnostics.dequeued_count == 5U);
     TEST_CHECK(diagnostics.normal_high_water == 4U && diagnostics.overflow_count == 0U);
@@ -753,9 +769,35 @@ static void Test_BootstrapAdmission(void)
     TEST_CHECK(diagnostics.startup_state == LOGGER_BOOTSTRAP);
 }
 
+static void Test_QueueCounterWrap(void)
+{
+    static const uint16_t capacities[] = {1U, 3U, 48U, 64U, 80U};
+    uint32_t storage[80];
+    for (unsigned c = 0U; c < sizeof(capacities) / sizeof(capacities[0]); c++)
+    {
+        CommonSpscQueue queue;
+        uint32_t output;
+        uint32_t next = 0U;
+        TEST_CHECK(CommonSpscQueue_Init(&queue, storage, capacities[c], sizeof(output)) == COMMON_SPSC_QUEUE_RESULT_OK);
+        for (uint32_t value = 0U; value < 140000U; value++)
+        {
+            if (CommonSpscQueue_Count(&queue) == capacities[c])
+            {
+                TEST_CHECK(CommonSpscQueue_Pop(&queue, &output) == COMMON_SPSC_QUEUE_RESULT_OK);
+                TEST_CHECK(output == next++);
+            }
+            TEST_CHECK(CommonSpscQueue_Push(&queue, &value) == COMMON_SPSC_QUEUE_RESULT_OK);
+        }
+        while (CommonSpscQueue_Pop(&queue, &output) == COMMON_SPSC_QUEUE_RESULT_OK)
+        { TEST_CHECK(output == next++); }
+        TEST_CHECK(next == 140000U && CommonSpscQueue_Count(&queue) == 0U);
+    }
+}
+
 int main(void)
 {
     HostPlatformMock_Reset();
+    Test_QueueCounterWrap();
     Test_RecordMetadata();
     Test_FileHeaderAndCrc();
     Test_RecordEndianAndUnknownType();

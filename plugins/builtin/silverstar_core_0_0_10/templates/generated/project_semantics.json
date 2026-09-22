@@ -11,15 +11,6 @@
     {
       "active_producers": [],
       "available": true,
-      "level": "optional",
-      "missing": [],
-      "producer_components": [],
-      "reason_code": "",
-      "record": "FLIGHT_LOG_RECORD_SAMPLE"
-    },
-    {
-      "active_producers": [],
-      "available": true,
       "level": "required",
       "missing": [],
       "producer_components": [],
@@ -56,15 +47,6 @@
       "producer_components": [],
       "reason_code": "",
       "record": "FLIGHT_LOG_RECORD_SYSTEM_CONFIG"
-    },
-    {
-      "active_producers": [],
-      "available": true,
-      "level": "optional",
-      "missing": [],
-      "producer_components": [],
-      "reason_code": "",
-      "record": "FLIGHT_LOG_RECORD_RAW_SENSOR"
     },
     {
       "active_producers": [],
@@ -140,15 +122,6 @@
       "missing": [],
       "producer_components": [],
       "reason_code": "",
-      "record": "FLIGHT_LOG_RECORD_IMU_NATIVE"
-    },
-    {
-      "active_producers": [],
-      "available": true,
-      "level": "recommended",
-      "missing": [],
-      "producer_components": [],
-      "reason_code": "",
       "record": "FLIGHT_LOG_RECORD_GNSS_NATIVE"
     },
     {
@@ -170,15 +143,6 @@
       "producer_components": [],
       "reason_code": "logging.unavailable.magnetometer_output_disabled",
       "record": "FLIGHT_LOG_RECORD_MAG_NATIVE"
-    },
-    {
-      "active_producers": [],
-      "available": true,
-      "level": "optional",
-      "missing": [],
-      "producer_components": [],
-      "reason_code": "",
-      "record": "FLIGHT_LOG_RECORD_HW_QUAT_NATIVE"
     },
     {
       "active_producers": [],
@@ -1594,13 +1558,6 @@
       "decimation_factor": 1,
       "enabled": true,
       "period_us": 0,
-      "policy": "DECIMATION",
-      "record": "FLIGHT_LOG_RECORD_SAMPLE"
-    },
-    {
-      "decimation_factor": 1,
-      "enabled": true,
-      "period_us": 0,
       "policy": "EVENT",
       "record": "FLIGHT_LOG_RECORD_EVENT"
     },
@@ -1624,13 +1581,6 @@
       "period_us": 0,
       "policy": "ONE_SHOT",
       "record": "FLIGHT_LOG_RECORD_SYSTEM_CONFIG"
-    },
-    {
-      "decimation_factor": 1,
-      "enabled": true,
-      "period_us": 0,
-      "policy": "DECIMATION",
-      "record": "FLIGHT_LOG_RECORD_RAW_SENSOR"
     },
     {
       "decimation_factor": 1,
@@ -1686,13 +1636,6 @@
       "enabled": true,
       "period_us": 0,
       "policy": "DECIMATION",
-      "record": "FLIGHT_LOG_RECORD_IMU_NATIVE"
-    },
-    {
-      "decimation_factor": 1,
-      "enabled": true,
-      "period_us": 0,
-      "policy": "DECIMATION",
       "record": "FLIGHT_LOG_RECORD_GNSS_NATIVE"
     },
     {
@@ -1708,13 +1651,6 @@
       "period_us": 0,
       "policy": "DECIMATION",
       "record": "FLIGHT_LOG_RECORD_MAG_NATIVE"
-    },
-    {
-      "decimation_factor": 1,
-      "enabled": true,
-      "period_us": 0,
-      "policy": "DECIMATION",
-      "record": "FLIGHT_LOG_RECORD_HW_QUAT_NATIVE"
     },
     {
       "decimation_factor": 1,
@@ -2133,63 +2069,6 @@
       "active_producers": [],
       "available": true,
       "cadence": {
-        "display_names": {
-          "en_US": "Follows related data source",
-          "zh_CN": "取决于相关数据源"
-        },
-        "kind": "source",
-        "source": "related_data"
-      },
-      "columns": [
-        "sample_seq",
-        "dt_us",
-        "acc_raw",
-        "gyro_raw",
-        "mag_raw",
-        "quat_raw_q15",
-        "pressure_pa",
-        "height_cm",
-        "accel_b_mps2",
-        "gyro_b_radps",
-        "q_raw",
-        "q_nb",
-        "delta_theta_b",
-        "delta_velocity_b_basic",
-        "delta_velocity_b_rotation_corrected",
-        "delta_velocity_b_sculling_corrected",
-        "delta_velocity_n_corrected",
-        "velocity_n_mps",
-        "position_n_m",
-        "alignment_valid",
-        "ins_valid",
-        "health_flags",
-        "imu_queue_overflow_count",
-        "logger_queue_overflow_count"
-      ],
-      "display_names": {
-        "en_US": "Flight Sample",
-        "zh_CN": "完整飞行样本"
-      },
-      "enums": {},
-      "events": {},
-      "logging": {
-        "decimation_factor": 1,
-        "enabled": true,
-        "period_us": 0,
-        "policy": "DECIMATION"
-      },
-      "partition_by": [],
-      "payload_size": 196,
-      "producer_components": [],
-      "record": "FLIGHT_LOG_RECORD_SAMPLE",
-      "record_type": "0x01",
-      "record_version": 0,
-      "validity": {}
-    },
-    {
-      "active_producers": [],
-      "available": true,
-      "cadence": {
         "display_names": {},
         "kind": "event",
         "source": ""
@@ -2364,57 +2243,6 @@
       "producer_components": [],
       "record": "FLIGHT_LOG_RECORD_SYSTEM_CONFIG",
       "record_type": "0x05",
-      "record_version": 0,
-      "validity": {}
-    },
-    {
-      "active_producers": [],
-      "available": true,
-      "cadence": {
-        "display_names": {
-          "en_US": "Follows related data source",
-          "zh_CN": "取决于相关数据源"
-        },
-        "kind": "source",
-        "source": "related_data"
-      },
-      "columns": [
-        "imu_sample_timestamp_us",
-        "imu_receive_timestamp_us",
-        "imu_sequence",
-        "accel_raw",
-        "gyro_raw",
-        "accel_b_mps2",
-        "gyro_b_radps",
-        "imu_temperature_c",
-        "imu_valid_mask",
-        "mag_raw",
-        "magnetic_field_b_uT",
-        "mag_valid_mask",
-        "mag_calibration_valid",
-        "pressure_raw_pa",
-        "altitude_raw_cm",
-        "pressure_pa",
-        "altitude_m",
-        "barometer_valid_mask"
-      ],
-      "display_names": {
-        "en_US": "Raw Sensor",
-        "zh_CN": "原始传感器"
-      },
-      "enums": {},
-      "events": {},
-      "logging": {
-        "decimation_factor": 1,
-        "enabled": true,
-        "period_us": 0,
-        "policy": "DECIMATION"
-      },
-      "partition_by": [],
-      "payload_size": 132,
-      "producer_components": [],
-      "record": "FLIGHT_LOG_RECORD_RAW_SENSOR",
-      "record_type": "0x06",
       "record_version": 0,
       "validity": {}
     },
@@ -2729,54 +2557,6 @@
       "available": true,
       "cadence": {
         "display_names": {
-          "en_US": "Follows IMU updates",
-          "zh_CN": "取决于IMU数据更新"
-        },
-        "kind": "source",
-        "source": "imu"
-      },
-      "columns": [
-        "source_descriptor_id",
-        "instance_id",
-        "reserved",
-        "sample_timestamp_us",
-        "receive_timestamp_us",
-        "sequence",
-        "accel_raw",
-        "gyro_raw",
-        "accel_b_mps2",
-        "gyro_b_radps",
-        "temperature_c",
-        "valid_mask"
-      ],
-      "display_names": {
-        "en_US": "Native IMU Data",
-        "zh_CN": "IMU 原始数据"
-      },
-      "enums": {},
-      "events": {},
-      "logging": {
-        "decimation_factor": 1,
-        "enabled": true,
-        "period_us": 0,
-        "policy": "DECIMATION"
-      },
-      "partition_by": [
-        "source_descriptor_id",
-        "instance_id"
-      ],
-      "payload_size": 80,
-      "producer_components": [],
-      "record": "FLIGHT_LOG_RECORD_IMU_NATIVE",
-      "record_type": "0x0E",
-      "record_version": 0,
-      "validity": {}
-    },
-    {
-      "active_producers": [],
-      "available": true,
-      "cadence": {
-        "display_names": {
           "en_US": "Follows GNSS updates",
           "zh_CN": "取决于GNSS数据更新"
         },
@@ -2920,54 +2700,6 @@
       "producer_components": [],
       "record": "FLIGHT_LOG_RECORD_MAG_NATIVE",
       "record_type": "0x11",
-      "record_version": 0,
-      "validity": {}
-    },
-    {
-      "active_producers": [],
-      "available": true,
-      "cadence": {
-        "display_names": {
-          "en_US": "Follows external attitude updates",
-          "zh_CN": "取决于外部姿态数据更新"
-        },
-        "kind": "source",
-        "source": "external_attitude"
-      },
-      "columns": [
-        "source_descriptor_id",
-        "instance_id",
-        "reserved",
-        "sample_timestamp_us",
-        "receive_timestamp_us",
-        "sequence",
-        "quaternion_wxyz",
-        "mode",
-        "mode_verified",
-        "algorithm_healthy",
-        "normalized",
-        "valid"
-      ],
-      "display_names": {
-        "en_US": "Native Hardware Quaternion",
-        "zh_CN": "硬件四元数原始数据"
-      },
-      "enums": {},
-      "events": {},
-      "logging": {
-        "decimation_factor": 1,
-        "enabled": true,
-        "period_us": 0,
-        "policy": "DECIMATION"
-      },
-      "partition_by": [
-        "source_descriptor_id",
-        "instance_id"
-      ],
-      "payload_size": 48,
-      "producer_components": [],
-      "record": "FLIGHT_LOG_RECORD_HW_QUAT_NATIVE",
-      "record_type": "0x12",
       "record_version": 0,
       "validity": {}
     },

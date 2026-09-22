@@ -11,6 +11,9 @@ typedef struct
 
     volatile uint16_t head;
     volatile uint16_t tail;
+    /* Slot cursors wrap at capacity, independently of sequence counter wrap. */
+    uint16_t head_index;
+    uint16_t tail_index;
 
     volatile uint32_t push_count;
     volatile uint32_t pop_count;

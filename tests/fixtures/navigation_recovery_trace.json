@@ -1,0 +1,76 @@
+{
+  "purpose": "Regression snapshot of group-isolated recovery; independent numeric reference and negative controls run in the same C fixture. Not pre-refactor equivalence or FLP fidelity.",
+  "source_sha256": "78a3a508da654a5111b65d19cb55f939bd2352629f0d15b5820fb3bacd4dee53",
+  "traces": {
+    "Test_ReanchorInvalidCovariance": {
+      "operations": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "Test_ReanchorGroupCovariance": {
+      "operations": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "Test_IndependentReplayGroups": {
+      "operations": 8,
+      "sha256": "c0bec75a9c27c9d91953013d41c62496d7c33f1bb15a548bb281eb04cad80718"
+    },
+    "Test_ReanchorDelayed1U": {
+      "operations": 2343,
+      "sha256": "006bd35220a70f2c0397ef3c56daa020d9b05bbb3a1ecfdf3ae189ef0a414a18"
+    },
+    "Test_ReanchorDelayed0U": {
+      "operations": 2415,
+      "sha256": "f0673b54745aa53b831304eed95160b0066e4e8070a188993c70f048148e69a7"
+    },
+    "Test_NumericFailureAndInvalidPointers": {
+      "operations": 11,
+      "sha256": "3a039e24da89e3afff5e1dc21ae3bcefc7b9dfacb5303679fb9643e144079f64"
+    },
+    "Test_NominalFullRate0U": {
+      "operations": 4688,
+      "sha256": "baafcd2734cd3b563ec162e49e636c1a39f504010e81ae8a570203867c216e91"
+    },
+    "Test_NominalFullRate20U": {
+      "operations": 4728,
+      "sha256": "1e664baf3ffd16ace9460aab3c6bbfe6b854bf7875aa0b489511785a37210693"
+    },
+    "Test_NominalFullRate110U": {
+      "operations": 4908,
+      "sha256": "2722f3ca8696e308a4fb3aa8a389335279850a74717d6e502a487397ae0e1156"
+    },
+    "Test_HardInputAndRateCapacity": {
+      "operations": 146,
+      "sha256": "3b3d01942ffbe4faaec8e2fefd7f088373c2d06cd7eba7d6cfc7bb36e599ed93"
+    },
+    "Test_ZeroDelayDirectReference": {
+      "operations": 928,
+      "sha256": "2493d5fcb43a84daae23ff800f363d8c3ef02cf7a89b312cea2fead2287c2ffc"
+    },
+    "Test_BarometerBetweenImuSamples": {
+      "operations": 101,
+      "sha256": "73da42890c219d73af6b52fa9420fe14af90e582f01150a06c9f314a49d9970a"
+    },
+    "Test_OverflowEpochAndDiscontinuity": {
+      "operations": 164,
+      "sha256": "5b55c086153e71598b446a71c3f19885166df79e7f894ddcd068d7a7135f5d53"
+    },
+    "Test_MixedAndWrap": {
+      "operations": 5628,
+      "sha256": "75507effcae0646c46cc7271b7921240a35b45f5c9f9875ace80466fc8c7e2d1"
+    },
+    "Test_BarometerAndTies": {
+      "operations": 166,
+      "sha256": "a3efb0414186343e75575c3f4e02f2f1dd81e7f3056fb6fae5e782921e59f3c6"
+    },
+    "Test_ReceiveClockAndTimeSync": {
+      "operations": 80,
+      "sha256": "100a5cf17e5208b0a60f0bc2d8b0c92d418c93a0657c49bb56bed0756eb61dec"
+    }
+  },
+  "app_traces": {
+    "0/270": "d9515ee401fc51d444d8ea9d054570332f8650956af5f0bbe8f32e76e2eb34b6",
+    "270/0": "9566ea140e21a9b6accd3cae1fda9bf407f8664fd8cb53b7b20f031ee746685a",
+    "0/0": "e4231ce182ed9b1f6cf2a7592de6c95800475faec859171ed5464e4fc1dddf2a",
+    "100/100": "572d2aa824f65b25a71b8c29777066cfe1fdc7afd8c0b6477610a4b204737127"
+  }
+}

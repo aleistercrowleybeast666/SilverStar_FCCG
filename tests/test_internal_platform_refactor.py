@@ -789,7 +789,9 @@ def test_protocol_split_preserves_reference_source_hashes(
         actual = hashlib.sha256(
             (workspace_root / "plugins" / "builtin" / target).read_bytes()
         ).hexdigest()
-        assert actual == provenance["protocol_source_sha256"][source]
+        assert actual == provenance.get("fccg_protocol_source_sha256", {}).get(
+            source, provenance["protocol_source_sha256"][source]
+        )
 
 
 def test_decoder_profile_records_hardware_resources_and_three_protocol_locks(

@@ -90,34 +90,6 @@ typedef enum
 
 typedef struct
 {
-    uint32_t sample_seq;
-    uint32_t dt_us;
-    int16_t acc_raw[3];
-    int16_t gyro_raw[3];
-    int16_t mag_raw[3];
-    int16_t quat_raw_q15[4];
-    int32_t pressure_pa;
-    int32_t height_cm;
-    float accel_b_mps2[3];
-    float gyro_b_radps[3];
-    float q_raw[4];
-    float q_nb[4];
-    float delta_theta_b[3];
-    float delta_velocity_b_basic[3];
-    float delta_velocity_b_rotation_corrected[3];
-    float delta_velocity_b_sculling_corrected[3];
-    float delta_velocity_n_corrected[3];
-    float velocity_n_mps[3];
-    float position_n_m[3];
-    uint8_t alignment_valid;
-    uint8_t ins_valid;
-    uint32_t health_flags;
-    uint32_t imu_queue_overflow_count;
-    uint32_t logger_queue_overflow_count;
-} FlightLogSampleRecord;
-
-typedef struct
-{
     FlightLogEventId event_id;
     uint8_t reserved[3];
     uint32_t arg0;
@@ -156,6 +128,10 @@ typedef struct
     uint8_t baro_origin_valid;
     uint8_t initialized;
     uint8_t mission_running;
+    float q_nb[4];
+    float acceleration_enu_mps2[3];
+    uint32_t operation_sequence;
+    uint32_t replay_epoch;
 } FlightLogEstimatorRecord;
 
 typedef struct
@@ -186,28 +162,6 @@ typedef struct
     float measurement_profile[5];
     float nis_profile[7];
 } FlightLogSystemConfigRecord;
-
-typedef struct
-{
-    uint64_t imu_sample_timestamp_us;
-    uint64_t imu_receive_timestamp_us;
-    uint32_t imu_sequence;
-    int32_t accel_raw[3];
-    int32_t gyro_raw[3];
-    float accel_b_mps2[3];
-    float gyro_b_radps[3];
-    float imu_temperature_c;
-    uint32_t imu_valid_mask;
-    int32_t mag_raw[3];
-    float magnetic_field_b_uT[3];
-    uint32_t mag_valid_mask;
-    uint8_t mag_calibration_valid;
-    int32_t pressure_raw_pa;
-    int32_t altitude_raw_cm;
-    float pressure_pa;
-    float altitude_m;
-    uint32_t barometer_valid_mask;
-} FlightLogRawSensorRecord;
 
 typedef struct
 {
@@ -322,22 +276,6 @@ typedef struct
     uint64_t sample_timestamp_us;
     uint64_t receive_timestamp_us;
     uint32_t sequence;
-    int32_t accel_raw[3];
-    int32_t gyro_raw[3];
-    float accel_b_mps2[3];
-    float gyro_b_radps[3];
-    float temperature_c;
-    uint32_t valid_mask;
-} FlightLogImuNativeRecord;
-
-typedef struct
-{
-    uint16_t source_descriptor_id;
-    uint8_t instance_id;
-    uint8_t reserved;
-    uint64_t sample_timestamp_us;
-    uint64_t receive_timestamp_us;
-    uint32_t sequence;
     int32_t latitude_e7;
     int32_t longitude_e7;
     int32_t ellipsoid_height_mm;
@@ -352,6 +290,13 @@ typedef struct
     uint8_t position_usable;
     uint8_t course_usable;
     uint8_t online;
+    uint8_t fix_ok;
+    uint8_t satellite_count;
+    uint8_t valid_group_mask;
+    uint8_t measurement_timestamp_trusted;
+    uint32_t supported_fields;
+    uint32_t valid_fields;
+    uint32_t group_reject_mask[4];
 } FlightLogGnssNativeRecord;
 
 typedef struct
@@ -362,12 +307,15 @@ typedef struct
     uint64_t sample_timestamp_us;
     uint64_t receive_timestamp_us;
     uint32_t sequence;
-    int32_t pressure_raw_pa;
-    int32_t altitude_raw_cm;
     float pressure_pa;
     float altitude_m;
     float altitude_variance_m2;
     uint32_t valid_mask;
+    uint32_t supported_fields;
+    uint32_t valid_fields;
+    uint8_t healthy;
+    uint8_t measurement_timestamp_trusted;
+    uint16_t reserved_quality;
 } FlightLogBaroNativeRecord;
 
 typedef struct
@@ -384,22 +332,6 @@ typedef struct
     uint32_t valid_mask;
     uint8_t calibration_valid;
 } FlightLogMagNativeRecord;
-
-typedef struct
-{
-    uint16_t source_descriptor_id;
-    uint8_t instance_id;
-    uint8_t reserved;
-    uint64_t sample_timestamp_us;
-    uint64_t receive_timestamp_us;
-    uint32_t sequence;
-    float quaternion_wxyz[4];
-    uint8_t mode;
-    uint8_t mode_verified;
-    uint8_t algorithm_healthy;
-    uint8_t normalized;
-    uint8_t valid;
-} FlightLogHardwareQuaternionNativeRecord;
 
 typedef struct
 {
@@ -425,6 +357,22 @@ typedef struct
     uint8_t position_usable;
     uint8_t fusion_allowed;
     uint8_t reserved;
+    uint64_t position_measurement_timestamp_us;
+    uint64_t velocity_measurement_timestamp_us;
+    uint64_t estimator_present_timestamp_us;
+    uint32_t receive_operation_sequence;
+    uint32_t position_operation_sequence;
+    uint32_t velocity_operation_sequence;
+    uint32_t replay_epoch;
+    uint32_t replay_generation;
+    uint8_t valid_group_mask;
+    uint8_t position_replay_result;
+    uint8_t velocity_replay_result;
+    uint8_t receive_result;
+    uint8_t group_update_result[4];
+    float group_nis[4];
+    float position_innovation_m[3];
+    float velocity_innovation_mps[3];
 } FlightLogGnssMeasurementRecord;
 
 typedef struct
@@ -435,6 +383,17 @@ typedef struct
     float relative_altitude_m;
     float variance_m2;
     uint32_t valid_mask;
+    uint64_t measurement_timestamp_us;
+    uint64_t estimator_present_timestamp_us;
+    uint32_t operation_sequence;
+    uint32_t replay_epoch;
+    uint32_t replay_generation;
+    uint8_t update_result;
+    uint8_t replay_result;
+    uint8_t measurement_timestamp_trusted;
+    uint8_t reserved;
+    float innovation_m;
+    float nis;
 } FlightLogBaroMeasurementRecord;
 
 typedef struct
@@ -581,14 +540,64 @@ typedef struct
     uint8_t reserved[8];
 } FlightLogDecoderProfileDescriptorRecord;
 
+typedef struct
+{
+    uint64_t estimator_present_timestamp_us;
+    uint64_t interval_end_timestamp_us;
+    uint32_t operation_sequence;
+    uint32_t source_sequence;
+    uint32_t replay_epoch;
+    uint32_t replay_generation;
+    uint8_t replay_result;
+    uint8_t attitude_result;
+    uint16_t reserved;
+} FlightLogEstimatorStepRecord;
+
+typedef struct
+{
+    uint64_t estimator_present_timestamp_us;
+    uint32_t source_sequence;
+    uint32_t replay_epoch;
+    uint32_t quality_reject_mask[4];
+    uint32_t consistency_count[4];
+    uint32_t inflation_attempt_count[4];
+    uint32_t reanchor_count[4];
+    float inflation_factor[4];
+    uint8_t valid[4];
+    uint8_t update_result[4];
+    uint8_t outage[4];
+    uint8_t recovery_active[4];
+    uint8_t reanchor_reason[4];
+    uint32_t operation_sequence;
+    uint32_t replay_generation;
+} FlightLogGnssRecoveryRecord;
+
+typedef struct
+{
+    uint64_t evaluation_timestamp_us;
+    uint64_t candidate_start_timestamp_us;
+    uint32_t sequence;
+    uint32_t candidate_elapsed_us;
+    float valid_coverage;
+    float still_ratio;
+    uint32_t maximum_bad_duration_us;
+    float baro_slope_mps;
+    float baro_span_m;
+    float baro_coverage;
+    uint8_t transition;
+    uint8_t reset_reason;
+    uint16_t reserved;
+} FlightLogLandingDiagnosticRecord;
+
 typedef union
 {
-    FlightLogSampleRecord sample;
+    FlightLogLandingDiagnosticRecord landing_diagnostic;
+    FlightLogGnssRecoveryRecord gnss_recovery;
+    FlightLogEstimatorStepRecord estimator_step;
     FlightLogEventRecord event;
     FlightLogStatsRecord stats;
     FlightLogEstimatorRecord estimator;
     FlightLogSystemConfigRecord system_config;
-    FlightLogRawSensorRecord raw_sensor;
     FlightLogPureInsRecord pure_ins;
     FlightLogKf6DiagnosticRecord kf6_diagnostic;
     FlightLogKf6FullPRecord kf6_full_p;
@@ -596,11 +605,9 @@ typedef union
     FlightLogHealthRecord health;
     FlightLogTelemetryDiagnosticRecord telemetry_diagnostic;
     FlightLogInitialStateRecord initial_state;
-    FlightLogImuNativeRecord imu_native;
     FlightLogGnssNativeRecord gnss_native;
     FlightLogBaroNativeRecord baro_native;
     FlightLogMagNativeRecord mag_native;
-    FlightLogHardwareQuaternionNativeRecord hw_quat_native;
     FlightLogInertialIncrementRecord inertial_increment;
     FlightLogGnssMeasurementRecord gnss_measurement;
     FlightLogBaroMeasurementRecord baro_measurement;

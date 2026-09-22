@@ -10,19 +10,15 @@
 
 typedef struct
 {
-    uint32_t imu_sequence[PROJECT_IMU_INSTANCE_COUNT_MAX];
     uint32_t gnss_sequence[PROJECT_GNSS_INSTANCE_COUNT_MAX];
     uint32_t barometer_sequence[PROJECT_BAROMETER_INSTANCE_COUNT_MAX];
     uint32_t magnetometer_sequence[PROJECT_MAGNETOMETER_INSTANCE_COUNT_MAX];
-    uint32_t attitude_sequence[PROJECT_ATTITUDE_INSTANCE_COUNT_MAX];
     uint32_t power_sequence[PROJECT_POWER_INSTANCE_COUNT_MAX];
     uint64_t power_log_timestamp_us[PROJECT_POWER_INSTANCE_COUNT_MAX];
-    uint8_t imu_sequence_valid[PROJECT_IMU_INSTANCE_COUNT_MAX];
     uint8_t gnss_sequence_valid[PROJECT_GNSS_INSTANCE_COUNT_MAX];
     uint8_t barometer_sequence_valid[PROJECT_BAROMETER_INSTANCE_COUNT_MAX];
     uint8_t magnetometer_sequence_valid[
         PROJECT_MAGNETOMETER_INSTANCE_COUNT_MAX];
-    uint8_t attitude_sequence_valid[PROJECT_ATTITUDE_INSTANCE_COUNT_MAX];
     uint8_t power_sequence_valid[PROJECT_POWER_INSTANCE_COUNT_MAX];
 } DeviceNativeLogState;
 
@@ -47,68 +43,6 @@ static uint8_t DeviceNativeLog_SequenceAccept(
     *last_sequence = sequence;
     *valid = 1U;
     return 1U;
-}
-
-static void DeviceNativeLog_ImuRecordBuild(
-    const SystemImuSample *sample, const SystemDeviceDescriptor *descriptor,
-    FlightLogImuNativeRecord *record)
-{
-    SILVERSTAR_ASSERT_OBJECT(sample, SystemImuSample,
-        SILVERSTAR_ASSERT_MODULE_APP);
-    SILVERSTAR_ASSERT_OBJECT(descriptor, SystemDeviceDescriptor,
-        SILVERSTAR_ASSERT_MODULE_APP);
-    SILVERSTAR_ASSERT_OBJECT(record, FlightLogImuNativeRecord,
-        SILVERSTAR_ASSERT_MODULE_APP);
-    (void)memset(record, 0, sizeof(*record));
-    record->source_descriptor_id = descriptor->descriptor_id;
-    record->instance_id = descriptor->instance_id;
-    record->sample_timestamp_us = sample->sample_timestamp_us;
-    record->receive_timestamp_us = sample->receive_timestamp_us;
-    record->sequence = sample->sequence;
-    (void)memcpy(record->accel_raw, sample->accel_raw,
-        sizeof(record->accel_raw));
-    (void)memcpy(record->gyro_raw, sample->gyro_raw,
-        sizeof(record->gyro_raw));
-    (void)memcpy(record->accel_b_mps2, sample->accel_b_mps2,
-        sizeof(record->accel_b_mps2));
-    (void)memcpy(record->gyro_b_radps, sample->gyro_b_radps,
-        sizeof(record->gyro_b_radps));
-    record->temperature_c = sample->temperature_c;
-    record->valid_mask = sample->valid_mask;
-}
-
-static void DeviceNativeLog_ImuInstanceProcess(uint8_t instance_id)
-{
-    SystemDeviceDescriptor descriptor;
-    SystemImuSample sample;
-    FlightLogImuNativeRecord record;
-
-    if ((ProjectImuInstance_LatestSampleGet(instance_id, &sample) !=
-         SYSTEM_DEVICE_OK) ||
-        (ProjectDeviceInstance_DescriptorGet(SYSTEM_DEVICE_CLASS_IMU,
-         instance_id, &descriptor) != SYSTEM_DEVICE_OK) ||
-        (DeviceNativeLog_SequenceAccept(sample.sequence,
-         &s_native_log.imu_sequence[instance_id],
-         &s_native_log.imu_sequence_valid[instance_id]) == 0U))
-    { return; }
-    DeviceNativeLog_ImuRecordBuild(&sample, &descriptor, &record);
-    (void)LoggerBus_ImuNativePush(sample.sample_timestamp_us,
-        sample.valid_mask, &record);
-}
-
-static void DeviceNativeLog_ImuAllProcess(void)
-{
-    uint8_t count = ProjectImuInstance_CountGet();
-    uint8_t instance_id;
-
-    SILVERSTAR_ASSERT(count <= PROJECT_IMU_INSTANCE_COUNT_MAX,
-        SILVERSTAR_ASSERT_MODULE_APP, SILVERSTAR_ASSERT_REASON_LENGTH_RANGE);
-    for (instance_id = 0U; instance_id < PROJECT_IMU_INSTANCE_COUNT_MAX;
-         instance_id++)
-    {
-        if (instance_id >= count) { break; }
-        DeviceNativeLog_ImuInstanceProcess(instance_id);
-    }
 }
 
 static void DeviceNativeLog_GnssRecordBuild(
@@ -144,6 +78,14 @@ static void DeviceNativeLog_GnssRecordBuild(
     record->position_usable = sample->position_usable;
     record->course_usable = sample->course_usable;
     record->online = sample->online;
+    record->fix_ok = sample->fix_ok;
+    record->satellite_count = sample->satellite_count;
+    record->valid_group_mask = sample->valid_group_mask;
+    record->measurement_timestamp_trusted = sample->measurement_timestamp_trusted;
+    record->supported_fields = sample->supported_fields;
+    record->valid_fields = sample->valid_fields;
+    (void)memcpy(record->group_reject_mask, sample->group_reject_mask,
+        sizeof(record->group_reject_mask));
 }
 
 static void DeviceNativeLog_GnssInstanceProcess(uint8_t instance_id)
@@ -196,17 +138,19 @@ static void DeviceNativeLog_BarometerRecordBuild(
     record->sample_timestamp_us = sample->sample_timestamp_us;
     record->receive_timestamp_us = sample->receive_timestamp_us;
     record->sequence = sample->sequence;
-    record->pressure_raw_pa = sample->pressure_raw_pa;
-    record->altitude_raw_cm = sample->altitude_raw_cm;
     record->pressure_pa = sample->pressure_pa;
     record->altitude_m = sample->altitude_m;
     record->altitude_variance_m2 = sample->altitude_variance_m2;
     record->valid_mask = sample->valid_mask;
+    record->supported_fields = sample->supported_fields;
+    record->valid_fields = sample->valid_fields;
+    record->measurement_timestamp_trusted = sample->measurement_timestamp_trusted;
 }
 
 static void DeviceNativeLog_BarometerInstanceProcess(uint8_t instance_id)
 {
     SystemDeviceDescriptor descriptor;
+    SystemDeviceHealth health;
     SystemBarometerSample sample;
     FlightLogBaroNativeRecord record;
 
@@ -219,6 +163,8 @@ static void DeviceNativeLog_BarometerInstanceProcess(uint8_t instance_id)
          &s_native_log.barometer_sequence_valid[instance_id]) == 0U))
     { return; }
     DeviceNativeLog_BarometerRecordBuild(&sample, &descriptor, &record);
+    record.healthy = (uint8_t)((ProjectBarometerInstance_HealthGet(instance_id,
+        &health) == SYSTEM_DEVICE_OK) && (health.healthy != 0U));
     (void)LoggerBus_BaroNativePush(sample.sample_timestamp_us,
         sample.valid_mask, &record);
 }
@@ -297,68 +243,6 @@ static void DeviceNativeLog_MagnetometerAllProcess(void)
     }
 }
 
-static void DeviceNativeLog_AttitudeRecordBuild(
-    const SystemHardwareQuaternionSample *sample,
-    const SystemDeviceDescriptor *descriptor,
-    FlightLogHardwareQuaternionNativeRecord *record)
-{
-    SILVERSTAR_ASSERT_OBJECT(sample, SystemHardwareQuaternionSample,
-        SILVERSTAR_ASSERT_MODULE_APP);
-    SILVERSTAR_ASSERT_OBJECT(descriptor, SystemDeviceDescriptor,
-        SILVERSTAR_ASSERT_MODULE_APP);
-    SILVERSTAR_ASSERT_OBJECT(record,
-        FlightLogHardwareQuaternionNativeRecord,
-        SILVERSTAR_ASSERT_MODULE_APP);
-    (void)memset(record, 0, sizeof(*record));
-    record->source_descriptor_id = descriptor->descriptor_id;
-    record->instance_id = descriptor->instance_id;
-    record->sample_timestamp_us = sample->sample_timestamp_us;
-    record->receive_timestamp_us = sample->receive_timestamp_us;
-    record->sequence = sample->sequence;
-    (void)memcpy(record->quaternion_wxyz, sample->quaternion_wxyz,
-        sizeof(record->quaternion_wxyz));
-    record->mode = (uint8_t)sample->mode;
-    record->mode_verified = sample->mode_verified;
-    record->algorithm_healthy = sample->algorithm_healthy;
-    record->normalized = sample->normalized;
-    record->valid = sample->valid;
-}
-
-static void DeviceNativeLog_AttitudeInstanceProcess(uint8_t instance_id)
-{
-    SystemDeviceDescriptor descriptor;
-    SystemHardwareQuaternionSample sample;
-    FlightLogHardwareQuaternionNativeRecord record;
-
-    if ((ProjectAttitudeInstance_LatestSampleGet(instance_id, &sample) !=
-         SYSTEM_DEVICE_OK) ||
-        (ProjectDeviceInstance_DescriptorGet(
-         SYSTEM_DEVICE_CLASS_HARDWARE_QUATERNION, instance_id,
-         &descriptor) != SYSTEM_DEVICE_OK) ||
-        (DeviceNativeLog_SequenceAccept(sample.sequence,
-         &s_native_log.attitude_sequence[instance_id],
-         &s_native_log.attitude_sequence_valid[instance_id]) == 0U))
-    { return; }
-    DeviceNativeLog_AttitudeRecordBuild(&sample, &descriptor, &record);
-    (void)LoggerBus_HardwareQuaternionNativePush(
-        sample.sample_timestamp_us, 0U, &record);
-}
-
-static void DeviceNativeLog_AttitudeAllProcess(void)
-{
-    uint8_t count = ProjectAttitudeInstance_CountGet();
-    uint8_t instance_id;
-
-    SILVERSTAR_ASSERT(count <= PROJECT_ATTITUDE_INSTANCE_COUNT_MAX,
-        SILVERSTAR_ASSERT_MODULE_APP, SILVERSTAR_ASSERT_REASON_LENGTH_RANGE);
-    for (instance_id = 0U; instance_id < PROJECT_ATTITUDE_INSTANCE_COUNT_MAX;
-         instance_id++)
-    {
-        if (instance_id >= count) { break; }
-        DeviceNativeLog_AttitudeInstanceProcess(instance_id);
-    }
-}
-
 static void DeviceNativeLog_PowerRecordBuild(
     const SystemPowerSample *sample, const SystemDeviceDescriptor *descriptor,
     FlightLogPowerRecord *record)
@@ -410,19 +294,12 @@ static void DeviceNativeLog_PowerInstanceProcess(
     (void)LoggerBus_PowerPush(sample.sample_timestamp_us, &record);
 }
 
-void DeviceNativeLog_ImuProcess(void)
-{
-    if (DeviceNativeLog_Allowed() != 0U) { DeviceNativeLog_ImuAllProcess(); }
-}
-
 void DeviceNativeLog_Process(void)
 {
     if (DeviceNativeLog_Allowed() == 0U) { return; }
-    DeviceNativeLog_ImuAllProcess();
     DeviceNativeLog_GnssAllProcess();
     DeviceNativeLog_BarometerAllProcess();
     DeviceNativeLog_MagnetometerAllProcess();
-    DeviceNativeLog_AttitudeAllProcess();
 }
 
 void DeviceNativeLog_PowerProcess(

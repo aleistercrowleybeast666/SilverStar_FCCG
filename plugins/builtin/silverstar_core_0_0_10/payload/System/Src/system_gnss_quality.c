@@ -97,47 +97,6 @@ static uint8_t SystemGnssQuality_BasicFixCheck(
     return blocking;
 }
 
-static uint8_t SystemGnssQuality_SampleAgeCheck(
-    SystemGnssSample *sample,
-    uint64_t now_us)
-{
-    if ((sample->sample_timestamp_us != 0U) &&
-        (sample->sample_timestamp_us <= now_us) &&
-        ((now_us - sample->sample_timestamp_us) <=
-         ((uint64_t)SYSTEM_GNSS_MAX_SAMPLE_AGE_MS * 1000ULL)))
-    {
-        return 0U;
-    }
-    sample->position_reject_mask |= SYSTEM_GNSS_REJECT_STALE;
-    sample->velocity_reject_mask |= SYSTEM_GNSS_REJECT_STALE;
-    return 1U;
-}
-
-static uint8_t SystemGnssQuality_PositionFieldCheck(
-    SystemGnssSample *sample)
-{
-    SILVERSTAR_ASSERT_OBJECT(sample, SystemGnssSample,
-        SILVERSTAR_ASSERT_MODULE_SYSTEM);
-    if ((SystemGnssQuality_FieldSupported(
-             sample, SYSTEM_GNSS_FIELD_POSITION) == 0U) ||
-        (SystemGnssQuality_FieldSupported(
-             sample, SYSTEM_GNSS_FIELD_HEIGHT) == 0U))
-    {
-        sample->position_reject_mask |=
-            SYSTEM_GNSS_REJECT_FIELD_UNSUPPORTED;
-        return 1U;
-    }
-    if ((SystemGnssQuality_FieldValid(
-             sample, SYSTEM_GNSS_FIELD_POSITION) == 0U) ||
-        (SystemGnssQuality_FieldValid(
-             sample, SYSTEM_GNSS_FIELD_HEIGHT) == 0U))
-    {
-        sample->position_reject_mask |= SYSTEM_GNSS_REJECT_FIELD_INVALID;
-        return 1U;
-    }
-    return 0U;
-}
-
 static uint8_t SystemGnssQuality_SatelliteCheck(
     SystemGnssSample *sample,
     uint32_t *reject_mask)
@@ -189,114 +148,88 @@ static uint8_t SystemGnssQuality_AccuracyCheck(
     return blocking;
 }
 
-static uint8_t SystemGnssQuality_VelocityValidMaskGet(
-    SystemGnssSample *sample)
+static uint8_t SystemGnssQuality_RequiredFieldCheck(
+    const SystemGnssSample *sample, uint32_t field, uint32_t *reason)
 {
-    uint8_t valid_mask = 0U;
-
-    SILVERSTAR_ASSERT_OBJECT(sample, SystemGnssSample,
-        SILVERSTAR_ASSERT_MODULE_SYSTEM);
-    if (SystemGnssQuality_FieldSupported(
-            sample, SYSTEM_GNSS_FIELD_VELOCITY_HORIZONTAL) == 0U)
-    {
-        sample->velocity_reject_mask |=
-            SYSTEM_GNSS_REJECT_FIELD_UNSUPPORTED;
-    }
-    else if (SystemGnssQuality_FieldValid(
-                 sample, SYSTEM_GNSS_FIELD_VELOCITY_HORIZONTAL) == 0U)
-    {
-        sample->velocity_reject_mask |= SYSTEM_GNSS_REJECT_FIELD_INVALID;
-    }
-    else
-    {
-        valid_mask = SYSTEM_GNSS_VEL_VALID_E | SYSTEM_GNSS_VEL_VALID_N;
-    }
-    if (SystemGnssQuality_FieldSupported(
-            sample, SYSTEM_GNSS_FIELD_VELOCITY_VERTICAL) == 0U)
-    {
-        sample->velocity_reject_mask |=
-            SYSTEM_GNSS_REJECT_FIELD_UNSUPPORTED;
-        sample->quality_degraded = 1U;
-    }
-    else if (SystemGnssQuality_FieldValid(
-                 sample, SYSTEM_GNSS_FIELD_VELOCITY_VERTICAL) == 0U)
-    {
-        sample->velocity_reject_mask |= SYSTEM_GNSS_REJECT_FIELD_INVALID;
-    }
-    else if (valid_mask != 0U)
-    {
-        valid_mask |= SYSTEM_GNSS_VEL_VALID_U;
-    }
-    else
-    {
-        /* Horizontal velocity remains mandatory for a usable solution. */
-    }
-    return valid_mask;
+    if (SystemGnssQuality_FieldSupported(sample, field) == 0U)
+    { *reason |= SYSTEM_GNSS_REJECT_FIELD_UNSUPPORTED; return 1U; }
+    if (SystemGnssQuality_FieldValid(sample, field) == 0U)
+    { *reason |= SYSTEM_GNSS_REJECT_FIELD_INVALID; return 1U; }
+    return 0U;
 }
 
-static void SystemGnssQuality_BlockingSet(uint8_t condition,
-                                          uint8_t *blocking)
+static uint8_t SystemGnssQuality_GroupEvaluate(
+    SystemGnssSample *sample, uint8_t group, uint8_t common_blocking)
 {
-    if (condition != 0U)
+    static const uint32_t fields[SYSTEM_GNSS_QUALITY_GROUP_COUNT] = {
+        SYSTEM_GNSS_FIELD_POSITION, SYSTEM_GNSS_FIELD_HEIGHT,
+        SYSTEM_GNSS_FIELD_VELOCITY_HORIZONTAL, SYSTEM_GNSS_FIELD_VELOCITY_VERTICAL};
+    uint32_t *reason = &sample->group_reject_mask[group];
+    uint8_t blocking = common_blocking;
+    SILVERSTAR_ASSERT_OBJECT(sample, SystemGnssSample, SILVERSTAR_ASSERT_MODULE_SYSTEM);
+    SILVERSTAR_ASSERT(group < SYSTEM_GNSS_QUALITY_GROUP_COUNT,
+        SILVERSTAR_ASSERT_MODULE_SYSTEM, SILVERSTAR_ASSERT_REASON_LENGTH_RANGE);
+    blocking |= SystemGnssQuality_RequiredFieldCheck(sample, fields[group], reason);
+    if (group == SYSTEM_GNSS_QUALITY_POSITION_HORIZONTAL)
     {
-        *blocking = 1U;
+        blocking |= SystemGnssQuality_AccuracyCheck(sample,
+            SYSTEM_GNSS_FIELD_HORIZONTAL_ACCURACY, SYSTEM_GNSS_REJECT_HACC,
+            sample->horizontal_accuracy_m, SYSTEM_GNSS_MAX_HORIZONTAL_ACCURACY_M, reason);
+        if ((sample->latitude_e7 < -900000000) || (sample->latitude_e7 > 900000000) ||
+            (sample->longitude_e7 < -1800000000) || (sample->longitude_e7 > 1800000000))
+        { *reason |= SYSTEM_GNSS_REJECT_FIELD_INVALID; blocking = 1U; }
     }
+    else if (group == SYSTEM_GNSS_QUALITY_POSITION_VERTICAL)
+    {
+        blocking |= SystemGnssQuality_AccuracyCheck(sample,
+            SYSTEM_GNSS_FIELD_VERTICAL_ACCURACY, SYSTEM_GNSS_REJECT_VACC,
+            sample->vertical_accuracy_m, SYSTEM_GNSS_MAX_VERTICAL_ACCURACY_M, reason);
+    }
+    else
+    {
+        blocking |= SystemGnssQuality_AccuracyCheck(sample,
+            SYSTEM_GNSS_FIELD_SPEED_ACCURACY, SYSTEM_GNSS_REJECT_SACC,
+            sample->speed_accuracy_mps, SYSTEM_GNSS_MAX_SPEED_ACCURACY_MPS, reason);
+        if ((group == SYSTEM_GNSS_QUALITY_VELOCITY_HORIZONTAL) ?
+            (!isfinite(sample->velocity_enu_mps[0]) || !isfinite(sample->velocity_enu_mps[1])) :
+            !isfinite(sample->velocity_enu_mps[2]))
+        { *reason |= SYSTEM_GNSS_REJECT_FIELD_INVALID; blocking = 1U; }
+    }
+    return (uint8_t)(blocking == 0U);
 }
 
 SystemDeviceResult SystemGnssQuality_Evaluate(SystemGnssSample *sample,
                                                uint64_t now_us)
 {
-    uint8_t position_blocking;
-    uint8_t velocity_blocking;
-    uint8_t velocity_valid_mask;
-    uint8_t age_blocking;
-
-    if (sample == NULL)
-    {
-        return SYSTEM_DEVICE_INVALID_ARGUMENT;
-    }
-    SILVERSTAR_ASSERT_OBJECT(sample, SystemGnssSample,
-        SILVERSTAR_ASSERT_MODULE_SYSTEM);
-    sample->position_reject_mask = 0U;
-    sample->velocity_reject_mask = 0U;
-    sample->position_usable = 0U;
-    sample->velocity_valid_mask = 0U;
+    uint32_t common_reason = 0U;
+    uint8_t common_blocking;
+    uint8_t group;
+    if (sample == NULL) { return SYSTEM_DEVICE_INVALID_ARGUMENT; }
+    SILVERSTAR_ASSERT_OBJECT(sample, SystemGnssSample, SILVERSTAR_ASSERT_MODULE_SYSTEM);
     sample->quality_degraded = 0U;
-
-    position_blocking = SystemGnssQuality_BasicFixCheck(
-        sample, &sample->position_reject_mask, &sample->quality_degraded);
-    velocity_blocking = SystemGnssQuality_BasicFixCheck(
-        sample, &sample->velocity_reject_mask, &sample->quality_degraded);
-    age_blocking = SystemGnssQuality_SampleAgeCheck(sample, now_us);
-    SystemGnssQuality_BlockingSet(age_blocking, &position_blocking);
-    SystemGnssQuality_BlockingSet(age_blocking, &velocity_blocking);
-    SystemGnssQuality_BlockingSet(
-        SystemGnssQuality_PositionFieldCheck(sample), &position_blocking);
-    SystemGnssQuality_BlockingSet(SystemGnssQuality_SatelliteCheck(
-        sample, &sample->position_reject_mask), &position_blocking);
-    SystemGnssQuality_BlockingSet(SystemGnssQuality_AccuracyCheck(sample,
-        SYSTEM_GNSS_FIELD_HORIZONTAL_ACCURACY, SYSTEM_GNSS_REJECT_HACC,
-        sample->horizontal_accuracy_m, SYSTEM_GNSS_MAX_HORIZONTAL_ACCURACY_M,
-        &sample->position_reject_mask), &position_blocking);
-    SystemGnssQuality_BlockingSet(SystemGnssQuality_AccuracyCheck(sample,
-        SYSTEM_GNSS_FIELD_VERTICAL_ACCURACY, SYSTEM_GNSS_REJECT_VACC,
-        sample->vertical_accuracy_m, SYSTEM_GNSS_MAX_VERTICAL_ACCURACY_M,
-        &sample->position_reject_mask), &position_blocking);
-    SystemGnssQuality_BlockingSet(SystemGnssQuality_SatelliteCheck(
-        sample, &sample->velocity_reject_mask), &velocity_blocking);
-    SystemGnssQuality_BlockingSet(SystemGnssQuality_AccuracyCheck(sample,
-        SYSTEM_GNSS_FIELD_SPEED_ACCURACY, SYSTEM_GNSS_REJECT_SACC,
-        sample->speed_accuracy_mps, SYSTEM_GNSS_MAX_SPEED_ACCURACY_MPS,
-        &sample->velocity_reject_mask), &velocity_blocking);
-    velocity_valid_mask = SystemGnssQuality_VelocityValidMaskGet(sample);
-
-    if (position_blocking == 0U)
+    sample->valid_group_mask = 0U;
+    sample->velocity_valid_mask = 0U;
+    common_blocking = SystemGnssQuality_BasicFixCheck(
+        sample, &common_reason, &sample->quality_degraded);
+    common_blocking |= SystemGnssQuality_SatelliteCheck(sample, &common_reason);
+    /* Liveness/freshness is receive time; a trusted delayed sample is not a link outage. */
+    if ((sample->receive_timestamp_us == 0U) || (sample->receive_timestamp_us > now_us) ||
+        ((now_us - sample->receive_timestamp_us) >
+         ((uint64_t)SYSTEM_GNSS_MAX_SAMPLE_AGE_MS * 1000ULL)))
+    { common_reason |= SYSTEM_GNSS_REJECT_STALE; common_blocking = 1U; }
+    for (group = 0U; group < SYSTEM_GNSS_QUALITY_GROUP_COUNT; group++)
     {
-        sample->position_usable = 1U;
+        sample->group_reject_mask[group] = common_reason;
+        if (SystemGnssQuality_GroupEvaluate(sample, group, common_blocking) != 0U)
+        { sample->valid_group_mask |= (uint8_t)(1U << group); }
     }
-    if ((velocity_blocking == 0U) && (velocity_valid_mask != 0U))
-    {
-        sample->velocity_valid_mask = velocity_valid_mask;
-    }
+    sample->position_reject_mask = sample->group_reject_mask[0] | sample->group_reject_mask[1];
+    sample->velocity_reject_mask = sample->group_reject_mask[2] | sample->group_reject_mask[3];
+    /* Preserve the strict pre-START origin gate and aggregate status contract. */
+    sample->position_usable = (uint8_t)((sample->valid_group_mask & 3U) == 3U);
+    if ((sample->valid_group_mask & 4U) != 0U)
+    { sample->velocity_valid_mask |= SYSTEM_GNSS_VEL_VALID_E | SYSTEM_GNSS_VEL_VALID_N; }
+    if ((sample->valid_group_mask & 8U) != 0U)
+    { sample->velocity_valid_mask |= SYSTEM_GNSS_VEL_VALID_U; }
     return SYSTEM_DEVICE_OK;
 }

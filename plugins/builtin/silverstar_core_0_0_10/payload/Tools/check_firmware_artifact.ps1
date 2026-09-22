@@ -254,9 +254,9 @@ Write-Output 'FCCG_PROGRESS|ARTIFACT|DONE|5|8|MAIN_SRAM'
 Write-Output 'FCCG_PROGRESS|ARTIFACT|BEGIN|6|8|CCMRAM'
 Assert-ArtifactCondition -Condition ($ccmUsed -le $ccmLength) `
     -Message "CCMRAM overflow: used=$ccmUsed capacity=$ccmLength"
-Assert-ArtifactCondition -Condition ($mainSramUsed -le [uint64](96 * 1024)) `
-    -Message ("Main SRAM did not retain the reviewed CCMRAM reduction: " +
-        "used=$mainSramUsed maximum=98304")
+Assert-ArtifactCondition -Condition ($mainSramUsed -le [uint64](100 * 1024)) `
+    -Message ("Main SRAM exceeds the reviewed full-rate logging budget: " +
+        "used=$mainSramUsed maximum=102400")
 
 Write-Output 'FCCG_PROGRESS|ARTIFACT|DONE|6|8|CCMRAM'
 Write-Output 'FCCG_PROGRESS|ARTIFACT|BEGIN|7|8|heap'

@@ -490,9 +490,9 @@ def LoggingProfile_Reconcile(
             LogStreamConfig(
                 record=definition.record,
                 enabled=enabled,
-                policy=stream.policy,
-                decimation=stream.decimation,
-                period_us=stream.period_us,
+                policy=definition.default_stream.policy,
+                decimation=(1 if definition.default_stream.policy == "EVERY" else stream.decimation),
+                period_us=(0 if definition.default_stream.policy == "EVERY" else stream.period_us),
             )
         )
     model.logging_streams = reconciled

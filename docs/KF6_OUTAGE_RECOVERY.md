@@ -30,17 +30,47 @@ validation is group-specific. A new loss clears prior attempt/accept/reject stat
 Inflation remains `P' = D P D'`, group-selective, with target D=2, at least five rejected epochs
 between attempts, at most eight attempts, position variance cap 1e6 and velocity variance cap 1e4.
 Three consecutive fused returns end active recovery. Origins, observations, NIS thresholds and Q
-are never changed by recovery. Multiple attempts remain useful for substantial prediction drift.
+are never changed by recovery. An attempt at the variance cap is counted as an attempted
+recovery with applied factor one, rather than leaving the attempt counter permanently stuck.
+
+## Independent quality groups and final recovery
+
+The device quality contract has four independent valid bits and four reject masks in the order
+Pos EN, Pos U, Vel EN, Vel U. A bad vertical accuracy cannot disable horizontal fusion, and a
+missing horizontal velocity cannot disable valid vertical velocity. Fix/liveness requirements
+remain common. Freshness uses receive time on the existing MCU axis. The aggregate
+`position_usable` remains the strict all-position gate for the pre-START origin and simple status.
+It is no longer the in-flight position-fusion gate. An invalid complementary coordinate is
+replaced by the frozen origin coordinate only for the ENU conversion; its group is never updated.
+
+Controlled re-anchor is the final group-specific recovery step. It requires a certified true
+availability outage, an active recovery, receiver consistency for at least the existing sample
+minimum and one second, exhausted bounded inflation attempts, and another complete rejection
+interval after the last attempt. A normal or soft accepted update never triggers re-anchor.
+Continuous NIS rejection with fresh receiver data is insufficient. Duplicate or discontinuous
+receive epochs clear consistency eligibility.
+
+Re-anchor sets only the selected position or velocity block to the receiver observation. The
+block receives the positive measurement covariance, while its cross covariance with other
+states is explicitly zeroed. The complementary principal covariance block and all other state
+components remain unchanged. This block-diagonal construction preserves positive definiteness
+when the incoming covariance is valid. Neither attitude, frozen origin nor mission clock resets.
+
+Receive-side consistency start time is stored as immutable replay evidence. The recovery action
+executes in the historical KF context during replay, followed by the normal event replay to the
+present. Per-group internal diagnostics expose validity/reason, result, outage, consistency,
+inflation and re-anchor count. The SSLOG transaction encoding and FLP consumption of these
+additional diagnostics are still pending; the current decoder is not an exact replay contract.
 
 ## Vertical fusion
 
 The state remains `[pE,pN,pU,vE,vN,vU]`. Barometer observes pU; vU is corrected through P(vU,pU).
 GNSS pU remains a separate 1D observation, as does GNSS vU. No bias state, ZUPT, INS/attitude change
-or fixed timing compensation is introduced. Defaults remain GNSS pU sigma floor 2.5 m, barometer
-sigma floor 5 m, velocity sigma floor 0.15 m/s. Ground-oriented candidates are not flight defaults.
+or fixed timing compensation is introduced. Current new-project defaults remain GNSS pU sigma floor 2.5 m, barometer
+sigma floor 2.5 m, velocity sigma floor 0.15 m/s. Ground-oriented candidates are not flight defaults.
 
 `gnss_velocity_std` retains the shared receiver sigma floor for compatibility.
-`gnss_velocity_vertical_scale` (dimensionless actual value, default 1, range 1–10) scales only the
+`gnss_velocity_vertical_scale` (dimensionless actual value, new-project default 1.75, range 1–10) scales only the
 vertical **measurement standard deviation** after the receiver uncertainty/floor maximum:
 
 ```

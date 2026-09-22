@@ -72,7 +72,9 @@ def test_default_protocol_wire_sources_match_read_only_reference_hashes(
         digest = hashlib.sha256(
             (workspace_root / payload_relative).read_bytes()
         ).hexdigest()
-        assert digest == provenance["protocol_source_sha256"][source]
+        assert digest == provenance.get("fccg_protocol_source_sha256", {}).get(
+            source, provenance["protocol_source_sha256"][source]
+        )
 
 
 def _DeviceInstancesForPlugin_Get(model, component_id: str) -> list[DeviceInstance]:

@@ -89,6 +89,15 @@ typedef enum
     SYSTEM_GNSS_OUTPUT_PROTOCOL_UBX_AND_NMEA
 } SystemGnssOutputProtocol;
 
+typedef enum
+{
+    SYSTEM_GNSS_QUALITY_POSITION_HORIZONTAL = 0U,
+    SYSTEM_GNSS_QUALITY_POSITION_VERTICAL,
+    SYSTEM_GNSS_QUALITY_VELOCITY_HORIZONTAL,
+    SYSTEM_GNSS_QUALITY_VELOCITY_VERTICAL,
+    SYSTEM_GNSS_QUALITY_GROUP_COUNT
+} SystemGnssQualityGroup;
+
 typedef struct
 {
     uint64_t sample_timestamp_us;
@@ -100,6 +109,8 @@ typedef struct
     uint32_t valid_fields;
     uint32_t position_reject_mask;
     uint32_t velocity_reject_mask;
+    uint32_t group_reject_mask[SYSTEM_GNSS_QUALITY_GROUP_COUNT];
+    uint8_t valid_group_mask;
     int32_t latitude_e7;
     int32_t longitude_e7;
     int32_t ellipsoid_height_mm;

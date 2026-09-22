@@ -946,6 +946,13 @@ static void Test_StartIgnoresMissingTfAndFullBus(void)
     TEST_CHECK(s_abort_count == 0U);
 }
 
+LoggerBusResult LoggerBus_LandingDiagnosticPush(
+    uint64_t timestamp_us, const FlightLogLandingDiagnosticRecord *record)
+{
+    (void)timestamp_us;
+    return (record != NULL) ? LOGGER_BUS_RESULT_OK : LOGGER_BUS_RESULT_BAD_PARAM;
+}
+
 static void Test_NoneCalibrationResultSnapshot(void)
 {
     uint8_t axis;

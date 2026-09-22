@@ -41,6 +41,7 @@ static uint32_t s_deploy_log_sequence;
 static uint32_t s_deploy_detail_log_sequence;
 static uint32_t s_impact_log_sequence;
 static uint32_t s_landing_log_sequence;
+static uint32_t s_landing_diagnostic_log_sequence;
 
 static uint32_t FlightTask_FloatBitsGet(float value)
 {
@@ -389,6 +390,12 @@ static void FlightTask_RecoveryEstimatorInputApply(
             (estimator.initialized != 0U) &&
             (estimator.mission_running != 0U));
         input->velocity_valid = input->attitude_valid;
+        input->ins_timestamp_us = estimator.timestamp_us;
+        input->ins_sequence = estimator.update_sequence;
+        (void)memcpy(input->linear_accel_n_mps2,
+                     estimator.acceleration_enu_mps2,
+                     sizeof(input->linear_accel_n_mps2));
+        input->linear_accel_valid = input->attitude_valid;
     }
     if (EstimatorBus_PressureGetLatest(&pressure) != 0U)
     {
@@ -406,7 +413,6 @@ static void FlightTask_RecoveryEstimatorInputApply(
 static void FlightTask_RecoveryInitialInputApply(
     SystemFlightRecoveryInput *input)
 {
-    InsOutputSnapshot ins;
     float initial_q_nb[4];
 
     if (input == NULL) { return; }
@@ -417,16 +423,6 @@ static void FlightTask_RecoveryInitialInputApply(
         (void)memcpy(input->initial_q_nb, initial_q_nb,
                      sizeof(input->initial_q_nb));
         input->initial_attitude_valid = 1U;
-    }
-    if (Ins_GetLatestSnapshot(&ins) != 0U)
-    {
-        input->ins_timestamp_us = ins.timestamp_us;
-        input->ins_sequence = ins.update_seq;
-        (void)memcpy(input->linear_accel_n_mps2,
-                     ins.accel_n_mps2,
-                     sizeof(input->linear_accel_n_mps2));
-        input->linear_accel_valid = (uint8_t)(
-            (ins.ins_valid != 0U) && (ins.mission_running != 0U));
     }
 }
 
@@ -439,8 +435,11 @@ static void FlightTask_RecoveryInertialInputApply(
     if (input == NULL) { return; }
     SILVERSTAR_ASSERT_OBJECT(input, SystemFlightRecoveryInput,
         SILVERSTAR_ASSERT_MODULE_APP);
-    if ((SystemInertial_LatestGet(&inertial) == SYSTEM_DEVICE_OK) &&
-        ((inertial.valid_mask & (SYSTEM_INERTIAL_VALID_ACCEL |
+    if (SystemInertial_LatestGet(&inertial) != SYSTEM_DEVICE_OK) { return; }
+    /* Keep the observation identity even when correction rejects its values. */
+    input->inertial_timestamp_us = inertial.sample_timestamp_us;
+    input->inertial_sequence = inertial.sequence;
+    if (((inertial.valid_mask & (SYSTEM_INERTIAL_VALID_ACCEL |
                                  SYSTEM_INERTIAL_VALID_GYRO)) != 0U) &&
         (SystemCalibration_ImuCorrectionGet(&correction) ==
          SYSTEM_DEVICE_OK) &&
@@ -449,8 +448,6 @@ static void FlightTask_RecoveryInertialInputApply(
              input->corrected_accel_b_mps2,
              input->corrected_gyro_b_radps) == SYSTEM_DEVICE_OK))
     {
-        input->inertial_timestamp_us = inertial.sample_timestamp_us;
-        input->inertial_sequence = inertial.sequence;
         input->corrected_accel_valid = (uint8_t)(
             (inertial.valid_mask & SYSTEM_INERTIAL_VALID_ACCEL) != 0U);
         input->corrected_gyro_valid = (uint8_t)(
@@ -463,7 +460,6 @@ static void FlightTask_FlightRecoveryInputGet(
 {
     if (input == NULL) { return; }
     (void)memset(input, 0, sizeof(*input));
-    input->now_us = SystemTime_GetMonotonicUs();
     if (SystemTime_IsMissionStarted() != 0U)
     {
         input->mission_time_ms =
@@ -472,9 +468,36 @@ static void FlightTask_FlightRecoveryInputGet(
     FlightTask_RecoveryEstimatorInputApply(input);
     FlightTask_RecoveryInitialInputApply(input);
     FlightTask_RecoveryInertialInputApply(input);
+    /* A higher-priority producer can publish while snapshots are acquired. */
+    input->now_us = SystemTime_GetMonotonicUs();
 }
 
 #if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
+static void FlightTask_LandingDiagnosticLogProcess(const SystemFlightRecoveryStatus *status)
+{
+    const SystemLandingDiagnostic *diagnostic = &status->landing_diagnostic;
+    FlightLogLandingDiagnosticRecord record;
+    SILVERSTAR_ASSERT_OBJECT(status, SystemFlightRecoveryStatus, SILVERSTAR_ASSERT_MODULE_APP);
+    SILVERSTAR_ASSERT(diagnostic->transition <= 3U,
+        SILVERSTAR_ASSERT_MODULE_APP, SILVERSTAR_ASSERT_REASON_ENUM_RANGE);
+    if (diagnostic->sequence == s_landing_diagnostic_log_sequence) { return; }
+    (void)memset(&record, 0, sizeof(record));
+    record.evaluation_timestamp_us = diagnostic->evaluation_timestamp_us;
+    record.candidate_start_timestamp_us = diagnostic->candidate_start_timestamp_us;
+    record.sequence = diagnostic->sequence;
+    record.candidate_elapsed_us = diagnostic->candidate_elapsed_us;
+    record.valid_coverage = diagnostic->valid_coverage;
+    record.still_ratio = diagnostic->still_ratio;
+    record.maximum_bad_duration_us = diagnostic->maximum_bad_duration_us;
+    record.baro_slope_mps = diagnostic->baro_slope_mps;
+    record.baro_span_m = diagnostic->baro_span_m;
+    record.baro_coverage = diagnostic->baro_coverage;
+    record.transition = diagnostic->transition;
+    record.reset_reason = (uint8_t)diagnostic->reset_reason;
+    if (LoggerBus_LandingDiagnosticPush(record.evaluation_timestamp_us, &record) == LOGGER_BUS_RESULT_OK)
+    { s_landing_diagnostic_log_sequence = diagnostic->sequence; }
+}
+
 static void FlightTask_FlightRecoveryEventsProcess(void)
 {
     SystemFlightRecoveryStatus status;
@@ -485,6 +508,7 @@ static void FlightTask_FlightRecoveryEventsProcess(void)
     {
         return;
     }
+    FlightTask_LandingDiagnosticLogProcess(&status);
     if (status.deploy_event_sequence != s_deploy_log_sequence)
     {
         if (LoggerBus_EventPush(

@@ -68,6 +68,15 @@ SystemDeviceResult ProjectBarometerInstance_LatestSampleGet(
     return SYSTEM_DEVICE_OK;
 }
 
+SystemDeviceResult ProjectBarometerInstance_HealthGet(
+    uint8_t instance_id, SystemDeviceHealth *health)
+{
+    if ((health == NULL) || (instance_id != 0U)) { return SYSTEM_DEVICE_NOT_PRESENT; }
+    memset(health, 0, sizeof(*health));
+    health->healthy = 1U;
+    return SYSTEM_DEVICE_OK;
+}
+
 SystemDeviceResult ProjectMagnetometerInstance_LatestSampleGet(
     uint8_t instance_id, SystemMagnetometerSample *sample)
 {
@@ -219,8 +228,6 @@ static void Fixture_SparseFrame(uint32_t frame, uint64_t now)
     if (frame % 2U == 0U)
     {
         Fixture_ResultCheck(LoggerBus_InertialIncrementPush(now, frame, &r.payload.inertial_increment));
-        Fixture_ResultCheck(LoggerBus_SamplePush(now, frame, &r.payload.sample));
-        Fixture_ResultCheck(LoggerBus_RawSensorPush(now, frame, &r.payload.raw_sensor));
         Fixture_ResultCheck(LoggerBus_PureInsPush(now, frame, &r.payload.pure_ins));
         Fixture_ResultCheck(LoggerBus_EstimatorPush(now, frame, &r.payload.estimator));
         Fixture_ResultCheck(LoggerBus_Kf6DiagnosticPush(now, frame, &r.payload.kf6_diagnostic));

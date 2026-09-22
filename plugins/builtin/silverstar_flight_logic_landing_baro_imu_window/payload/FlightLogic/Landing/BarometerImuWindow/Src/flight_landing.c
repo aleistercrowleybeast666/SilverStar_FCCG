@@ -350,3 +350,55 @@ FlightLandingConditionResult FlightLanding_BarometerCandidateEvaluate(
         FLIGHT_LANDING_CONDITION_MET :
         FLIGHT_LANDING_CONDITION_NOT_MET;
 }
+
+#define FLIGHT_LANDING_VALID_PERCENT 90ULL
+#define FLIGHT_LANDING_STILL_PERCENT 95ULL
+
+void FlightLanding_TimeWindowReset(FlightLandingTimeWindow *window, uint64_t start_us)
+{
+    if (window == NULL) { return; }
+    (void)memset(window, 0, sizeof(*window));
+    window->start_us = start_us;
+    window->last_us = start_us;
+}
+
+FlightLandingResult FlightLanding_TimeWindowAdd(FlightLandingTimeWindow *window,
+    uint64_t timestamp_us, uint8_t valid, uint8_t still)
+{
+    uint64_t dt_us;
+    uint64_t covered_us;
+    if ((window == NULL) || (valid > 1U) || (still > 1U) ||
+        (timestamp_us <= window->last_us)) { return FLIGHT_LANDING_RESULT_INVALID_SAMPLE; }
+    SILVERSTAR_ASSERT_OBJECT(window, FlightLandingTimeWindow, SILVERSTAR_ASSERT_MODULE_FLIGHT_LOGIC);
+    dt_us = timestamp_us - window->last_us;
+    covered_us = (dt_us <= FLIGHT_LANDING_COVERAGE_GAP_US) ? dt_us : 0U;
+    if ((valid != 0U) && (window->previous_valid != 0U))
+    { window->valid_us += covered_us; }
+    else { covered_us = 0U; }
+    if ((still != 0U) && (window->previous_still != 0U) && (covered_us != 0U))
+    { window->still_us += covered_us; window->bad_us = 0U; }
+    else { window->bad_us += dt_us; }
+    if (window->bad_us > window->maximum_bad_us)
+    { window->maximum_bad_us = window->bad_us; }
+    if ((valid != 0U) && (still != 0U)) { window->last_good_us = timestamp_us; }
+    window->last_us = timestamp_us;
+    window->previous_valid = valid;
+    window->previous_still = (uint8_t)((valid != 0U) && (still != 0U));
+    return FLIGHT_LANDING_RESULT_OK;
+}
+
+FlightLandingConditionResult FlightLanding_TimeWindowEvaluate(
+    const FlightLandingTimeWindow *window, uint64_t duration_us)
+{
+    uint64_t elapsed_us;
+    if ((window == NULL) || (window->last_us < window->start_us))
+    { return FLIGHT_LANDING_CONDITION_INVALID; }
+    elapsed_us = window->last_us - window->start_us;
+    return ((elapsed_us >= duration_us) &&
+        (window->valid_us * 100ULL >= elapsed_us * FLIGHT_LANDING_VALID_PERCENT) &&
+        (window->still_us * 100ULL >= window->valid_us * FLIGHT_LANDING_STILL_PERCENT) &&
+        (window->maximum_bad_us <= FLIGHT_LANDING_MAXIMUM_BAD_US) &&
+        (window->previous_still != 0U) &&
+        (window->last_us - window->last_good_us <= FLIGHT_LANDING_COVERAGE_GAP_US)) ?
+        FLIGHT_LANDING_CONDITION_MET : FLIGHT_LANDING_CONDITION_NOT_MET;
+}

@@ -21,7 +21,7 @@
     SYSTEM_LOG_ESTIMATOR_QUEUE_DEPTH
 
 _Static_assert(FLIGHT_LOG_MAX_PAYLOAD_SIZE >=
-               FLIGHT_LOG_SAMPLE_PAYLOAD_SIZE,
+               FLIGHT_LOG_INITIAL_STATE_PAYLOAD_SIZE,
                "SSLOG payload capacity is too small");
 _Static_assert(FLIGHT_LOG_RECORD_DECODER_PROFILE_DESCRIPTOR <= 0xFFU,
                "SSLOG0 record type must fit in one byte");
@@ -132,7 +132,8 @@ static uint8_t LoggerBus_BootstrapAllows(FlightLogRecordType type)
         (type == FLIGHT_LOG_RECORD_CALIBRATION_RESULT) ||
         (type == FLIGHT_LOG_RECORD_ALIGNMENT_RESULT) ||
         (type == FLIGHT_LOG_RECORD_MISSION_CONFIG) ||
-        (type == FLIGHT_LOG_RECORD_INITIAL_STATE));
+        (type == FLIGHT_LOG_RECORD_INITIAL_STATE) ||
+        (type == FLIGHT_LOG_RECORD_LANDING_DIAGNOSTIC));
 }
 
 static uint8_t LoggerBus_BootstrapSuppress(FlightLogRecordType type)
@@ -178,18 +179,26 @@ static LoggerBusResult LoggerBus_ConfiguredRecordPush(
     uint32_t valid_flags, const void *payload,
     size_t payload_size, uint8_t estimator_queue)
 {
+    LoggerBusResult result;
     if (payload == NULL) { return LOGGER_BUS_RESULT_BAD_PARAM; }
+    SILVERSTAR_ASSERT(payload_size > 0U,
+        SILVERSTAR_ASSERT_MODULE_APP, SILVERSTAR_ASSERT_REASON_LENGTH_RANGE);
+    SILVERSTAR_ASSERT(estimator_queue <= 1U,
+        SILVERSTAR_ASSERT_MODULE_APP, SILVERSTAR_ASSERT_REASON_ENUM_RANGE);
     if (LoggerBus_PushStateGet() != LOGGER_BUS_RESULT_OK)
     {
         return LOGGER_BUS_RESULT_BAD_STATE;
     }
-    if (SystemLogPolicy_ShouldEmit(type) == 0U)
+    if (SystemLogPolicy_ShouldEmitAt(type, timestamp_us) == 0U)
     {
         return LOGGER_BUS_RESULT_OK;
     }
     if (LoggerBus_BootstrapSuppress(type) != 0U) { return LOGGER_BUS_RESULT_OK; }
-    return LoggerBus_RecordPush(type, timestamp_us, valid_flags,
-                                payload, payload_size, estimator_queue);
+    result = LoggerBus_RecordPush(type, timestamp_us, valid_flags,
+                                  payload, payload_size, estimator_queue);
+    if (result == LOGGER_BUS_RESULT_OK)
+    { SystemLogPolicy_EmissionTimeRecord(type, timestamp_us); }
+    return result;
 }
 
 LoggerBusResult LoggerBus_Init(void)
@@ -244,15 +253,6 @@ void LoggerBus_Reset(void)
     }
     LoggerBus_IrqUnlock(state);
     SystemLogPolicy_EmissionReset();
-}
-
-LoggerBusResult LoggerBus_SamplePush(
-    uint64_t timestamp_us, uint32_t valid_flags,
-    const FlightLogSampleRecord *record)
-{
-    return LoggerBus_ConfiguredRecordPush(
-        FLIGHT_LOG_RECORD_SAMPLE, timestamp_us, valid_flags,
-        record, sizeof(*record), 0U);
 }
 
 LoggerBusResult LoggerBus_EventPush(
@@ -631,15 +631,6 @@ LoggerBusResult LoggerBus_DecoderProfileDescriptorPush(uint64_t timestamp_us)
         timestamp_us, 0U, &record, sizeof(record), 0U);
 }
 
-LoggerBusResult LoggerBus_RawSensorPush(
-    uint64_t timestamp_us, uint32_t valid_flags,
-    const FlightLogRawSensorRecord *record)
-{
-    return LoggerBus_ConfiguredRecordPush(
-        FLIGHT_LOG_RECORD_RAW_SENSOR, timestamp_us, valid_flags,
-        record, sizeof(*record), 0U);
-}
-
 LoggerBusResult LoggerBus_PureInsPush(
     uint64_t timestamp_us, uint32_t valid_flags,
     const FlightLogPureInsRecord *record)
@@ -699,15 +690,6 @@ LoggerBusResult LoggerBus_InitialStatePush(
         record, sizeof(*record), 0U);
 }
 
-LoggerBusResult LoggerBus_ImuNativePush(
-    uint64_t timestamp_us, uint32_t valid_flags,
-    const FlightLogImuNativeRecord *record)
-{
-    return LoggerBus_ConfiguredRecordPush(
-        FLIGHT_LOG_RECORD_IMU_NATIVE, timestamp_us, valid_flags,
-        record, sizeof(*record), 0U);
-}
-
 LoggerBusResult LoggerBus_GnssNativePush(
     uint64_t timestamp_us, uint32_t valid_flags,
     const FlightLogGnssNativeRecord *record)
@@ -732,15 +714,6 @@ LoggerBusResult LoggerBus_MagNativePush(
 {
     return LoggerBus_ConfiguredRecordPush(
         FLIGHT_LOG_RECORD_MAG_NATIVE, timestamp_us, valid_flags,
-        record, sizeof(*record), 0U);
-}
-
-LoggerBusResult LoggerBus_HardwareQuaternionNativePush(
-    uint64_t timestamp_us, uint32_t valid_flags,
-    const FlightLogHardwareQuaternionNativeRecord *record)
-{
-    return LoggerBus_ConfiguredRecordPush(
-        FLIGHT_LOG_RECORD_HW_QUAT_NATIVE, timestamp_us, valid_flags,
         record, sizeof(*record), 0U);
 }
 
@@ -967,4 +940,50 @@ LoggerBusResult LoggerBus_DiagnosticsGet(LoggerBusDiagnostics *diagnostics)
         s_estimator_logger_queue.overflow_count;
     LoggerBus_IrqUnlock(state);
     return LOGGER_BUS_RESULT_OK;
+}
+
+LoggerBusResult LoggerBus_EstimatorStepPush(
+    uint64_t timestamp_us, const FlightLogEstimatorStepRecord *record)
+{
+    return LoggerBus_ConfiguredRecordPush(
+        FLIGHT_LOG_RECORD_ESTIMATOR_STEP, timestamp_us, 0U,
+        record, sizeof(*record), 1U);
+}
+
+LoggerBusResult LoggerBus_NavigationSnapshotPush(uint64_t timestamp_us,
+    const FlightLogEstimatorRecord *state, const FlightLogKf6FullPRecord *covariance)
+{
+    LoggerBusResult state_result = LOGGER_BUS_RESULT_OK;
+    LoggerBusResult covariance_result = LOGGER_BUS_RESULT_OK;
+    if ((state == NULL) || (covariance == NULL)) { return LOGGER_BUS_RESULT_BAD_PARAM; }
+    if (LoggerBus_PushStateGet() != LOGGER_BUS_RESULT_OK) { return LOGGER_BUS_RESULT_BAD_STATE; }
+    /* Critical snapshots bypass cadence/bootstrap suppression; queue failures
+     * retain normal sequence gaps and overflow accounting. */
+    if (SystemLogPolicy_IsEnabled(FLIGHT_LOG_RECORD_ESTIMATOR) != 0U)
+    {
+        state_result = LoggerBus_RecordPush(FLIGHT_LOG_RECORD_ESTIMATOR,
+            timestamp_us, 0U, state, sizeof(*state), 1U);
+    }
+    if (SystemLogPolicy_IsEnabled(FLIGHT_LOG_RECORD_KF6_FULL_P) != 0U)
+    {
+        covariance_result = LoggerBus_RecordPush(FLIGHT_LOG_RECORD_KF6_FULL_P,
+            timestamp_us, 0U, covariance, sizeof(*covariance), 1U);
+    }
+    return (state_result != LOGGER_BUS_RESULT_OK) ? state_result : covariance_result;
+}
+
+LoggerBusResult LoggerBus_GnssRecoveryPush(
+    uint64_t timestamp_us, const FlightLogGnssRecoveryRecord *record)
+{
+    return LoggerBus_ConfiguredRecordPush(
+        FLIGHT_LOG_RECORD_GNSS_RECOVERY, timestamp_us, 0U,
+        record, sizeof(*record), 1U);
+}
+
+LoggerBusResult LoggerBus_LandingDiagnosticPush(
+    uint64_t timestamp_us, const FlightLogLandingDiagnosticRecord *record)
+{
+    return LoggerBus_ConfiguredRecordPush(
+        FLIGHT_LOG_RECORD_LANDING_DIAGNOSTIC, timestamp_us, 0U,
+        record, sizeof(*record), 0U);
 }

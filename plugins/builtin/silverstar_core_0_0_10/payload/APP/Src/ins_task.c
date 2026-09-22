@@ -10,6 +10,7 @@
 #include "FreeRTOS.h"
 #include "task.h"
 #include "estimator_bus.h"
+#include "estimator_task.h"
 #include "imu_sample_bus.h"
 #include "ins_mechanization.h"
 #if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
@@ -39,7 +40,11 @@ typedef struct
     uint8_t calibration_ready;
 } InsTaskAlignmentFlags;
 
-static InsMechanizationContext s_mechanization;
+static union
+{
+    InsInertialContext inertial;
+    InsMechanizationContext pure_ins;
+} s_navigation_input;
 static AttitudePreflightContext s_preflight_attitude;
 static PLATFORM_CPU_FAST_BSS AlignmentStrategyContext s_alignment_strategy;
 static InsAlignmentSnapshot s_alignment_snapshot;
@@ -62,6 +67,22 @@ static PlatformCriticalState InsTask_IrqLock(void)
 static void InsTask_IrqUnlock(PlatformCriticalState state)
 {
     PlatformCritical_Exit(state);
+}
+
+static void InsTask_NavigationDiagnosticsApply(SystemInsDiagnostics *diagnostics)
+{
+    EstimatorOutputSnapshot navigation;
+
+    if (diagnostics == NULL) { return; }
+    SILVERSTAR_ASSERT_OBJECT(diagnostics, SystemInsDiagnostics,
+        SILVERSTAR_ASSERT_MODULE_APP);
+    if (Estimator_GetLatestSnapshot(&navigation) == 0U) { return; }
+    diagnostics->last_update_timestamp_us = navigation.timestamp_us;
+    diagnostics->quaternion_valid = navigation.initialized;
+    diagnostics->velocity_valid = navigation.initialized;
+    diagnostics->position_valid = navigation.initialized;
+    diagnostics->software_attitude_propagation = (uint8_t)(
+        (navigation.mission_running != 0U) && (navigation.predict_count != 0U));
 }
 
 static void InsTask_DiagnosticsPublish(void)
@@ -94,6 +115,10 @@ static void InsTask_DiagnosticsPublish(void)
         (s_mission_running != 0U) && (output.update_seq != 0U) &&
         (output.ins_valid != 0U));
     diagnostics.bias_ready = calibration.ready;
+    if ((SYSTEM_BUILD_ESTIMATOR_ENABLED != 0U) && (s_mission_running != 0U))
+    {
+        InsTask_NavigationDiagnosticsApply(&diagnostics);
+    }
     SystemInsDiagnostics_Publish(&diagnostics);
 }
 
@@ -105,15 +130,6 @@ static void InsTask_OutputPublish(void)
     InsTask_IrqUnlock(primask);
     InsTask_DiagnosticsPublish();
 }
-
-#if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
-static int16_t InsTask_ClampI16(int32_t value)
-{
-    if (value > 32767) { return 32767; }
-    if (value < -32768) { return -32768; }
-    return (int16_t)value;
-}
-#endif
 
 static uint8_t InsTask_SampleCorrect(const InsImuSample *source,
                                      InsAlgorithmSample *destination)
@@ -509,6 +525,27 @@ static void InsTask_AlignmentProcess(const InsImuSample *imu_sample)
     (void)InsTask_AttitudeReadinessRefresh(now_us);
 }
 
+static void InsTask_PureOutputPublish(const InsState *state)
+{
+    if (state == NULL) { return; }
+    SILVERSTAR_ASSERT_OBJECT(state, InsState, SILVERSTAR_ASSERT_MODULE_APP);
+    s_output.timestamp_us = state->timestamp_us;
+    s_output.update_seq = state->update_count;
+    (void)memcpy(s_output.q_nb, state->q_nb, sizeof(s_output.q_nb));
+    (void)memcpy(s_output.velocity_n_mps, state->velocity_n_mps,
+                 sizeof(s_output.velocity_n_mps));
+    (void)memcpy(s_output.position_n_m, state->position_n_m,
+                 sizeof(s_output.position_n_m));
+    (void)memcpy(s_output.accel_n_mps2, state->accel_n_mps2,
+                 sizeof(s_output.accel_n_mps2));
+    s_output.dt_s = state->dt_s;
+    s_output.health_flags = state->health_flags;
+    s_output.alignment_valid = s_mission_attitude_frozen;
+    s_output.ins_valid = state->valid;
+    s_output.mission_running = s_mission_running;
+    InsTask_OutputPublish();
+}
+
 static void InsTask_InertialOutputsPublish(
     const InsImuSample *imu_sample,
     const InsState *state)
@@ -535,27 +572,15 @@ static void InsTask_InertialOutputsPublish(
                  state->delta_velocity_b_sculling_corrected,
                  sizeof(increment.delta_velocity_b_sculling_corrected));
 
-    s_output.timestamp_us = state->timestamp_us;
-    s_output.update_seq = state->update_count;
-    (void)memcpy(s_output.q_nb, state->q_nb, sizeof(s_output.q_nb));
-    (void)memcpy(s_output.velocity_n_mps, state->velocity_n_mps,
-                 sizeof(s_output.velocity_n_mps));
-    (void)memcpy(s_output.position_n_m, state->position_n_m,
-                 sizeof(s_output.position_n_m));
-    (void)memcpy(s_output.accel_n_mps2, state->accel_n_mps2,
-                 sizeof(s_output.accel_n_mps2));
-    s_output.dt_s = state->dt_s;
-    s_output.health_flags = state->health_flags;
-    s_output.alignment_valid = s_mission_attitude_frozen;
-    s_output.ins_valid = state->valid;
-    s_output.mission_running = s_mission_running;
-    InsTask_OutputPublish();
+    if (SYSTEM_BUILD_ESTIMATOR_ENABLED == 0U)
+    {
+        InsTask_PureOutputPublish(state);
+    }
 
 #if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
     (void)memset(&increment_record, 0, sizeof(increment_record));
     increment_record.interval_end_timestamp_us = state->timestamp_us;
-    increment_record.interval_start_timestamp_us = state->timestamp_us -
-        (uint64_t)(state->dt_s * 1000000.0f);
+    increment_record.interval_start_timestamp_us = state->interval_start_timestamp_us;
     increment_record.sequence = increment.sequence;
     increment_record.dt_s = increment.dt_s;
     (void)memcpy(increment_record.delta_theta_b_corrected,
@@ -570,120 +595,13 @@ static void InsTask_InertialOutputsPublish(
                                           &increment_record);
 #endif
     (void)EstimatorBus_PredictionPush(&increment);
+    if (SYSTEM_BUILD_ESTIMATOR_ENABLED != 0U)
+    {
+        InsTask_DiagnosticsPublish();
+    }
 }
 
 #if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
-static void InsTask_BaseRecordsBuild(
-    const InsImuSample *imu_sample,
-    const InsAlgorithmSample *algorithm_sample,
-    const InsState *state,
-    FlightLogSampleRecord *legacy_record,
-    FlightLogRawSensorRecord *raw_record)
-{
-    ImuSampleBusStats bus_stats;
-    uint8_t index;
-
-    if ((imu_sample == NULL) || (algorithm_sample == NULL) ||
-        (state == NULL) || (legacy_record == NULL) || (raw_record == NULL))
-    {
-        return;
-    }
-    SILVERSTAR_ASSERT_OBJECT(state, InsState, SILVERSTAR_ASSERT_MODULE_APP);
-    SILVERSTAR_ASSERT_OBJECT(legacy_record, FlightLogSampleRecord,
-        SILVERSTAR_ASSERT_MODULE_APP);
-    (void)memset(legacy_record, 0, sizeof(*legacy_record));
-    (void)memset(raw_record, 0, sizeof(*raw_record));
-    ImuSampleBus_StatsGet(&bus_stats);
-    legacy_record->sample_seq = imu_sample->sequence;
-    legacy_record->dt_us = (uint32_t)(state->dt_s * 1000000.0f);
-    raw_record->imu_sample_timestamp_us = imu_sample->sample_timestamp_us;
-    raw_record->imu_receive_timestamp_us = imu_sample->receive_timestamp_us;
-    raw_record->imu_sequence = imu_sample->sequence;
-    for (index = 0U; index < 3U; index++)
-    {
-        legacy_record->acc_raw[index] = InsTask_ClampI16(
-            imu_sample->accel_raw[index]);
-        legacy_record->gyro_raw[index] = InsTask_ClampI16(
-            imu_sample->gyro_raw[index]);
-        legacy_record->accel_b_mps2[index] = algorithm_sample->accel_b_mps2[index];
-        legacy_record->gyro_b_radps[index] = algorithm_sample->gyro_b_radps[index];
-        legacy_record->delta_theta_b[index] = state->delta_theta_b[index];
-        legacy_record->delta_velocity_b_basic[index] = state->delta_velocity_b[index];
-        legacy_record->delta_velocity_b_rotation_corrected[index] =
-            state->delta_velocity_b_rotation_corrected[index];
-        legacy_record->delta_velocity_b_sculling_corrected[index] =
-            state->delta_velocity_b_sculling_corrected[index];
-        legacy_record->delta_velocity_n_corrected[index] =
-            state->delta_velocity_n_corrected[index];
-        legacy_record->velocity_n_mps[index] = state->velocity_n_mps[index];
-        legacy_record->position_n_m[index] = state->position_n_m[index];
-        raw_record->accel_raw[index] = imu_sample->accel_raw[index];
-        raw_record->gyro_raw[index] = imu_sample->gyro_raw[index];
-        raw_record->accel_b_mps2[index] = algorithm_sample->accel_b_mps2[index];
-        raw_record->gyro_b_radps[index] = algorithm_sample->gyro_b_radps[index];
-    }
-    (void)memcpy(legacy_record->q_nb, state->q_nb,
-                 sizeof(legacy_record->q_nb));
-    legacy_record->alignment_valid = s_mission_attitude_frozen;
-    legacy_record->ins_valid = state->valid;
-    legacy_record->health_flags = state->health_flags;
-    legacy_record->imu_queue_overflow_count = bus_stats.overflow_count;
-    legacy_record->logger_queue_overflow_count = LoggerBus_OverflowCountGet();
-    raw_record->imu_temperature_c = imu_sample->temperature_c;
-    raw_record->imu_valid_mask = imu_sample->valid_mask;
-}
-
-static void InsTask_OptionalRecordsApply(
-    FlightLogSampleRecord *legacy_record,
-    FlightLogRawSensorRecord *raw_record)
-{
-    SystemMagnetometerSample mag_sample;
-    SystemBarometerSample baro_sample;
-    SystemHardwareQuaternionSample quaternion_sample;
-    uint8_t index;
-
-    if ((legacy_record == NULL) || (raw_record == NULL)) { return; }
-    SILVERSTAR_ASSERT_OBJECT(legacy_record, FlightLogSampleRecord,
-        SILVERSTAR_ASSERT_MODULE_APP);
-    SILVERSTAR_ASSERT_OBJECT(raw_record, FlightLogRawSensorRecord,
-        SILVERSTAR_ASSERT_MODULE_APP);
-    if (SystemMagnetometer_LatestSampleGet(&mag_sample) == SYSTEM_DEVICE_OK)
-    {
-        for (index = 0U; index < 3U; index++)
-        {
-            legacy_record->mag_raw[index] = InsTask_ClampI16(
-                mag_sample.raw[index]);
-            raw_record->mag_raw[index] = mag_sample.raw[index];
-            raw_record->magnetic_field_b_uT[index] =
-                mag_sample.magnetic_field_b_uT[index];
-        }
-        raw_record->mag_valid_mask = mag_sample.valid_mask;
-        raw_record->mag_calibration_valid = mag_sample.calibration_valid;
-    }
-    if (SystemBarometer_LatestSampleGet(&baro_sample) == SYSTEM_DEVICE_OK)
-    {
-        legacy_record->pressure_pa = baro_sample.pressure_raw_pa;
-        legacy_record->height_cm = baro_sample.altitude_raw_cm;
-        raw_record->pressure_raw_pa = baro_sample.pressure_raw_pa;
-        raw_record->altitude_raw_cm = baro_sample.altitude_raw_cm;
-        raw_record->pressure_pa = baro_sample.pressure_pa;
-        raw_record->altitude_m = baro_sample.altitude_m;
-        raw_record->barometer_valid_mask = baro_sample.valid_mask;
-    }
-    if (SystemHardwareQuaternion_LatestSampleGet(&quaternion_sample) ==
-        SYSTEM_DEVICE_OK)
-    {
-        (void)memcpy(legacy_record->q_raw,
-                     quaternion_sample.quaternion_wxyz,
-                     sizeof(legacy_record->q_raw));
-        for (index = 0U; index < 4U; index++)
-        {
-            legacy_record->quat_raw_q15[index] = InsTask_ClampI16((int32_t)
-                (quaternion_sample.quaternion_wxyz[index] * 32768.0f));
-        }
-    }
-}
-
 static void InsTask_PureRecordWrite(const InsImuSample *imu_sample,
                                     const InsState *state)
 {
@@ -713,30 +631,30 @@ static void InsTask_Propagate(const InsImuSample *imu_sample)
 {
     InsAlgorithmSample algorithm_sample;
     InsState state;
-#if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
-    FlightLogSampleRecord legacy_record;
-    FlightLogRawSensorRecord raw_record;
-#endif
 
     if (imu_sample == NULL) { return; }
     SILVERSTAR_ASSERT_OBJECT(imu_sample, InsImuSample,
         SILVERSTAR_ASSERT_MODULE_APP);
-    if ((InsTask_SampleCorrect(imu_sample, &algorithm_sample) == 0U) ||
-        (InsMechanization_Update(&s_mechanization,
-                                 &algorithm_sample, &state) == 0U))
+    if (InsTask_SampleCorrect(imu_sample, &algorithm_sample) == 0U) { return; }
+    if (SYSTEM_BUILD_ESTIMATOR_ENABLED != 0U)
+    {
+        if (InsInertial_Update(&s_navigation_input.inertial,
+                &algorithm_sample, &state) != INS_INERTIAL_UPDATE_READY)
+        {
+            return;
+        }
+    }
+    else if (InsMechanization_Update(&s_navigation_input.pure_ins,
+                 &algorithm_sample, &state) == 0U)
     {
         return;
     }
     InsTask_InertialOutputsPublish(imu_sample, &state);
 #if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
-    InsTask_BaseRecordsBuild(imu_sample, &algorithm_sample, &state,
-                             &legacy_record, &raw_record);
-    InsTask_OptionalRecordsApply(&legacy_record, &raw_record);
-    (void)LoggerBus_SamplePush(state.timestamp_us, imu_sample->valid_mask,
-                               &legacy_record);
-    (void)LoggerBus_RawSensorPush(state.timestamp_us, imu_sample->valid_mask,
-                                  &raw_record);
-    InsTask_PureRecordWrite(imu_sample, &state);
+    if (SYSTEM_BUILD_ESTIMATOR_ENABLED == 0U)
+    {
+        InsTask_PureRecordWrite(imu_sample, &state);
+    }
 #endif
 }
 
@@ -748,9 +666,9 @@ void AppTask_Ins(void *argument)
     uint32_t sample_index;
 
     (void)argument;
-    SILVERSTAR_ASSERT_OBJECT(&s_mechanization, InsMechanizationContext,
+    SILVERSTAR_ASSERT_OBJECT(&s_navigation_input.pure_ins, InsMechanizationContext,
         SILVERSTAR_ASSERT_MODULE_APP);
-    InsMechanization_Init(&s_mechanization, SYSTEM_INS_GRAVITY_MPS2);
+    InsMechanization_Init(&s_navigation_input.pure_ins, SYSTEM_INS_GRAVITY_MPS2);
     AttitudePreflight_Init(&s_preflight_attitude);
     AlignmentStrategy_Init(&s_alignment_strategy);
     (void)memset(&s_alignment_snapshot, 0, sizeof(s_alignment_snapshot));
@@ -881,7 +799,7 @@ SystemDeviceResult InsTask_InitializeMission(void)
 {
     float initial_q_nb[4];
 
-    SILVERSTAR_ASSERT_OBJECT(&s_mechanization, InsMechanizationContext,
+    SILVERSTAR_ASSERT_OBJECT(&s_navigation_input.pure_ins, InsMechanizationContext,
         SILVERSTAR_ASSERT_MODULE_APP);
     if (InsTask_PrepareStart() != SYSTEM_DEVICE_OK)
     {
@@ -891,8 +809,10 @@ SystemDeviceResult InsTask_InitializeMission(void)
     {
         return SYSTEM_DEVICE_NOT_READY;
     }
-    if (InsMechanization_ResetNavigationWithAttitude(
-            &s_mechanization, initial_q_nb) == 0U)
+    InsInertial_Reset(&s_navigation_input.inertial);
+    if ((SYSTEM_BUILD_ESTIMATOR_ENABLED == 0U) &&
+        (InsMechanization_ResetNavigationWithAttitude(
+            &s_navigation_input.pure_ins, initial_q_nb) == 0U))
     {
         return SYSTEM_DEVICE_INTERNAL_ERROR;
     }
@@ -918,7 +838,7 @@ void InsTask_AbortMission(void)
          SYSTEM_HEALTH_ATTITUDE_READY) ? 1U : 0U;
     s_published_output = s_output;
     InsTask_IrqUnlock(primask);
-    InsMechanization_ResetNavigation(&s_mechanization);
+    InsMechanization_ResetNavigation(&s_navigation_input.pure_ins);
     s_output.ins_valid = 0U;
     s_output.mission_running = 0U;
     InsTask_OutputPublish();
@@ -988,6 +908,11 @@ uint8_t Ins_GetLatestSnapshot(InsOutputSnapshot *snapshot)
 
     if (snapshot == NULL)
     {
+        return 0U;
+    }
+    if ((SYSTEM_BUILD_ESTIMATOR_ENABLED != 0U) && (s_mission_running != 0U))
+    {
+        (void)memset(snapshot, 0, sizeof(*snapshot));
         return 0U;
     }
     primask = InsTask_IrqLock();

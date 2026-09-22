@@ -104,7 +104,7 @@ def validate_catalog_shape(catalog: dict[str, Any]) -> None:
 
 def validate_records(catalog: dict[str, Any]) -> None:
     records = catalog["records"]
-    require(len(records) == 29, "Record Catalog must contain 29 records")
+    require(bool(records), "Record Catalog must contain records")
     ids: set[str] = set()
     enums: set[str] = set()
     names: set[str] = set()
@@ -164,8 +164,12 @@ def validate_c_mirror(repo: Path, catalog: dict[str, Any]) -> None:
                 f"C metadata/codec missing: {record['name']}")
         require(record["enum"] in config,
                 f"Generated log selection missing: {record['name']}")
-    require(re.search(r"\bSSLOG_RECORD_COUNT\s+29U\b", header) is not None,
-            "C SSLOG_RECORD_COUNT is not 29")
+    count = len(catalog["records"])
+    require(re.search(rf"\bSSLOG_RECORD_COUNT\s+{count}U\b", header) is not None,
+            "C SSLOG_RECORD_COUNT differs from the Record Catalog")
+    c_enums = set(re.findall(r"\b(FLIGHT_LOG_RECORD_\w+)\s*=\s*0x[0-9A-Fa-f]+U", header))
+    require(c_enums == {record["enum"] for record in catalog["records"]},
+            "C Record IDs contain missing or retired entries")
 
 
 def profile_hashes(catalog: Any, semantics: Any) -> tuple[bytes, bytes, bytes]:
@@ -226,7 +230,8 @@ def main() -> int:
         print(f"{label}_sha256={digest.hex()}")
     if not args.print_hashes:
         validate_generated_hashes(repo, hashes)
-    print("SSLOG Record Catalog validation passed: records=29 payloads=29")
+    count = len(catalog["records"])
+    print(f"SSLOG Record Catalog validation passed: records={count} payloads={count}")
     return 0
 
 

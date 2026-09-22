@@ -595,14 +595,9 @@ def test_raw_log_recordability_is_independent_from_algorithm_consumption(
     resolution = CapabilityResolution_Resolve(model, service.catalog)
 
     assert not any(
-        route.requirement.capability == "attitude.external"
+        route.requirement.capability == "power.voltage"
         for route in resolution.routes
     )
-    assert LogAvailability_Get(
-        definitions["HW_QUAT_NATIVE"], model, service.catalog
-    ).available
-    assert definitions["HW_QUAT_NATIVE"].level == LogPolicyLevel.OPTIONAL
-    assert streams[definitions["HW_QUAT_NATIVE"].record].enabled
     assert LogAvailability_Get(
         definitions["POWER"], model, service.catalog
     ).available
@@ -620,7 +615,7 @@ def test_raw_log_recordability_is_independent_from_algorithm_consumption(
         "可由启用该输出的兼容磁力计插件提供。"
     )
     recordable, disabled = ProjectRecordableOutputs_Get(model, service.catalog)
-    assert "attitude.external" in recordable
+    assert "power.voltage" in recordable
     assert "magnetometer.field" not in recordable
     assert disabled["magnetometer.field"] == magnetic.reason_code
 

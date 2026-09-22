@@ -20,6 +20,36 @@ typedef enum
     SYSTEM_FLIGHT_LANDING_STATE_LANDED
 } SystemFlightLandingState;
 
+typedef enum
+{
+    SYSTEM_LANDING_RESET_NONE = 0U,
+    SYSTEM_LANDING_RESET_IMU_INVALID,
+    SYSTEM_LANDING_RESET_IMU_COVERAGE,
+    SYSTEM_LANDING_RESET_IMU_CONTINUOUS_MOTION,
+    SYSTEM_LANDING_RESET_BARO_INVALID,
+    SYSTEM_LANDING_RESET_BARO_STALE,
+    SYSTEM_LANDING_RESET_BARO_COVERAGE,
+    SYSTEM_LANDING_RESET_BARO_SLOPE,
+    SYSTEM_LANDING_RESET_BARO_SPAN,
+    SYSTEM_LANDING_RESET_TIMESTAMP_DISCONTINUITY
+} SystemLandingResetReason;
+
+typedef struct
+{
+    uint64_t evaluation_timestamp_us;
+    uint64_t candidate_start_timestamp_us;
+    uint32_t sequence;
+    uint32_t candidate_elapsed_us;
+    float valid_coverage;
+    float still_ratio;
+    uint32_t maximum_bad_duration_us;
+    float baro_slope_mps;
+    float baro_span_m;
+    float baro_coverage;
+    uint8_t transition; /* 1 start, 2 reset, 3 complete. */
+    SystemLandingResetReason reset_reason;
+} SystemLandingDiagnostic;
+
 typedef struct
 {
     uint64_t now_us;
@@ -57,6 +87,7 @@ typedef struct
 typedef struct
 {
     uint64_t last_process_timestamp_us;
+    SystemLandingDiagnostic landing_diagnostic;
     uint32_t sequence;
 
     SystemDeployTriggerMask deploy_trigger_mask;

@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "system_flight_recovery.h"
+#include "flight_landing.h"
 #include "system_lifecycle.h"
 #include "system_mission_action_if.h"
 #include "system_user_config.h"
@@ -641,7 +642,16 @@ static void Test_BaroSampleAdvance(SystemFlightRecoveryInput *input,
                                    uint64_t delta_us,
                                    float altitude_m)
 {
-    Test_InputTimeSet(input, input->now_us + delta_us);
+    uint64_t remaining = delta_us;
+    uint32_t step;
+    for (step = 0U; (step < 1000U) && (remaining > 10000ULL); step++)
+    {
+        Test_InputTimeSet(input, input->now_us + 10000ULL);
+        input->barometer_altitude_m = altitude_m;
+        TEST_CHECK(SystemFlightRecovery_Process(input) == SYSTEM_DEVICE_OK);
+        remaining -= 10000ULL;
+    }
+    Test_InputTimeSet(input, input->now_us + remaining);
     input->barometer_altitude_m = altitude_m;
 }
 
@@ -865,6 +875,12 @@ static void Test_LandingDetection(void)
     TEST_CHECK(status.landing_candidate_baro_count >= 3U);
     TEST_CHECK(status.landing_candidate_imu_count >= 3U);
     TEST_CHECK_NEAR(status.landing_candidate_baro_slope_mps, 0.0f, 0.01f);
+    TEST_CHECK(status.landing_diagnostic.transition == 3U);
+    TEST_CHECK(status.landing_diagnostic.reset_reason == SYSTEM_LANDING_RESET_NONE);
+    TEST_CHECK(status.landing_diagnostic.sequence == 2U);
+    TEST_CHECK(status.landing_diagnostic.valid_coverage >= 0.9f);
+    TEST_CHECK(status.landing_diagnostic.still_ratio >= 0.95f);
+    TEST_CHECK(status.landing_diagnostic.baro_coverage >= 0.9f);
 
     /* Motion cancels a candidate instead of falling back to another mode. */
     Test_ManagerReset();
@@ -877,10 +893,17 @@ static void Test_LandingDetection(void)
         SYSTEM_FLIGHT_LANDING_STILL_GYRO_THRESHOLD_RADPS * 2.0f;
     TEST_CHECK(SystemFlightRecovery_Process(&input) == SYSTEM_DEVICE_OK);
     TEST_CHECK(SystemFlightRecovery_StatusGet(&status) == SYSTEM_DEVICE_OK);
+    TEST_CHECK(status.landing_candidate_active != 0U);
+    Test_BaroSampleAdvance(&input, 210000ULL, 100.0f);
+    TEST_CHECK(SystemFlightRecovery_Process(&input) == SYSTEM_DEVICE_OK);
+    TEST_CHECK(SystemFlightRecovery_StatusGet(&status) == SYSTEM_DEVICE_OK);
     TEST_CHECK(status.landing_candidate_active == 0U);
     TEST_CHECK(s_enter_landed_count == 0U);
 
     /* Excess specific-force error is an independent IMU rejection. */
+    TEST_CHECK(status.landing_diagnostic.transition == 2U);
+    TEST_CHECK(status.landing_diagnostic.reset_reason == SYSTEM_LANDING_RESET_IMU_CONTINUOUS_MOTION);
+    TEST_CHECK(status.landing_diagnostic.maximum_bad_duration_us > 200000U);
     Test_ManagerReset();
     Test_InputInit(&input);
     s_lifecycle_state = SYSTEM_STATE_RECOVERY;
@@ -890,6 +913,10 @@ static void Test_LandingDetection(void)
     input.corrected_accel_b_mps2[2] =
         SYSTEM_LOCAL_GRAVITY_MPS2 +
         (SYSTEM_FLIGHT_LANDING_STILL_ACCEL_TOLERANCE_MPS2 * 2.0f);
+    TEST_CHECK(SystemFlightRecovery_Process(&input) == SYSTEM_DEVICE_OK);
+    TEST_CHECK(SystemFlightRecovery_StatusGet(&status) == SYSTEM_DEVICE_OK);
+    TEST_CHECK(status.landing_candidate_active != 0U);
+    Test_BaroSampleAdvance(&input, 210000ULL, 100.0f);
     TEST_CHECK(SystemFlightRecovery_Process(&input) == SYSTEM_DEVICE_OK);
     TEST_CHECK(SystemFlightRecovery_StatusGet(&status) == SYSTEM_DEVICE_OK);
     TEST_CHECK(status.landing_candidate_active == 0U);
@@ -966,8 +993,65 @@ static void Test_InvalidArguments(void)
                SYSTEM_DEVICE_INVALID_ARGUMENT);
 }
 
+static void Test_LandingMixedSourceRates(void)
+{
+#if defined(TEST_EXPECT_BARO)
+    SystemFlightRecoveryInput input;
+    uint64_t barometer_time;
+    uint32_t barometer_sequence;
+    unsigned int index;
+    Test_ManagerReset();
+    Test_InputInit(&input);
+    s_lifecycle_state = SYSTEM_STATE_RECOVERY;
+    input.barometer_altitude_m = 100.0f;
+    barometer_time = input.barometer_timestamp_us;
+    barometer_sequence = input.barometer_sequence;
+    /* IMU 200 Hz and barometer 20 Hz have distinct sequence/timestamp clocks. */
+    for (index = 0U; index < 400U; index++)
+    {
+        Test_InputTimeSet(&input, input.now_us + 5000ULL);
+        if ((index % 10U) == 0U)
+        {
+            barometer_time = input.now_us;
+            barometer_sequence++;
+        }
+        input.barometer_timestamp_us = barometer_time;
+        input.barometer_sequence = barometer_sequence;
+        TEST_CHECK(SystemFlightRecovery_Process(&input) == SYSTEM_DEVICE_OK);
+    }
+    TEST_CHECK(s_enter_landed_count == 1U);
+#endif
+}
+
+static void Test_LandingTimeCoverage(void)
+{
+    const uint32_t periods[3] = {10000U, 5000U, 2500U};
+    unsigned int rate;
+    unsigned int scenario;
+    for (rate = 0U; rate < 3U; rate++)
+    {
+        for (scenario = 0U; scenario < 5U; scenario++)
+        {
+            FlightLandingTimeWindow window;
+            uint64_t time;
+            FlightLanding_TimeWindowReset(&window, 1000000ULL);
+            for (time = 1000000ULL + periods[rate]; time <= 4000000ULL; time += periods[rate])
+            {
+                uint8_t valid = (uint8_t)!((scenario == 2U) && (time >= 2000000ULL) && (time < 2040000ULL));
+                uint8_t still = (uint8_t)!(((scenario == 1U) && (time == 2000000ULL)) ||
+                    ((scenario == 3U) && (time >= 2000000ULL) && (time < 2220000ULL)) || (scenario == 4U));
+                TEST_CHECK(FlightLanding_TimeWindowAdd(&window, time, valid, still) == FLIGHT_LANDING_RESULT_OK);
+            }
+            TEST_CHECK(FlightLanding_TimeWindowEvaluate(&window, 3000000ULL) ==
+                ((scenario < 3U) ? FLIGHT_LANDING_CONDITION_MET : FLIGHT_LANDING_CONDITION_NOT_MET));
+        }
+    }
+}
+
 int main(void)
 {
+    Test_LandingTimeCoverage();
+    Test_LandingMixedSourceRates();
     Test_StartActionOneShot();
     Test_AutomaticDeployment();
     Test_DeploySampleValidityAndReset();

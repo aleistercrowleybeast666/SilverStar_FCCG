@@ -100,7 +100,9 @@ def replay_trace_run(project: Path, output: Path, fixture: Path) -> dict:
     traces = {}
     for name in names:
         data = (output / (name + ".trace")).read_bytes()
-        assert data and len(data) % 12 == 0
+        # Direct covariance/recovery checks need no replay-engine operation;
+        # their numerical assertions are enforced by the executable exit code.
+        assert len(data) % 12 == 0
         traces[name] = {"operations": len(data) // 12, "sha256": hashlib.sha256(data).hexdigest()}
     (output / "traces.json").write_text(json.dumps(traces, indent=2) + "\n", encoding="utf-8")
     return traces
@@ -152,6 +154,7 @@ def estimator_trace_run(project: Path, output: Path, fixture: Path) -> dict:
 #include "navigation_kf_replay.h"
 #include "system_user_config.h"
 #include "system_gnss_if.h"
+#include "system_estimator_diagnostics.h"
 #include "sslog_protocol.h"
 #include "silverstar_assert.h"
 #include "system_time.h"
@@ -161,11 +164,17 @@ PlatformResult PlatformTime_Init(void) { return PLATFORM_OK; }
 uint64_t PlatformTime_Us(void) { return 0ULL; }
 PlatformCriticalState PlatformCritical_Enter(void) { return 0U; }
 void PlatformCritical_Exit(PlatformCriticalState state) { (void)state; }
-static struct { NavigationKfContext kf; } s_estimator;
+static struct { NavigationKfContext kf; SystemEstimatorGnssDiagnostics gnss_diagnostics; uint32_t operation_sequence; } s_estimator;
 static struct { float position_innovation[3]; } s_snapshot;
 static NavigationReplayContext s_replay;
 '''
-    source += app[type_start:type_end] + "\n" + app[start:end] + fixture.read_text(encoding="utf-8")
+    diagnostic_start = app.index("static void Estimator_GnssGroupDiagnosticsRefresh(")
+    diagnostic_end = app.index("#if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED", diagnostic_start)
+    operation_start = app.index("static uint32_t Estimator_OperationNext(")
+    operation_end = app.index("\n}", operation_start) + 2
+    source += (app[type_start:type_end] + "\n" + app[diagnostic_start:diagnostic_end]
+               + app[operation_start:operation_end] + "\n" + app[start:end]
+               + fixture.read_text(encoding="utf-8"))
     instrumented = output / "app_trace.c"
     instrumented.write_text(source, encoding="utf-8")
     script = (project / "Tests/Host/run_tests.ps1").read_text(encoding="utf-8")
@@ -190,3 +199,62 @@ static NavigationReplayContext s_replay;
         (output / f"app-{pos}-{vel}.trace").write_bytes(result.stdout)
         traces[f"{pos}/{vel}"] = hashlib.sha256(result.stdout).hexdigest()
     return traces
+
+
+def barometer_operation_run(project: Path, output: Path, fixture: Path) -> None:
+    """Compare the real App replay dispatch/log timing with a direct on-time KF."""
+    output.mkdir(parents=True, exist_ok=True)
+    app = (project / "APP/Src/estimator_task.c").read_text(encoding="utf-8")
+    def function_get(name):
+        match = re.search(r"static [^\n]+ " + name + r"\(", app)
+        assert match
+        start = match.start()
+        end = app.index("\n}", start) + 2
+        return app[start:end] + "\n"
+    type_end = app.index("} EstimatorBarometerUpdateWork;") + len("} EstimatorBarometerUpdateWork;")
+    type_start = app.rfind("typedef struct", 0, type_end)
+    source = r'''
+#include <math.h>
+#include <stdio.h>
+#include <string.h>
+#include "navigation_kf_replay.h"
+#include "estimator_bus.h"
+#include "system_estimator_profile.h"
+#include "system_user_config.h"
+#include "sslog_protocol.h"
+#include "silverstar_assert.h"
+#include "system_time.h"
+#include "platform_time.h"
+#include "platform_critical.h"
+PlatformResult PlatformTime_Init(void) { return PLATFORM_OK; }
+uint64_t PlatformTime_Us(void) { return 0ULL; }
+PlatformCriticalState PlatformCritical_Enter(void) { return 0U; }
+void PlatformCritical_Exit(PlatformCriticalState state) { (void)state; }
+static struct { NavigationKfContext kf; uint32_t operation_sequence; } s_estimator;
+static struct { NavigationKfUpdateResult baro_update_result; float baro_innovation, baro_r_scale; } s_snapshot;
+static NavigationReplayContext s_replay;
+'''
+    source += app[type_start:type_end] + "\n"
+    for name in ("Estimator_OperationNext", "Estimator_ResultScale", "Estimator_MeasurementTimeResolve",
+                 "Estimator_ReplayInsert", "Estimator_BarometerReplay"):
+        source += function_get(name)
+    source += fixture.read_text(encoding="utf-8")
+    instrumented = output / "barometer_app.c"
+    instrumented.write_text(source, encoding="utf-8")
+    script = (project / "Tests/Host/run_tests.ps1").read_text(encoding="utf-8")
+    includes = re.findall(r'"-I\$repoRoot\\([^"\n]+)"', script)
+    command = ["D:/msys64/ucrt64/bin/gcc.exe", "-std=c11", "-Wall", "-Wextra", "-Werror",
+               "-pedantic", "-O2", "-include", str(project / "Generated/Inc/project_flight_config.h")]
+    command += ["-I" + str(project / p.replace("\\", "/")) for p in includes]
+    command += [str(project / p) for p in (
+        "Algorithm/Estimator/KF6/Src/navigation_kf.c", "Algorithm/Estimator/KF6/Src/navigation_kf_replay.c",
+        "System/Src/system_time.c", "Common/Src/silverstar_assert.c")]
+    command += [str(instrumented), "-lm", "-o", str(output / "barometer.exe")]
+    env = dict(os.environ, TEMP=str(output), TMP=str(output))
+    env["PATH"] = "D:/msys64/ucrt64/bin;" + env.get("PATH", "")
+    for delay in (0, 100):
+        result = subprocess.run(command + [f"-DSYSTEM_ESTIMATOR_BARO_MEASUREMENT_DELAY_MS={delay}"],
+                                env=env, capture_output=True, text=True)
+        assert result.returncode == 0, result.stderr
+        result = subprocess.run([str(output / "barometer.exe")], env=env, capture_output=True, text=True)
+        assert result.returncode == 0, f"delay={delay}, exit={result.returncode}: {result.stderr}"

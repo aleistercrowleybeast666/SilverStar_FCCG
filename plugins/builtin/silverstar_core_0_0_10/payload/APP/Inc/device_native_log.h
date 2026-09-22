@@ -6,7 +6,6 @@
 #include "system_log_policy.h"
 
 void DeviceNativeLog_Process(void);
-void DeviceNativeLog_ImuProcess(void);
 void DeviceNativeLog_PowerProcess(
     uint64_t now_us, const SystemLogStreamConfig *config);
 

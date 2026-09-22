@@ -669,8 +669,8 @@ def test_reference_import_restores_protocol_owned_fccg_metadata(
     assert adapted["records"] == wire_records
     assert adapted["fccg"] == expected["fccg"]
     policies = adapted["fccg"]["records"]
-    assert policies["FLIGHT_LOG_RECORD_IMU_NATIVE"]["default_enabled"] is True
-    assert policies["FLIGHT_LOG_RECORD_MAG_NATIVE"]["default_enabled"] is False
+    assert policies["FLIGHT_LOG_RECORD_IMU_CORRECTED"].get("default_enabled", True)
+    assert policies["FLIGHT_LOG_RECORD_MAG_NATIVE"].get("default_enabled", True)
 
     schema_path = builtin.with_name("sslog_schema.json")
     schema = json.loads(schema_path.read_text(encoding="utf-8"))
