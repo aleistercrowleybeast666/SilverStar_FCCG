@@ -417,7 +417,8 @@ static void Test_StreamConfiguration(void)
     TEST_CHECK(config.policy == SSLOG_STREAM_POLICY_PERIODIC);
     TEST_CHECK(SystemLogPolicy_StreamGet(
         FLIGHT_LOG_RECORD_KF6_DIAGNOSTIC, &config) == SYSTEM_DEVICE_OK);
-    TEST_CHECK(config.enabled != 0U);
+    TEST_CHECK(config.enabled ==
+               (uint8_t)(TEST_EXPECT_ESTIMATOR_CONFIG_ENABLED != 0U));
     TEST_CHECK(config.decimation == 1U);
     SystemLogStreamConfig full_rate;
     TEST_CHECK(SystemLogPolicy_StreamGet(FLIGHT_LOG_RECORD_IMU_CORRECTED,
@@ -434,13 +435,13 @@ static void Test_StreamConfiguration(void)
     TEST_CHECK(SystemLogPolicy_StreamConfigure(&config) == SYSTEM_DEVICE_OK);
     SystemLogPolicy_EmissionReset();
     TEST_CHECK(SystemLogPolicy_ShouldEmit(
-        FLIGHT_LOG_RECORD_KF6_DIAGNOSTIC) != 0U);
+        FLIGHT_LOG_RECORD_KF6_DIAGNOSTIC) == config.enabled);
     TEST_CHECK(SystemLogPolicy_ShouldEmit(
         FLIGHT_LOG_RECORD_KF6_DIAGNOSTIC) == 0U);
     TEST_CHECK(SystemLogPolicy_ShouldEmit(
         FLIGHT_LOG_RECORD_KF6_DIAGNOSTIC) == 0U);
     TEST_CHECK(SystemLogPolicy_ShouldEmit(
-        FLIGHT_LOG_RECORD_KF6_DIAGNOSTIC) != 0U);
+        FLIGHT_LOG_RECORD_KF6_DIAGNOSTIC) == config.enabled);
     SystemLogPolicy_Freeze();
     config.decimation = 2U;
     TEST_CHECK(SystemLogPolicy_StreamConfigure(&config) ==

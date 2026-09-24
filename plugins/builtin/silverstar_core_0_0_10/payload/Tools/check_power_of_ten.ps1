@@ -263,6 +263,10 @@ $protocolConditionalPattern = (
     '^\s*#\s*if\s+\(SILVERSTAR_PROTOCOL_' +
     '(?:TELEMETRY|MAINTENANCE|LOGGING)_ENABLED\s*!=\s*0U\)\s*$'
 )
+# EstimatorTask retains origin/Pure INS when the optional KF6 plugin is absent.
+# Only this source may compile out its KF6 implementation using the build lock.
+$estimatorConditionalPattern =
+    '^\s*#\s*if\s+\(SYSTEM_BUILD_ESTIMATOR_ENABLED\s*(?:!=|==)\s*0U\)\s*$'
 
 foreach ($file in $files) {
     $progressCurrent++
@@ -284,7 +288,11 @@ foreach ($file in $files) {
     $conditionalDiagnostics = Get-PatternDiagnostics -File $file `
         -Lines $lines -Pattern $conditionalPattern -Approved {
             param($candidateFile, $line, $lineNumber)
+            $candidateRelative = $candidateFile.FullName.Substring(
+                $repoRoot.Length + 1)
             return (($line -match $protocolConditionalPattern) -or
+                    (($candidateRelative -eq 'APP\Src\estimator_task.c') -and
+                     ($line -match $estimatorConditionalPattern)) -or
                     ($line -match '^\s*#\s*(?:else|endif)\b'))
         }
     Add-PowerTenCheck -Condition ($conditionalDiagnostics.Count -eq 0) `

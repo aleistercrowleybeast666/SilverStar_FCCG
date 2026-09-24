@@ -7,7 +7,6 @@ from dataclasses import replace
 from pathlib import Path
 
 import shiboken6
-from PySide6.QtWidgets import QSpinBox
 
 from silverstar_fccg.core.settings import SettingsStore
 from silverstar_fccg.generator.hardware_preparation import (
@@ -29,6 +28,7 @@ from silverstar_fccg.project.model import (
 from silverstar_fccg.project.reference import ReferenceProject_Create
 from silverstar_fccg.project.resources import ResourceAssignments_Resolve
 from silverstar_fccg.project.validation import Project_Validate
+from silverstar_fccg.ui.committed_spin import EnterCommittedSpinBox
 from silverstar_fccg.ui.main_window import MainWindow
 from silverstar_fccg.ui.widgets import StandardCheckBox
 
@@ -204,7 +204,8 @@ def test_logging_signals_are_deferred_and_widgets_survive_fifty_changes(
         check = table.cellWidget(row, 0).findChild(StandardCheckBox)
         decimation = table.cellWidget(row, 3)
         assert isinstance(check, StandardCheckBox)
-        assert isinstance(decimation, QSpinBox)
+        assert isinstance(decimation, EnterCommittedSpinBox)
+        initial_decimation = int(decimation.CommittedValue_Get())
 
         for index in range(50):
             check.setChecked(index % 2 == 0)
@@ -223,7 +224,8 @@ def test_logging_signals_are_deferred_and_widgets_survive_fifty_changes(
             if item.record == "FLIGHT_LOG_RECORD_MAG_NATIVE"
         )
         assert not stream.enabled
-        assert stream.decimation == 51
+        assert stream.decimation == initial_decimation
+        assert decimation.CommittedValue_Get() == initial_decimation
 
         for _index in range(3):
             window._Strategy_Change("estimator", None)

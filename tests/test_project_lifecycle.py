@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
-import re
 from dataclasses import replace
 from pathlib import Path
 
@@ -531,3 +531,60 @@ def test_repeated_apply_preserves_managed_mtimes_and_build_dependencies(
     assert result.files_modified == 0
     assert {path: path.stat().st_mtime_ns for path in tracked} == mtimes
     assert dependency.read_text(encoding="utf-8") == "keep.o: keep.c\n"
+
+
+@pytest.mark.parametrize(
+    ("relative", "condition", "allowed"),
+    [
+        ("APP/Src/estimator_task.c", "SYSTEM_BUILD_ESTIMATOR_ENABLED != 0U", True),
+        ("APP/Src/estimator_task.c", "SYSTEM_BUILD_ESTIMATOR_ENABLED == 0U", True),
+        ("APP/Src/other.c", "SYSTEM_BUILD_ESTIMATOR_ENABLED != 0U", False),
+        ("APP/Src/estimator_task.c", "SYSTEM_BUILD_ESTIMATOR_ENABLED == 1U", False),
+    ],
+)
+def test_power_of_ten_estimator_conditional_is_scoped(
+    tmp_path: Path, workspace_root: Path, relative: str,
+    condition: str, allowed: bool
+) -> None:
+    root = tmp_path / "estimator-conditional"
+    script = root / "Tools/check_power_of_ten.ps1"
+    script.parent.mkdir(parents=True)
+    shutil.copy2(
+        workspace_root / "plugins/builtin/silverstar_core_0_0_10/payload/Tools"
+        / "check_power_of_ten.ps1", script
+    )
+    source = root / relative
+    source.parent.mkdir(parents=True)
+    source.write_text(
+        f"#if ({condition})\n"
+        "static int Fixture_Value(void) { return 1; }\n"
+        "#else\n"
+        "static int Fixture_Value(void) { return 0; }\n"
+        "#endif\n",
+        encoding="utf-8",
+    )
+    (root / "Makefile").write_text(
+        f"FIRST_PARTY_C_SOURCES := {relative}\n"
+        "FIRST_PARTY_WARNINGS := -Wall -Wextra -Wpedantic -Werror "
+        "-Wconversion -Wsign-conversion -Wshadow -Wundef -Wformat=2 "
+        "-Wdouble-promotion -Wcast-align -Wcast-qual -Wstrict-prototypes "
+        "-Wmissing-prototypes -Wswitch-enum -Wvla\n"
+        "power10-check:\n\t@echo check\n",
+        encoding="utf-8",
+    )
+    (root / "STM32F407XX_FLASH.ld").write_text(
+        "_Min_Heap_Size = 0x0;\n", encoding="utf-8"
+    )
+    completed = subprocess.run(
+        ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
+         str(script)],
+        cwd=root, capture_output=True, text=True, encoding="utf-8",
+        errors="replace", check=False,
+    )
+    output = completed.stdout + completed.stderr
+    if allowed:
+        assert completed.returncode == 0, output
+        assert "Power of Ten check passed:" in output
+    else:
+        assert completed.returncode != 0
+        assert "conditional compilation violation" in output

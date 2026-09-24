@@ -7,10 +7,9 @@ Only test code writes trace files. No instrumentation enters generated runtime c
 import hashlib
 import json
 import os
-from pathlib import Path
 import re
 import subprocess
-
+from pathlib import Path
 
 TRACE_WRAPPERS = r'''
 static FILE *s_trace;
@@ -91,10 +90,10 @@ def replay_trace_run(project: Path, output: Path, fixture: Path) -> dict:
     command += [str(instrumented), "-lm", "-o", str(output / "trace.exe")]
     env = dict(os.environ, TEMP=str(output), TMP=str(output))
     env["PATH"] = "D:/msys64/ucrt64/bin;" + env.get("PATH", "")
-    built = subprocess.run(command, env=env, capture_output=True, text=True)
+    built = subprocess.run(command, env=env, capture_output=True, text=True, check=False)
     (output / "compile.log").write_text(built.stdout + built.stderr, encoding="utf-8")
     assert built.returncode == 0, built.stderr
-    run = subprocess.run([str(output / "trace.exe")], cwd=output, env=env, capture_output=True, text=True)
+    run = subprocess.run([str(output / "trace.exe")], cwd=output, env=env, capture_output=True, text=True, check=False)
     (output / "result.log").write_text(run.stdout + run.stderr, encoding="utf-8")
     assert run.returncode == 0, run.stdout + run.stderr
     traces = {}
@@ -131,9 +130,9 @@ def replay_work_limit_run(project: Path, output: Path, fixture: Path) -> str:
     command += [str(injected), str(fixture), "-lm", "-o", str(output / "work-limit.exe")]
     env = dict(os.environ, TEMP=str(output), TMP=str(output))
     env["PATH"] = "D:/msys64/ucrt64/bin;" + env.get("PATH", "")
-    built = subprocess.run(command, env=env, capture_output=True, text=True)
+    built = subprocess.run(command, env=env, capture_output=True, text=True, check=False)
     assert built.returncode == 0, built.stderr
-    result = subprocess.run([str(output / "work-limit.exe")], env=env, capture_output=True, text=True)
+    result = subprocess.run([str(output / "work-limit.exe")], env=env, capture_output=True, text=True, check=False)
     (output / "result.log").write_text(result.stdout + result.stderr, encoding="utf-8")
     assert result.returncode == 0, result.stdout + result.stderr
     return result.stdout
@@ -168,11 +167,17 @@ static struct { NavigationKfContext kf; SystemEstimatorGnssDiagnostics gnss_diag
 static struct { float position_innovation[3]; } s_snapshot;
 static NavigationReplayContext s_replay;
 '''
+    conversion_start = app.index(
+        "static SystemEstimatorMeasurementResult Estimator_MeasurementResultConvert("
+    )
+    conversion_end = app.index("\n}", conversion_start) + 2
     diagnostic_start = app.index("static void Estimator_GnssGroupDiagnosticsRefresh(")
     diagnostic_end = app.index("#if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED", diagnostic_start)
     operation_start = app.index("static uint32_t Estimator_OperationNext(")
     operation_end = app.index("\n}", operation_start) + 2
-    source += (app[type_start:type_end] + "\n" + app[diagnostic_start:diagnostic_end]
+    source += (app[type_start:type_end] + "\n"
+               + app[conversion_start:conversion_end] + "\n"
+               + app[diagnostic_start:diagnostic_end]
                + app[operation_start:operation_end] + "\n" + app[start:end]
                + fixture.read_text(encoding="utf-8"))
     instrumented = output / "app_trace.c"
@@ -192,9 +197,9 @@ static NavigationReplayContext s_replay;
     for pos, vel in ((0, 270), (270, 0), (0, 0), (100, 100)):
         build = command + [f"-DSYSTEM_ESTIMATOR_GNSS_POSITION_MEASUREMENT_DELAY_MS={pos}",
                            f"-DSYSTEM_ESTIMATOR_GNSS_VELOCITY_MEASUREMENT_DELAY_MS={vel}"]
-        result = subprocess.run(build, env=env, capture_output=True, text=True)
+        result = subprocess.run(build, env=env, capture_output=True, text=True, check=False)
         assert result.returncode == 0, result.stderr
-        result = subprocess.run([str(output / "app.exe")], env=env, capture_output=True)
+        result = subprocess.run([str(output / "app.exe")], env=env, capture_output=True, check=False)
         assert result.returncode == 0, result.stderr
         (output / f"app-{pos}-{vel}.trace").write_bytes(result.stdout)
         traces[f"{pos}/{vel}"] = hashlib.sha256(result.stdout).hexdigest()
@@ -219,6 +224,7 @@ def barometer_operation_run(project: Path, output: Path, fixture: Path) -> None:
 #include <string.h>
 #include "navigation_kf_replay.h"
 #include "estimator_bus.h"
+#include "system_estimator_diagnostics.h"
 #include "system_estimator_profile.h"
 #include "system_user_config.h"
 #include "sslog_protocol.h"
@@ -231,11 +237,12 @@ uint64_t PlatformTime_Us(void) { return 0ULL; }
 PlatformCriticalState PlatformCritical_Enter(void) { return 0U; }
 void PlatformCritical_Exit(PlatformCriticalState state) { (void)state; }
 static struct { NavigationKfContext kf; uint32_t operation_sequence; } s_estimator;
-static struct { NavigationKfUpdateResult baro_update_result; float baro_innovation, baro_r_scale; } s_snapshot;
+static struct { SystemEstimatorMeasurementResult baro_update_result; float baro_innovation, baro_r_scale; } s_snapshot;
 static NavigationReplayContext s_replay;
 '''
     source += app[type_start:type_end] + "\n"
-    for name in ("Estimator_OperationNext", "Estimator_ResultScale", "Estimator_MeasurementTimeResolve",
+    for name in ("Estimator_OperationNext", "Estimator_MeasurementResultConvert",
+                 "Estimator_ResultScale", "Estimator_MeasurementTimeResolve",
                  "Estimator_ReplayInsert", "Estimator_BarometerReplay"):
         source += function_get(name)
     source += fixture.read_text(encoding="utf-8")
@@ -254,7 +261,7 @@ static NavigationReplayContext s_replay;
     env["PATH"] = "D:/msys64/ucrt64/bin;" + env.get("PATH", "")
     for delay in (0, 100):
         result = subprocess.run(command + [f"-DSYSTEM_ESTIMATOR_BARO_MEASUREMENT_DELAY_MS={delay}"],
-                                env=env, capture_output=True, text=True)
+                                env=env, capture_output=True, text=True, check=False)
         assert result.returncode == 0, result.stderr
-        result = subprocess.run([str(output / "barometer.exe")], env=env, capture_output=True, text=True)
+        result = subprocess.run([str(output / "barometer.exe")], env=env, capture_output=True, text=True, check=False)
         assert result.returncode == 0, f"delay={delay}, exit={result.returncode}: {result.stderr}"

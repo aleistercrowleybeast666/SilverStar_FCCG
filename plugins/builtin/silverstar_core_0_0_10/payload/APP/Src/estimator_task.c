@@ -13,7 +13,9 @@
 #include "geodesy_local.h"
 #include "ins_mechanization.h"
 #include "ins_task.h"
+#if (SYSTEM_BUILD_ESTIMATOR_ENABLED != 0U)
 #include "navigation_kf_replay.h"
+#endif
 #if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
 #include "logger_bus.h"
 #endif
@@ -29,6 +31,19 @@
 #include "system_lifecycle.h"
 #include "system_navigation_profile.h"
 #include "system_time.h"
+
+_Static_assert(SYSTEM_ESTIMATOR_MEAS_ACCEPTED == 0U, "SSLOG accepted result");
+_Static_assert(SYSTEM_ESTIMATOR_MEAS_SOFT_WEIGHTED == 1U, "SSLOG soft result");
+_Static_assert(SYSTEM_ESTIMATOR_MEAS_REJECTED_NIS == 2U, "SSLOG NIS result");
+_Static_assert(SYSTEM_ESTIMATOR_MEAS_REJECTED_INVALID == 3U, "SSLOG invalid result");
+_Static_assert(SYSTEM_ESTIMATOR_MEAS_NUMERIC_ERROR == 4U, "SSLOG numeric result");
+#if (SYSTEM_BUILD_ESTIMATOR_ENABLED != 0U)
+_Static_assert((uint32_t)NAV_KF_UPDATE_ACCEPTED == (uint32_t)SYSTEM_ESTIMATOR_MEAS_ACCEPTED, "KF6 accepted wire result");
+_Static_assert((uint32_t)NAV_KF_UPDATE_SOFT_WEIGHTED == (uint32_t)SYSTEM_ESTIMATOR_MEAS_SOFT_WEIGHTED, "KF6 soft wire result");
+_Static_assert((uint32_t)NAV_KF_UPDATE_REJECTED_NIS == (uint32_t)SYSTEM_ESTIMATOR_MEAS_REJECTED_NIS, "KF6 NIS wire result");
+_Static_assert((uint32_t)NAV_KF_UPDATE_REJECTED_INVALID == (uint32_t)SYSTEM_ESTIMATOR_MEAS_REJECTED_INVALID, "KF6 invalid wire result");
+_Static_assert((uint32_t)NAV_KF_UPDATE_NUMERIC_ERROR == (uint32_t)SYSTEM_ESTIMATOR_MEAS_NUMERIC_ERROR, "KF6 numeric wire result");
+#endif
 
 #define ESTIMATOR_GNSS_ORIGIN_WINDOW_SIZE \
     SYSTEM_ESTIMATOR_GNSS_ORIGIN_WINDOW_SAMPLES
@@ -65,7 +80,9 @@ typedef struct
 
 typedef struct
 {
+#if (SYSTEM_BUILD_ESTIMATOR_ENABLED != 0U)
     NavigationKfContext kf;
+#endif
     GeoLocalFrame gnss_frame;
     SystemGnssSample frozen_gnss;
     float frozen_baro_altitude_m;
@@ -99,12 +116,14 @@ typedef struct
     uint8_t mission_running;
 } EstimatorRuntime;
 
+#if (SYSTEM_BUILD_ESTIMATOR_ENABLED != 0U)
 typedef struct
 {
     uint32_t position;
     uint32_t velocity;
     uint32_t barometer;
 } EstimatorUpdateCounts;
+#endif
 
 typedef struct
 {
@@ -144,6 +163,7 @@ typedef struct
     uint16_t pressure_count;
 } EstimatorBarometerFreezeWork;
 
+#if (SYSTEM_BUILD_ESTIMATOR_ENABLED != 0U)
 typedef enum
 {
     ESTIMATOR_GNSS_PREPARE_STOP = 0U,
@@ -185,20 +205,25 @@ typedef struct
     float relative_altitude_m;
     float variance_m2;
 } EstimatorBarometerUpdateWork;
+#endif
 
 static PLATFORM_CPU_FAST_BSS EstimatorRuntime s_estimator;
 /* Single EstimatorTask owner. Event data uses main SRAM; CPU-only
  * IMU/checkpoint storage uses reviewed CCM capacity. Neither is DMA memory. */
+#if (SYSTEM_BUILD_ESTIMATOR_ENABLED != 0U)
 static NavigationReplayContext s_replay;
 static PLATFORM_CPU_FAST_BSS NavigationReplayStorage s_replay_storage;
 static uint32_t s_replay_epoch;
+#endif
 
+#if (SYSTEM_BUILD_ESTIMATOR_ENABLED != 0U)
 static uint32_t Estimator_OperationNext(void)
 {
     SILVERSTAR_ASSERT(s_estimator.operation_sequence < UINT32_MAX,
         SILVERSTAR_ASSERT_MODULE_APP, SILVERSTAR_ASSERT_REASON_LENGTH_RANGE);
     return ++s_estimator.operation_sequence;
 }
+#endif
 static EstimatorOutputSnapshot s_snapshot;
 static EstimatorOutputSnapshot s_published_snapshot;
 static volatile uint8_t s_origin_collection_busy;
@@ -287,10 +312,12 @@ static uint8_t Estimator_Kf6Selected(void)
     return SYSTEM_BUILD_ESTIMATOR_ENABLED;
 }
 
+#if (SYSTEM_BUILD_ESTIMATOR_ENABLED != 0U)
 static uint32_t Estimator_AgeToU32(uint64_t age_us)
 {
     return (age_us > UINT32_MAX) ? UINT32_MAX : (uint32_t)age_us;
 }
+#endif
 
 static uint16_t Estimator_RingStart(uint16_t head,
                                     uint16_t count,
@@ -354,7 +381,9 @@ static void Estimator_StatusDiagnosticsPublish(
 
     (void)memset(&status, 0, sizeof(status));
     status.last_state_timestamp_us = state_timestamp_us;
+#if (SYSTEM_BUILD_ESTIMATOR_ENABLED != 0U)
     status.imu_prediction_count = s_estimator.kf.predict_count;
+#endif
     status.mode = (kf6_selected != 0U) ?
         SYSTEM_ESTIMATOR_MODE_KF6 : SYSTEM_ESTIMATOR_MODE_PURE_INS;
     status.attitude_source = SYSTEM_ESTIMATOR_ATTITUDE_SOURCE_SOFTWARE_INS;
@@ -404,6 +433,7 @@ static void Estimator_GnssAvailabilityRefresh(
         s_estimator.frozen_gnss.ellipsoid_height_mm;
 }
 
+#if (SYSTEM_BUILD_ESTIMATOR_ENABLED != 0U)
 static void Estimator_UpdateCountsRefresh(EstimatorUpdateCounts *counts)
 {
     SILVERSTAR_ASSERT_OBJECT(counts, EstimatorUpdateCounts,
@@ -576,6 +606,8 @@ static void Estimator_GnssReacquisitionRefresh(void)
         s_estimator.kf.gnss_reacquisition.last_inflation_attempt;
 }
 
+#endif
+
 static void Estimator_GnssStateRefresh(uint8_t kf6_selected)
 {
     SILVERSTAR_ASSERT(s_estimator.mission_running <= 1U,
@@ -612,6 +644,7 @@ static void Estimator_GnssStateRefresh(uint8_t kf6_selected)
     }
 }
 
+#if (SYSTEM_BUILD_ESTIMATOR_ENABLED != 0U)
 static void Estimator_KfDiagnosticsPublish(
     const EstimatorUpdateCounts *counts,
     uint8_t kf6_selected)
@@ -639,14 +672,19 @@ static void Estimator_KfDiagnosticsPublish(
     SystemKfDiagnostics_Publish(&s_estimator.kf_diagnostics);
 }
 
+#endif
+
 static void Estimator_DiagnosticsPublish(uint64_t state_timestamp_us)
 {
+#if (SYSTEM_BUILD_ESTIMATOR_ENABLED != 0U)
     EstimatorUpdateCounts counts;
+#endif
     uint8_t kf6_selected = Estimator_Kf6Selected();
     uint64_t now_us = SystemTime_GetMonotonicUs();
 
     Estimator_StatusDiagnosticsPublish(state_timestamp_us, kf6_selected);
     Estimator_GnssAvailabilityRefresh(kf6_selected, now_us);
+#if (SYSTEM_BUILD_ESTIMATOR_ENABLED != 0U)
     Estimator_UpdateCountsRefresh(&counts);
     Estimator_GnssNisRefresh();
     Estimator_GnssInnovationRefresh();
@@ -654,10 +692,13 @@ static void Estimator_DiagnosticsPublish(uint64_t state_timestamp_us)
     Estimator_GnssPositionGroupCountersRefresh();
     Estimator_GnssVelocityGroupCountersRefresh();
     Estimator_GnssReacquisitionRefresh();
+#endif
     Estimator_GnssStateRefresh(kf6_selected);
     SystemEstimatorGnssDiagnostics_Publish(
         &s_estimator.gnss_diagnostics);
+#if (SYSTEM_BUILD_ESTIMATOR_ENABLED != 0U)
     Estimator_KfDiagnosticsPublish(&counts, kf6_selected);
+#endif
 }
 
 static void Estimator_OriginWindowReset(void)
@@ -1343,6 +1384,33 @@ static uint8_t Estimator_BarometerOriginFreeze(void)
     return 1U;
 }
 
+#if (SYSTEM_BUILD_ESTIMATOR_ENABLED != 0U)
+static SystemEstimatorMeasurementResult Estimator_MeasurementResultConvert(
+    NavigationKfUpdateResult result)
+{
+    SILVERSTAR_ASSERT((uint32_t)result <= (uint32_t)NAV_KF_UPDATE_NUMERIC_ERROR,
+                      SILVERSTAR_ASSERT_MODULE_APP,
+                      SILVERSTAR_ASSERT_REASON_ENUM_RANGE);
+    switch (result)
+    {
+    case NAV_KF_UPDATE_ACCEPTED:
+        return SYSTEM_ESTIMATOR_MEAS_ACCEPTED;
+    case NAV_KF_UPDATE_SOFT_WEIGHTED:
+        return SYSTEM_ESTIMATOR_MEAS_SOFT_WEIGHTED;
+    case NAV_KF_UPDATE_REJECTED_NIS:
+        return SYSTEM_ESTIMATOR_MEAS_REJECTED_NIS;
+    case NAV_KF_UPDATE_REJECTED_INVALID:
+        return SYSTEM_ESTIMATOR_MEAS_REJECTED_INVALID;
+    case NAV_KF_UPDATE_NUMERIC_ERROR:
+        return SYSTEM_ESTIMATOR_MEAS_NUMERIC_ERROR;
+    default:
+        SILVERSTAR_ASSERT(result <= NAV_KF_UPDATE_NUMERIC_ERROR,
+                          SILVERSTAR_ASSERT_MODULE_APP,
+                          SILVERSTAR_ASSERT_REASON_ENUM_RANGE);
+        return SYSTEM_ESTIMATOR_MEAS_NUMERIC_ERROR;
+    }
+}
+
 static float Estimator_ResultScale(NavigationKfUpdateResult result,
                                    float nis,
                                    float soft_threshold,
@@ -1622,7 +1690,8 @@ static void Estimator_GnssPositionUpdate(
     if ((s_snapshot.measurement_attempt_mask &
          ESTIMATOR_ATTEMPT_GNSS_POSITION) == 0U)
     { return; }
-    s_snapshot.position_update_result = work->replay_outcome.position;
+    s_snapshot.position_update_result = Estimator_MeasurementResultConvert(
+        work->replay_outcome.position);
     work->position_group_result = work->replay_outcome.position_groups;
     horizontal_scale = Estimator_ResultScale(
         work->position_group_result.horizontal_result,
@@ -1639,8 +1708,8 @@ static void Estimator_GnssPositionUpdate(
     s_estimator.kf_diagnostics.last_update_type =
         SYSTEM_KF_UPDATE_GNSS_POSITION;
     s_estimator.kf_diagnostics.last_update_timestamp_us = state_timestamp_us;
-    if ((s_snapshot.position_update_result == NAV_KF_UPDATE_ACCEPTED) ||
-        (s_snapshot.position_update_result == NAV_KF_UPDATE_SOFT_WEIGHTED))
+    if ((s_snapshot.position_update_result == SYSTEM_ESTIMATOR_MEAS_ACCEPTED) ||
+        (s_snapshot.position_update_result == SYSTEM_ESTIMATOR_MEAS_SOFT_WEIGHTED))
     {
         s_snapshot.gnss_position_update_count++;
         work->position_accepted = 1U;
@@ -1670,7 +1739,8 @@ static void Estimator_GnssVelocityUpdate(
         s_snapshot.velocity_innovation[index] =
             work->replay_outcome.velocity_innovation[index];
     }
-    s_snapshot.velocity_update_result = work->replay_outcome.velocity;
+    s_snapshot.velocity_update_result = Estimator_MeasurementResultConvert(
+        work->replay_outcome.velocity);
     work->velocity_group_result = work->replay_outcome.velocity_groups;
     horizontal_scale = Estimator_ResultScale(
         work->velocity_group_result.horizontal_result,
@@ -1690,8 +1760,8 @@ static void Estimator_GnssVelocityUpdate(
     s_estimator.kf_diagnostics.last_update_type =
         SYSTEM_KF_UPDATE_GNSS_VELOCITY;
     s_estimator.kf_diagnostics.last_update_timestamp_us = state_timestamp_us;
-    if ((s_snapshot.velocity_update_result == NAV_KF_UPDATE_ACCEPTED) ||
-        (s_snapshot.velocity_update_result == NAV_KF_UPDATE_SOFT_WEIGHTED))
+    if ((s_snapshot.velocity_update_result == SYSTEM_ESTIMATOR_MEAS_ACCEPTED) ||
+        (s_snapshot.velocity_update_result == SYSTEM_ESTIMATOR_MEAS_SOFT_WEIGHTED))
     {
         s_snapshot.gnss_velocity_update_count++;
         work->velocity_accepted = 1U;
@@ -1715,8 +1785,11 @@ static void Estimator_GnssGroupDiagnosticsRefresh(const EstimatorGnssUpdateWork 
         uint8_t attempted = ((group & 1U) != 0U) ? result->vertical_attempted : result->horizontal_attempted;
         diagnostic->valid = (uint8_t)((work->sample.valid_group_mask & (1U << group)) != 0U);
         diagnostic->quality_reject_mask = work->sample.group_reject_mask[group];
-        diagnostic->update_result = (attempted == 0U) ? (uint8_t)NAV_KF_UPDATE_REJECTED_INVALID :
-            (uint8_t)(((group & 1U) != 0U) ? result->vertical_result : result->horizontal_result);
+        diagnostic->update_result = (attempted == 0U) ?
+            (uint8_t)SYSTEM_ESTIMATOR_MEAS_REJECTED_INVALID :
+            (uint8_t)Estimator_MeasurementResultConvert(
+                ((group & 1U) != 0U) ? result->vertical_result :
+                result->horizontal_result);
         diagnostic->outage = recovery->outage;
         diagnostic->consistency_count = recovery->consistent_count;
         diagnostic->recovery_active = recovery->active;
@@ -2138,7 +2211,7 @@ static void Estimator_BarometerReplay(uint64_t state_timestamp_us,
         event.receive_timestamp_us = work->pressure.receive_timestamp_us;
         event.altitude = work->relative_altitude_m;
         event.altitude_variance = work->variance_m2;
-        s_snapshot.baro_update_result = NAV_KF_UPDATE_REJECTED_INVALID;
+        s_snapshot.baro_update_result = SYSTEM_ESTIMATOR_MEAS_REJECTED_INVALID;
         if (Estimator_MeasurementTimeResolve(work->pressure.receive_timestamp_us,
                 work->pressure.timestamp_us, work->pressure.measurement_timestamp_trusted,
                 SYSTEM_ESTIMATOR_BARO_MEASUREMENT_DELAY_MS, state_timestamp_us,
@@ -2152,12 +2225,14 @@ static void Estimator_BarometerReplay(uint64_t state_timestamp_us,
             work->measurement.measurement_timestamp_us = event.measurement_timestamp_us;
             work->measurement.operation_sequence = operation_sequence;
             work->measurement.replay_result = (uint8_t)result;
-            work->measurement.update_result = (uint8_t)outcome.barometer;
+            work->measurement.update_result = (uint8_t)
+                Estimator_MeasurementResultConvert(outcome.barometer);
             work->measurement.replay_generation = s_replay.diagnostics.replay_count;
             work->measurement.innovation_m = outcome.baro_innovation;
             work->measurement.nis = outcome.baro_nis;
 #endif
-            s_snapshot.baro_update_result = outcome.barometer;
+            s_snapshot.baro_update_result = Estimator_MeasurementResultConvert(
+                outcome.barometer);
             s_snapshot.baro_innovation = outcome.baro_innovation;
             s_snapshot.baro_r_scale = Estimator_ResultScale(outcome.barometer,
                 outcome.baro_nis, profile->nis_1d_soft, profile->nis_max_r_scale);
@@ -2205,17 +2280,17 @@ static void Estimator_BarometerMeasurementUpdate(
 static void Estimator_BarometerResultProcess(uint64_t state_timestamp_us)
 {
     SILVERSTAR_ASSERT(
-        s_snapshot.baro_update_result <= NAV_KF_UPDATE_NUMERIC_ERROR,
+        s_snapshot.baro_update_result <= SYSTEM_ESTIMATOR_MEAS_NUMERIC_ERROR,
         SILVERSTAR_ASSERT_MODULE_APP,
         SILVERSTAR_ASSERT_REASON_ENUM_RANGE);
     SILVERSTAR_ASSERT(s_estimator.baro_diagnostics.sample_valid <= 1U,
                       SILVERSTAR_ASSERT_MODULE_APP,
                       SILVERSTAR_ASSERT_REASON_STATE_INVARIANT);
-    if ((s_snapshot.baro_update_result == NAV_KF_UPDATE_ACCEPTED) ||
-        (s_snapshot.baro_update_result == NAV_KF_UPDATE_SOFT_WEIGHTED))
+    if ((s_snapshot.baro_update_result == SYSTEM_ESTIMATOR_MEAS_ACCEPTED) ||
+        (s_snapshot.baro_update_result == SYSTEM_ESTIMATOR_MEAS_SOFT_WEIGHTED))
     {
         s_snapshot.baro_update_count++;
-        if (s_snapshot.baro_update_result == NAV_KF_UPDATE_ACCEPTED)
+        if (s_snapshot.baro_update_result == SYSTEM_ESTIMATOR_MEAS_ACCEPTED)
         {
             Estimator_BarometerUpdateStateSet(
                 SYSTEM_ESTIMATOR_BARO_UPDATE_ACCEPTED,
@@ -2322,12 +2397,12 @@ static void Estimator_SnapshotPublish(uint64_t timestamp_us)
 #if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
 static uint32_t Estimator_MeasurementResultFlagBuild(
     uint32_t attempt_bit,
-    NavigationKfUpdateResult result,
+    SystemEstimatorMeasurementResult result,
     uint32_t accepted_bit,
     uint32_t soft_bit,
     uint32_t rejected_bit)
 {
-    SILVERSTAR_ASSERT(result <= NAV_KF_UPDATE_NUMERIC_ERROR,
+    SILVERSTAR_ASSERT(result <= SYSTEM_ESTIMATOR_MEAS_NUMERIC_ERROR,
                       SILVERSTAR_ASSERT_MODULE_APP,
                       SILVERSTAR_ASSERT_REASON_ENUM_RANGE);
     SILVERSTAR_ASSERT((attempt_bit != 0U) && (accepted_bit != 0U) &&
@@ -2338,11 +2413,11 @@ static uint32_t Estimator_MeasurementResultFlagBuild(
     {
         return 0U;
     }
-    if (result == NAV_KF_UPDATE_ACCEPTED)
+    if (result == SYSTEM_ESTIMATOR_MEAS_ACCEPTED)
     {
         return accepted_bit;
     }
-    if (result == NAV_KF_UPDATE_SOFT_WEIGHTED)
+    if (result == SYSTEM_ESTIMATOR_MEAS_SOFT_WEIGHTED)
     {
         return soft_bit;
     }
@@ -2361,9 +2436,9 @@ static uint32_t Estimator_MeasurementFlagsBuild(void)
         SILVERSTAR_ASSERT_MODULE_APP,
         SILVERSTAR_ASSERT_REASON_STATE_INVARIANT);
     SILVERSTAR_ASSERT(
-        (s_snapshot.position_update_result <= NAV_KF_UPDATE_NUMERIC_ERROR) &&
-        (s_snapshot.velocity_update_result <= NAV_KF_UPDATE_NUMERIC_ERROR) &&
-        (s_snapshot.baro_update_result <= NAV_KF_UPDATE_NUMERIC_ERROR),
+        (s_snapshot.position_update_result <= SYSTEM_ESTIMATOR_MEAS_NUMERIC_ERROR) &&
+        (s_snapshot.velocity_update_result <= SYSTEM_ESTIMATOR_MEAS_NUMERIC_ERROR) &&
+        (s_snapshot.baro_update_result <= SYSTEM_ESTIMATOR_MEAS_NUMERIC_ERROR),
         SILVERSTAR_ASSERT_MODULE_APP,
         SILVERSTAR_ASSERT_REASON_ENUM_RANGE);
     flags |= Estimator_MeasurementResultFlagBuild(
@@ -2527,7 +2602,9 @@ static void Estimator_LogPush(uint64_t timestamp_us)
         timestamp_us, s_snapshot.measurement_attempt_mask, &diagnostic);
 }
 #endif
+#endif /* SYSTEM_BUILD_ESTIMATOR_ENABLED */
 
+#if (SYSTEM_BUILD_ESTIMATOR_ENABLED == 0U)
 static void Estimator_PureInsPublish(uint64_t timestamp_us)
 {
     InsOutputSnapshot pure_ins;
@@ -2567,7 +2644,9 @@ static void Estimator_PureInsPublish(uint64_t timestamp_us)
     s_snapshot.baro_origin_valid = s_estimator.baro_origin_valid;
     EstimatorTask_SnapshotCommit();
 }
+#endif
 
+#if (SYSTEM_BUILD_ESTIMATOR_ENABLED != 0U)
 static void Estimator_AccelerationPublish(const float delta_velocity[3], float dt_s)
 {
     uint8_t axis;
@@ -2615,11 +2694,15 @@ static NavigationReplayResult Estimator_PredictionApply(
     return result;
 }
 
+#endif
+
 static void Estimator_PredictionProcess(
     const SystemInertialIncrement *prediction)
 {
+#if (SYSTEM_BUILD_ESTIMATOR_ENABLED != 0U)
     float delta_velocity_enu_mps[3];
     float q_start[4];
+#endif
     SystemLifecycleState lifecycle_state = SystemLifecycle_GetState();
 
     if (prediction == NULL)
@@ -2634,12 +2717,10 @@ static void Estimator_PredictionProcess(
     {
         return;
     }
-    if (Estimator_Kf6Selected() == 0U)
-    {
-        Estimator_PureInsPublish(prediction->timestamp_us);
-        Estimator_DiagnosticsPublish(prediction->timestamp_us);
-        return;
-    }
+#if (SYSTEM_BUILD_ESTIMATOR_ENABLED == 0U)
+    Estimator_PureInsPublish(prediction->timestamp_us);
+    Estimator_DiagnosticsPublish(prediction->timestamp_us);
+#else
     memcpy(q_start, s_estimator.q_nb, sizeof(q_start));
     Ins_TransformDeltaVelocityToNavigation(
         q_start,
@@ -2665,9 +2746,9 @@ static void Estimator_PredictionProcess(
     }
     Estimator_AccelerationPublish(delta_velocity_enu_mps, prediction->dt_s);
     s_snapshot.measurement_attempt_mask = 0U;
-    s_snapshot.position_update_result = NAV_KF_UPDATE_REJECTED_INVALID;
-    s_snapshot.velocity_update_result = NAV_KF_UPDATE_REJECTED_INVALID;
-    s_snapshot.baro_update_result = NAV_KF_UPDATE_REJECTED_INVALID;
+    s_snapshot.position_update_result = SYSTEM_ESTIMATOR_MEAS_REJECTED_INVALID;
+    s_snapshot.velocity_update_result = SYSTEM_ESTIMATOR_MEAS_REJECTED_INVALID;
+    s_snapshot.baro_update_result = SYSTEM_ESTIMATOR_MEAS_REJECTED_INVALID;
     s_snapshot.velocity_update_dimension = 0U;
     s_snapshot.position_r_scale = 1.0f;
     s_snapshot.velocity_r_scale = 1.0f;
@@ -2678,6 +2759,7 @@ static void Estimator_PredictionProcess(
 #if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
     Estimator_LogPush(prediction->timestamp_us);
 #endif
+#endif /* SYSTEM_BUILD_ESTIMATOR_ENABLED */
 }
 
 static void Estimator_PredictionsProcessCycle(void)
@@ -2732,7 +2814,9 @@ void AppTask_Estimator(void *argument)
     (void)memset(&s_estimator, 0, sizeof(s_estimator));
     (void)memset(&s_snapshot, 0, sizeof(s_snapshot));
     (void)memset(&s_published_snapshot, 0, sizeof(s_published_snapshot));
+#if (SYSTEM_BUILD_ESTIMATOR_ENABLED != 0U)
     NavigationKf_Init(&s_estimator.kf);
+#endif
     SystemEstimatorBaroDiagnostics_Reset();
     SystemEstimatorStatusDiagnostics_Reset();
     SystemEstimatorGnssDiagnostics_Reset();
@@ -2808,6 +2892,7 @@ SystemDeviceResult EstimatorTask_FreezeOrigins(void)
         SYSTEM_DEVICE_OK : SYSTEM_DEVICE_NOT_READY;
 }
 
+#if (SYSTEM_BUILD_ESTIMATOR_ENABLED == 0U)
 static SystemDeviceResult Estimator_PureInsMissionInitialize(void)
 {
     SILVERSTAR_ASSERT(s_estimator.gnss_origin_valid <= 1U,
@@ -2842,6 +2927,9 @@ static SystemDeviceResult Estimator_PureInsMissionInitialize(void)
     return SYSTEM_DEVICE_OK;
 }
 
+#endif
+
+#if (SYSTEM_BUILD_ESTIMATOR_ENABLED != 0U)
 static void Estimator_KfProfileApply(const SystemEstimatorProfile *profile)
 {
     float soft_threshold[3];
@@ -2970,9 +3058,9 @@ static void Estimator_KfRuntimeInitialize(void)
     s_estimator.initialized = 1U;
     s_estimator.mission_running = 1U;
     (void)memset(&s_snapshot, 0, sizeof(s_snapshot));
-    s_snapshot.position_update_result = NAV_KF_UPDATE_REJECTED_INVALID;
-    s_snapshot.velocity_update_result = NAV_KF_UPDATE_REJECTED_INVALID;
-    s_snapshot.baro_update_result = NAV_KF_UPDATE_REJECTED_INVALID;
+    s_snapshot.position_update_result = SYSTEM_ESTIMATOR_MEAS_REJECTED_INVALID;
+    s_snapshot.velocity_update_result = SYSTEM_ESTIMATOR_MEAS_REJECTED_INVALID;
+    s_snapshot.baro_update_result = SYSTEM_ESTIMATOR_MEAS_REJECTED_INVALID;
     s_snapshot.position_r_scale = 1.0f;
     s_snapshot.velocity_r_scale = 1.0f;
     s_snapshot.baro_r_scale = 1.0f;
@@ -2990,11 +3078,15 @@ static void Estimator_KfRuntimeInitialize(void)
     }
 }
 
+#endif
+
 SystemDeviceResult EstimatorTask_InitializeMission(void)
 {
+#if (SYSTEM_BUILD_ESTIMATOR_ENABLED != 0U)
     const SystemEstimatorProfile *profile;
     SystemDeviceResult result;
     float p0[6][6];
+#endif
 
     SILVERSTAR_ASSERT(s_estimator.initialized <= 1U,
                       SILVERSTAR_ASSERT_MODULE_APP,
@@ -3006,10 +3098,9 @@ SystemDeviceResult EstimatorTask_InitializeMission(void)
     {
         return SYSTEM_DEVICE_NOT_READY;
     }
-    if (Estimator_Kf6Selected() == 0U)
-    {
-        return Estimator_PureInsMissionInitialize();
-    }
+#if (SYSTEM_BUILD_ESTIMATOR_ENABLED == 0U)
+    return Estimator_PureInsMissionInitialize();
+#else
     profile = SystemEstimatorProfile_Get();
     Estimator_KfProfileApply(profile);
     Estimator_KfP0Build(p0);
@@ -3026,6 +3117,7 @@ SystemDeviceResult EstimatorTask_InitializeMission(void)
     Estimator_LogPush(0U);
 #endif
     return SYSTEM_DEVICE_OK;
+#endif /* SYSTEM_BUILD_ESTIMATOR_ENABLED */
 }
 
 void EstimatorTask_RollbackMissionStart(void)
@@ -3041,15 +3133,23 @@ void EstimatorTask_RollbackMissionStart(void)
      */
     s_estimator.mission_running = 0U;
     s_estimator.initialized = 0U;
+#if (SYSTEM_BUILD_ESTIMATOR_ENABLED != 0U)
     NavigationKf_Reset(&s_estimator.kf);
     NavigationReplay_Reset(&s_replay, &s_replay_storage, &s_estimator.kf, 0U, ++s_replay_epoch);
+#endif
     s_snapshot.initialized = 0U;
     s_snapshot.mission_running = 0U;
     s_snapshot.gnss_origin_valid = 0U;
     s_snapshot.baro_origin_valid = 0U;
+#if (SYSTEM_BUILD_ESTIMATOR_ENABLED != 0U)
     Estimator_SnapshotPublish(0U);
+#else
+    EstimatorTask_SnapshotCommit();
+#endif
 #if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
-    if (Estimator_Kf6Selected() != 0U) { Estimator_LogPush(0U); }
+#if (SYSTEM_BUILD_ESTIMATOR_ENABLED != 0U)
+    Estimator_LogPush(0U);
+#endif
 #endif
     EstimatorBarometerPending_Reset(&s_estimator.pending_barometer);
 
@@ -3082,13 +3182,21 @@ void EstimatorTask_AbortMission(void)
 {
     s_estimator.mission_running = 0U;
     s_estimator.initialized = 0U;
+#if (SYSTEM_BUILD_ESTIMATOR_ENABLED != 0U)
     NavigationKf_Reset(&s_estimator.kf);
     NavigationReplay_Reset(&s_replay, &s_replay_storage, &s_estimator.kf, 0U, ++s_replay_epoch);
+#endif
     s_snapshot.initialized = 0U;
     s_snapshot.mission_running = 0U;
+#if (SYSTEM_BUILD_ESTIMATOR_ENABLED != 0U)
     Estimator_SnapshotPublish(0U);
+#else
+    EstimatorTask_SnapshotCommit();
+#endif
 #if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
-    if (Estimator_Kf6Selected() != 0U) { Estimator_LogPush(0U); }
+#if (SYSTEM_BUILD_ESTIMATOR_ENABLED != 0U)
+    Estimator_LogPush(0U);
+#endif
 #endif
     EstimatorBarometerPending_Reset(&s_estimator.pending_barometer);
     Estimator_OriginWindowReset();

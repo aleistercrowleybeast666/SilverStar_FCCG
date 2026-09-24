@@ -1,23 +1,31 @@
-from copy import deepcopy
-from dataclasses import replace
 import hashlib
-from io import BytesIO
 import json
-from pathlib import Path
 import struct
 import zipfile
+from copy import deepcopy
+from dataclasses import replace
+from io import BytesIO
+from pathlib import Path
 
 import pytest
-
 from algorithm_parameters_support import Trajectory_Run
+from PySide6.QtCore import Qt
+from PySide6.QtTest import QTest
+
 from silverstar_fccg.app.service import FccgService
 from silverstar_fccg.core.settings import SettingsStore
-from silverstar_fccg.core.workspace import WorkspacePolicy
-from silverstar_fccg.generator.log_decoder_profile import LogDecoderPackage_Verify, _AlgorithmParameters_Validate
+from silverstar_fccg.generator.log_decoder_profile import (
+    LogDecoderPackage_Verify,
+    _AlgorithmParameters_Validate,
+)
 from silverstar_fccg.generator.render import LogDecoderProfile_Render
 from silverstar_fccg.plugins.algorithm_parameters import AlgorithmParameters_Parse
-from silverstar_fccg.project.algorithm_parameters import (AlgorithmParameterOwners_Get,
-    AlgorithmParameters_Resolve, AlgorithmParametersHeader_Render)
+from silverstar_fccg.plugins.catalog import PluginCatalog
+from silverstar_fccg.project.algorithm_parameters import (
+    AlgorithmParameterOwners_Get,
+    AlgorithmParameters_Resolve,
+    AlgorithmParametersHeader_Render,
+)
 from silverstar_fccg.project.configuration import ProjectConfiguration_Reconcile
 from silverstar_fccg.project.generation_state import ProjectGenerationFingerprint_Get
 from silverstar_fccg.project.model import ProjectModel_Parse
@@ -25,7 +33,6 @@ from silverstar_fccg.project.reference import ReferenceProject_Create
 from silverstar_fccg.project.validation import Project_Validate
 from silverstar_fccg.ui.main_window import MainWindow
 from silverstar_fccg.ui.widgets import CollapsibleSection
-from silverstar_fccg.plugins.catalog import PluginCatalog
 
 INS = 'silverstar.algorithm.ins.coning2_sculling2'
 KF = 'silverstar.algorithm.estimator.kf6'
@@ -198,9 +205,10 @@ def test_gui_page_edit_reset_dirty_and_readonly_display(tmp_path,qapp,monkeypatc
         old=window._model.Dictionary_Get()
         window._Project_Refresh()
         assert window._model.Dictionary_Get()==old
-        assert list(k for k in window.algorithm_parameters_page.editors if 'gravity' in k[1]) == [('shared','navigation.gravity_mps2')]
+        assert [k for k in window.algorithm_parameters_page.editors if 'gravity' in k[1]] == [('shared','navigation.gravity_mps2')]
         editor=window.algorithm_parameters_page.editors[('shared','navigation.gravity_mps2')]
         editor.setValue(9.81)
+        QTest.keyClick(editor, Qt.Key.Key_Return)
         qapp.processEvents()
         assert window._model.algorithm_parameters[INS]['gravity_mps2']==9.81
         assert window._model.algorithm_parameters[KF]['gravity_mps2']==9.81

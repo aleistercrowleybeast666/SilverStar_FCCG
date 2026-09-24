@@ -18,14 +18,14 @@ from silverstar_fccg.generator.render import (
 from silverstar_fccg.generator.source_graph import SourceGraph_Resolve
 from silverstar_fccg.hardware import (
     BoardPluginExporter,
-    CubeMxImportError,
     CubeMxImporter,
+    CubeMxImportError,
 )
 from silverstar_fccg.plugins.catalog import PluginCatalog
 from silverstar_fccg.plugins.installer import PluginInstaller
-from silverstar_fccg.project.model import DeviceInstance, HardwareConfiguration
-from silverstar_fccg.project.logging import LoggingProfile_Reconcile
 from silverstar_fccg.project.configuration import ProjectConfiguration_Reconcile
+from silverstar_fccg.project.logging import LoggingProfile_Reconcile
+from silverstar_fccg.project.model import DeviceInstance, HardwareConfiguration
 from silverstar_fccg.project.reference import ReferenceProject_Create
 from silverstar_fccg.project.resources import ResourceAssignments_Resolve
 from silverstar_fccg.project.validation import Project_Validate
@@ -84,6 +84,13 @@ def test_estimator_none_is_absent_from_make_and_eide(
     assert not (core.payload_root / "APP" / "Src" / "estimator_task_none.c").exists()
     estimator_source = estimator_source_path.read_text(encoding="utf-8")
     assert "AppTask_Estimator" in estimator_header
+    for header_root in ("APP/Inc", "System/Inc", "Common/Inc",
+                        "Modules/Inc", "Interfaces/Inc"):
+        for header in (core.payload_root / header_root).rglob("*.h"):
+            content = header.read_text(encoding="utf-8")
+            assert '#include "navigation_kf.h"' not in content, header
+            assert '#include "navigation_kf_replay.h"' not in content, header
+            assert "Algorithm/Estimator/KF6/" not in content, header
     assert "return SYSTEM_BUILD_ESTIMATOR_ENABLED;" in estimator_source
 
 

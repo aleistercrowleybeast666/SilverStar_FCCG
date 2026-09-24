@@ -4,7 +4,7 @@
 #include <stdint.h>
 
 #include "system_device_types.h"
-#include "navigation_kf.h"
+#include "system_estimator_diagnostics.h"
 #include "system_alignment.h"
 
 #define ESTIMATOR_HEALTH_NONE                       0U
@@ -84,9 +84,9 @@ typedef struct
     uint8_t baro_origin_valid;
     uint8_t gnss_velocity_valid_mask;
     uint8_t velocity_update_dimension;
-    NavigationKfUpdateResult position_update_result;
-    NavigationKfUpdateResult velocity_update_result;
-    NavigationKfUpdateResult baro_update_result;
+    SystemEstimatorMeasurementResult position_update_result;
+    SystemEstimatorMeasurementResult velocity_update_result;
+    SystemEstimatorMeasurementResult baro_update_result;
 } EstimatorOutputSnapshot;
 
 typedef struct

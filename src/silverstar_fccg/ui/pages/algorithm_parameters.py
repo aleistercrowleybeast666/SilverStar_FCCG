@@ -1,11 +1,21 @@
 from __future__ import annotations
 
-from PySide6.QtCore import Signal, QTimer
-from PySide6.QtWidgets import QDoubleSpinBox, QFormLayout, QGroupBox, QLabel, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtCore import QTimer, Signal
+from PySide6.QtWidgets import (
+    QFormLayout,
+    QGroupBox,
+    QLabel,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
+)
 
 from silverstar_fccg.core.i18n import Translator
 from silverstar_fccg.plugins.manifest import PluginManifest
-from silverstar_fccg.project.algorithm_parameters import AlgorithmParameterSharedGroups_Get
+from silverstar_fccg.project.algorithm_parameters import (
+    AlgorithmParameterSharedGroups_Get,
+)
+from silverstar_fccg.ui.committed_spin import EnterCommittedDoubleSpinBox
 from silverstar_fccg.ui.pages.base import ScrollableLocalizedPage
 from silverstar_fccg.ui.widgets import CollapsibleSection
 
@@ -25,7 +35,7 @@ class AlgorithmParametersPage(ScrollableLocalizedPage):
         self._values: dict = {}
         self._recommendations: tuple[dict, ...] = ()
         self._expanded: dict[tuple[str, str], bool] = {}
-        self.editors: dict[tuple[str, str], QDoubleSpinBox] = {}
+        self.editors: dict[tuple[str, str], EnterCommittedDoubleSpinBox] = {}
 
     def Configuration_Set(self, owners: tuple[PluginManifest, ...], values: dict, recommendations: tuple[dict, ...] = ()) -> None:
         self._owners = owners
@@ -45,7 +55,7 @@ class AlgorithmParametersPage(ScrollableLocalizedPage):
             for shared_key, members in shared_groups.items():
                 owner, parameter = members[0]
                 editor = self._Editor_Create(parameter, values[owner.component_id][parameter.parameter_id], language)
-                editor.valueChanged.connect(
+                editor.committed.connect(
                     lambda value, key=shared_key, p=parameter: QTimer.singleShot(
                         0, self, lambda: self.sharedParameterChanged.emit(
                             key, int(value) if p.value_type == "integer" else value)))
@@ -71,7 +81,7 @@ class AlgorithmParametersPage(ScrollableLocalizedPage):
                 form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
                 for parameter in parameters:
                     editor = self._Editor_Create(parameter, values.get(owner.component_id, {}).get(parameter.parameter_id, parameter.default), language)
-                    editor.valueChanged.connect(
+                    editor.committed.connect(
                         lambda value, c=owner.component_id, p=parameter:
                         QTimer.singleShot(0, self, lambda:
                             self.parameterChanged.emit(c, p.parameter_id, int(value) if p.value_type == "integer" else value)))
@@ -104,16 +114,17 @@ class AlgorithmParametersPage(ScrollableLocalizedPage):
         self._content.deleteLater()
         self._content = content
 
-    @staticmethod
-    def _Editor_Create(parameter, value: object, language: str) -> QDoubleSpinBox:
-        editor = QDoubleSpinBox()
+    def _Editor_Create(self, parameter, value: object, language: str) -> EnterCommittedDoubleSpinBox:
+        editor = EnterCommittedDoubleSpinBox()
         editor.setDecimals(parameter.precision)
         editor.setRange(parameter.minimum, parameter.maximum)
         editor.setSingleStep(parameter.step)
-        editor.setKeyboardTracking(False)
         editor.setSuffix(" " + parameter.unit)
-        editor.setToolTip(parameter.Description_Get(language))
-        editor.setValue(value)
+        editor.setToolTip(parameter.Description_Get(language) + "\n" +
+                          self._translator.Text_Get(
+                              "mode.parameter_range", minimum=parameter.minimum,
+                              maximum=parameter.maximum, unit=parameter.unit))
+        editor.CommittedValue_Set(value)
         return editor
 
     def Language_Apply(self, translator: Translator) -> None:

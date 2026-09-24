@@ -1910,3 +1910,69 @@ Observed default generation resolves both `SYSTEM_INS_GRAVITY_MPS2` and
 
 No GUI screenshot was captured because the same missing `libGL.so.1` prevents starting PySide6 in
 this container. No hardware/toolchain/flight validation is claimed.
+
+## 2026-09-24 optional estimator and Enter-only numeric commit
+
+The user's generated project is under `D:/stm32_project/SS_0_5_TEST_2/HARDWARE/`,
+not the parent directory. Its format-12 `SilverStar.ssproject` persists
+`components.strategies.estimator = null`, INS Coning2Sculling2, Landing
+Baro+IMU Window, and logging enabled. `Generated/project_sources.mk` and EIDE
+both select `SYSTEM_FUSION_NONE` / `SYSTEM_BUILD_ESTIMATOR_ENABLED=0U` and omit
+KF6 sources/includes. The existing project was kept read-only. A read-only
+Arm GCC `-fsyntax-only` invocation with Core includes and those defines
+reproduced `APP/Inc/estimator_task.h:7:10: fatal error: navigation_kf.h`.
+The saved None selection is genuine; this evidence does not establish why the
+user previously expected KF6. FCCG save/reload tests retain both selections.
+
+Core now owns the public measurement-result enum (wire values 0..4), and the
+KF6 implementation maps internal results explicitly. Only KF6 state, replay,
+updates, and logs are conditionally compiled; origin collection, Pure INS,
+mission start, snapshot publication, rollback, and abort remain available in
+None builds. The Power of Ten checker permits only the exact estimator build
+macro in `APP/Src/estimator_task.c`; four positive/negative tests enforce that
+scope. No Record Catalog, SSLOG layout, decoder schema, AIR protocol, or
+checker threshold changed.
+
+Fresh generated SS0.5 configurations were built with `all stack-report
+memory-report artifact-check` in each mode. All four gates returned 0 in each
+row. KF6 includes `navigation_kf.c` and `navigation_kf_replay.c`; None includes
+neither their sources nor `-IAlgorithm/Estimator/KF6/Inc`. Make and EIDE render
+the same selected graph.
+
+| Estimator | Configuration | ELF bytes | BIN bytes | Build / stack / memory / artifact |
+| --- | --- | ---: | ---: | --- |
+| KF6 | Release | 2870344 | 272520 | pass / pass / pass / pass |
+| KF6 | Debug | 4255600 | 289056 | pass / pass / pass / pass |
+| None / Pure INS | Release | 2700668 | 246200 | pass / pass / pass / pass |
+| None / Pure INS | Debug | 4068084 | 261520 | pass / pass / pass / pass |
+
+| Estimator | Power of Ten checks | C files | Functions | Power of Ten failures | Architecture checks / failures |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| KF6 | 6075 | 95 | 2279 | 0 | 262 / 0 |
+| None / Pure INS | 5780 | 93 | 2171 | 0 | 262 / 0 |
+
+Host: KF6 68 executables / 4386469 checks / 0 failures; None 66
+executables / 4352291 checks / 0 failures. Both had 8 compile-pass and 16
+expected compile-rejection cases. A fresh copy regenerated from the *actual*
+saved user project, entirely below FCCG `tests/`, independently passed Release
+(ELF 2700568, BIN 246200), Debug (ELF 4067996, BIN 261520), stack/memory/
+artifact, Power of Ten 5780/0, architecture 262/0, and Host 66 executables /
+4352291 checks / 0 failures. The original generated project was not modified;
+its old payload requires regeneration to receive this repair.
+
+The full FCCG pytest suite, explicitly collecting all 43 top-level test
+modules to avoid inaccessible historical test-output directories, passed:
+**425 passed, 1 skipped, 0 failed**. The existing skip is the active read-only
+reference-firmware task. `compileall` passed for `src`, `main.py`, `tools`, and
+changed test support. Ruff passed on every changed Python file. Repository-wide
+Ruff still reports 192 findings in untouched files; the tracked HEAD snapshot
+has 205 findings with the same installed Ruff 0.16.8. Neither lint rules nor
+Power of Ten gates were weakened to hide findings.
+
+GUI tests cover mode/algorithm/logging numeric drafts, invalid intermediate
+input, Enter-only commit, focus-loss restore, step/wheel draft behavior,
+unchanged immediate dropdown selection, and one validation/display transaction
+per accepted Enter. Read-only FLP compatibility smoke passed 8 SSLOG parser
+tests plus its generated C golden → exact decoder → replay/mechanization test;
+read-only GSHC AIR smoke passed 14 tests. FLP and GSHC have no product diff.
+No flash, EIDE GUI invocation, or physical hardware test is claimed.

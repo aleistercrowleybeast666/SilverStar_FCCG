@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from PySide6.QtCore import Qt
+from PySide6.QtTest import QTest
+
 from silverstar_fccg.app.service import FccgService
 from silverstar_fccg.core.settings import SettingsStore
 from silverstar_fccg.ui.dialogs import NewProjectWizard
@@ -47,6 +50,7 @@ def test_gui_service_loads_catalog_opens_project_and_previews(
         assert period_editor.unit_combo.currentData() == "s"
         period_editor.unit_combo.setCurrentIndex(period_editor.unit_combo.findData("ms"))
         period_editor.value_spin.setValue(250)
+        QTest.keyClick(period_editor.value_spin, Qt.Key.Key_Return)
         window._ProjectModel_Sync()
         assert next(
             stream

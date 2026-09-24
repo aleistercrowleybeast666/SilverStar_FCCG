@@ -2,20 +2,19 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Iterable
+from typing import ClassVar
 
 from PySide6.QtCore import QSignalBlocker, Qt, Signal
 from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import (
-    QAbstractSpinBox,
     QAbstractItemView,
+    QAbstractSpinBox,
     QFormLayout,
-    QHeaderView,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QLayout,
-    QDoubleSpinBox,
     QPushButton,
-    QSpinBox,
     QTableWidgetItem,
     QVBoxLayout,
     QWidget,
@@ -27,22 +26,25 @@ from silverstar_fccg.core.view_models import (
     CapabilityUsageView,
     ComponentView,
     DeviceInstanceView,
-    LoggingStreamView,
     I2cPullupEvidenceView,
+    LoggingStreamView,
     PlatformMatchView,
     ProtocolProfileView,
     ResourceRequirementView,
 )
 from silverstar_fccg.project.capabilities import (
+    Capability_UserSelectable_Is,
     CapabilityKind,
     CapabilityKind_Get,
-    Capability_UserSelectable_Is,
 )
 from silverstar_fccg.project.configuration import SelectionAvailability
-from silverstar_fccg.ui.pages.base import LocalizedPage, ScrollableLocalizedPage
+from silverstar_fccg.ui.committed_spin import (
+    EnterCommittedDoubleSpinBox,
+    EnterCommittedSpinBox,
+)
+from silverstar_fccg.ui.pages.base import ScrollableLocalizedPage
 from silverstar_fccg.ui.widgets import (
     CollapsibleSection,
-    EngineeringTable,
     LockedCheckBox,
     SmoothTableWidget,
     StandardCheckBox,
@@ -57,7 +59,7 @@ class DevicesPage(ScrollableLocalizedPage):
     otherDeviceToggled = Signal(str, bool)
     installRequested = Signal()
 
-    _DEFAULT_INSTANCE_IDS = {
+    _DEFAULT_INSTANCE_IDS: ClassVar[dict[str, str]] = {
         "imu": "imu0",
         "gnss": "gnss0",
         "telemetry": "telemetry0",
@@ -435,13 +437,13 @@ class DevicesPage(ScrollableLocalizedPage):
             ),
             key=lambda item: item.name,
         )
-        for components, layout in (
+        for component_group, layout in (
             (other_components, self.other_checks_layout),
             (storage_components, self.storage_checks_layout),
             (indicator_components, self.indicator_checks_layout),
             (actuator_components, self.actuator_checks_layout),
         ):
-            for component in components:
+            for component in component_group:
                 instance = instances_by_plugin.get(component.component_id)
                 required = bool(
                     instance is not None
@@ -1073,24 +1075,25 @@ class BoardHardwarePage(ScrollableLocalizedPage):
 class CadenceEditor(QWidget):
     changed = Signal()
 
-    _UNIT_FACTORS = {
+    _UNIT_FACTORS: ClassVar[dict[str, int]] = {
         "us": 1,
         "ms": 1_000,
         "s": 1_000_000,
     }
     _PERIOD_US_MAX = 4_294_967_295
 
-    def __init__(self) -> None:
+    def __init__(self, translator: Translator) -> None:
         super().__init__()
+        self._translator = translator
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
-        self.value_spin = QDoubleSpinBox()
+        self.value_spin = EnterCommittedDoubleSpinBox()
         self.value_spin.setObjectName("cadenceValueSpin")
         self.value_spin.setDecimals(3)
         self.value_spin.setMinimum(0.0)
         self.value_spin.setSpecialValueText("—")
-        self.value_spin.valueChanged.connect(self._Value_Change)
+        self.value_spin.committed.connect(self._Value_Change)
         self.unit_combo = StandardComboBox()
         self.unit_combo.setObjectName("cadenceUnitCombo")
         for unit in ("us", "ms", "s"):
@@ -1133,7 +1136,7 @@ class CadenceEditor(QWidget):
                 max(0, self.unit_combo.findData(unit))
             )
         with QSignalBlocker(self.value_spin):
-            self.value_spin.setValue(self._period_us / factor)
+            self.value_spin.CommittedValue_Set(self._period_us / factor)
         self.value_spin.setEnabled(enabled)
         self.unit_combo.setEnabled(enabled)
 
@@ -1149,11 +1152,13 @@ class CadenceEditor(QWidget):
         return "us", cls._UNIT_FACTORS["us"]
 
     def _Value_Change(self, value: float) -> None:
-        self._period_us = min(
+        period_us = min(
             self._PERIOD_US_MAX,
             max(0, round(value * self._unit_factor)),
         )
-        self.changed.emit()
+        if period_us != self._period_us:
+            self._period_us = period_us
+            self.changed.emit()
 
     def _Unit_Change(self, _index: int) -> None:
         unit = str(self.unit_combo.currentData() or "us")
@@ -1161,11 +1166,17 @@ class CadenceEditor(QWidget):
         self._unit_factor = factor
         self._Range_Apply(factor)
         with QSignalBlocker(self.value_spin):
-            self.value_spin.setValue(self._period_us / factor)
+            self.value_spin.CommittedValue_Set(self._period_us / factor)
 
     def _Range_Apply(self, factor: int) -> None:
         self.value_spin.setDecimals({1: 0, 1_000: 3, 1_000_000: 6}[factor])
-        self.value_spin.setMaximum(self._PERIOD_US_MAX / factor)
+        maximum = self._PERIOD_US_MAX / factor
+        self.value_spin.setMaximum(maximum)
+        unit = next(name for name, value in self._UNIT_FACTORS.items()
+                    if value == factor)
+        self.value_spin.setToolTip(self._translator.Text_Get(
+            "mode.parameter_range", minimum=0, maximum=round(maximum, self.value_spin.decimals()),
+            unit=unit))
 
 
 class FlightConfigurationPage(ScrollableLocalizedPage):
@@ -1293,7 +1304,7 @@ class FlightConfigurationPage(ScrollableLocalizedPage):
         self.strategy_combos: dict[str, StandardComboBox] = {}
         self.mode_checks: dict[str, list[StandardCheckBox]] = {}
         self.mode_parameter_spins: dict[
-            tuple[str, str, str], QDoubleSpinBox | QSpinBox
+            tuple[str, str, str], EnterCommittedDoubleSpinBox | EnterCommittedSpinBox
         ] = {}
         self.protocol_combos: dict[str, StandardComboBox] = {}
         self._components: tuple[ComponentView, ...] = ()
@@ -1434,14 +1445,14 @@ class FlightConfigurationPage(ScrollableLocalizedPage):
                 for parameter in parameter_definitions.get(option, ()):
                     parameter_id = str(parameter["id"])
                     if parameter["type"] == "integer":
-                        spin = QSpinBox()
+                        spin = EnterCommittedSpinBox()
                         spin.setRange(
                             int(parameter["minimum"]),
                             int(parameter["maximum"]),
                         )
                         spin.setSingleStep(1)
                     else:
-                        spin = QDoubleSpinBox()
+                        spin = EnterCommittedDoubleSpinBox()
                         spin.setDecimals(3)
                         spin.setRange(
                             float(parameter["minimum"]),
@@ -1459,7 +1470,7 @@ class FlightConfigurationPage(ScrollableLocalizedPage):
                         option, {}
                     ).get(parameter_id, parameter["default"])
                     with QSignalBlocker(spin):
-                        spin.setValue(
+                        spin.CommittedValue_Set(
                             int(value)
                             if parameter["type"] == "integer"
                             else float(value)
@@ -1476,7 +1487,7 @@ class FlightConfigurationPage(ScrollableLocalizedPage):
                         availability.available
                         and option in self._modes.get(slot, [])
                     )
-                    spin.valueChanged.connect(
+                    spin.committed.connect(
                         lambda value, selected_slot=slot,
                         selected_option=option,
                         selected_parameter=parameter_id: self.modeParameterChanged.emit(
@@ -1705,14 +1716,14 @@ class FlightConfigurationPage(ScrollableLocalizedPage):
                 enabled_layout.addStretch(1)
                 self.logging_table.setCellWidget(row, 0, enabled_container)
             if stream.policy == "DECIMATION":
-                if not isinstance(decimation, QSpinBox):
+                if not isinstance(decimation, EnterCommittedSpinBox):
                     if isinstance(decimation, QWidget):
                         self.logging_table.removeCellWidget(row, 3)
                         decimation.deleteLater()
-                    decimation = QSpinBox()
+                    decimation = EnterCommittedSpinBox()
                     decimation.setRange(1, 65535)
                     decimation.setMinimumWidth(190)
-                    decimation.valueChanged.connect(
+                    decimation.committed.connect(
                         lambda _value: self.loggingChanged.emit()
                     )
                     self.logging_table.setCellWidget(row, 3, decimation)
@@ -1723,7 +1734,7 @@ class FlightConfigurationPage(ScrollableLocalizedPage):
                     decimation.setSuffix(
                         self._translator.Text_Get("logging.decimation_suffix")
                     )
-                    decimation.setValue(max(1, stream.decimation))
+                    decimation.CommittedValue_Set(max(1, stream.decimation))
                     decimation.setEnabled(stream.available)
                 decimation.setToolTip(
                     self._translator.Text_Get("logging.decimation_help")
@@ -1738,7 +1749,7 @@ class FlightConfigurationPage(ScrollableLocalizedPage):
                 if isinstance(cadence, QWidget):
                     self.logging_table.removeCellWidget(row, 4)
                     cadence.deleteLater()
-                cadence = CadenceEditor()
+                cadence = CadenceEditor(self._translator)
                 cadence.changed.connect(lambda: self.loggingChanged.emit())
                 self.logging_table.setCellWidget(row, 4, cadence)
             assert isinstance(enabled_check, StandardCheckBox)
@@ -1806,7 +1817,7 @@ class FlightConfigurationPage(ScrollableLocalizedPage):
                         if original.required
                         else bool(enabled_check and enabled_check.isChecked())
                     ),
-                    decimation=(decimation.value() if isinstance(decimation, QSpinBox) else original.decimation),
+                    decimation=(int(decimation.CommittedValue_Get()) if isinstance(decimation, EnterCommittedSpinBox) else original.decimation),
                     cadence_kind=original.cadence_kind,
                     cadence_text=original.cadence_text,
                     cadence_source=original.cadence_source,

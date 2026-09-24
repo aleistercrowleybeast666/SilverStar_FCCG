@@ -6,6 +6,8 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
+from PySide6.QtCore import Qt
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QFileDialog, QSpinBox
 
 from silverstar_fccg.app.service import FccgService
@@ -220,6 +222,7 @@ def test_logging_gui_uses_semantic_cadence_and_preserves_microseconds(
         )
         assert stats_cadence.PeriodUs_Get() == 1_000_000
         stats_cadence.value_spin.setValue(500)
+        QTest.keyClick(stats_cadence.value_spin, Qt.Key.Key_Return)
         qapp.processEvents()
         stream = next(
             stream

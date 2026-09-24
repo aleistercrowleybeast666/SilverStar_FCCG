@@ -963,6 +963,16 @@ Invoke-HostTest -Name 'telemetry' -Sources @(
     "$repoRoot\Protocol\Src\air_protocol.c"
 )
 
+$projectSourcesPath = Join-Path $repoRoot 'Generated\project_sources.mk'
+$estimatorBuildLines = @(Get-Content -LiteralPath $projectSourcesPath |
+    Where-Object { $_ -match '^\s*SYSTEM_BUILD_ESTIMATOR_ENABLED=(0U|1U)\s*(?:\\)?\s*$' })
+if ($estimatorBuildLines.Count -ne 1) {
+    throw 'Generated source graph must define SYSTEM_BUILD_ESTIMATOR_ENABLED exactly once.'
+}
+$estimatorBuildValue = [regex]::Match(
+    $estimatorBuildLines[0], 'SYSTEM_BUILD_ESTIMATOR_ENABLED=(0U|1U)').Groups[1].Value
+$estimatorLoggerArgs = @("-DTEST_EXPECT_ESTIMATOR_CONFIG_ENABLED=$estimatorBuildValue")
+
 $loggerSources = @(
     "$repoRoot\Tests\Host\test_logger.c",
     $hostPlatformMock,
@@ -977,9 +987,11 @@ $loggerSources = @(
     "$repoRoot\Generated\Src\project_log_decoder_profile.c",
     "$repoRoot\Generated\Src\project_log_config.c"
 ) + $sslogSources
-Invoke-HostTest -Name 'logger' -Sources $loggerSources
+Invoke-HostTest -Name 'logger' `
+    -ExtraCompilerArgs $estimatorLoggerArgs -Sources $loggerSources
 Invoke-HostTest -Name 'logger_estimator_noise_overrides' `
-    -ExtraCompilerArgs $estimatorNoiseOverrideArgs -Sources $loggerSources
+    -ExtraCompilerArgs ($estimatorNoiseOverrideArgs + $estimatorLoggerArgs) `
+    -Sources $loggerSources
 
 Invoke-HostTest -Name 'golden_sample' -Sources (@(
     "$repoRoot\Tests\Host\generate_golden_sample.c",

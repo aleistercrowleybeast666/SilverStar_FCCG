@@ -3,6 +3,17 @@
 
 #include <stdint.h>
 
+/* Public measurement outcome and SSLOG result values are stable across
+ * optional estimator implementations. */
+typedef enum
+{
+    SYSTEM_ESTIMATOR_MEAS_ACCEPTED = 0U,
+    SYSTEM_ESTIMATOR_MEAS_SOFT_WEIGHTED = 1U,
+    SYSTEM_ESTIMATOR_MEAS_REJECTED_NIS = 2U,
+    SYSTEM_ESTIMATOR_MEAS_REJECTED_INVALID = 3U,
+    SYSTEM_ESTIMATOR_MEAS_NUMERIC_ERROR = 4U
+} SystemEstimatorMeasurementResult;
+
 typedef enum
 {
     SYSTEM_ESTIMATOR_BARO_ORIGIN_UNAVAILABLE = 0,
