@@ -175,6 +175,10 @@ void NavigationKf_SetNisThresholds(
 void NavigationKf_GnssEpochTrack(
     NavigationKfContext *context,
     const NavigationKfGnssEpoch *epoch);
+NavigationKfUpdateResult NavigationKf_GnssIntegrityReanchor(
+    NavigationKfContext *context, const float observation[3],
+    const float variance[3], float minimum_distance_m,
+    float covariance_floor_m2);
 NavigationKfUpdateResult NavigationKf_GnssGroupRecover(
     NavigationKfContext *context, NavigationKfGnssGroup group,
     NavigationKfUpdateResult result, const float observation[3],

@@ -2201,6 +2201,40 @@ static uint8_t NavigationKf_GnssReanchorApply(
     return 1U;
 }
 
+NavigationKfUpdateResult NavigationKf_GnssIntegrityReanchor(
+    NavigationKfContext *context, const float observation[3],
+    const float variance[3], float minimum_distance_m,
+    float covariance_floor_m2)
+{
+    float protected_variance[3];
+    float east;
+    float north;
+    uint8_t axis;
+    if ((context == NULL) || (observation == NULL) || (variance == NULL) ||
+        !isfinite(minimum_distance_m) || (minimum_distance_m <= 0.0f) ||
+        !isfinite(covariance_floor_m2) || (covariance_floor_m2 <= 0.0f))
+    { return NAV_KF_UPDATE_REJECTED_INVALID; }
+    SILVERSTAR_ASSERT_OBJECT(context, NavigationKfContext,
+                             SILVERSTAR_ASSERT_MODULE_ALGORITHM);
+    east = observation[0] - context->state[0];
+    north = observation[1] - context->state[1];
+    if (!isfinite(east) || !isfinite(north))
+    { return NAV_KF_UPDATE_REJECTED_INVALID; }
+    if (hypotf(east, north) < minimum_distance_m)
+    { return NAV_KF_UPDATE_REJECTED_INVALID; }
+    for (axis = 0U; axis < 3U; axis++)
+    {
+        if (!isfinite(variance[axis]) || (variance[axis] <= 0.0f))
+        { return NAV_KF_UPDATE_REJECTED_INVALID; }
+        protected_variance[axis] = fmaxf(variance[axis], covariance_floor_m2);
+    }
+    if (NavigationKf_GnssReanchorApply(context,
+            NAV_KF_GNSS_GROUP_POSITION_HORIZONTAL,
+            observation, protected_variance) == 0U)
+    { return NAV_KF_UPDATE_NUMERIC_ERROR; }
+    return NAV_KF_UPDATE_ACCEPTED;
+}
+
 NavigationKfUpdateResult NavigationKf_GnssGroupRecover(
     NavigationKfContext *context, NavigationKfGnssGroup group,
     NavigationKfUpdateResult result, const float observation[3],

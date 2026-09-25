@@ -2617,6 +2617,7 @@
   "project_semantics": {
     "navigation_replay": {
       "revision": 2,
+      "gnss_integrity_revision": 1,
       "clock": "MCU monotonic microseconds",
       "operation_order": "Sort ESTIMATOR_STEP.operation_sequence, GNSS_MEASUREMENT.receive_operation_sequence/position_operation_sequence/velocity_operation_sequence, and BARO_MEASUREMENT.operation_sequence within replay_epoch. Zero means not executed. Equal position/velocity operation IDs mean one combined insert.",
       "initial_state": "INITIAL_STATE; P0 diagonal and initial velocity; attitude shared with chosen navigation algorithm",

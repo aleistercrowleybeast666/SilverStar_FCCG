@@ -37,6 +37,11 @@ int main(void)
     NavigationKf_Init(&s_estimator.kf);
     NavigationKf_Reset(&s_estimator.kf);
     NavigationReplay_Reset(&s_replay, &storage, &s_estimator.kf, 1000000ULL, 7U);
+    {
+        NavigationIntegrityConfig config = Estimator_IntegrityConfigGet();
+        if (NavigationIntegrity_Reset(&s_integrity, &config) !=
+            NAV_INTEGRITY_PROCESS_OK) { return 6; }
+    }
     for (step = 1U; step <= 450U; step++)
     {
         const float delta[3] = {0.0001f, 0.0002f, 0.0003f};

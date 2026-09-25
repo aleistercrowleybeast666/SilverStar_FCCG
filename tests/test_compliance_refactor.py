@@ -2,15 +2,23 @@ import json
 import shutil
 import subprocess
 
+from replay_compliance_support import (
+    barometer_operation_run,
+    estimator_trace_run,
+    replay_trace_run,
+    replay_work_limit_run,
+)
+
 from silverstar_fccg.app.service import FccgService
-from replay_compliance_support import estimator_trace_run, replay_trace_run, replay_work_limit_run, barometer_operation_run
 
 
 def test_replay_recovery_contract_and_app_order(tmp_path, workspace_root):
     service = FccgService(workspace_root)
     project = tmp_path / "generated"
-    service.Project_Save(service.ReferenceProject_Create("ComplianceTrace"), project,
-                         confirm_dangerous=True)
+    model = service.ReferenceProject_Create("ComplianceTrace")
+    model.algorithm_parameters["silverstar.algorithm.estimator.kf6"][
+        "gnss_integrity_enable"] = 0
+    service.Project_Save(model, project, confirm_dangerous=True)
     actual = replay_trace_run(project, project / "build/FCCG/Host/Trace",
                               project / "Tests/Host/test_navigation_kf_replay.c")
     # Group isolation and controlled re-anchor intentionally supersede the old
@@ -38,7 +46,7 @@ def test_architecture_runtime_tokens_and_raw_boundaries(tmp_path, workspace_root
     fixture = project / "Algorithm/Estimator/KF6/Src/architecture_fixture.h"
     def check(text, name):
         fixture.write_text(text, encoding="utf-8")
-        result = subprocess.run(command, cwd=project, capture_output=True, text=True)
+        result = subprocess.run(command, cwd=project, capture_output=True, text=True, check=False)
         (project / (name + ".log")).write_text(result.stdout + result.stderr, encoding="utf-8")
         return result
 

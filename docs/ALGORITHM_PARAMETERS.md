@@ -164,3 +164,53 @@ values always win; new selections and Restore Defaults use `default`. Old KF6 ow
 missing new delay fields receive zero delays; missing legacy baro/vertical-scale
 fields receive 5.0/1.0. New projects use 2.5/1.75 and velocity delay 270 ms.
 Recommendations never participate in shared-parameter contract equality.
+
+
+## GNSS position self-check candidate contract
+
+The KF6 plugin is the authority for the following values. FCCG format-12 projects
+store per-owner actual values, generated constants use the same values, and
+`.ssdecoder` project-semantics 1.2 declares `navigation_replay.gnss_integrity_revision = 1`
+for newly generated projects. FLP mirrors the exact types, units, ranges and
+representation. A newly selected KF6 defaults to enabled; an existing KF6
+owner missing the new fields reconciles with `legacy_default` and stays disabled.
+Revision-0 logs must remain disabled for faithful replay. A revision-1 KF6
+parameter set must contain all 20 values. These defaults are candidates, not
+flight-qualified thresholds.
+
+| KF6 parameter | Type | New default | Legacy default | Unit | Allowed range |
+| --- | --- | ---: | ---: | --- | --- |
+| `gnss_integrity_enable` | integer | 1 | 0 | 1 | 0–1 |
+| `gnss_integrity_window_s` | integer | 5 | 5 | s | 1–10 |
+| `gnss_integrity_max_gap_ms` | integer | 120 | 120 | ms | 40–1200 |
+| `gnss_integrity_max_evidence_age_ms` | integer | 550 | 550 | ms | 0–550 |
+| `gnss_integrity_reference_max_age_s` | integer | 30 | 30 | s | 11–300 |
+| `gnss_integrity_suspect_duration_ms` | integer | 2000 | 2000 | ms | 100–30000 |
+| `gnss_integrity_untrusted_duration_ms` | integer | 5000 | 5000 | ms | 100–30000 |
+| `gnss_integrity_recovery_duration_ms` | integer | 8000 | 8000 | ms | 100–30000 |
+| `gnss_integrity_recovery_min_samples` | integer | 25 | 25 | samples | 1–1000 |
+| `gnss_integrity_rolling_threshold_m` | float | 7.0 | 7.0 | m | 0.1–100.0 |
+| `gnss_integrity_anchored_threshold_m` | float | 15.0 | 15.0 | m | 0.1–200.0 |
+| `gnss_integrity_recovery_rolling_m` | float | 2.0 | 2.0 | m | 0.1–50.0 |
+| `gnss_integrity_recovery_anchored_m` | float | 8.0 | 8.0 | m | 0.1–100.0 |
+| `gnss_integrity_hacc_max_m` | float | 6.0 | 6.0 | m | 0.1–100.0 |
+| `gnss_integrity_sacc_max_mps` | float | 1.2 | 1.2 | m/s | 0.01–20.0 |
+| `gnss_integrity_velocity_bias_bound_mps` | float | 0.15 | 0.15 | m/s | 0.0–5.0 |
+| `gnss_integrity_reference_renewal_max_m` | float | 2.0 | 2.0 | m | 0.1–50.0 |
+| `gnss_integrity_position_r_scale` | float | 4.0 | 4.0 | 1 | 1.0–100.0 |
+| `gnss_integrity_reanchor_min_distance_m` | float | 8.0 | 8.0 | m | 0.1–100.0 |
+| `gnss_integrity_reanchor_covariance_floor_m2` | float | 25.0 | 25.0 | m^2 | 0.01–10000.0 |
+
+The receive-side C state machine compares position displacement and velocity
+integral over a causal aligned history window using the existing resolved
+position/velocity times. It admits only horizontal position (E/N) through
+normal R, a conservative R multiplier, or pause; other GNSS groups retain their
+own native validity. An anchored residual uses the bounded reference age and
+`anchored_threshold_m + velocity_bias_bound_mps * age_s`. Reference renewal is
+permitted only while trusted and within both rolling and anchored renewal
+bounds. A true velocity/sequence discontinuity clears duration counters and
+pending reanchor. Reanchor operates on the historical position state and
+covariance, followed by normal fixed-lag replay.
+
+The candidate has unresolved resource and replay/logging validation failures;
+its exact gate results and limits are recorded in [VALIDATION](../VALIDATION.md).

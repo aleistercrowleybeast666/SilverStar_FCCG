@@ -69,7 +69,7 @@ class AlgorithmParametersPage(ScrollableLocalizedPage):
         for owner in owners:
             group = QGroupBox(owner.DisplayName_Get(language))
             group_layout = QVBoxLayout(group)
-            for level in ("basic", "advanced"):
+            for level in ("basic", "advanced", "gnss_integrity"):
                 parameters = [p for p in owner.algorithm_parameters if p.group == level and not p.shared_key]
                 if not parameters:
                     continue

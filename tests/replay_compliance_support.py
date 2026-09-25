@@ -151,6 +151,7 @@ def estimator_trace_run(project: Path, output: Path, fixture: Path) -> dict:
 #include <stdio.h>
 #include <string.h>
 #include "navigation_kf_replay.h"
+#include "navigation_integrity.h"
 #include "system_user_config.h"
 #include "system_gnss_if.h"
 #include "system_estimator_diagnostics.h"
@@ -166,6 +167,7 @@ void PlatformCritical_Exit(PlatformCriticalState state) { (void)state; }
 static struct { NavigationKfContext kf; SystemEstimatorGnssDiagnostics gnss_diagnostics; uint32_t operation_sequence; } s_estimator;
 static struct { float position_innovation[3]; } s_snapshot;
 static NavigationReplayContext s_replay;
+static NavigationIntegrityContext s_integrity;
 '''
     conversion_start = app.index(
         "static SystemEstimatorMeasurementResult Estimator_MeasurementResultConvert("
@@ -189,6 +191,7 @@ static NavigationReplayContext s_replay;
     command += ["-I" + str(project / p.replace("\\", "/")) for p in includes]
     command += [str(project / p) for p in (
         "Algorithm/Estimator/KF6/Src/navigation_kf.c", "Algorithm/Estimator/KF6/Src/navigation_kf_replay.c",
+        "Algorithm/Estimator/KF6/Src/navigation_integrity.c",
         "System/Src/system_time.c", "Common/Src/silverstar_assert.c")]
     command += [str(instrumented), "-lm", "-o", str(output / "app.exe")]
     env = dict(os.environ, TEMP=str(output), TMP=str(output))

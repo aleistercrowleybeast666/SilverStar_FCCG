@@ -15,6 +15,7 @@
 #include "ins_task.h"
 #if (SYSTEM_BUILD_ESTIMATOR_ENABLED != 0U)
 #include "navigation_kf_replay.h"
+#include "navigation_integrity.h"
 #endif
 #if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
 #include "logger_bus.h"
@@ -178,6 +179,8 @@ typedef struct
 #endif
     NavigationKfGnssEpoch epoch;
     NavigationReplayOutcome replay_outcome;
+    NavigationIntegrityDecision integrity_decision;
+    NavigationIntegrityProcessResult integrity_result;
     NavigationKfGnssSeparatedUpdateResult position_group_result;
     NavigationKfGnssSeparatedUpdateResult velocity_group_result;
     float position_enu_m[3];
@@ -213,6 +216,7 @@ static PLATFORM_CPU_FAST_BSS EstimatorRuntime s_estimator;
 #if (SYSTEM_BUILD_ESTIMATOR_ENABLED != 0U)
 static NavigationReplayContext s_replay;
 static PLATFORM_CPU_FAST_BSS NavigationReplayStorage s_replay_storage;
+static NavigationIntegrityContext s_integrity;
 static uint32_t s_replay_epoch;
 #endif
 
@@ -1911,6 +1915,53 @@ static SystemMeasurementTimeResult Estimator_MeasurementTimeResolve(
     return result;
 }
 
+static NavigationIntegrityConfig Estimator_IntegrityConfigGet(void)
+{
+    const NavigationIntegrityConfig config = {
+        .enabled = SYSTEM_ESTIMATOR_GNSS_INTEGRITY_ENABLE,
+        .window_us = SYSTEM_ESTIMATOR_GNSS_INTEGRITY_WINDOW_S * 1000000U,
+        .max_gap_us = SYSTEM_ESTIMATOR_GNSS_INTEGRITY_MAX_GAP_MS * 1000U,
+        .max_evidence_age_us =
+            SYSTEM_ESTIMATOR_GNSS_INTEGRITY_MAX_EVIDENCE_AGE_MS * 1000U,
+        .reference_max_age_us =
+            SYSTEM_ESTIMATOR_GNSS_INTEGRITY_REFERENCE_MAX_AGE_S * 1000000U,
+        .suspect_duration_us =
+            SYSTEM_ESTIMATOR_GNSS_INTEGRITY_SUSPECT_DURATION_MS * 1000U,
+        .untrusted_duration_us =
+            SYSTEM_ESTIMATOR_GNSS_INTEGRITY_UNTRUSTED_DURATION_MS * 1000U,
+        .recovery_duration_us =
+            SYSTEM_ESTIMATOR_GNSS_INTEGRITY_RECOVERY_DURATION_MS * 1000U,
+        .recovery_min_samples =
+            SYSTEM_ESTIMATOR_GNSS_INTEGRITY_RECOVERY_MIN_SAMPLES,
+        .rolling_threshold_m =
+            SYSTEM_ESTIMATOR_GNSS_INTEGRITY_ROLLING_THRESHOLD_M,
+        .anchored_threshold_m =
+            SYSTEM_ESTIMATOR_GNSS_INTEGRITY_ANCHORED_THRESHOLD_M,
+        .recovery_rolling_m =
+            SYSTEM_ESTIMATOR_GNSS_INTEGRITY_RECOVERY_ROLLING_M,
+        .recovery_anchored_m =
+            SYSTEM_ESTIMATOR_GNSS_INTEGRITY_RECOVERY_ANCHORED_M,
+        .hacc_max_m = SYSTEM_ESTIMATOR_GNSS_INTEGRITY_HACC_MAX_M,
+        .sacc_max_mps = SYSTEM_ESTIMATOR_GNSS_INTEGRITY_SACC_MAX_MPS,
+        .velocity_bias_bound_mps =
+            SYSTEM_ESTIMATOR_GNSS_INTEGRITY_VELOCITY_BIAS_BOUND_MPS,
+        .reference_renewal_max_m =
+            SYSTEM_ESTIMATOR_GNSS_INTEGRITY_REFERENCE_RENEWAL_MAX_M,
+        .position_r_scale =
+            SYSTEM_ESTIMATOR_GNSS_INTEGRITY_POSITION_R_SCALE,
+        .reanchor_min_distance_m =
+            SYSTEM_ESTIMATOR_GNSS_INTEGRITY_REANCHOR_MIN_DISTANCE_M,
+        .reanchor_covariance_floor_m2 =
+            SYSTEM_ESTIMATOR_GNSS_INTEGRITY_REANCHOR_COVARIANCE_FLOOR_M2
+    };
+    SILVERSTAR_ASSERT(config.window_us <= NAV_INTEGRITY_MAX_WINDOW_US,
+        SILVERSTAR_ASSERT_MODULE_APP, SILVERSTAR_ASSERT_REASON_LENGTH_RANGE);
+    SILVERSTAR_ASSERT(NavigationIntegrity_ConfigValidate(&config) ==
+        NAV_INTEGRITY_PROCESS_OK,
+        SILVERSTAR_ASSERT_MODULE_APP, SILVERSTAR_ASSERT_REASON_STATE_INVARIANT);
+    return config;
+}
+
 static NavigationReplayResult Estimator_ReplayInsert(
     const NavigationReplayEvent *event, NavigationReplayOutcome *outcome)
 {
@@ -1973,8 +2024,61 @@ static void Estimator_GnssReplayEventApply(const NavigationReplayEvent *event,
         work->measurement.replay_generation = s_replay.diagnostics.replay_count;
 #endif
         Estimator_GnssReplayOutcomeCopy(work, event->kind, &outcome);
+        if ((SYSTEM_ESTIMATOR_GNSS_INTEGRITY_ENABLE != 0U) &&
+            (event->integrity_reanchor_requested != 0U))
+        {
+            NavigationIntegrity_ReanchorAcknowledge(&s_integrity, (uint8_t)(
+                (result == NAV_REPLAY_OK) &&
+                (outcome.integrity_reanchor == NAV_KF_UPDATE_ACCEPTED)));
+        }
     (void)result;
     (void)operation_sequence;
+}
+
+static void Estimator_GnssReplayEventPrepare(EstimatorGnssUpdateWork *work,
+    NavigationReplayEvent *event, uint64_t position_us, uint64_t velocity_us)
+{
+    SILVERSTAR_ASSERT_OBJECT(work, EstimatorGnssUpdateWork,
+                             SILVERSTAR_ASSERT_MODULE_APP);
+    SILVERSTAR_ASSERT_OBJECT(event, NavigationReplayEvent,
+                             SILVERSTAR_ASSERT_MODULE_APP);
+    SILVERSTAR_ASSERT(event->valid_group_mask <= 15U,
+        SILVERSTAR_ASSERT_MODULE_APP, SILVERSTAR_ASSERT_REASON_ENUM_RANGE);
+    event->source = 0U;
+    event->vertical_valid = (uint8_t)(work->velocity_dimension == 3U);
+    if (SYSTEM_ESTIMATOR_GNSS_INTEGRITY_ENABLE != 0U)
+    {
+        NavigationIntegrityInput input = {0};
+        input.receive_us = work->sample.receive_timestamp_us;
+        input.position_us = position_us;
+        input.velocity_us = velocity_us;
+        input.epoch = s_replay.epoch;
+        input.sequence = work->sample.sequence;
+        input.valid_group_mask = event->valid_group_mask;
+        input.position_en[0] = work->position_enu_m[0];
+        input.position_en[1] = work->position_enu_m[1];
+        input.velocity_en[0] = work->sample.velocity_enu_mps[0];
+        input.velocity_en[1] = work->sample.velocity_enu_mps[1];
+        input.hacc_m = work->sample.horizontal_accuracy_m;
+        input.sacc_mps = work->sample.speed_accuracy_mps;
+        work->integrity_result = NavigationIntegrity_Receive(
+            &s_integrity, &input, &work->integrity_decision);
+        event->integrity_admission_valid = 1U;
+        event->integrity_admitted_group_mask =
+            (work->integrity_result == NAV_INTEGRITY_PROCESS_OK) ?
+            work->integrity_decision.admitted_group_mask :
+            (uint8_t)(event->valid_group_mask & (uint8_t)~1U);
+    }
+    (void)memcpy(event->position, work->position_enu_m, sizeof(event->position));
+    (void)memcpy(event->position_variance, work->position_variance, sizeof(event->position_variance));
+    if ((SYSTEM_ESTIMATOR_GNSS_INTEGRITY_ENABLE != 0U) &&
+        (work->integrity_result == NAV_INTEGRITY_PROCESS_OK))
+    {
+        event->position_variance[0] *= work->integrity_decision.position_r_scale;
+        event->position_variance[1] *= work->integrity_decision.position_r_scale;
+    }
+    (void)memcpy(event->velocity, work->sample.velocity_enu_mps, sizeof(event->velocity));
+    (void)memcpy(event->velocity_variance, work->velocity_variance, sizeof(event->velocity_variance));
 }
 
 static void Estimator_GnssReplay(uint64_t state_timestamp_us,
@@ -2015,12 +2119,7 @@ static void Estimator_GnssReplay(uint64_t state_timestamp_us,
     work->measurement.position_measurement_timestamp_us = position_us;
     work->measurement.velocity_measurement_timestamp_us = velocity_us;
 #endif
-    event.source = 0U;
-    event.vertical_valid = (uint8_t)(work->velocity_dimension == 3U);
-    (void)memcpy(event.position, work->position_enu_m, sizeof(event.position));
-    (void)memcpy(event.position_variance, work->position_variance, sizeof(event.position_variance));
-    (void)memcpy(event.velocity, work->sample.velocity_enu_mps, sizeof(event.velocity));
-    (void)memcpy(event.velocity_variance, work->velocity_variance, sizeof(event.velocity_variance));
+    Estimator_GnssReplayEventPrepare(work, &event, position_us, velocity_us);
     for (part = 0U; part < 2U; part++)
     {
         /* Insert this packet's older component first, so its rewind cannot
@@ -2031,6 +2130,11 @@ static void Estimator_GnssReplay(uint64_t state_timestamp_us,
             position_us : velocity_us;
         if (position_us == velocity_us)
         { event.kind = NAV_REPLAY_POSITION | NAV_REPLAY_VELOCITY; }
+        event.integrity_reanchor_requested = (uint8_t)(
+            ((event.kind & NAV_REPLAY_POSITION) != 0U) &&
+            (work->integrity_result == NAV_INTEGRITY_PROCESS_OK) &&
+            (work->integrity_decision.reanchor_requested != 0U) &&
+            ((event.integrity_admitted_group_mask & 1U) != 0U));
         Estimator_GnssReplayEventApply(&event, work);
         if (position_us == velocity_us) { break; }
     }
@@ -3112,6 +3216,16 @@ SystemDeviceResult EstimatorTask_InitializeMission(void)
     Estimator_KfInitialVelocityApply();
     Estimator_KfRuntimeInitialize();
     NavigationReplay_Reset(&s_replay, &s_replay_storage, &s_estimator.kf, 0U, ++s_replay_epoch);
+    if (SYSTEM_ESTIMATOR_GNSS_INTEGRITY_ENABLE != 0U)
+    {
+        NavigationIntegrityConfig integrity_config = Estimator_IntegrityConfigGet();
+        if ((NavigationIntegrity_Reset(&s_integrity, &integrity_config) !=
+             NAV_INTEGRITY_PROCESS_OK) ||
+            (NavigationReplay_IntegrityConfigSet(&s_replay,
+                integrity_config.reanchor_min_distance_m,
+                integrity_config.reanchor_covariance_floor_m2) != NAV_REPLAY_OK))
+        { return SYSTEM_DEVICE_INVALID_ARGUMENT; }
+    }
     Estimator_SnapshotPublish(0U);
 #if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
     Estimator_LogPush(0U);

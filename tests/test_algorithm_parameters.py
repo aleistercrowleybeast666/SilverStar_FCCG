@@ -47,7 +47,8 @@ def test_actual_defaults_roundtrip_and_decoder(builtin_catalog):
     assert values['process_accel_std_u'] == 2.0
     assert values['gnss_velocity_std'] == 0.15
     assert values['baro_std_m'] == 2.5
-    assert len(values) == 26
+    assert len(values) == 46
+    assert values['gnss_integrity_enable'] == 1
     assert values["gnss_velocity_vertical_scale"] == 1.75
     assert values["gnss_position_measurement_delay_ms"] == 0
     assert values["gnss_velocity_measurement_delay_ms"] == 270
@@ -214,10 +215,13 @@ def test_gui_page_edit_reset_dirty_and_readonly_display(tmp_path,qapp,monkeypatc
         assert window._model.algorithm_parameters[KF]['gravity_mps2']==9.81
         assert 'dirty' in window._project_state.value.lower()
         sections = window.algorithm_parameters_page._content.findChildren(CollapsibleSection)
-        advanced = next(section for section in sections if not section.Expanded_Is())
-        advanced.toggle_button.setChecked(True)
+        collapsed = [section for section in sections if not section.Expanded_Is()]
+        assert collapsed
+        for section in collapsed:
+            section.toggle_button.setChecked(True)
         window._Project_Refresh()
-        assert all(section.Expanded_Is() for section in window.algorithm_parameters_page._content.findChildren(CollapsibleSection))
+        assert all(section.Expanded_Is() for section in
+                   window.algorithm_parameters_page._content.findChildren(CollapsibleSection))
         window._SharedAlgorithmDefaults_Reset('navigation.gravity_mps2')
         assert window._model.algorithm_parameters[INS]['gravity_mps2']==9.78
         assert window._model.algorithm_parameters[KF]['gravity_mps2']==9.78
@@ -234,6 +238,7 @@ def test_generated_defaults_numerically_identical_and_changed_values_consumed(tm
     # Keep the historical golden unchanged; use its explicit actual parameters.
     model.algorithm_parameters[KF]['baro_std_m'] = 5.0
     model.algorithm_parameters[KF]['gnss_velocity_vertical_scale'] = 1.0
+    model.algorithm_parameters[KF]['gnss_integrity_enable'] = 0
     project=tmp_path/'generated'
     service.Project_Save(model,project,confirm_dangerous=True)
     baseline=Trajectory_Run(project,workspace_root)

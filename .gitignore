@@ -24,3 +24,4 @@ tests/.work*
 tests/.prompt*-validation*/
 tests/acceptance_*/
 *.egg-info/
+tests/.integrity-*/

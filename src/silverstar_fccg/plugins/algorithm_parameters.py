@@ -76,7 +76,7 @@ def AlgorithmParameters_Parse(value: Any) -> tuple[AlgorithmParameterDefinition,
             raise ValueError("Invalid algorithm parameter type")
         if entry["representation"] not in ("value", "sigma", "variance", "covariance_diagonal"):
             raise ValueError("Invalid parameter representation")
-        if entry["group"] not in ("basic", "advanced"):
+        if entry["group"] not in ("basic", "advanced", "gnss_integrity"):
             raise ValueError("Invalid parameter group")
         if type(entry["precision"]) is not int or not 0 <= entry["precision"] <= 9:
             raise ValueError("Invalid parameter precision")
@@ -105,7 +105,7 @@ def AlgorithmParameters_Parse(value: Any) -> tuple[AlgorithmParameterDefinition,
             raise ValueError("Invalid parameter shared_key")
         greater = entry.get("greater_than", "")
         if not isinstance(greater, str):
-            raise ValueError("Invalid parameter comparison")
+            raise TypeError("Invalid parameter comparison")
         definition = AlgorithmParameterDefinition(
             entry["id"], entry["type"], entry["default"], entry["unit"],
             entry["representation"], entry["min"], entry["max"], entry["precision"],

@@ -5,19 +5,19 @@ from pathlib import Path
 
 import pytest
 
-from silverstar_fccg.core.workspace import WorkspacePolicy
 from silverstar_fccg.build.runner import BuildAction, BuildRunner
 from silverstar_fccg.build.toolchain import (
     ArmGnuSubtoolPaths_Derive,
     ToolchainDetector,
 )
+from silverstar_fccg.core.workspace import WorkspacePolicy
 from silverstar_fccg.generator.render import ProjectDigest_Get
 from silverstar_fccg.generator.source_graph import SourceGraph_Resolve
 from silverstar_fccg.project.model import (
-    ProjectModelError,
     ProjectModel_Load,
     ProjectModel_Parse,
     ProjectModel_Save,
+    ProjectModelError,
 )
 from silverstar_fccg.project.reference import ReferenceProject_Create
 from silverstar_fccg.project.resources import ResourceAssignments_Resolve
@@ -125,7 +125,8 @@ def test_dependency_and_resource_conflicts_are_reported(builtin_catalog) -> None
 
 def test_source_graph_is_complete_and_has_one_truth(builtin_catalog) -> None:
     graph = SourceGraph_Resolve(ReferenceProject_Create(), builtin_catalog)
-    assert len(graph.sources) == 139
+    assert len(graph.sources) == 140
+    assert "Algorithm/Estimator/KF6/Src/navigation_integrity.c" in graph.sources
     assert "Algorithm/Estimator/KF6/Src/navigation_kf_replay.c" in graph.sources
     assert len(graph.sources) == len(set(graph.sources))
     assert "APP/Src/diagnostic_log.c" in graph.sources

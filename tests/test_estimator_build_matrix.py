@@ -59,7 +59,7 @@ def test_estimator_release_debug_build_and_quality_matrix(
     assert f"SYSTEM_BUILD_ESTIMATOR_ENABLED={int(estimator_enabled)}U" in graph.defines
     assert "SYSTEM_BUILD_LANDING_MODE=SYSTEM_LANDING_MODE_BARO_IMU_WINDOW" in graph.defines
     sources = [source for source in graph.sources if "Algorithm/Estimator/KF6" in source]
-    assert len(sources) == (2 if estimator_enabled else 0)
+    assert len(sources) == (3 if estimator_enabled else 0)
     for config in ("Release", "Debug"):
         build = _Make_Run(
             make, project, f"{config.lower()}-build",
@@ -70,6 +70,7 @@ def test_estimator_release_debug_build_and_quality_matrix(
         assert (include in build) == estimator_enabled
         assert ("Algorithm/Estimator/KF6/Src/navigation_kf.c" in build) == estimator_enabled
         assert ("Algorithm/Estimator/KF6/Src/navigation_kf_replay.c" in build) == estimator_enabled
+        assert ("Algorithm/Estimator/KF6/Src/navigation_integrity.c" in build) == estimator_enabled
 
     quality = _Make_Run(
         make, project, "quality", "CONFIG=Release",
