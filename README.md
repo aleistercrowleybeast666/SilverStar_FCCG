@@ -4,7 +4,7 @@
 
 新增独立算法参数页面（硬件连接之前），插件声明实际值、单位和 representation。
 Project format 12；`.ssdecoder` / project-semantics 1.2，拒绝 decoder 1.1；
-Platform 仍为 0.0.10，Record Catalog 与协议布局不变。
+Platform 仍为 0.0.12，Record Catalog 与协议布局不变。
 参数清单、生成绑定与 Recorded Configuration / Offline What-if 边界见[参数契约](docs/ALGORITHM_PARAMETERS.md)。
 精确验证结果仅见仓库根 VALIDATION.md。
 
@@ -55,15 +55,15 @@ and initialization; FlightTask owns the full periodic Alignment Process.
 Generated Make emits `.su` files. Run `mingw32-make CONFIG=Release stack-report` and the Debug
 equivalent to check all static tasks against the real ELF. The fault record preserves task identity,
 lifecycle state and valid cached high-water marks. AIR M0, Maintenance/SSLOG 0.0 and `.ssdecoder`
-1.1 have no wire/layout breaking change. See [validation](VALIDATION.md) and the builtin
-[runtime contract](plugins/builtin/silverstar_core_0_0_10/docs/RUNTIME_SAFETY.md).
+1.2 have no wire/layout breaking change. See [validation](VALIDATION.md) and the builtin
+[runtime contract](plugins/builtin/silverstar_core_0_0_12/docs/RUNTIME_SAFETY.md).
 Continuous SS0.5 hardware testing is still required. Existing project-owned sources are preserved
 by normal Apply; use a fresh output directory or deliberately port the listed source repairs into
 an existing generated project.
 
 SilverStar_FCCG (FCCG) is the central configuration, assembly, interface-freeze, and version authority for the SilverStar platform. It is a PySide6 flight-controller configurator, declarative component manager, safe project assembler, thin glue generator, STM32 hardware-import front end, and development-environment generator.
 
-The FCCG application, new-project platform identity, generated firmware, embedded Core, and official SilverStar builtin release train are frozen at **0.0.10**. Protocol and upstream identities remain independent: AIR stays M0, Serial Maintenance and Flight Log stay 0.0, `.ssdecoder` and project semantics use 1.2, FreeRTOS stays 11.3.0, and SS0.5/STM32F407VET6 retain their hardware identities. The current internal software release candidate validates the real STM32F407VET6 + SS0.5 combination with JY901B, NEO-M9N, E28-2G4M12SX/SX1281, and the selected Alignment/INS/KF6/Landing components. Builtin packages retain read-only reference provenance while identifying FCCG-owned overlays; exact snapshot evidence is recorded in `VALIDATION.md`. This is a **Software Release Candidate / Pre-Hardware-Validation** milestone, not a public release or a claim of electrical, flight, flash, or alternate-MCU validation.
+The FCCG application, new-project platform identity, generated firmware, embedded Core, and official SilverStar builtin release train are frozen at **0.0.12**. Protocol and upstream identities remain independent: AIR stays M0, Serial Maintenance and Flight Log stay 0.0, `.ssdecoder` and project semantics use 1.2, FreeRTOS stays 11.3.0, and SS0.5/STM32F407VET6 retain their hardware identities. The current internal software release candidate validates the real STM32F407VET6 + SS0.5 combination with JY901B, NEO-M9N, E28-2G4M12SX/SX1281, and the selected Alignment/INS/KF6/Landing components. Builtin packages retain read-only reference provenance while identifying FCCG-owned overlays; exact snapshot evidence is recorded in `VALIDATION.md`. This is a **Software Release Candidate / Pre-Hardware-Validation** milestone, not a public release or a claim of electrical, flight, flash, or alternate-MCU validation.
 
 The matched MCU/Platform manifest owns the generated build Target Profile; the current verified plugin declares `SilverStar_F407`. Calibration exposes only One-face and Six-face procedures and defaults to an empty selection. Empty means no sampling procedure: firmware deterministically starts `SYSTEM_CALIBRATION_MODE_NONE`, establishes READY identity correction, and still emits the Required `CALIBRATION_RESULT` snapshot whenever logging is enabled.
 
@@ -238,4 +238,4 @@ See [User Guide](docs/USER_GUIDE.md), [Architecture](docs/ARCHITECTURE.md), [Plu
 
 ## Shared algorithm-parameter closeout
 
-Algorithm owners are ordered generically by `selection.ui_order` (then component ID). Compatible declarations with the same optional `shared_key` produce one Shared Parameters editor while retaining one actual value under each selected component in project format 12. Pure INS and KF6 share `navigation.gravity_mps2`; this affects only their navigation gravity, not `SYSTEM_LOCAL_GRAVITY_MPS2`, Calibration, or Alignment. Decoder/package and project-semantics remain 1.2; the required FLP minimum is 0.0.2. No algorithm formula or timing changed.
+Algorithm owners are ordered generically by `selection.ui_order` (then component ID). Compatible declarations with the same optional `shared_key` produce one Shared Parameters editor while retaining one actual value under each selected component in project format 12. Pure INS and KF6 share `navigation.gravity_mps2`; this affects only their navigation gravity, not `SYSTEM_LOCAL_GRAVITY_MPS2`, Calibration, or Alignment. Decoder/package and project-semantics remain 1.2; the required FLP minimum is 0.0.4. No algorithm formula or timing changed.

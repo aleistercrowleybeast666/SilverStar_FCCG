@@ -5,10 +5,10 @@
 > are authoritative. Runtime rules: `docs/platform/details/RUNTIME_SAFETY.md`.
 > Actual acceptance snapshots: root `VALIDATION.md`.
 
-# SilverStar 0.0.10 验收要求
+# SilverStar 0.0.12 验收要求
 
-> 文档版本：0.0.10
-> 适用范围：SilverStar 0.0.10
+> 文档版本：0.0.12
+> 适用范围：SilverStar 0.0.12
 
 验收结论必须标明层级：静态检查、Host执行、ARM编译、HIL/台架、上板或飞行。较低层级不能替代较高层级。
 
@@ -40,7 +40,7 @@ mingw32-make TARGET_PROFILE=SilverStar_F407 CONFIG=Release artifact-check
 - manifest不使用wildcard或`notdir`压平，源文件存在、无重复，只选择当前backend；Target拥有MCU flags、linker script和vendor source manifest；
 - FreeRTOS为V11.3.0，只选择list/queue/tasks/ARM_CM4F port，static allocation配置正确；
 - EIDE拥有可直接构建但非权威的F407镜像图；其实际C/S集合、include、define、CPU/FPU、linker、forced include和输出隔离必须与Make/Target契约一致；
-- SilverStar 0.0.10、AIR遥测协议M0、串口维护协议0.0和飞行日志格式0.0的版本边界正确；技术wire标识仍为profile numeric 0和magic `SSLOG0`；
+- SilverStar 0.0.12、AIR遥测协议M0、串口维护协议0.0和飞行日志格式0.0的版本边界正确；技术wire标识仍为profile numeric 0和magic `SSLOG0`；
 - `Generated/`只含评审允许的项目资源、日志配置、metadata和manifest薄胶水，不含算法或飞行判定；
 - Generated instance facade只包含有界0..N静态direct binding；无function pointer registry、vtable、heap或动态注册；descriptor明确区分`physical_device_id`与类别内`instance_id`，不存在实例不回退到0；默认SS0.5为单实例，多实例编译fixture验证每类2个独立source context；
 - Maintenance以Capability Module而非物理型号寻址；instance模块使用`<CAPABILITY> <INSTANCE> <COMMAND>`，不存在实例不回退到0；
@@ -84,7 +84,7 @@ Host输出只写`build/FCCG/Host/Tests`，不得进入目标manifest。测试moc
 
 Debug和Release均从目标输出目录clean后构建。验收：
 
-1. 生成`SilverStar_0_0_10.elf/.map/.hex/.bin`；
+1. 生成`SilverStar_0_0_12.elf/.map/.hex/.bin`；
 2. 对象路径保留源码层级，无同名压平和duplicate source；
 3. map/ELF中不存在`cmsis_os2`、旧Kernel、`heap_1..5`、defaultTask、`malloc/free/realloc`或`_sbrk`；
 4. 只出现官方V11.3.0的`list.o/queue.o/tasks.o/ARM_CM4F port.o`；
@@ -206,7 +206,7 @@ Host mock验证UART读写/分片、SPI/GPIO/ADC/Time/Critical的Device可测试�
 - 5 Hz飞行遥测、sequence、freshness和saturation诊断；
 - 架构重构前后M0 golden frame逐字节一致，技术profile numeric值保持0；本轮无新增message/字段/ID/CRC，无长度、offset、量化、频率或MTU变化。
 
-固件0.0.10不得把AIR wire profile numeric值改为1。
+固件0.0.12不得把AIR wire profile numeric值改为1。
 
 ## 12. 飞行日志格式0.0
 
@@ -232,11 +232,11 @@ Host mock验证UART读写/分片、SPI/GPIO/ADC/Time/Critical的Device可测试�
 
 ## 13. 文档与版本一致性
 
-- `AGENTS.md`读取0.0.10规范；
+- `AGENTS.md`读取0.0.12规范；
 - README、CHANGELOG、TARGETS、VALIDATION、System/User README与details当前事实一致；
 - `DEVICE_PROVIDER_INTERFACE.md`已由`DEVICE_INTERFACE.md`取代，旧路径无当前引用；
 - AIR遥测协议M0、串口维护协议0.0、飞行日志格式0.0文档明确区分正式名称、firmware版本与技术wire标识；
-- 历史`SilverStar_0_0_7.md`、`SilverStar_0_0_8.md`和历史patch note保持历史语义；仅允许标注0.0.10已删除的失效文档链接；
+- 历史`SilverStar_0_0_7.md`、`SilverStar_0_0_8.md`和历史patch note保持历史语义；仅允许标注0.0.12已删除的失效文档链接；
 - 所有硬件声明有证据，不把Host/ARM编译写成上板通过。
 
 ## 14. 当前未由静态/Host/ARM构建证明的项目
@@ -251,7 +251,7 @@ Host mock验证UART读写/分片、SPI/GPIO/ADC/Time/Critical的Device可测试�
 - Landing冲击/静止/气压窗口的真实飞行阈值；
 - 整机EMI、电源、振动、温度、HIL和飞行验证。
 
-这些项目在获得实际记录前必须继续列为未验证，不得以0.0.10架构完成为由关闭。
+这些项目在获得实际记录前必须继续列为未验证，不得以0.0.12架构完成为由关闭。
 
 ## 15. Power of Ten、Strategy与EIDE追加门禁
 

@@ -79,11 +79,11 @@ static uint8_t s_pending_event_flush_active;
 #endif
 
 _Static_assert(PROJECT_IMU_INSTANCE_COUNT_MAX <= 4U,
-    "IMU selector bound exceeds the SilverStar 0.0.10 contract");
+    "IMU selector bound exceeds the SilverStar 0.0.12 contract");
 _Static_assert(PROJECT_GNSS_INSTANCE_COUNT_MAX <= 4U,
-    "GNSS selector bound exceeds the SilverStar 0.0.10 contract");
+    "GNSS selector bound exceeds the SilverStar 0.0.12 contract");
 _Static_assert(PROJECT_TELEMETRY_INSTANCE_COUNT_MAX <= 4U,
-    "telemetry selector bound exceeds the SilverStar 0.0.10 contract");
+    "telemetry selector bound exceeds the SilverStar 0.0.12 contract");
 _Static_assert(SYSTEM_TELEMETRY_FAILOVER_CONSECUTIVE_TIMEOUT_LIMIT > 0U,
     "telemetry timeout failover limit must be positive");
 

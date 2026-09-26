@@ -1,6 +1,6 @@
 # SilverStar Build 与 Targets
 
-> 当前平台：SilverStar 0.0.10。当前生产验证限于SilverStar_F407 / SS0.5。
+> 当前平台：SilverStar 0.0.12。当前生产验证限于SilverStar_F407 / SS0.5。
 
 ## 1. 唯一Source Graph
 
@@ -47,7 +47,7 @@ build/FCCG/<Target>/StaticAnalysis/<Config>/
 build/FCCG/Host/Tests/
 ```
 
-所有生成构建产物均位于`build/FCCG/`；EIDE也使用此边界内的隔离输出。默认固件身份为`SilverStar_0_0_10`，输出ELF/MAP/HEX/BIN；来源是FCCG `src/silverstar_fccg/app/version.py`。对象保留源码目录层级，不能用`notdir`压平同名文件。listing仅在`LISTING=1`时生成。
+所有生成构建产物均位于`build/FCCG/`；EIDE也使用此边界内的隔离输出。默认固件身份为`SilverStar_0_0_12`，输出ELF/MAP/HEX/BIN；来源是FCCG `src/silverstar_fccg/app/version.py`。对象保留源码目录层级，不能用`notdir`压平同名文件。listing仅在`LISTING=1`时生成。
 
 普通Apply保护工程自有Component Source，保持未变化managed文件时间戳及build依赖文件。质量结果时间戳属于项目本地元数据，不改变生成状态。
 

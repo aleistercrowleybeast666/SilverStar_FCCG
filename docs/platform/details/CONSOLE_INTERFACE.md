@@ -1,9 +1,9 @@
 # SilverStar Console 接口
 
 > **项目：SilverStar**  
-> **文档版本：0.0.10**
+> **文档版本：0.0.12**
 > **状态：Draft / 未发布**  
-> **适用范围：SilverStar 0.0.10**
+> **适用范围：SilverStar 0.0.12**
 
 ## 1. 范围
 

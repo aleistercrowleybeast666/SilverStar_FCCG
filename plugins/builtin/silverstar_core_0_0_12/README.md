@@ -1,4 +1,4 @@
-# SilverStar Core 0.0.10
+# SilverStar Core 0.0.12
 
 Declarative SilverStar_FCCG builtin `core` plugin.
 

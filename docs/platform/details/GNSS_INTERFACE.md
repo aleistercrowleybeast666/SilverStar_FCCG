@@ -1,12 +1,12 @@
 # SilverStar GNSS 接口
-> **0.0.10增量**：所有GNSS实例持续解析和记录。`no fix`不等于设备故障；active GNSS只在基础liveness/消息新鲜度失效时向后续备用单向切换，不自动failback。
+> **0.0.12增量**：所有GNSS实例持续解析和记录。`no fix`不等于设备故障；active GNSS只在基础liveness/消息新鲜度失效时向后续备用单向切换，不自动failback。
 
 > **项目：SilverStar**  
-> **文档版本：0.0.10**
+> **文档版本：0.0.12**
 > **状态：Draft / 未发布**  
-> **适用范围：SilverStar 0.0.10**
+> **适用范围：SilverStar 0.0.12**
 
-> `0.0.10` 表示协议、接口和实现均处于首次发布前阶段。文档中的结构可以在评审后调整，不提供跨版本兼容承诺。
+> `0.0.12` 表示协议、接口和实现均处于首次发布前阶段。文档中的结构可以在评审后调整，不提供跨版本兼容承诺。
 
 ## 1. 样本
 
@@ -408,7 +408,7 @@ U = hellipsoid - h0
 - 25 Hz PVT；
 - Airborne 4g动态模型。
 
-## 10. 0.0.10运行时配置与可用门限
+## 10. 0.0.12运行时配置与可用门限
 
 NEO-M9N启动后由System通过通用写入请求明确配置星座、导航频率、动态模型、输出协议和
 UBX-NAV-PVT输出。具体Device把一次请求映射到RAM、BBR和Flash，System通用接口不暴露u-blox存储层。当前配置为
@@ -427,7 +427,7 @@ UBX-NAV-PVT输出。具体Device把一次请求映射到RAM、BBR和Flash，Syst
 
 星座/信号步骤必须是最后一个配置写入，之后只能等待数据，禁止再发送协议、消息率、导航率、动态模型或其他配置命令。恢复帧必须同时满足`pvt_sequence > baseline_pvt_sequence`且`receive_timestamp_us > signal_complete_timestamp_us`；ACK、NAK、NMEA、其他UBX帧或仅有字节活动均不能满足该条件。每一步结果、失败stage、ACK结果、写入层、基线/恢复sequence和信号完成时间必须保存在`SystemGnssConfigTransactionReport`并进入启动诊断与TF事件；不得以`(void)`丢弃失败。
 
-`WRITE=0`时不发送VALSET/VALGET等配置I/O，也不执行上述写入事务，但仍初始化UART/DMA/Parser并检查数据流。当前0.0.10默认暂定为`SYSTEM_GNSS_BOOT_WRITE_CONFIG=1`、`SYSTEM_GNSS_BOOT_VERIFY_CONFIG=1`；宏语义不变，仍可独立切换验证四种组合。
+`WRITE=0`时不发送VALSET/VALGET等配置I/O，也不执行上述写入事务，但仍初始化UART/DMA/Parser并检查数据流。当前0.0.12默认暂定为`SYSTEM_GNSS_BOOT_WRITE_CONFIG=1`、`SYSTEM_GNSS_BOOT_VERIFY_CONFIG=1`；宏语义不变，仍可独立切换验证四种组合。
 
 `SystemGnss_ConfigApply()`只负责参数合法性和真实写入；`SystemGnss_ConfigVerify()`必须用VALGET从接收机真实读取并逐字段比较，不能比较缓存或目标结构；`SystemGnss_EffectiveConfigGet()`明确返回最近一次已应用或真实读取后保存的缓存。维护命令`GNSS 0 CONFIG SHOW`必须标注`source=CACHE`；`GNSS 0 CONFIG READ`必须调用`SystemGnss_HardwareConfigRead()`并标注`source=HARDWARE`，不得回显缓存冒充读取。`WRITE=1,VERIFY=0`不得预读或回读；`WRITE=0`时不论`VERIFY`为何值均不得执行VALSET、VALGET、比较或其他配置I/O。
 
@@ -438,7 +438,7 @@ GNSS样本进入预飞原点窗口的默认门限为：3D/GNSS+DR定位、至少
 融合协方差仍由每帧hAcc/vAcc/sAcc和Profile下限共同生成，因此门限放宽不会让KF
 忽略接收机报告的低精度。
 
-## 11. 0.0.10硬件读回与诊断约束
+## 11. 0.0.12硬件读回与诊断约束
 
 当前台架事实是：921600 bit/s双向UBX通信、VALSET ACK、NAV-PVT输出以及信号配置后的PVT恢复路径均已观察到正常工作；当前`fix_type=0`、`numSV=0`只表示尚无有效定位，不能据此否定UART或配置写入链路。该事实不等于GNSS已完成室外定位或全部配置持久化验收。
 

@@ -4,12 +4,12 @@
   "name": "SS0.5",
   "type": "board",
   "class": "flight_controller_board",
-  "version": "0.0.10",
+  "version": "0.0.12",
   "description": "Verified SS0.5 PCB, CubeMX hardware source, fixed services and resource mapping.",
   "requires": {
     "components": [
       {
-        "id": "silverstar.core.0_0_10",
+        "id": "silverstar.core.0_0_12",
         "optional": false
       },
       {

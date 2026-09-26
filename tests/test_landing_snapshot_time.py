@@ -18,7 +18,7 @@ def _compile_and_run(source, tmp_path):
 
 
 def test_landing_time_read_after_snapshots(tmp_path, workspace_root):
-    app = (workspace_root / "plugins/builtin/silverstar_core_0_0_10/payload/APP/Src/flight_task.c").read_text(encoding="utf-8")
+    app = (workspace_root / "plugins/builtin/silverstar_core_0_0_12/payload/APP/Src/flight_task.c").read_text(encoding="utf-8")
     start = app.index("static void FlightTask_FlightRecoveryInputGet(")
     end = app.index("\n#if", start)
     source = r'''
@@ -55,7 +55,7 @@ int main(void) {
 
 
 def test_rejected_imu_correction_keeps_observation_identity(tmp_path, workspace_root):
-    app = (workspace_root / "plugins/builtin/silverstar_core_0_0_10/payload/APP/Src/flight_task.c").read_text(encoding="utf-8")
+    app = (workspace_root / "plugins/builtin/silverstar_core_0_0_12/payload/APP/Src/flight_task.c").read_text(encoding="utf-8")
     start = app.index("static void FlightTask_RecoveryInertialInputApply(")
     end = app.index("static void FlightTask_FlightRecoveryInputGet(", start)
     source = r'''

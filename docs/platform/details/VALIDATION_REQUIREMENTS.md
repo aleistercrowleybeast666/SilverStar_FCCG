@@ -1,4 +1,4 @@
-# SilverStar 0.0.10 验收要求
+# SilverStar 0.0.12 验收要求
 
 ## Storage byte integrity acceptance
 
@@ -9,10 +9,10 @@ MISSION_CONFIG总长119 bytes不补齐。故意queue overflow必须产生明确g
 报告queue HWM、SD write/sync最大延迟、Logger迭代间隔及START前后production rate。
 新增静态buffer须记录Release/Debug ELF RAM/FLASH差值并复核所有task stack；不把Host模型延迟当作实卡测量。
 当前软件结果和仍缺失的硬件证据以根VALIDATION为准。
-> **0.0.10增量**：必须额外覆盖Verified Board resource closure、生产Indicator Init、任务stack report、多实例context隔离、IMU/GNSS/telemetry最小failover、四种Calibration Capability mask以及GSHC端NONE默认选择语义。
+> **0.0.12增量**：必须额外覆盖Verified Board resource closure、生产Indicator Init、任务stack report、多实例context隔离、IMU/GNSS/telemetry最小failover、四种Calibration Capability mask以及GSHC端NONE默认选择语义。
 
-> 文档版本：0.0.10
-> 适用范围：SilverStar 0.0.10
+> 文档版本：0.0.12
+> 适用范围：SilverStar 0.0.12
 
 验收结论必须标明层级：静态检查、Host执行、ARM编译、HIL/台架、上板或飞行。较低层级不能替代较高层级。
 
@@ -44,7 +44,7 @@ mingw32-make TARGET_PROFILE=SilverStar_F407 CONFIG=Release artifact-check
 - manifest不使用wildcard或`notdir`压平，源文件存在、无重复，只选择当前backend；Target拥有MCU flags、linker script和vendor source manifest；
 - FreeRTOS为V11.3.0，只选择list/queue/tasks/ARM_CM4F port，static allocation配置正确；
 - EIDE拥有可直接构建但非权威的F407镜像图；其实际C/S集合、include、define、CPU/FPU、linker、forced include和输出隔离必须与Make/Target契约一致；
-- SilverStar 0.0.10、AIR遥测协议M0、串口维护协议0.0和飞行日志格式0.0的版本边界正确；技术wire标识仍为profile numeric 0和magic `SSLOG0`；
+- SilverStar 0.0.12、AIR遥测协议M0、串口维护协议0.0和飞行日志格式0.0的版本边界正确；技术wire标识仍为profile numeric 0和magic `SSLOG0`；
 - `Generated/`只含评审允许的项目资源、日志配置、metadata和manifest薄胶水，不含算法或飞行判定；
 - Generated instance facade只包含有界0..N静态direct binding；无function pointer registry、vtable、heap或动态注册；descriptor明确区分`physical_device_id`与类别内`instance_id`，不存在实例不回退到0；生成图按配置支持真实多实例；
 - Maintenance以Capability Module而非物理型号寻址；instance模块使用`<CAPABILITY> <INSTANCE> <COMMAND>`，不存在实例不回退到0；
@@ -88,7 +88,7 @@ Host输出只写`build/Host/Tests`，不得进入目标manifest。测试mock实�
 
 Debug和Release均从目标输出目录clean后构建。验收：
 
-1. 生成`SilverStar_0_0_10.elf/.map/.hex/.bin`；
+1. 生成`SilverStar_0_0_12.elf/.map/.hex/.bin`；
 2. 对象路径保留源码层级，无同名压平和duplicate source；
 3. map/ELF中不存在`cmsis_os2`、旧Kernel、`heap_1..5`、defaultTask、`malloc/free/realloc`或`_sbrk`；
 4. 只出现官方V11.3.0的`list.o/queue.o/tasks.o/ARM_CM4F port.o`；
@@ -210,7 +210,7 @@ Host mock验证UART读写/分片、SPI/GPIO/ADC/Time/Critical的Device可测试�
 - 5 Hz飞行遥测、sequence、freshness和saturation诊断；
 - 架构重构前后M0 golden frame逐字节一致，技术profile numeric值保持0；本轮无新增message/字段/ID/CRC，无长度、offset、量化、频率或MTU变化。
 
-固件0.0.10不得把AIR wire profile numeric值改为1。
+固件0.0.12不得把AIR wire profile numeric值改为1。
 
 ## 12. 飞行日志格式0.0
 
@@ -236,7 +236,7 @@ Host mock验证UART读写/分片、SPI/GPIO/ADC/Time/Critical的Device可测试�
 
 ## 13. 文档与版本一致性
 
-- `AGENTS.md`读取0.0.10规范；
+- `AGENTS.md`读取0.0.12规范；
 - README、CHANGELOG、TARGETS、VALIDATION、System/User README与details当前事实一致；
 - `DEVICE_PROVIDER_INTERFACE.md`已由`DEVICE_INTERFACE.md`取代，旧路径无当前引用；
 - AIR遥测协议M0、串口维护协议0.0、飞行日志格式0.0文档明确区分正式名称、firmware版本与技术wire标识；

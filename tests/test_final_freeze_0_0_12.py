@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 import shutil
+import tomllib
 import zipfile
 from dataclasses import replace
 from io import BytesIO
@@ -311,12 +312,17 @@ def _CustomH743Model_Get(catalog: PluginCatalog):
 def test_platform_release_has_one_runtime_version_truth(
     workspace_root: Path,
 ) -> None:
-    assert __version__ == SILVERSTAR_PLATFORM_VERSION == "0.0.10"
-    assert SILVERSTAR_BUILD_ID == "SilverStar_0_0_10"
-    assert SILVERSTAR_CORE_COMPONENT_ID == "silverstar.core.0_0_10"
-    assert SILVERSTAR_LOG_BUILD_TAG == "SILV0010"
+    assert __version__ == SILVERSTAR_PLATFORM_VERSION == "0.0.12"
+    assert SILVERSTAR_BUILD_ID == "SilverStar_0_0_12"
+    assert SILVERSTAR_CORE_COMPONENT_ID == "silverstar.core.0_0_12"
+    assert SILVERSTAR_LOG_BUILD_TAG == "SILV0012"
     assert len(SILVERSTAR_LOG_BUILD_TAG.encode("ascii")) == 8
-    assert SILVERSTAR_SYSTEM_PROFILE_ID == 0x0000000A
+    assert SILVERSTAR_SYSTEM_PROFILE_ID == 0x0000000C
+    packaging = tomllib.loads((workspace_root / "pyproject.toml").read_text(encoding="utf-8"))
+    assert packaging["project"]["dynamic"] == ["version"]
+    assert packaging["tool"]["setuptools"]["dynamic"]["version"]["attr"] == (
+        "silverstar_fccg.app.version.__version__"
+    )
 
     manifests = [
         json.loads(path.read_text(encoding="utf-8"))
@@ -331,13 +337,13 @@ def test_platform_release_has_one_runtime_version_truth(
         expected = (
             "11.3.0"
             if manifest["id"] == "silverstar.os.freertos_11_3_0"
-            else "0.0.10"
+            else "0.0.12"
         )
         assert manifest["version"] == expected
         if manifest["type"] == "protocol":
             contribution = manifest["protocol"]
-            assert contribution["firmware_version"] == "0.0.10"
-            assert contribution["documentation_version"] == "0.0.10"
+            assert contribution["firmware_version"] == "0.0.12"
+            assert contribution["documentation_version"] == "0.0.12"
             profiles = next(iter(contribution["profiles"].values()))
             assert {profile["version"] for profile in profiles} == {"0.0"}
 
@@ -348,20 +354,20 @@ def test_platform_release_has_one_runtime_version_truth(
         workspace_root
         / "plugins"
         / "builtin"
-        / "silverstar_core_0_0_10"
+        / "silverstar_core_0_0_12"
         / "docs"
-        / "SilverStar_0_0_10.md"
+        / "SilverStar_0_0_12.md"
     ).is_file()
 
 
-def test_new_project_and_generated_identity_are_consistently_0_0_10(
+def test_new_project_and_generated_identity_are_consistently_0_0_12(
     builtin_catalog: PluginCatalog,
 ) -> None:
     model = ReferenceProject_Create("VersionTruth", catalog=builtin_catalog)
     assert model.format_version == PROJECT_FORMAT_VERSION == 12
-    assert model.identity.firmware_version == "0.0.10"
-    assert model.identity.build_target == "SilverStar_0_0_10"
-    assert model.core == "silverstar.core.0_0_10"
+    assert model.identity.firmware_version == "0.0.12"
+    assert model.identity.build_target == "SilverStar_0_0_12"
+    assert model.core == "silverstar.core.0_0_12"
     assert model.build.target_profile == "SilverStar_F407"
 
     graph = SourceGraph_Resolve(model, builtin_catalog)
@@ -379,11 +385,11 @@ def test_new_project_and_generated_identity_are_consistently_0_0_10(
     semantics = json.loads(
         generated["Generated/project_semantics.json"].decode("utf-8")
     )
-    assert semantics["firmware_version"] == "0.0.10"
+    assert semantics["firmware_version"] == "0.0.12"
     assert semantics["target"] == "SilverStar_F407"
     assert any(
-        lock["component"] == "silverstar.core.0_0_10"
-        and lock["version"] == "0.0.10"
+        lock["component"] == "silverstar.core.0_0_12"
+        and lock["version"] == "0.0.12"
         for lock in semantics["component_locks"]
     )
 
@@ -394,22 +400,75 @@ def test_new_project_and_generated_identity_are_consistently_0_0_10(
         "major": 1,
         "minor": 2,
     }
-    assert manifest["firmware_version"] == "0.0.10"
-    assert manifest["fccg_version"] == "0.0.10"
+    assert manifest["firmware_version"] == "0.0.12"
+    assert manifest["fccg_version"] == "0.0.12"
     with zipfile.ZipFile(BytesIO(package.content)) as archive:
         decoder_readme = archive.read("README.md").decode("utf-8")
     assert "not a whitelist" in decoder_readme
     assert "NONE/identity" in decoder_readme
 
 
-def test_generated_firmware_version_macros_are_revision_ten(
+def test_official_format12_core_migrates_on_open_generate_save_reopen(
+    tmp_path: Path, workspace_root: Path,
+) -> None:
+    service = FccgService(workspace_root)
+    original = service.ReferenceProject_Create("LegacyCore")
+    data = original.Dictionary_Get()
+    data["project"]["firmware_version"] = "0.0.10"
+    data["project"]["build_target"] = "SilverStar_0_0_10"
+    data["components"]["core"] = "silverstar.core.0_0_10"
+    old_root = tmp_path / "legacy_input"
+    old_root.mkdir()
+    (old_root / "SilverStar.ssproject").write_text(
+        json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+    migrated = service.Project_Open(old_root)
+    assert migrated.format_version == 12
+    assert migrated.identity.firmware_version == "0.0.12"
+    assert migrated.core == "silverstar.core.0_0_12"
+    fresh_root = tmp_path / "revision_0_0_12"
+    service.Project_Save(migrated, fresh_root)
+    reopened = service.Project_Open(fresh_root)
+    assert reopened.identity.firmware_version == "0.0.12"
+    assert reopened.core == "silverstar.core.0_0_12"
+    assert (fresh_root / "LogDecoder.ssdecoder").exists() or any(
+        fresh_root.glob("*.ssdecoder")
+    )
+    assert (fresh_root / "Generated" / "project_semantics.json").is_file()
+
+    unknown = original.Dictionary_Get()
+    unknown["project"]["firmware_version"] = "0.0.10"
+    unknown["project"]["build_target"] = "SilverStar_0_0_10"
+    unknown["components"]["core"] = "custom.core.0_0_10"
+    parsed = ProjectModel_Parse(unknown)
+    assert parsed.core == "custom.core.0_0_10"
+
+
+def test_architecture_gate_accepts_current_and_rejects_old_patch(
+    workspace_root: Path,
+) -> None:
+    core = workspace_root / "plugins" / "builtin" / "silverstar_core_0_0_12" / "payload"
+    checker = (core / "Tools" / "check_architecture.ps1").read_text(encoding="utf-8")
+    assert "-Pattern 'SILVERSTAR_VERSION_PATCH\\s+12'" in checker
+    pattern = r"SILVERSTAR_VERSION_PATCH\s+12"
+    current = (core / "System" / "User" / "system_user_config.h").read_text(
+        encoding="utf-8"
+    )
+    assert re.search(pattern, current)
+    assert not re.search(pattern, current.replace(
+        "SILVERSTAR_VERSION_PATCH     12", "SILVERSTAR_VERSION_PATCH     10"
+    ))
+
+
+def test_generated_firmware_version_macros_are_revision_twelve(
     workspace_root: Path,
 ) -> None:
     config = (
         workspace_root
         / "plugins"
         / "builtin"
-        / "silverstar_core_0_0_10"
+        / "silverstar_core_0_0_12"
         / "payload"
         / "System"
         / "User"
@@ -417,13 +476,13 @@ def test_generated_firmware_version_macros_are_revision_ten(
     ).read_text(encoding="utf-8")
     assert re.search(r"#define\s+SILVERSTAR_VERSION_MAJOR\s+0\b", config)
     assert re.search(r"#define\s+SILVERSTAR_VERSION_MINOR\s+0\b", config)
-    assert re.search(r"#define\s+SILVERSTAR_VERSION_PATCH\s+10\b", config)
+    assert re.search(r"#define\s+SILVERSTAR_VERSION_PATCH\s+12\b", config)
     assert re.search(r"#define\s+SILVERSTAR_VERSION_BUILD\s+0\b", config)
     assert re.search(
-        r'#define\s+SILVERSTAR_LOG_BUILD_TAG\s+"SILV0010"', config
+        r'#define\s+SILVERSTAR_LOG_BUILD_TAG\s+"SILV0012"', config
     )
     assert re.search(
-        r"#define\s+SYSTEM_PROFILE_ID\s+0x0000000AUL\b", config
+        r"#define\s+SYSTEM_PROFILE_ID\s+0x0000000CUL\b", config
     )
 
 
@@ -448,9 +507,9 @@ def test_current_pre_release_calibration_migration_is_deterministic(
         _LegacyProjectData_Get(builtin_catalog, legacy)
     )
     assert migrated.format_version == 12
-    assert migrated.identity.firmware_version == "0.0.10"
-    assert migrated.identity.build_target == "SilverStar_0_0_10"
-    assert migrated.core == "silverstar.core.0_0_10"
+    assert migrated.identity.firmware_version == "0.0.12"
+    assert migrated.identity.build_target == "SilverStar_0_0_12"
+    assert migrated.core == "silverstar.core.0_0_12"
     assert migrated.modes["calibration"] == expected
 
     reconciled = ProjectConfiguration_Reconcile(
@@ -460,7 +519,7 @@ def test_current_pre_release_calibration_migration_is_deterministic(
     assert all(
         selection is None
         or (
-            selection.version == "0.0.10"
+            selection.version == "0.0.12"
             and selection.manifest_sha256
             == builtin_catalog.Component_Get(
                 selection.component
@@ -630,7 +689,7 @@ def test_none_calibration_initialization_and_required_record_contract(
         workspace_root
         / "plugins"
         / "builtin"
-        / "silverstar_core_0_0_10"
+        / "silverstar_core_0_0_12"
         / "payload"
     )
     app_tasks = (core / "APP" / "Src" / "app_tasks.c").read_text(

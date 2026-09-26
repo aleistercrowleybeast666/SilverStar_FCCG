@@ -1,4 +1,4 @@
-# SilverStar 0.0.10 用户配置
+# SilverStar 0.0.12 用户配置
 
 `System/User`只保存跨设备、跨MCU的任务配置。具体Device选择、构建资格映射、Device-owned/内部硬件服务、Board物理映射、项目资源和MCU backend属于`Targets/`、`Devices/`、`FlightLogic/`、`Board/`、`Generated/`与`Platform/`，不能写回本目录。
 
@@ -11,7 +11,7 @@
 - `system_user_capability_validation.h`：通用算法/能力组合的集中编译期约束；
 - `system_user_inertial_config.c`：当前Virtual IMU静态源描述。
 
-0.0.10不再存在`system_user_registry.h`。不要在System/User填写具体driver头、`GetOps`、ISR callback或Provider ID。
+0.0.12不再存在`system_user_registry.h`。不要在System/User填写具体driver头、`GetOps`、ISR callback或Provider ID。
 
 ## 修改普通参数
 

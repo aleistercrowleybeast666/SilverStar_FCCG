@@ -14,7 +14,7 @@ def test_kf6_integrity_streaming_closure_and_recovery(tmp_path: Path) -> None:
         pytest.skip("Host GCC unavailable")
     root = Path(__file__).resolve().parents[1]
     kf6 = root / "plugins/builtin/silverstar_algorithm_estimator_kf6/payload/Algorithm/Estimator/KF6"
-    common = root / "plugins/builtin/silverstar_core_0_0_10/payload/Common"
+    common = root / "plugins/builtin/silverstar_core_0_0_12/payload/Common"
     executable = tmp_path / "navigation-integrity-host.exe"
     command = [
         gcc, "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror",

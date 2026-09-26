@@ -4,7 +4,7 @@
   "name": "IMU Calibration",
   "type": "algorithm",
   "class": "calibration",
-  "version": "0.0.10",
+  "version": "0.0.12",
   "description": "One-face and six-face calibration modes in one component.",
   "requires": {
     "components": [],

@@ -63,7 +63,7 @@ def test_actual_defaults_roundtrip_and_decoder(builtin_catalog):
     package = LogDecoderProfile_Render(model, builtin_catalog)
     verified=LogDecoderPackage_Verify(package.content)
     assert verified['package_schema']['minor'] == 2
-    assert verified['required_flp_minimum_version'] == '0.0.2'
+    assert verified['required_flp_minimum_version'] == '0.0.4'
     with zipfile.ZipFile(BytesIO(package.content)) as archive:
         semantics = json.loads(archive.read('project_semantics.json'))
     assert semantics['schema_id'] == 'silverstar.project-semantics/1.2'
@@ -111,14 +111,16 @@ def test_parameter_schema_rejects_invalid_declarations(builtin_catalog,mutation)
     manifest=builtin_catalog.Component_Get(INS)
     document=json.loads(manifest.manifest_path.read_text(encoding='utf-8'))['algorithm_parameters']
     mutation(document['parameters'][0])
-    with pytest.raises(ValueError): AlgorithmParameters_Parse(document)
+    with pytest.raises(ValueError):
+        AlgorithmParameters_Parse(document)
 
 
 def test_duplicate_schema_parameters_rejected(builtin_catalog):
     manifest=builtin_catalog.Component_Get(INS)
     document=json.loads(manifest.manifest_path.read_text(encoding='utf-8'))['algorithm_parameters']
     document['parameters'].append(deepcopy(document['parameters'][0]))
-    with pytest.raises(ValueError,match='Duplicate'): AlgorithmParameters_Parse(document)
+    with pytest.raises(ValueError,match='Duplicate'):
+        AlgorithmParameters_Parse(document)
 
 
 def test_shared_key_schema_and_project_mismatch_are_strict(builtin_catalog):
@@ -126,7 +128,8 @@ def test_shared_key_schema_and_project_mismatch_are_strict(builtin_catalog):
     document=json.loads(manifest.manifest_path.read_text(encoding='utf-8'))['algorithm_parameters']
     assert document['parameters'][0]['shared_key']=='navigation.gravity_mps2'
     document['parameters'][0]['shared_key']='Unsafe key'
-    with pytest.raises(ValueError,match='shared_key'): AlgorithmParameters_Parse(document)
+    with pytest.raises(ValueError,match='shared_key'):
+        AlgorithmParameters_Parse(document)
     model=ReferenceProject_Create(catalog=builtin_catalog)
     model.algorithm_parameters[KF]['gravity_mps2']=9.81
     with pytest.raises(ValueError,match='Shared parameter mismatch'):
@@ -179,22 +182,27 @@ def test_decoder_rejects_11_and_invalid_resolved_metadata(builtin_catalog):
     semantics=json.loads(files['project_semantics.json'])
     bad=deepcopy(semantics)
     bad['firmware_algorithm_parameters'][0]['parameters'][0]['value']=9.78
-    with pytest.raises(ValueError,match='resolved float32'): _AlgorithmParameters_Validate(bad)
+    with pytest.raises(ValueError,match='resolved float32'):
+        _AlgorithmParameters_Validate(bad)
     bad=deepcopy(semantics)
     bad['firmware_algorithm_parameters'][0]['component']='offline.unselected'
-    with pytest.raises(ValueError): _AlgorithmParameters_Validate(bad)
+    with pytest.raises(ValueError):
+        _AlgorithmParameters_Validate(bad)
     bad=deepcopy(semantics)
     bad['component_locks']=[]
     bad['firmware_algorithm_parameters'][0]['manifest_sha256']=None
-    with pytest.raises(ValueError): _AlgorithmParameters_Validate(bad)
+    with pytest.raises(ValueError):
+        _AlgorithmParameters_Validate(bad)
     manifest=json.loads(files['manifest.json'])
     manifest['package_schema']={'id':'silverstar.ssdecoder.package-schema/1.1','major':1,'minor':1}
     files['manifest.json']=(json.dumps(manifest,sort_keys=True,separators=(',',':'))+'\n').encode()
     files['checksums.sha256']=''.join(f'{hashlib.sha256(value).hexdigest()}  {key}\n' for key,value in sorted(files.items()) if key!='checksums.sha256').encode()
     out=BytesIO()
     with zipfile.ZipFile(out,'w') as archive:
-        for name,value in files.items():archive.writestr(name,value)
-    with pytest.raises(ValueError): LogDecoderPackage_Verify(out.getvalue())
+        for name,value in files.items():
+            archive.writestr(name,value)
+    with pytest.raises(ValueError):
+        LogDecoderPackage_Verify(out.getvalue())
 
 
 def test_gui_page_edit_reset_dirty_and_readonly_display(tmp_path,qapp,monkeypatch):

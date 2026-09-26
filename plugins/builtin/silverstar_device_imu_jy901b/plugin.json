@@ -4,12 +4,12 @@
   "name": "JY901B",
   "type": "device",
   "class": "imu",
-  "version": "0.0.10",
+  "version": "0.0.12",
   "description": "Reference JY901B Device driver and canonical adapter.",
   "requires": {
     "components": [
       {
-        "id": "silverstar.core.0_0_10",
+        "id": "silverstar.core.0_0_12",
         "optional": false
       }
     ],

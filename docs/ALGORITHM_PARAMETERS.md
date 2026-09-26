@@ -1,6 +1,6 @@
 # Algorithm actual parameters and decoder 1.2
 
-Platform remains **0.0.10**. Project format is **12**; `.ssdecoder` package schema and
+Platform remains **0.0.12**. Project format is **12**; `.ssdecoder` package schema and
 project semantics are **1.2**. Record Catalog and AIR M0 / Maintenance 0.0 / SSLOG 0.0
 remain independent and unchanged. Decoder 1.1 is rejected; this is a package contract break.
 
@@ -146,7 +146,7 @@ Pure INS and KF6 declare `navigation.gravity_mps2`. Their separate generated mac
 `.ssdecoder` `firmware_algorithm_parameters` values resolve to the same float32. `shared_key` is
 FCCG-only and is not serialized to `.ssdecoder`; FLP does not interpret it. This navigation group
 does not include `SYSTEM_LOCAL_GRAVITY_MPS2`, Calibration, or Alignment. Package schema and project
-semantics remain 1.2, required FLP minimum is 0.0.2, and algorithm formulas/timing are unchanged.
+semantics remain 1.2, required FLP minimum is 0.0.4, and algorithm formulas/timing are unchanged.
 
 ## Fixed-lag parameters and migration
 

@@ -1131,14 +1131,6 @@ def _Components_Get(
         )
         if path.startswith(("FATFS/App/", "FATFS/Target/"))
     ]
-    optional_platform_sources = {
-        "Platform/STM32F4/Src/platform_i2c_stm32f4.c",
-        "Platform/STM32F4/Src/platform_can_stm32f4.c",
-        "Platform/STM32F4/Src/platform_pwm_stm32f4.c",
-        "Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_i2c.c",
-        "Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_i2c_ex.c",
-        "Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_can.c",
-    }
     mcu_sources = [
         path
         for path in _ManifestValues_Get(
@@ -1239,7 +1231,7 @@ def _Components_Get(
                 for relative in (
                     "ARCHITECTURE.md",
                     "FCCG_COMPONENT_BOUNDARIES.md",
-                    "SilverStar_0_0_10.md",
+                    "SilverStar_0_0_12.md",
                     "VALIDATION.md",
                     "VALIDATION_REQUIREMENTS.md",
                 )

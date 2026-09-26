@@ -7,7 +7,7 @@ param(
 $ErrorActionPreference = 'Stop'
 
 $repoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
-$targetName = 'SilverStar_0_0_10'
+$targetName = 'SilverStar_0_0_12'
 $buildRoot = Join-Path $repoRoot (Join-Path 'build\FCCG' `
     (Join-Path $TargetProfile $Config))
 $elfPath = Join-Path $buildRoot ($targetName + '.elf')

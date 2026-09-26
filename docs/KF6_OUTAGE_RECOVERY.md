@@ -1,6 +1,6 @@
 # KF6 GNSS outage recovery and vertical measurement noise
 
-Platform 0.0.10, project 12, parameter schema 1.0 and decoder/project semantics 1.2 remain unchanged.
+Platform 0.0.12, project 12, parameter schema 1.0 and decoder/project semantics 1.2 remain unchanged.
 The record catalog, AIR/GSP and SSLOG layouts are unchanged. Exact acceptance results belong in
 [VALIDATION.md](../VALIDATION.md).
 

@@ -7,8 +7,8 @@
 
 # SilverStar 工程架构
 
-> 文档版本：0.0.10
-> 适用范围：SilverStar 0.0.10
+> 文档版本：0.0.12
+> 适用范围：SilverStar 0.0.12
 
 本文定义可执行的依赖、所有权和目录边界。平台化的判据不是目录名称，而是：System、Device与MCU三者没有反向类型依赖，构建期选择不会退化成运行期函数指针注册。
 
@@ -119,7 +119,7 @@ Device core只拥有设备本身：
 - 本设备的校验、超时和诊断；
 - 通过Platform读取/写入字节、GPIO事件和单调时间。
 
-Device使用`PROJECT_RESOURCE_IMU_UART`、`PROJECT_RESOURCE_RADIO_SPI`等语义资源，但不能使用`huart1`、`GPIOA`或`GPIO_PIN_x`。0.0.10语义选择在`Generated/Inc/project_resources.h`，CubeMX handle/pin物理映射在`Generated/Src/platform_resources.c`；`Platform/STM32F4`只通过opaque resource bridge读取映射。
+Device使用`PROJECT_RESOURCE_IMU_UART`、`PROJECT_RESOURCE_RADIO_SPI`等语义资源，但不能使用`huart1`、`GPIOA`或`GPIO_PIN_x`。0.0.12语义选择在`Generated/Inc/project_resources.h`，CubeMX handle/pin物理映射在`Generated/Src/platform_resources.c`；`Platform/STM32F4`只通过opaque resource bridge读取映射。
 
 UART DMA/IRQ模型完全由backend拥有：
 

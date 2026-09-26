@@ -710,7 +710,7 @@ def Project_Validate(model: ProjectModel, catalog: PluginCatalog) -> ProjectVali
                 "error",
                 "pre_release_rebuild_required",
                 "This 0.0.9 project contains project-owned pre-release payload; "
-                "create a new 0.0.10 output directory instead of mixing payload trains",
+                "create a new 0.0.12 output directory instead of mixing payload trains",
             )
         )
     raw_components = [model.core, model.mcu, model.board, model.os]

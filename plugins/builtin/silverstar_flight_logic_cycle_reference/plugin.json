@@ -4,12 +4,12 @@
   "name": "SilverStar Flight Cycle",
   "type": "flight_logic",
   "class": "cycle",
-  "version": "0.0.10",
+  "version": "0.0.12",
   "description": "Validated SilverStar lifecycle and recovery decision component.",
   "requires": {
     "components": [
       {
-        "id": "silverstar.core.0_0_10",
+        "id": "silverstar.core.0_0_12",
         "optional": false
       }
     ],

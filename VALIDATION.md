@@ -2070,3 +2070,45 @@ The first complete FCCG run exposed four failures: two stale default-on assertio
 The final complete FCCG pytest command was: python -B -m pytest (Get-ChildItem tests/test_*.py).FullName -q -x --basetemp=tests/.tmp_full_revision2_accept_final -p no:cacheprovider. Result: **426 passed, 1 skipped, 0 failed** in 1,460.97 s. The skip is the pre-existing active read-only reference-firmware task; pytest also emitted the existing unknown cache_dir configuration warning. Focused Save As, reference-import, logging-default and storage-pressure reruns passed. Critical Ruff F/E9 on changed Python, JSON parse, and git diff --check passed; broader Ruff style findings in untouched test sections remain outside this gate.
 
 **READY FOR CONTROLLED FIELD RETEST.** This is a software-gate decision with only 280/256 B of reviewed main-SRAM margin and 1,112 B of KF6-on CCMRAM margin. A controlled target retest must measure actual CPU load, task high-water marks, storage throughput, and GNSS behavior before any operational use. No flash, hardware output, push, tag, release, or shutdown was performed.
+
+## 2026-09-26 — SilverStar 0.0.12 release-candidate cleanup
+
+This round starts from FCCG `def2fb99f565f71a6be7f954f6227d87e5d2c6d4` and paired FLP `ce743f4a8ae4043556a3232cffd9a4087347df78`; GSHC `cbee51e1f259d56a8e9dcdb7c3b236f9b054e4fb` remained frozen. SilverStar Platform and FCCG product move from **0.0.10 to 0.0.12**. `src/silverstar_fccg/app/version.py` remains the single runtime authority and derives `SilverStar_0_0_12`, `silverstar.core.0_0_12`, `silverstar_core_0_0_12`, `SILV0012` and profile ID `0x0000000C`. The official builtin Core package directory is now `plugins/builtin/silverstar_core_0_0_12/`; all current builtin dependencies and source-graph references use it. The old Core directory is absent as a current builtin. GNSS integrity **revision 2** is a separate algorithm revision and was not changed.
+
+Freshly generated firmware has `SILVERSTAR_VERSION_MAJOR/MINOR/PATCH = 0/0/12`, version string 0.0.12 and build target `SilverStar_0_0_12`. The new `.ssdecoder` manifest and project semantics declare firmware 0.0.12 and required FLP minimum 0.0.4. Project format stays 12 and decoder/project-semantics stay 1.2; platform logger records and SSLOG layout are unchanged. New generated projects were checked for stale active 0.0.10 identity in saved project, Generated headers/semantics, decoder, console, Make target and component graph. FCCG package import/About/dynamic pyproject version and a test-only wheel all resolve to 0.0.12.
+
+### Compatibility and remaining old-version references
+
+A format-12 project migrates on open only when it has the exact official triple `firmware_version=0.0.10`, `build_target=SilverStar_0_0_10` and `components.core=silverstar.core.0_0_10`. It then generates, saves and reopens as 0.0.12 without changing project format. Unknown third-party Core IDs are not silently migrated. An open → generate/save → reopen regression and the unknown-Core negative case passed. FLP continues to parse exact-matched old 0.0.10 revision-0 real logs and the earlier 0.0.10 revision-2 C golden.
+
+The final old-version scan of current FCCG `src`, builtin manifests, tools, tests and current docs found only the three explicit migration guard values in `src/silverstar_fccg/project/model.py` and their positive/negative fixtures in `tests/test_final_freeze_0_0_12.py`. Historical VALIDATION, CHANGELOG, dated TARGETS notes and package-local historical validation keep the versions they actually described. They are historical records, not active product identity. The architecture checker had a stale exact `SILVERSTAR_VERSION_PATCH 10` expectation; it now requires patch 12, with a regression proving acceptance of 12 and rejection of 10. The Power of Ten checker, resource limits and C quality rules were not relaxed.
+
+### Fresh generated project and firmware gates
+
+Three new projects are under `tests/.tmp_revision_0_0_12_accept2/{KF6IntegrityOn,KF6IntegrityOff,PureINS}`; `results.json` and each `build/FCCG/Matrix/*.log` retain exact commands and outcomes. Each Release and Debug ran `all stack-report memory-report artifact-check`; each project separately ran `architecture-check power10-check host-tests`. **All 12 matrix gate commands exited 0.** The six firmware images linked and all eight static task-stack budgets passed; the minimum linked margin was Idle **256 B**. Linked estimates are not target high-water measurements.
+
+| Generated project | Release FLASH / main SRAM / CCMRAM (B) | Debug FLASH / main SRAM / CCMRAM (B) | Reviewed main-SRAM margin Release / Debug (B) |
+| --- | ---: | ---: | ---: |
+| KF6 integrity ON | 276,288 / 102,120 / 64,424 | 293,288 / 102,144 / 64,424 | **280 / 256** |
+| KF6 integrity OFF | 273,152 / 102,120 / 64,312 | 289,952 / 102,144 / 64,312 | **280 / 256** |
+| Fusion=None / Pure INS | 246,200 / 82,808 / 53,080 | 261,520 / 82,832 / 53,080 | 19,592 / 19,568 |
+
+The reviewed main-SRAM budget remains **102,400 B**; KF6 ON CCMRAM headroom is **1,112 B** against 65,536 B. Heap reserve/runtime symbols remain zero. These very small KF6 SRAM margins require a new linked review on any later source or buffer growth. No target CPU load, in-flight stack watermark, or physical storage throughput was measured in this round.
+
+**Power of Ten results (separate gate):**
+
+| Build path | Checks | First-party C files | Functions | Failures |
+| --- | ---: | ---: | ---: | ---: |
+| KF6 Integrity ON | 6,133 | 96 | 2,299 | **0** |
+| KF6 Integrity OFF | 6,133 | 96 | 2,299 | **0** |
+| Fusion=None / Pure INS | 5,792 | 93 | 2,175 | **0** |
+
+**Architecture:** 262 checks, **0 failures** for each of the three paths. **Host:** both KF6 variants passed 68 executables / 4,386,471 checks / **0 failures**; Pure INS passed 66 executables / 4,352,291 checks / **0 failures**. The KF6 ON/OFF conditional paths and Fusion=None passed the same source-quality policy. After the Core rename, comparison of 181 C/header payload blobs found only the version header, console expected-version text and a versioned static-assert message changed; no navigation arithmetic, allocation, recursion, loop or task behavior was altered.
+
+### Joint and repository regression
+
+The 0.0.12 KF6 ON project generated a **13,513-record** real-C-codec SSLOG and exact matching decoder. FLP 0.0.4 parsed it with no CRC/framing failure and passed the opt-in revision-2 parity/replay/export test; the direct 600-epoch C/Python integrity stream parity gate passed separately. FLP also reopened read-only 0.0.10 SS0000/SS0001 with their exact old decoder, ran revision-0 Recorded and explicit revision-2 What-if, and verified unchanged source SHA-256. FLP `VALIDATION.md` records the GUI/export details and measured read-only results. No raw input or generated binary was committed.
+
+Final FCCG top-level pytest: **428 passed, 1 skipped, 0 failed** in 1,688.79 s. The one skip is the pre-existing active read-only reference-firmware task; pytest emitted the existing unknown `cache_dir` warning. After clearing nine previously present critical Ruff findings in two already-touched Python files without behavior change, their focused parameter/importer rerun passed **25/25**. Critical Ruff E4/E7/E9/F on every modified Python file, `compileall`, 40 selected JSON manifests/templates, and `git diff --check` passed. A default repository-wide Ruff audit still reports unrelated older style findings because this repository has no configured Ruff baseline; it is not claimed as a clean all-file audit. The test-only 0.0.12 wheel was built under `tests/.tmp_release_0_0_12_package/` and not published.
+
+**READY FOR CONTROLLED FIELD RETEST** on software evidence. The narrow SRAM/CCMRAM margins and absent target CPU/stack/storage measurements remain practical limits for a controlled retest. FCCG/FLP changes remain uncommitted; GSHC has empty `git status --short` and `git diff --stat`. No push, tag, release, flash, physical output, reset, clean or shutdown was performed.

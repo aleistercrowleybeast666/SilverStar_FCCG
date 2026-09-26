@@ -19,7 +19,7 @@ def Trajectory_Run(project: Path, workspace: Path, *, baseline: bool = False, fi
                'Algorithm/Common/Src/attitude_frame.c',
                'System/Src/system_estimator_profile.c',
                'Common/Src/silverstar_assert.c']
-    fixture = workspace / 'plugins/builtin/silverstar_core_0_0_10/payload/Tests/Host' / fixture_name
+    fixture = workspace / 'plugins/builtin/silverstar_core_0_0_12/payload/Tests/Host' / fixture_name
     command = [str(compiler), '-std=c11', '-Wall', '-Wextra', '-Werror', '-pedantic', '-O2',
                '-include', str(project / 'Generated/Inc/project_flight_config.h')]
     if baseline:

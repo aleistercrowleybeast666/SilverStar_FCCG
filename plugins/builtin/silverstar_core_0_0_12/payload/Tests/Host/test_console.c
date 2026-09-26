@@ -1652,7 +1652,7 @@ int main(void)
     s_flight_recovery_status.impact_capable = 0U;
     s_flight_recovery_status.impact_threshold_mps2 = 15.0f;
     Test_Execute("SYSTEM INFO", SYSTEM_CONSOLE_EXECUTE_OK,
-                 "project=SilverStar version=0.0.10");
+                 "project=SilverStar version=0.0.12");
     Test_Execute("SYSTEM STATUS", SYSTEM_CONSOLE_EXECUTE_OK,
                  "OK SYSTEM STATUS");
     Test_Execute("SYSTEM STACK", SYSTEM_CONSOLE_EXECUTE_OK,

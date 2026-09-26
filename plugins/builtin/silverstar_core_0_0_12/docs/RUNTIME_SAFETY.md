@@ -5,7 +5,7 @@
 > are authoritative. Runtime rules: `docs/platform/details/RUNTIME_SAFETY.md`.
 > Actual acceptance snapshots: root `VALIDATION.md`.
 
-# FCCG 0.0.10 runtime safety
+# FCCG 0.0.12 runtime safety
 
 Package-local implementation note for the FCCG-owned overlay. Current platform
 rules live in `docs/platform/details/RUNTIME_SAFETY.md` in the FCCG workspace;

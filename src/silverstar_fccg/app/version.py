@@ -1,7 +1,7 @@
 """Authoritative SilverStar platform and FCCG product identity."""
 
 PRODUCT_NAME = "SilverStar_FCCG"
-SILVERSTAR_PLATFORM_VERSION = "0.0.10"
+SILVERSTAR_PLATFORM_VERSION = "0.0.12"
 
 _VERSION_PARTS = tuple(
     int(part) for part in SILVERSTAR_PLATFORM_VERSION.split(".")

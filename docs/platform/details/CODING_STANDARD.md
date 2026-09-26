@@ -1,7 +1,7 @@
 # SilverStar 第一方嵌入式编码约束
 
-> 文档版本：0.0.10  
-> 适用范围：SilverStar 0.0.10第一方运行时代码
+> 文档版本：0.0.12
+> 适用范围：SilverStar 0.0.12第一方运行时代码
 
 ## 1. 适用边界
 
@@ -70,7 +70,7 @@
 
 ## 9. Power of Ten强制门禁
 
-Power of Ten在0.0.10中是第一方安全关键运行时C代码的强制标准。自动检查范围为`APP/Algorithm/Board/Common/Devices/FlightLogic/Generated/Interfaces/Modules/Platform/Protocol/System/OS`中的第一方`.c`，明确排除`backup/`、CubeMX/HAL、CMSIS、官方FreeRTOS Kernel、FatFs和原始第三方库。
+Power of Ten在0.0.12中是第一方安全关键运行时C代码的强制标准。自动检查范围为`APP/Algorithm/Board/Common/Devices/FlightLogic/Generated/Interfaces/Modules/Platform/Protocol/System/OS`中的第一方`.c`，明确排除`backup/`、CubeMX/HAL、CMSIS、官方FreeRTOS Kernel、FatFs和原始第三方库。
 
 | Rule | 强制要求 |
 | --- | --- |

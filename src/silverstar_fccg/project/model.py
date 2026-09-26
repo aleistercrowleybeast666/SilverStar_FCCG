@@ -760,6 +760,27 @@ def _CurrentPreRelease_Migrate(root: dict[str, Any]) -> dict[str, Any]:
     return migrated
 
 
+def _OfficialCoreV10_Migrate(root: dict[str, Any]) -> dict[str, Any]:
+    """Move only the exact official 0.0.10 format-12 identity to this release."""
+    if root.get("format_version") != PROJECT_FORMAT_VERSION:
+        return root
+    project = root.get("project")
+    components = root.get("components")
+    if not isinstance(project, dict) or not isinstance(components, dict):
+        return root
+    if (
+        project.get("firmware_version") != "0.0.10"
+        or project.get("build_target") != "SilverStar_0_0_10"
+        or components.get("core") != "silverstar.core.0_0_10"
+    ):
+        return root
+    migrated = deepcopy(root)
+    migrated["project"]["firmware_version"] = SILVERSTAR_PLATFORM_VERSION
+    migrated["project"]["build_target"] = SILVERSTAR_BUILD_ID
+    migrated["components"]["core"] = SILVERSTAR_CORE_COMPONENT_ID
+    return migrated
+
+
 def _LogDecoderProfile_Parse(value: Any) -> LogDecoderProfileReference:
     profile = _Object_Require(value, "log_decoder_profile")
     expected = {
@@ -1465,6 +1486,7 @@ def ProjectModel_Parse(data: dict[str, Any]) -> ProjectModel:
         if isinstance(root.get("generated_glue"), list):
             root["generated_glue"] = list(dict.fromkeys([*root["generated_glue"], "project_algorithm_parameters"]))
     root = _CurrentPreRelease_Migrate(root)
+    root = _OfficialCoreV10_Migrate(root)
     required_root = {
         "format_version",
         "project",

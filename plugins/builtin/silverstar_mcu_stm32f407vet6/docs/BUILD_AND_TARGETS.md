@@ -7,8 +7,8 @@
 
 # SilverStar Build 与 Targets
 
-> 文档版本：0.0.10  
-> 适用范围：SilverStar 0.0.10
+> 文档版本：0.0.12
+> 适用范围：SilverStar 0.0.12
 
 ## 1. 唯一source graph
 
@@ -84,7 +84,7 @@ build/FCCG/SilverStar_F407/EIDE/
 build/FCCG/Host/Tests/
 ```
 
-目标产物名为`SilverStar_0_0_10.elf/.map/.hex/.bin`。C对象由源码相对路径派生，例如：
+目标产物名为`SilverStar_0_0_12.elf/.map/.hex/.bin`。C对象由源码相对路径派生，例如：
 
 ```text
 build/FCCG/SilverStar_F407/Debug/Platform/STM32F4/Src/platform_uart_stm32f4.o

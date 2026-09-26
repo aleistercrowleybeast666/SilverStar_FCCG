@@ -37,7 +37,7 @@ def test_docs_relative_links_exist():
 
 
 def test_current_docs_release_and_calibration_claims():
-    assert SILVERSTAR_PLATFORM_VERSION == "0.0.10"
+    assert SILVERSTAR_PLATFORM_VERSION == "0.0.12"
     stale_declaration = re.compile(
         r"(?m)^(?:#.*SilverStar\s+0\.0\.9|>.*(?:文档版本|适用范围).*0\.0\.9)"
         r"|(?:当前|firmware build tag)[^\n。]{0,70}(?:SilverStar\s+0\.0\.9|SILV0009)"

@@ -1,8 +1,8 @@
 # SilverStar 工程架构
-> **0.0.10增量**：FCCG成为平台版本与装配权威；Verified Board插件固定logical→physical mapping，CubeMX scan order不得重排逻辑ID；JY901B、NEO-M9N、SX1281支持同插件最多4实例，所有IMU/GNSS native数据可区分记录。IMU只在Calibration/Alignment前选择并锁定，GNSS按基础liveness单向failover，AIR只使用一个active telemetry并在连续10次真实TX timeout后单向切换。完整投票、Multi-EKF、RF端到端健康与failback不属于0.0.10。
+> **0.0.12增量**：FCCG成为平台版本与装配权威；Verified Board插件固定logical→physical mapping，CubeMX scan order不得重排逻辑ID；JY901B、NEO-M9N、SX1281支持同插件最多4实例，所有IMU/GNSS native数据可区分记录。IMU只在Calibration/Alignment前选择并锁定，GNSS按基础liveness单向failover，AIR只使用一个active telemetry并在连续10次真实TX timeout后单向切换。完整投票、Multi-EKF、RF端到端健康与failback不属于0.0.12。
 
-> 文档版本：0.0.10
-> 适用范围：SilverStar 0.0.10
+> 文档版本：0.0.12
+> 适用范围：SilverStar 0.0.12
 
 本文定义可执行的依赖、所有权和目录边界。平台化的判据不是目录名称，而是：System、Device与MCU三者没有反向类型依赖，构建期选择不会退化成运行期函数指针注册。
 
@@ -115,7 +115,7 @@ Device core只拥有设备本身：
 - 本设备的校验、超时和诊断；
 - 通过Platform读取/写入字节、GPIO事件和单调时间。
 
-Device通过Generated的实例化/单例resource binding访问语义资源，但不能使用`huart1`、`GPIOA`或`GPIO_PIN_x`。0.0.10语义选择在Generated resource/descriptor glue，CubeMX handle/pin物理映射在`Generated/Src/platform_resources.c`；`Platform/STM32F4`只通过opaque resource bridge读取映射。
+Device通过Generated的实例化/单例resource binding访问语义资源，但不能使用`huart1`、`GPIOA`或`GPIO_PIN_x`。0.0.12语义选择在Generated resource/descriptor glue，CubeMX handle/pin物理映射在`Generated/Src/platform_resources.c`；`Platform/STM32F4`只通过opaque resource bridge读取映射。
 
 UART DMA/IRQ模型完全由backend拥有：
 

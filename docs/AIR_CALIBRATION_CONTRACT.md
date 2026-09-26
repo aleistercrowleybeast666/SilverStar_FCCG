@@ -1,6 +1,6 @@
 # SilverStar AIR M0 Calibration Contract
 
-> 适用：SilverStar Platform 0.0.10 / AIR M0  
+> 适用：SilverStar Platform 0.0.12 / AIR M0
 > 状态：首次正式发布前冻结候选；不改变 AIR M0 wire layout
 
 本文定义 FCCG、飞控和 GSHC 之间的 Calibration 共同契约。实现细节分别由各工程文档负责。

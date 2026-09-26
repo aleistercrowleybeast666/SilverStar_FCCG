@@ -1,8 +1,8 @@
 # SystemAlignment 平台接口与初始状态规范
-> **0.0.10增量**：`ALIGN_START`只完成即时合法性/初始化，完整`SystemAlignment_Process()`由FlightTask周期推进，避免把重处理压在Telemetry/Serial任务栈。Calibration必须READY；NONE/Identity同样满足该前置条件。
+> **0.0.12增量**：`ALIGN_START`只完成即时合法性/初始化，完整`SystemAlignment_Process()`由FlightTask周期推进，避免把重处理压在Telemetry/Serial任务栈。Calibration必须READY；NONE/Identity同样满足该前置条件。
 
-> 文档版本：0.0.10
-> 适用范围：SilverStar 0.0.10
+> 文档版本：0.0.12
+> 适用范围：SilverStar 0.0.12
 
 ## 1. 职责与依赖
 

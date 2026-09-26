@@ -1,5 +1,5 @@
 # SilverStar AIR 遥测协议 M0
-> **0.0.10增量**：AIR M0 wire layout不变。`calibration_mode_mask`由build动态生成；NONE始终是合法mode。多IMU/GNSS/telemetry不改变固定帧，高频多实例raw数据仍属于本地SSLOG/维护通道，AIR只发送canonical flight state和通用`SENSOR_STATUS(instance_id)`。
+> **0.0.12增量**：AIR M0 wire layout不变。`calibration_mode_mask`由build动态生成；NONE始终是合法mode。多IMU/GNSS/telemetry不改变固定帧，高频多实例raw数据仍属于本地SSLOG/维护通道，AIR只发送canonical flight state和通用`SENSOR_STATUS(instance_id)`。
 
 > 正式名称：AIR 遥测协议 M0
 > wire兼容标识：`AIR_PROFILE_COMPACT_V0 = 0`
@@ -925,7 +925,7 @@ Unknown sensor ID 必须保留原值。
 
 ## 40. AIR M0 冻结目标
 
-AIR M0 wire在0.0.10当前契约内冻结；普通物理设备或能力实例扩展只能复用既有`SENSOR_STATUS.sensor_id + instance_id`，不能顺带调整现有帧。
+AIR M0 wire在0.0.12当前契约内冻结；普通物理设备或能力实例扩展只能复用既有`SENSOR_STATUS.sensor_id + instance_id`，不能顺带调整现有帧。
 
 正式发布后，普通硬件扩展不得要求修改 wire format。
 

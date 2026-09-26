@@ -1,7 +1,7 @@
 # System Indicator
-> **0.0.10增量**：生产启动流程必须在任务创建前调用`SystemIndicator_Init()`。SS0.5系统指示灯固定为Verified Board logical GPIO 6→`IMU_CAL_LED`，低电平点亮；该映射不得由CubeMX inventory序号覆盖。
+> **0.0.12增量**：生产启动流程必须在任务创建前调用`SystemIndicator_Init()`。SS0.5系统指示灯固定为Verified Board logical GPIO 6→`IMU_CAL_LED`，低电平点亮；该映射不得由CubeMX inventory序号覆盖。
 
-SilverStar 0.0.10把本地指示灯拆为System角色与直接物理接口两层。System层只使用`SYSTEM/GNSS/SAFETY`逻辑角色和`OFF/ON/BLINK_SLOW/BLINK_FAST`模式；`SystemIndicatorDevice_Set()`只负责channel和逻辑电平，不理解Calibration、GNSS或Safety语义。所选`FlightLogic/Indicator/GpioStatus`实现通过`PROJECT_RESOURCE_SYSTEM_INDICATOR`和Platform GPIO落实极性；当前Target的channel 0映射PA1且低电平点亮。当前仅`SYSTEM_INDICATOR_SYSTEM_ENABLE=1`，GNSS和SAFETY均为0；不存在的channel保持unsupported。
+SilverStar 0.0.12把本地指示灯拆为System角色与直接物理接口两层。System层只使用`SYSTEM/GNSS/SAFETY`逻辑角色和`OFF/ON/BLINK_SLOW/BLINK_FAST`模式；`SystemIndicatorDevice_Set()`只负责channel和逻辑电平，不理解Calibration、GNSS或Safety语义。所选`FlightLogic/Indicator/GpioStatus`实现通过`PROJECT_RESOURCE_SYSTEM_INDICATOR`和Platform GPIO落实极性；当前Target的channel 0映射PA1且低电平点亮。当前仅`SYSTEM_INDICATOR_SYSTEM_ENABLE=1`，GNSS和SAFETY均为0；不存在的channel保持unsupported。
 
 ## SYSTEM基础模式
 

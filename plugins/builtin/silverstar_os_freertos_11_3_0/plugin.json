@@ -9,7 +9,7 @@
   "requires": {
     "components": [
       {
-        "id": "silverstar.core.0_0_10",
+        "id": "silverstar.core.0_0_12",
         "optional": false
       },
       {

@@ -2,7 +2,7 @@
 
 本目录是 **SilverStar 平台/固件规范**，由 SilverStar_FCCG 仓库维护。
 
-- [`SilverStar_0_0_10.md`](SilverStar_0_0_10.md)：当前平台总规范；
+- [`SilverStar_0_0_12.md`](SilverStar_0_0_12.md)：当前平台总规范；
 - [`details/`](details/)：接口、协议、状态机、构建和验证细节；
 - [`formula/`](formula/)：INS/KF数学公式源文件和PDF；
 - [`history/`](history/)：0.0.7~0.0.9历史平台文档，保持历史语义。

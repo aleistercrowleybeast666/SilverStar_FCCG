@@ -1,12 +1,12 @@
 # SilverStar IMU 接口
-> **0.0.10增量**：所有选中IMU均持续采样并可写native log。Canonical IMU在Calibration/Alignment开始前按configured primary→backup顺序选择并锁定；START后不自动切IMU。Calibration NONE是合法identity correction。
+> **0.0.12增量**：所有选中IMU均持续采样并可写native log。Canonical IMU在Calibration/Alignment开始前按configured primary→backup顺序选择并锁定；START后不自动切IMU。Calibration NONE是合法identity correction。
 
 > **项目：SilverStar**  
-> **文档版本：0.0.10**
+> **文档版本：0.0.12**
 > **状态：Draft / 未发布**  
-> **适用范围：SilverStar 0.0.10**
+> **适用范围：SilverStar 0.0.12**
 
-> `0.0.10` 表示协议、接口和实现均处于首次发布前阶段。文档中的结构可以在评审后调整，不提供跨版本兼容承诺。
+> `0.0.12` 表示协议、接口和实现均处于首次发布前阶段。文档中的结构可以在评审后调整，不提供跨版本兼容承诺。
 
 ## 1. 范围
 

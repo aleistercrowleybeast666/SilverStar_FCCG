@@ -1,4 +1,4 @@
-# SilverStar 0.0.10 运行时安全
+# SilverStar 0.0.12 运行时安全
 
 本文是当前平台规则；builtin和reference overlay中的同名说明仅为组件实现备注。实际构建结果、内存数值和测试快照见[根VALIDATION](../../../VALIDATION.md)。
 

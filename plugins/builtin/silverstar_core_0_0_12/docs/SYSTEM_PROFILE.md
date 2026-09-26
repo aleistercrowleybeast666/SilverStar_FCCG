@@ -7,8 +7,8 @@
 
 # SilverStar System Profile 与构建期组合
 
-> 文档版本：0.0.10
-> 适用范围：SilverStar 0.0.10
+> 文档版本：0.0.12
+> 适用范围：SilverStar 0.0.12
 
 System Profile描述启用能力、Required/Optional策略和算法配置，不保存具体Device枚举、Ops地址或运行期注册项。具体硬件选择属于Target manifest；设备资格在Target配置中映射为通用`SYSTEM_SELECTED_*`宏。
 
@@ -24,7 +24,7 @@ System Profile描述启用能力、Required/Optional策略和算法配置，不�
 | `Targets/<target>/target.mk` | Device core+Adapter、Board、Platform backend、Generated glue和OS port选择 |
 | `Targets/<target>/Inc/target_system_config.h` | 目标能力enable、Required/Optional与Device qualification映射 |
 
-0.0.10不存在`system_user_registry.h`。把具体设备名、头文件或入口宏写回System/User属于架构回退。
+0.0.12不存在`system_user_registry.h`。把具体设备名、头文件或入口宏写回System/User属于架构回退。
 
 ## 2. Target composition
 

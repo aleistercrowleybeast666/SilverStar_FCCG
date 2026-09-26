@@ -1,8 +1,8 @@
 # Builtin Components
 
-当前SilverStar 0.0.10官方builtin按以下类别组织：
+当前SilverStar 0.0.12官方builtin按以下类别组织：
 
-- Core 0.0.10；
+- Core 0.0.12；
 - MCU/Platform：STM32F407VET6/F4 backend；
 - Board：SS0.5 verified Board；
 - Devices：JY901B、NEO-M9N、E28-2G4M12SX/SX1281、maintenance UART、SD/TF(SDIO+FatFs)、输入电压、点火/开伞输出、指示灯；

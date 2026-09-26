@@ -1,8 +1,8 @@
 # Alignment 接口索引
 
-> 文档版本：0.0.10
+> 文档版本：0.0.12
 
-SilverStar 0.0.10已将传感器校准和任务初始状态建立正式拆分：
+SilverStar 0.0.12已将传感器校准和任务初始状态建立正式拆分：
 
 - [SystemCalibration接口与预飞校准规范](SYSTEM_CALIBRATION.md)
 - [SystemAlignment接口与初始状态规范](SYSTEM_ALIGNMENT.md)

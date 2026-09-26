@@ -1,7 +1,7 @@
 # SilverStar Storage与Log Sink接口
 
-> **文档版本：0.0.10**
-> **适用范围：SilverStar 0.0.10**
+> **文档版本：0.0.12**
+> **适用范围：SilverStar 0.0.12**
 
 ## 1. 两层接口
 

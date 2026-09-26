@@ -52,7 +52,7 @@ def _AccelOnlyCatalog_Create(
         "description": "Test-only acceleration and angular-rate provider.",
         "requires": {
             "components": [
-                {"id": "silverstar.core.0_0_10", "optional": False}
+                {"id": "silverstar.core.0_0_12", "optional": False}
             ],
             "resources": [],
             "capabilities": [],

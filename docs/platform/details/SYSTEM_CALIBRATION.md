@@ -1,8 +1,8 @@
 # SystemCalibration 接口与预飞校准规范
-> **0.0.10增量**：FCCG GUI只配置OneFace/SixFace采样procedure，NONE始终属于固件能力。无采样procedure的build启动/Reset自动NONE/Identity/READY；build含采样procedure时，用户仍可通过现有`CAL START NONE`选择默认校正。Capability mask为0x01/0x03/0x05/0x07。`CALIBRATION_RESULT`始终表示本次实际生效correction。
+> **0.0.12增量**：FCCG GUI只配置OneFace/SixFace采样procedure，NONE始终属于固件能力。无采样procedure的build启动/Reset自动NONE/Identity/READY；build含采样procedure时，用户仍可通过现有`CAL START NONE`选择默认校正。Capability mask为0x01/0x03/0x05/0x07。`CALIBRATION_RESULT`始终表示本次实际生效correction。
 
-> 文档版本：0.0.10
-> 适用范围：SilverStar 0.0.10
+> 文档版本：0.0.12
+> 适用范围：SilverStar 0.0.12
 
 ## 1. 职责与边界
 

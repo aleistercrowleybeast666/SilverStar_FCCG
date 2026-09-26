@@ -1,9 +1,9 @@
 # Telemetry Service 与 Transport 接口
-> **0.0.10增量**：AIR M0可绑定ordered telemetry候选链，但同时只收发一个active transport。连续10次真实本地TX timeout才切换，任一成功发送清零；只有一个链路或备用耗尽时继续按正常任务周期有界重试。该机制不判断地面站是否真正收到，不是RF端到端健康。
+> **0.0.12增量**：AIR M0可绑定ordered telemetry候选链，但同时只收发一个active transport。连续10次真实本地TX timeout才切换，任一成功发送清零；只有一个链路或备用耗尽时继续按正常任务周期有界重试。该机制不判断地面站是否真正收到，不是RF端到端健康。
 
-> 文档版本：0.0.10
+> 文档版本：0.0.12
 >
-> 适用范围：SilverStar 0.0.10
+> 适用范围：SilverStar 0.0.12
 
 ## 1. 分层
 
@@ -43,7 +43,7 @@ System通过这些符号直接调用所选Device Adapter，不存在Ops对象或
 
 Generated按实例静态facade将`TELEMETRY <instance>`维护查询绑定到被指定的物理实例；Canonical发送接口由System source selector指向一个active transport。SX1281最多四实例，按配置primary及稳定backup顺序单向切换。初始化真实失败可以跳过当前候选；运行期仅真实连续TX timeout计数，达到十次切换，BUSY不计数，成功发送清零。无剩余backup时保留最后来源，按正常发送周期继续重试；不自动failback，也不宣称RF端到端健康检测。
 
-当前 MTU 为 64，编译期必须满足 `AIR_MAX_FRAME_LEN=50 <= LORA_MAX_PAYLOAD_LEN=64`。0.0.10不改变 2473 MHz、12 dBm、SF10、800 kHz、CR4/5、16-symbol preamble、variable length 或 hardware CRC ON。
+当前 MTU 为 64，编译期必须满足 `AIR_MAX_FRAME_LEN=50 <= LORA_MAX_PAYLOAD_LEN=64`。0.0.12不改变 2473 MHz、12 dBm、SF10、800 kHz、CR4/5、16-symbol preamble、variable length 或 hardware CRC ON。
 
 ## 3. Capability 与命令策略
 

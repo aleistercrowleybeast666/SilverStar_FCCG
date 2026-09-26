@@ -1,7 +1,7 @@
 # SilverStar System Profile 与构建期组合
 
-> 文档版本：0.0.10
-> 适用范围：SilverStar 0.0.10
+> 文档版本：0.0.12
+> 适用范围：SilverStar 0.0.12
 
 System Profile描述启用能力、Required/Optional策略和算法配置，不保存具体Device枚举、Ops地址或运行期注册项。具体硬件选择来自项目模型与安装manifest；设备资格在生成配置中映射为通用`SYSTEM_SELECTED_*`宏。
 

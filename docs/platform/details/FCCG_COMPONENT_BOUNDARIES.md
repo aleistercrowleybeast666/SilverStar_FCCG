@@ -1,5 +1,5 @@
 # FCCG组件边界
-> **0.0.10增量**：FCCG `docs/platform/` 是平台规范权威；外部reference firmware只作为只读来源。长期FCCG扩展通过builtin/overlay/importer持久化，不能要求修改外部参考仓库。
+> **0.0.12增量**：FCCG `docs/platform/` 是平台规范权威；外部reference firmware只作为只读来源。长期FCCG扩展通过builtin/overlay/importer持久化，不能要求修改外部参考仓库。
 
 本文定义FCCG当前组件装配与生成工程的payload边界。FCCG已实现GUI配置、声明式插件管理、严格JSON项目模型、资源解析、代码生成和构建前端；生成后的固件不依赖GUI运行。
 

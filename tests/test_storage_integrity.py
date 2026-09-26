@@ -157,7 +157,7 @@ def test_storage_sources_survive_reference_reimport(monkeypatch, workspace_root)
     monkeypatch.setattr(importer, "_ManifestValues_Get", lambda *_: [])
     components = {item["manifest"]["id"]: item for item in importer._Components_Get(
         Path("unused"), {"commit": "fixture", "snapshot_digest": "fixture"})}
-    core = components["silverstar.core.0_0_10"]
+    core = components["silverstar.core.0_0_12"]
     for relative in ("APP/Src/logger_bus.c", "APP/Src/logger_task.c", "APP/Inc/logger_bus.h",
                      "APP/Inc/logger_task.h", "Interfaces/Inc/system_storage_if.h",
                      "Tests/Host/storage_integrity/test_storage_integrity.c",
@@ -167,7 +167,7 @@ def test_storage_sources_survive_reference_reimport(monkeypatch, workspace_root)
                      "Tests/Target/storage_integrity.c", "Tools/sslog_audit.py"):
         source = workspace_root / core["fccg_owned_files"][relative]
         assert source.is_file()
-        assert source.read_bytes() == (workspace_root / "plugins/builtin/silverstar_core_0_0_10/payload" / relative).read_bytes()
+        assert source.read_bytes() == (workspace_root / "plugins/builtin/silverstar_core_0_0_12/payload" / relative).read_bytes()
     for component in components.values():
         if component["manifest"]["id"].startswith("silverstar.board."):
             for relative in ("sd_diskio.c", "bsp_driver_sd.c"):

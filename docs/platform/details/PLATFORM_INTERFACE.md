@@ -1,7 +1,7 @@
 # SilverStar Platform Interface
 
-> 文档版本：0.0.10  
-> 适用范围：SilverStar 0.0.10
+> 文档版本：0.0.12
+> 适用范围：SilverStar 0.0.12
 
 Platform抽象通用MCU能力，不抽象传感器。公共头位于`Platform/Inc`，当前实现位于`Platform/STM32F4`；只有后者可以包含STM32/HAL/CubeMX类型。
 

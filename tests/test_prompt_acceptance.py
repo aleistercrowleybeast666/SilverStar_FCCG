@@ -131,7 +131,7 @@ def test_reference_import_definition_preserves_current_fccg_overlays(
         "silverstar.device.actuator.launch_ignition",
         "silverstar.device.actuator.parachute_pyro",
     }.issubset(manifests)
-    core_owned = components_by_id["silverstar.core.0_0_10"]["fccg_owned_files"]
+    core_owned = components_by_id["silverstar.core.0_0_12"]["fccg_owned_files"]
     for relative in (
         "APP/Src/app_tasks.c",
         "System/Inc/system_source_selector.h",
@@ -238,7 +238,7 @@ def test_fccg_owned_decoder_templates_survive_reference_reimport(
 ) -> None:
     template_root = (
         workspace_root
-        / "plugins/builtin/silverstar_core_0_0_10/templates/generated"
+        / "plugins/builtin/silverstar_core_0_0_12/templates/generated"
     )
     semantics = json.loads(
         (template_root / "project_semantics.json").read_text(
@@ -295,27 +295,27 @@ def test_reference_payload_sync_and_environment_templates_are_read_only(
         ),
         (
             "System/User/system_user_capability_validation.h",
-            "plugins/builtin/silverstar_core_0_0_10/payload/"
+            "plugins/builtin/silverstar_core_0_0_12/payload/"
             "System/User/system_user_capability_validation.h",
         ),
         (
             "Tests/Host/test_build_capability_contract.c",
-            "plugins/builtin/silverstar_core_0_0_10/payload/"
+            "plugins/builtin/silverstar_core_0_0_12/payload/"
             "Tests/Host/test_build_capability_contract.c",
         ),
         (
             "APP/Inc/diagnostic_log.h",
-            "plugins/builtin/silverstar_core_0_0_10/payload/"
+            "plugins/builtin/silverstar_core_0_0_12/payload/"
             "APP/Inc/diagnostic_log.h",
         ),
         (
             "APP/Src/diagnostic_log.c",
-            "plugins/builtin/silverstar_core_0_0_10/payload/"
+            "plugins/builtin/silverstar_core_0_0_12/payload/"
             "APP/Src/diagnostic_log.c",
         ),
         (
             "Generated/Src/project_log_config.c",
-            "plugins/builtin/silverstar_core_0_0_10/templates/"
+            "plugins/builtin/silverstar_core_0_0_12/templates/"
             "generated/project_log_config.c",
         ),
         (
@@ -376,7 +376,7 @@ def test_reference_payload_sync_and_environment_templates_are_read_only(
     core_manifest = json.loads(
         (
             workspace_root
-            / "plugins/builtin/silverstar_core_0_0_10/plugin.json"
+            / "plugins/builtin/silverstar_core_0_0_12/plugin.json"
         ).read_text(encoding="utf-8")
     )
     source_origins = core_manifest["metadata"]["source_origins"]

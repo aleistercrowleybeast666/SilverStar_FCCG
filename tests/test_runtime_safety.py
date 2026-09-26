@@ -94,7 +94,7 @@ def test_runtime_sources_survive_reference_import(monkeypatch, workspace_root):
     monkeypatch.setattr(importer, "_ManifestValues_Get", lambda *_: [])
     components = {item["manifest"]["id"]: item for item in importer._Components_Get(
         Path("unused"), {"commit": "fixture", "snapshot_digest": "fixture"})}
-    core = components["silverstar.core.0_0_10"]
+    core = components["silverstar.core.0_0_12"]
     for relative in (
         "APP/Inc/app_task_config.h", "APP/Src/app_tasks.c",
         "Common/Inc/silverstar_assert.h", "Common/Src/silverstar_assert.c",

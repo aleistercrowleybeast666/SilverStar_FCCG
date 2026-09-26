@@ -5,18 +5,18 @@
 > are authoritative. Runtime rules: `docs/platform/details/RUNTIME_SAFETY.md`.
 > Actual acceptance snapshots: root `VALIDATION.md`.
 
-# SilverStar 0.0.10 平台规范
+# SilverStar 0.0.12 平台规范
 
-SilverStar 0.0.10是首次发布前的FCCG-ready reference firmware。本版把System、具体Device与MCU实现分离，引入独立Interfaces、Device Adapter、Device-owned service、内部硬件服务与FlightLogic组件、vendor无关Platform契约、薄Generated glue、显式Target manifest和官方FreeRTOS-Kernel V11.3.0。当前真实实现和编译目标仍只有STM32F407VET6；“可移植”表示依赖边界成立，不表示其他MCU已经受支持或上板验证。
+SilverStar 0.0.12是首次发布前的FCCG-ready reference firmware。本版把System、具体Device与MCU实现分离，引入独立Interfaces、Device Adapter、Device-owned service、内部硬件服务与FlightLogic组件、vendor无关Platform契约、薄Generated glue、显式Target manifest和官方FreeRTOS-Kernel V11.3.0。当前真实实现和编译目标仍只有STM32F407VET6；“可移植”表示依赖边界成立，不表示其他MCU已经受支持或上板验证。
 
 ## 1. 版本与兼容性
 
-- 固件版本：`0.0.10`；日志构建标识：`SILV0010`；System Profile ID：`0x0000000A`；
+- 固件版本：`0.0.12`；日志构建标识：`SILV0012`；System Profile ID：`0x0000000A`；
 - AIR遥测协议正式名称为M0；wire兼容枚举保持`AIR_PROFILE_COMPACT_V0 = 0`，类型值、固定长度、字段偏移、token、字节序、5 Hz周期和无应用层CRC契约不变；
 - 飞行日志格式正式名称为0.0；wire magic保持`SSLOG0`，文件头、Record header、little-endian和CRC-32/ISO-HDLC语义不提升；
 - 既有SSLOG Record `0x01..0x19`的ID和`record_version=0`不因架构移动而改变；新增descriptor为`0x1A..0x1C`，从version 0开始；
 - 串口维护协议正式名称与版本为0.0；命令、权限和响应语义不变；
-- 0.0.10处于首次发布前阶段，不保留旧Provider、CMSIS-RTOS2、旧LoggerBus结构或旧构建图的兼容层。
+- 0.0.12处于首次发布前阶段，不保留旧Provider、CMSIS-RTOS2、旧LoggerBus结构或旧构建图的兼容层。
 
 固件版本与wire协议版本是独立概念。以后升级SilverStar版本不得自动升级AIR遥测协议M0、串口维护协议0.0或飞行日志格式0.0。
 
@@ -117,7 +117,7 @@ Target在`target_system_config.h`把已选Device的构建资格映射为`SYSTEM_
 
 ## 7. 导航、对准与飞行状态
 
-0.0.10保持0.0.8已经验证的数学和状态语义：
+0.0.12保持0.0.8已经验证的数学和状态语义：
 
 - Body/ENU与`q_nb`仍表示body到ENU；
 - Calibration支持NONE、ONE_FACE和SIX_FACE；
@@ -171,13 +171,13 @@ mingw32-make TARGET_PROFILE=SilverStar_F407 CONFIG=Debug all
 mingw32-make TARGET_PROFILE=SilverStar_F407 CONFIG=Release all
 ```
 
-输出为`build/FCCG/<Target>/<Debug|Release>/SilverStar_0_0_10.{elf,map,hex,bin}`，对象保留源码相对目录。构建只依赖GNU Make和Arm toolchain，不依赖Python/FCCG。`.eide/eide.yml`是当前F407可直接构建的手工镜像，输出隔离到`build/FCCG/SilverStar_F407/EIDE/`；`architecture-check`确保其源、include、define、CPU/FPU、linker与forced include和Make一致。未来FCCG可以覆盖该镜像，但Make保持正式release/validation权威。
+输出为`build/FCCG/<Target>/<Debug|Release>/SilverStar_0_0_12.{elf,map,hex,bin}`，对象保留源码相对目录。构建只依赖GNU Make和Arm toolchain，不依赖Python/FCCG。`.eide/eide.yml`是当前F407可直接构建的手工镜像，输出隔离到`build/FCCG/SilverStar_F407/EIDE/`；`architecture-check`确保其源、include、define、CPU/FPU、linker与forced include和Make一致。未来FCCG可以覆盖该镜像，但Make保持正式release/validation权威。
 
 CubeMX只管理STM32时钟、GPIO、DMA、UART、SPI、SDIO、ADC、NVIC和HAL初始化。重新生成后必须确认`.ioc`没有恢复FreeRTOS middleware、`freertos.c`、CMSIS-RTOS2或defaultTask，并复核USER CODE以外的必要改动。
 
 ## 11. 验收状态
 
-0.0.10交付必须运行：
+0.0.12交付必须运行：
 
 - `mingw32-make host-tests`：接口、Platform mock、Device Driver+Adapter、Board Service、算法、Calibration/Alignment、Lifecycle/Recovery、AIR、SSLOG和编译期能力契约；
 - `mingw32-make architecture-check`：依赖边界、旧架构残留、Generated薄glue、无Python构建、heap/CMSIS、manifest和FreeRTOS源集；
@@ -191,7 +191,7 @@ CubeMX只管理STM32时钟、GPIO、DMA、UART、SPI、SDIO、ADC、NVIC和HAL�
 
 当前构建期Strategy为GravityKnownYaw、Coning2Sculling2、KF6、BarometerImuWindow和MultiTrigger。未选择Strategy不进入source graph；`ESTIMATOR_STRATEGY=None`不编译KF6。Calibration的空选（NONE/单位校正）/OneFace/SixFace与MultiTrigger的Apogee/Tilt/Delay属于Mode，后者允许0..N组合且mask=0不自动部署。不得恢复runtime strategy registry或函数指针dispatch。
 
-F407通过vendor-neutral memory placement宏把Estimator、当前Alignment strategy storage、七个任务栈和Idle栈放入CPU-only CCMRAM；DMA相关对象留在主SRAM。Target linker/startup负责`.ccmram_bss`定义和清零，CubeMX重新生成后必须复核。Power of Ten、CCMRAM、EIDE与Strategy组件化均不改变0.0.10、AIR遥测协议M0、串口维护协议0.0或飞行日志格式0.0；技术wire标识仍分别为profile numeric 0和magic `SSLOG0`。
+F407通过vendor-neutral memory placement宏把Estimator、当前Alignment strategy storage、七个任务栈和Idle栈放入CPU-only CCMRAM；DMA相关对象留在主SRAM。Target linker/startup负责`.ccmram_bss`定义和清零，CubeMX重新生成后必须复核。Power of Ten、CCMRAM、EIDE与Strategy组件化均不改变0.0.12、AIR遥测协议M0、串口维护协议0.0或飞行日志格式0.0；技术wire标识仍分别为profile numeric 0和magic `SSLOG0`。
 
 ## 13. 文档索引
 

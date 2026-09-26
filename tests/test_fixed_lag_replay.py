@@ -21,7 +21,7 @@ def test_generated_fixed_lag_replay(tmp_path, workspace_root):
     sources = ["Algorithm/Estimator/KF6/Src/navigation_kf.c",
                "Algorithm/Estimator/KF6/Src/navigation_kf_replay.c",
                "System/Src/system_time.c", "Common/Src/silverstar_assert.c"]
-    fixture = workspace_root / "plugins/builtin/silverstar_core_0_0_10/payload/Tests/Host/test_navigation_kf_replay.c"
+    fixture = workspace_root / "plugins/builtin/silverstar_core_0_0_12/payload/Tests/Host/test_navigation_kf_replay.c"
     command += [str(project / p) for p in sources]
     command += [str(fixture), "-lm", "-o", str(output / "replay.exe")]
     env = dict(os.environ, TEMP=str(output), TMP=str(output))

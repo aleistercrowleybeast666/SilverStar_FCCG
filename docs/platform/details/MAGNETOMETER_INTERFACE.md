@@ -1,9 +1,9 @@
 # SilverStar Magnetometer 接口
 
 > **项目：SilverStar**  
-> **文档版本：0.0.10**
+> **文档版本：0.0.12**
 > **状态：Draft / 未发布**  
-> **适用范围：SilverStar 0.0.10**
+> **适用范围：SilverStar 0.0.12**
 
 ## 1. 范围
 
@@ -94,7 +94,7 @@ System通过上述符号直接调用所选Device的唯一Adapter；不存在Ops�
 
 `SystemMagnetometer_*`表示当前Canonical磁场能力；`ProjectMagnetometerInstance_*`静态facade用于`MAG <instance>`维护、Sensor Status和`MAG_NATIVE`来源标记。实例号按Magnetometer类别编号，不是复合IMU编号。JY901B当前默认不生成MAG 0；诊断构建启用时MAG 0与IMU 0、BARO 0、ATTITUDE 0共享同一`physical_device_id`。不存在实例必须返回`NOT_PRESENT`，不得映射到IMU 0。
 
-## 7. 0.0.10使用范围
+## 7. 0.0.12使用范围
 
 磁场主要用于START前九轴TRIAD对准和硬件姿态输出健康判断。六状态位置-速度KF不直接融合磁场。推力段是否使用磁场修正姿态由未来估计器策略决定。
 

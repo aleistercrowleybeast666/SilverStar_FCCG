@@ -4,7 +4,7 @@
   "name": "STM32F407VET6",
   "type": "mcu",
   "class": "stm32f4",
-  "version": "0.0.10",
+  "version": "0.0.12",
   "description": "STM32F407VET6 capabilities, STM32F4 Platform backend, HAL/CMSIS dependency and target memory contract.",
   "requires": {
     "components": [],

@@ -1,13 +1,13 @@
 # SilverStar 串口维护协议 0.0
 
 > **项目：SilverStar**
-> **文档版本：0.0.10**
+> **文档版本：0.0.12**
 > **协议版本：0.0**
 > **状态：Draft / 未发布**
 
 ## 1. 边界
 
-串口维护协议0.0是System Console处理的ASCII行协议，与AIR遥测协议M0二进制wire互不复用。这里的0.0是维护协议版本，不是固件0.0.10版本。Console Interface只负责非阻塞字节输入、输出和链路健康；SerialTask形成完整行并调用System Console，不直接访问设备寄存器，也不推进GNSS、IMU或Telemetry解析器。
+串口维护协议0.0是System Console处理的ASCII行协议，与AIR遥测协议M0二进制wire互不复用。这里的0.0是维护协议版本，不是固件0.0.12版本。Console Interface只负责非阻塞字节输入、输出和链路健康；SerialTask形成完整行并调用System Console，不直接访问设备寄存器，也不推进GNSS、IMU或Telemetry解析器。
 
 关键词使用本文给出的ASCII大写形式，token以空格或制表符分隔，CR、LF或CRLF结束。Parser使用5项固定容量token数组，不分配内存。能力端点命令与系统命令使用两套明确grammar：
 

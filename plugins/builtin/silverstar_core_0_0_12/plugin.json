@@ -1,10 +1,10 @@
 {
   "schema_version": 0,
-  "id": "silverstar.core.0_0_10",
-  "name": "SilverStar Core 0.0.10",
+  "id": "silverstar.core.0_0_12",
+  "name": "SilverStar Core 0.0.12",
   "type": "core",
   "class": "flight_controller_core",
-  "version": "0.0.10",
+  "version": "0.0.12",
   "description": "MCU-independent SilverStar application, system, interfaces and host validation sources.",
   "requires": {
     "components": [],
@@ -107,8 +107,8 @@
       "snapshot_digest": "7998cace3e609d4e0c3f16f8d9e4cdf531f3f82939670638d4fe4d02f3c4e942"
     },
     "display_names": {
-      "zh_CN": "SilverStar 核心 0.0.10",
-      "en_US": "SilverStar Core 0.0.10"
+      "zh_CN": "SilverStar 核心 0.0.12",
+      "en_US": "SilverStar Core 0.0.12"
     },
     "protocol_log_producers": {
       "logging": [

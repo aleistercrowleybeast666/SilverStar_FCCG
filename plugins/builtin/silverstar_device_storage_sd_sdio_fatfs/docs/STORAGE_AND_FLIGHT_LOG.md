@@ -17,10 +17,10 @@ Calibration/Alignment/Initial State快照。普通周期流等header、decoder�
 正常启动要求overflow/gap为零，有限过载只允许drop而不允许CRC/长度/字节损坏；Host调度为模型，
 实机证据与精确数值见根VALIDATION。当前权威流程见`docs/platform/details/STORAGE_AND_FLIGHT_LOG.md`。
 
-> 文档版本：0.0.10
+> 文档版本：0.0.12
 > 正式名称：飞行日志格式0.0
 > wire magic：`SSLOG0`；profile id：0
-> 适用范围：SilverStar 0.0.10
+> 适用范围：SilverStar 0.0.12
 
 ## 1. 职责分层
 
@@ -80,7 +80,7 @@ FCCG/离线解析器的声明式Record Catalog及镜像位于：
 | 23 | 1 | Hamilton body-to-navigation语义 |
 | 24 | 4 | local gravity，float32 |
 | 28 | 8 | AIR兼容标识`AIR-NCRC` |
-| 36 | 8 | firmware build tag，0.0.10为`SILV0010` |
+| 36 | 8 | firmware build tag，0.0.12为`SILV0012` |
 | 44 | 2 | Record CRC size=4 |
 | 46 | 2 | mechanization subsample count |
 | 48..51 | 4 | firmware major/minor/patch/build |
@@ -148,7 +148,7 @@ u32 crc32                覆盖header + payload
 
 ## 6. Stream policy
 
-0.0.10删除`SYSTEM_LOG_MASK_*` 32-bit瓶颈。`SystemLogPolicy`维护：
+0.0.12删除`SYSTEM_LOG_MASK_*` 32-bit瓶颈。`SystemLogPolicy`维护：
 
 ```c
 typedef struct

@@ -4,7 +4,7 @@
 
 新增独立算法参数页面（硬件连接之前），插件声明实际值、单位和 representation。
 Project format 12；`.ssdecoder` / project-semantics 1.2，拒绝 decoder 1.1；
-Platform 仍为 0.0.10，Record Catalog 与协议布局不变。
+Platform 仍为 0.0.12，Record Catalog 与协议布局不变。
 参数清单、生成绑定与 Recorded Configuration / Offline What-if 边界见[参数契约](docs/ALGORITHM_PARAMETERS.md)。
 精确验证结果仅见仓库根 VALIDATION.md。
 
@@ -68,7 +68,7 @@ environment, or any other repository. Project-local settings and logs belong bel
 
 ## Architecture and ownership
 
-- `src/silverstar_fccg/app/version.py` is the single runtime authority for the SilverStar 0.0.10
+- `src/silverstar_fccg/app/version.py` is the single runtime authority for the SilverStar 0.0.12
   application/platform release train. Generated firmware identity and official SilverStar builtin
   versions derive from it; AIR M0, maintenance/log 0.0, decoder/project-semantics 1.2, FreeRTOS,
   Board revision, MCU part, CubeMX, and vendor package versions remain independent.
@@ -227,4 +227,4 @@ diagnostics remain in the detailed log and project-local log file.
 
 ## Shared algorithm parameters closeout
 
-Order selected parameter owners by `selection.ui_order`; use declarative `shared_key` groups without component-specific branches. Project format 12 keeps per-component values and strictly rejects mismatches. `.ssdecoder` 1.2 keeps per-algorithm resolved values (no `shared_key`) and requires FLP 0.0.2. Navigation gravity sharing does not include platform local gravity, Calibration, or Alignment.
+Order selected parameter owners by `selection.ui_order`; use declarative `shared_key` groups without component-specific branches. Project format 12 keeps per-component values and strictly rejects mismatches. `.ssdecoder` 1.2 keeps per-algorithm resolved values (no `shared_key`) and requires FLP 0.0.4. Navigation gravity sharing does not include platform local gravity, Calibration, or Alignment.

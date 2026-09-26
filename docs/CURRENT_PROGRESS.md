@@ -4,7 +4,7 @@
 
 新增独立算法参数页面（硬件连接之前），插件声明实际值、单位和 representation。
 Project format 12；`.ssdecoder` / project-semantics 1.2，拒绝 decoder 1.1；
-Platform 仍为 0.0.10，Record Catalog 与协议布局不变。
+Platform 仍为 0.0.12，Record Catalog 与协议布局不变。
 参数清单、生成绑定与 Recorded Configuration / Offline What-if 边界见[参数契约](ALGORITHM_PARAMETERS.md)。
 精确验证结果仅见仓库根 VALIDATION.md。
 
@@ -24,7 +24,7 @@ Platform 仍为 0.0.10，Record Catalog 与协议布局不变。
 启动queue已满时仍打开writer排空，再补入Required decoder descriptor，避免反复关闭导致停滞。
 已提供Target字节读回harness；真实SDIO/card、历史SS0014、两次或两卡正常停止验收仍需实机。
 
-> 当前平台：SilverStar 0.0.10。精确测试数量、hash、RAM/FLASH和本轮commit以仓库根 `VALIDATION.md` 为唯一验收快照，本文件不复制易漂移的数字。
+> 当前平台：SilverStar 0.0.12。精确测试数量、hash、RAM/FLASH和本轮commit以仓库根 `VALIDATION.md` 为唯一验收快照，本文件不复制易漂移的数字。
 
 ## 已完成
 - FCCG作为平台版本/装配权威；

@@ -1,6 +1,6 @@
-# SilverStar 0.0.10 平台规范
+# SilverStar 0.0.12 平台规范
 
-SilverStar 0.0.10 是首次公开发布前的 FCCG-centered 平台冻结候选。FCCG 是中央配置、组件装配、接口冻结和版本权威；生成固件是独立可构建工程，外部参考固件仓库仅作为只读 provenance/source，不是当前平台规范的第二真相。
+SilverStar 0.0.12 是首次公开发布前的 FCCG-centered 平台冻结候选。FCCG 是中央配置、组件装配、接口冻结和版本权威；生成固件是独立可构建工程，外部参考固件仓库仅作为只读 provenance/source，不是当前平台规范的第二真相。
 
 ## 当前已验证基线
 - MCU/Target：STM32F407VET6 / `SilverStar_F407`；
@@ -11,7 +11,7 @@ SilverStar 0.0.10 是首次公开发布前的 FCCG-centered 平台冻结候选�
 - Decoder package：`.ssdecoder` 1.2（拒绝1.1），Project Semantics 1.2；算法参数为实际值；
 - Algorithm/logic：Calibration、Alignment、Coning2/Sculling2 INS、KF6、Deployment、Landing。
 
-## 0.0.10 关键边界
+## 0.0.12 关键边界
 1. **Verified Board** 固定 logical→physical mapping；`.ioc`/generated defines只解析和验证physical alias，不能按扫描顺序重排Platform ID。
 2. **多实例**：官方JY901B/M9N/SX1281允许同插件最多4实例，资源、driver state和native log均独立。
 3. **最小source availability**：IMU只在Calibration/Alignment前选择并锁定；GNSS按liveness单向failover；AIR active telemetry在连续10次真实TX timeout后单向failover，无备用则持续有界重试。

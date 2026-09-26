@@ -4,12 +4,12 @@
   "name": "Flight Log Format 0.0",
   "type": "protocol",
   "class": "logging",
-  "version": "0.0.10",
+  "version": "0.0.12",
   "description": "SSLOG 0.0 container, Record Catalog and declarative decoder metadata.",
   "requires": {
     "components": [
       {
-        "id": "silverstar.core.0_0_10",
+        "id": "silverstar.core.0_0_12",
         "optional": false
       }
     ],
@@ -67,8 +67,8 @@
     "category": "logging",
     "logging_metadata": "Protocol/SSLOG/schema/sslog_parser_metadata.json",
     "maintenance_protocol_version": "0.0",
-    "firmware_version": "0.0.10",
-    "documentation_version": "0.0.10",
+    "firmware_version": "0.0.12",
+    "documentation_version": "0.0.12",
     "profiles": {
       "logging": [
         {

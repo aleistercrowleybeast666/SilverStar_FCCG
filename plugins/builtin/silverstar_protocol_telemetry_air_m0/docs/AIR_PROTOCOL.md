@@ -925,7 +925,7 @@ Init，但只有一个active transport执行Start、TX、RX和IRQ/Process上层�
 非timeout临时状态不累计。不存在后续candidate时不停止AIR/TelemetryTask，最后source保留为
 active并在以后每个正常发送周期只进行一次有界尝试；后续成功同样清零。该策略不循环
 failback，不在单次Send中重试10次，不添加ground heartbeat/ACK/RSSI判定，因此本地TX_DONE
-不能证明地面站实际收到，天线或RF端到端故障仍不在0.0.10检测范围内。
+不能证明地面站实际收到，天线或RF端到端故障仍不在0.0.12检测范围内。
 
 未来新增 STAR_TRACKER、SUN_SENSOR、AIR_DATA 或其他普通传感器，只需：
 
@@ -940,7 +940,7 @@ failback，不在单次Send中重试10次，不添加ground heartbeat/ACK/RSSI�
 
 ## 40. AIR M0 冻结目标
 
-AIR M0 wire在0.0.10当前契约内冻结；普通物理设备或能力实例扩展只能复用既有`SENSOR_STATUS.sensor_id + instance_id`，不能顺带调整现有帧。
+AIR M0 wire在0.0.12当前契约内冻结；普通物理设备或能力实例扩展只能复用既有`SENSOR_STATUS.sensor_id + instance_id`，不能顺带调整现有帧。
 
 正式发布后，普通硬件扩展不得要求修改 wire format。
 

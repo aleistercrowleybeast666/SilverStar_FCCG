@@ -108,7 +108,7 @@ def test_logging_metadata_declares_cadence_and_legacy_policy_fallback(
         model,
         builtin_catalog,
     ).available
-    core = builtin_catalog.Component_Get("silverstar.core.0_0_10")
+    core = builtin_catalog.Component_Get("silverstar.core.0_0_12")
     assert "log_producers" not in core.metadata
     assert core.metadata["protocol_log_producers"] == {
         "logging": [

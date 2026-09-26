@@ -4,12 +4,12 @@
   "name": "SD/TF Card · STM32 SDIO + FatFs",
   "type": "device",
   "class": "storage",
-  "version": "0.0.10",
+  "version": "0.0.12",
   "description": "Single-instance SD/TF physical storage and sequential SSLOG sink using CubeMX SDIO and FatFs glue.",
   "requires": {
     "components": [
       {
-        "id": "silverstar.core.0_0_10",
+        "id": "silverstar.core.0_0_12",
         "optional": false
       },
       {

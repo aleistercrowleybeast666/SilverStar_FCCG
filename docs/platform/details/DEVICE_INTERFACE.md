@@ -1,8 +1,8 @@
 # SilverStar Device Interface 与构建期Adapter
-> **0.0.10增量**：Device instance与plugin type分离；`same_plugin_multiple`和`multi_instance_ready`共同决定同型号是否允许重复。重复实例拥有独立driver/parser/FIFO/status/resource binding和physical descriptor；插件源码只编译一份。
+> **0.0.12增量**：Device instance与plugin type分离；`same_plugin_multiple`和`multi_instance_ready`共同决定同型号是否允许重复。重复实例拥有独立driver/parser/FIFO/status/resource binding和physical descriptor；插件源码只编译一份。
 
-> 文档版本：0.0.10  
-> 适用范围：SilverStar 0.0.10
+> 文档版本：0.0.12
+> 适用范围：SilverStar 0.0.12
 
 0.0.9删除运行期Provider Ops、VTable、Registry和`GetOps()`。System与具体Device之间只有独立公共Interface和随Device组件选择的直接Adapter；链接器在每个固件目标中解析唯一一套`System*`符号。
 

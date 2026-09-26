@@ -1,7 +1,7 @@
 # SystemInertial 输入边界规范
 
-> 文档版本：0.0.10
-> 适用范围：SilverStar 0.0.10
+> 文档版本：0.0.12
+> 适用范围：SilverStar 0.0.12
 
 ## 1. 数据路径
 
@@ -16,7 +16,7 @@ Device
   -> ImuSampleBus / INS / Estimator / Telemetry
 ```
 
-SystemInertial 是稳定的下游入口。当前0.0.10只把唯一`SystemImu_*`直接接口的样本逐字段透传为Virtual IMU，不实现多source assembler、插值或投票。物理IMU有限主备选择由上游System source selector负责，在Calibration/Alignment前锁定；Generated facade静态调用所选Device Adapter；JY901B的accel、gyro、raw、temperature、sample/receive timestamp、sequence和valid mask保持数值及bit语义兼容。
+SystemInertial 是稳定的下游入口。当前0.0.12只把唯一`SystemImu_*`直接接口的样本逐字段透传为Virtual IMU，不实现多source assembler、插值或投票。物理IMU有限主备选择由上游System source selector负责，在Calibration/Alignment前锁定；Generated facade静态调用所选Device Adapter；JY901B的accel、gyro、raw、temperature、sample/receive timestamp、sequence和valid mask保持数值及bit语义兼容。
 
 ## 2. Virtual IMU
 

@@ -1,7 +1,7 @@
-# SilverStar 0.0.10 文档清单
+# SilverStar 0.0.12 文档清单
 
 ## 平台总览
-- [`../SilverStar_0_0_10.md`](../SilverStar_0_0_10.md)
+- [`../SilverStar_0_0_12.md`](../SilverStar_0_0_12.md)
 - [`../README.md`](../README.md)
 
 ## 详细规范
@@ -37,7 +37,7 @@
 - [`SYSTEM_PROFILE.md`](SYSTEM_PROFILE.md)：SilverStar System Profile 与构建期组合
 - [`TELEMETRY_INTERFACE.md`](TELEMETRY_INTERFACE.md)：Telemetry Service 与 Transport 接口
 - [`TIME_SERVICE.md`](TIME_SERVICE.md)：SilverStar Time Service
-- [`VALIDATION_REQUIREMENTS.md`](VALIDATION_REQUIREMENTS.md)：SilverStar 0.0.10 验收要求
+- [`VALIDATION_REQUIREMENTS.md`](VALIDATION_REQUIREMENTS.md)：SilverStar 0.0.12 验收要求
 
 ## 数学公式
 - [`../formula/ins_coning_sculling_mechanization.pdf`](../formula/ins_coning_sculling_mechanization.pdf)

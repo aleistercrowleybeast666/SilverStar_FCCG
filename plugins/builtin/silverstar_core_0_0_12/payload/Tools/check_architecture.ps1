@@ -426,8 +426,8 @@ Assert-NoArchitecturePattern -Name `
 Write-Output 'FCCG_PROGRESS|ARCHITECTURE|DONE|2|6|directory_boundaries'
 Write-Output 'FCCG_PROGRESS|ARCHITECTURE|BEGIN|3|6|eide_consistency'
 Assert-FileContainsPattern -RelativePath 'Makefile' `
-    -Pattern 'TARGET\s*:=\s*SilverStar_0_0_10' `
-    -Message 'Authoritative firmware target is not SilverStar_0_0_10.'
+    -Pattern 'TARGET\s*:=\s*SilverStar_0_0_12' `
+    -Message 'Authoritative firmware target is not SilverStar_0_0_12.'
 Assert-FileContainsPattern -RelativePath 'Makefile' `
     -Pattern 'BUILD_ROOT\s*:=\s*build/FCCG/\$\(TARGET_PROFILE\)/\$\(CONFIG\)' `
     -Message 'Build output is not partitioned by target and configuration.'
@@ -836,8 +836,8 @@ Assert-FileContainsPattern -RelativePath 'APP\Src\app_tasks.c' `
 Write-Output 'FCCG_PROGRESS|ARCHITECTURE|DONE|4|6|freertos'
 Write-Output 'FCCG_PROGRESS|ARCHITECTURE|BEGIN|5|6|protocol'
 Assert-FileContainsPattern -RelativePath 'System\User\system_user_config.h' `
-    -Pattern 'SILVERSTAR_VERSION_PATCH\s+10' `
-    -Message 'SilverStar firmware version is not 0.0.10.'
+    -Pattern 'SILVERSTAR_VERSION_PATCH\s+12' `
+    -Message 'SilverStar firmware version is not 0.0.12.'
 Assert-FileContainsPattern -RelativePath 'Protocol\Inc\air_protocol.h' `
     -Pattern 'AIR_PROFILE_COMPACT_V0\s*=\s*0U' `
     -Message 'AIR_PROFILE_COMPACT_V0 wire profile changed during refactoring.'

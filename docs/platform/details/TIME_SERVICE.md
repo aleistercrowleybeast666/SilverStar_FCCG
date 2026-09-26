@@ -1,11 +1,11 @@
 # SilverStar Time Service
 
 > **项目：SilverStar**  
-> **文档版本：0.0.10**
+> **文档版本：0.0.12**
 > **状态：Draft / 未发布**  
-> **适用范围：SilverStar 0.0.10**
+> **适用范围：SilverStar 0.0.12**
 
-> `0.0.10` 表示协议、接口和实现均处于首次发布前阶段。文档中的结构可以在评审后调整，不提供跨版本兼容承诺。
+> `0.0.12` 表示协议、接口和实现均处于首次发布前阶段。文档中的结构可以在评审后调整，不提供跨版本兼容承诺。
 
 ## 1. 时间域
 
@@ -40,7 +40,7 @@ void PlatformCritical_Exit(PlatformCriticalState state);
 - System层不得知道底层使用SysTick、TIM、DWT或其他计数器；
 - 更换MCU或时间基准时，替换`Platform/<mcu>/`实现并保持公共接口不变。
 
-SilverStar 0.0.10当前实现位于：
+SilverStar 0.0.12当前实现位于：
 
 ```text
 Platform/STM32F4/Src/platform_time_stm32f4.c
