@@ -2112,3 +2112,63 @@ The 0.0.12 KF6 ON project generated a **13,513-record** real-C-codec SSLOG and e
 Final FCCG top-level pytest: **428 passed, 1 skipped, 0 failed** in 1,688.79 s. The one skip is the pre-existing active read-only reference-firmware task; pytest emitted the existing unknown `cache_dir` warning. After clearing nine previously present critical Ruff findings in two already-touched Python files without behavior change, their focused parameter/importer rerun passed **25/25**. Critical Ruff E4/E7/E9/F on every modified Python file, `compileall`, 40 selected JSON manifests/templates, and `git diff --check` passed. A default repository-wide Ruff audit still reports unrelated older style findings because this repository has no configured Ruff baseline; it is not claimed as a clean all-file audit. The test-only 0.0.12 wheel was built under `tests/.tmp_release_0_0_12_package/` and not published.
 
 **READY FOR CONTROLLED FIELD RETEST** on software evidence. The narrow SRAM/CCMRAM margins and absent target CPU/stack/storage measurements remain practical limits for a controlled retest. FCCG/FLP changes remain uncommitted; GSHC has empty `git status --short` and `git diff --stat`. No push, tag, release, flash, physical output, reset, clean or shutdown was performed.
+
+
+## 2026-09-26 — Logging purpose profiles and generated logger acceptance
+
+This FCCG-only round starts from `ec5e1a3` (SilverStar/FCCG 0.0.12). FLP 0.0.4 and GSHC have no tracked edits. The original `D:/stm32_project/SS_0_5_TEST_3` project was read only; its equivalent configurations were generated below `tests/.tmp_logging_purpose_acceptance_20260926/`. No firmware version, project format 12, decoder semantics 1.2, Record ID, SSLOG payload/wire layout, navigation/KF6/fixed-lag mathematics, integrity revision 2, SRAM budget, or Power of Ten checker changed.
+
+### Cause and correction
+
+The SS_TEST_3 logger Host failure came from a test assertion that `KF6_DIAGNOSTIC` must initially be disabled, even when the generated project's own `project_log_config.c` explicitly enabled it. The GUI's ordinary availability-refresh path also called `LoggingProfile_SelectAllAvailable()`, which could turn all newly available records on after a component or algorithm change and erase metadata defaults. Either an explicit user choice or that refresh could produce a valid enabled diagnostic stream. The test now compares all 28 runtime streams with the generated configuration across record type, enabled, policy, decimation, and period; its temporary KF6 runtime policy tests remain. The storage Host fixture now conditions bootstrap/jitter expectations on the generated POWER/IMU streams and enables STATS only in deliberate overload scenarios that require durable drop-accounting evidence. Normal profile-throughput scenarios retain the exact generated settings.
+
+All 28 metadata records now declare a strict, independent `purpose`: 26 Flight and two Test. Only `KF6_DIAGNOSTIC` and `KF6_FULL_P` are Test, Optional, and disabled by default; `KF6_DIAGNOSTIC` moved from Recommended to Optional. Replay inputs such as `INERTIAL_INCREMENT`, `ESTIMATOR_STEP`, native sensors, measurements, and `GNSS_RECOVERY` remain Flight. Missing or unknown purpose fails metadata validation. Both the builtin parser metadata and FCCG reference overlay carry the same classification.
+
+The Logging table has a translated Purpose column and exactly three one-shot configuration actions, in order: Enable All, Flight Logs Only, Required Only; decoder-profile export remains alongside them. The actions write only existing `logging.streams[].enabled` values, so subsequent manual edits persist and no project-profile enum or migration was added. An available stream retains its choice across an unrelated change; loss of availability disables it; newly available streams recover their metadata default. Required records stay enabled. Protocol removal/reselection follows the same transition semantics. At 1000×700 with 200% Qt scale, all four action/export buttons fit within the 759-pixel group (rightmost at 737); table scrolling is per pixel.
+
+### Generated projects, firmware gates, and Host
+
+| Generated configuration | Test streams in generated C | Build/resource gates | Final Host result |
+| --- | --- | --- | --- |
+| Fresh KF6, Flight Logs Only | both OFF | Release and Debug: all, stack, memory, artifact, architecture, Power of Ten PASS | 68 executables, 4,386,845 checks, 0 failures |
+| KF6, Enable All | both ON | Release: all, stack, memory, artifact, architecture, Power of Ten PASS | 68 executables, 4,386,845 checks, 0 failures |
+| KF6, Required Only | both OFF | Host profile fixture | 68 executables, 4,386,845 checks, 0 failures |
+| Fusion=None / Pure INS | both unavailable/OFF | Release and Debug: all, stack, memory, artifact, architecture, Power of Ten PASS | 66 executables, 4,352,665 checks, 0 failures |
+| SS_TEST_3 equivalent, Test enabled | both ON | Host regression fixture | 68 executables, 4,386,845 checks, 0 failures |
+| SS_TEST_3 equivalent, Flight Logs Only | both OFF | Host regression fixture | 68 executables, 4,386,845 checks, 0 failures |
+
+Every final Host run also passed eight expected compile-positive and 16 expected compile-rejection cases. All six storage-integrity runs used the real FatFs/diskio/Logger/codec Host model and strict decoder audit, including bounded DMA delays and finite overload accounting. No normal startup log had drops or a sequence gap.
+
+**Power of Ten results (separate gate):**
+
+| Build path | Checks | First-party C files | Functions | Failures |
+| --- | ---: | ---: | ---: | ---: |
+| KF6 Flight Release | 6,133 | 96 | 2,299 | **0** |
+| KF6 Flight Debug | 6,133 | 96 | 2,299 | **0** |
+| KF6 Enable All Release | 6,133 | 96 | 2,299 | **0** |
+| Fusion=None Release | 5,792 | 93 | 2,175 | **0** |
+| Fusion=None Debug | 5,792 | 93 | 2,175 | **0** |
+
+Architecture-check passed **262 checks, 0 failures** on each of those five paths. The checker and its tests were not changed. New/modified C is confined to bounded Host fixtures and the generated golden fixture; it adds no dynamic allocation, recursion, unbounded loop, hidden error return, or conditional bypass. All eight static task-stack budgets passed on each linked Release/Debug build. KF6 Release/Debug main SRAM is **102,120/102,144 B** against the unchanged reviewed **102,400 B** limit (280/256 B margin), CCMRAM **64,424 B** (1,112 B margin), and FLASH **276,288/293,288 B**. Pure INS Release/Debug main SRAM is **82,808/82,832 B**, CCMRAM **53,080 B**, FLASH **246,200/261,520 B**. Heap reserve/runtime symbols remain zero.
+
+### Comparable Host logging throughput
+
+Each profile used the same KF6 configuration and 40,000-step startup-burst model, with about 199.706 simulated seconds. Rates include the encoded file header and bootstrap/descriptors. The matching generated decoder strictly audited each entire file with CRC/framing and no sequence gap, no queue drop, and no unvalidated tail.
+
+| Profile | Audited records | File bytes | Records/s | Bytes/s | Normal queue HWM | Estimator queue HWM |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Enable All | 163,746 | 15,513,371 | 819.94 | 77,681.12 | 76 | 44 |
+| Flight Logs Only | 157,926 | 14,764,531 | 790.80 | 73,931.53 | 73 | 38 |
+| Required Only | 149 | 7,039 | 0.75 | 35.25 | 48 | 0 |
+
+Required Only intentionally lacks ordinary state and measurement evidence and does not guarantee faithful FLP replay. The Host fixture still produces `GNSS_RECOVERY` every epoch; these numbers are model comparisons, not target SD/CPU/flight throughput measurements.
+
+### FLP 0.0.4 read-only joint check
+
+The generated C codec produced an integrity-scenario Flight golden with **11,913 records, 1,243,740 B, zero KF6_FULL_P**, and an Enable All golden with **13,513 records, 1,422,940 B, 1,600 KF6_FULL_P**. Both passed whole-file strict audit with matching generated decoders and zero gaps. FLP's existing C-golden integrity replay test passed against Enable All. Flight Logs Only imported with valid header/record CRC and sequence, provided **1,600 Recorded trajectory** samples and **1,600 recorded covariance-diagonal** samples, and replayed KF6 from Recorded Configuration with **1,600 recomputed full-P** samples. It reported revision-2 GNSS integrity, NIS, input/effective variance, receive age and fixed-lag latency channels, zero mask/R mismatches, and a What-if response (position-disabled count **165 → 114**). Export produced 27 files including GNSS position-integrity and Recorded position-uncertainty plots. Its fidelity label remains **APPROXIMATE**, consistent with the existing replay contract. The synthetic golden contains no LANDING_DIAGNOSTIC record; the independent FLP landing-diagnostics UI test passed 1/1. FLP files and raw logs were not modified.
+
+### Repository regression and disposition
+
+Complete FCCG top-level pytest with explicit source modules and short `tests/.t26` temporary path: **433 passed, 1 skipped, 0 failed** in **1,957.23 s**. The skip is the pre-existing active read-only reference-firmware task. Pytest emitted one existing unknown-`cache_dir` configuration warning. Changed Python passed `compileall` and Ruff `E4,E7,E9,F,I`; default Ruff on these touched files retains 36 pre-existing broader style findings, down from 41 at the starting HEAD, with no new finding. `git diff --check` passed after this report update. Test and generated outputs remain below `tests/` and were not added to Git.
+
+**READY FOR CONTROLLED FIELD RETEST** on software-gate evidence. A target retest must still measure actual CPU, task-stack high-water marks, storage throughput and queue margins, especially with KF6's narrow linked SRAM/CCMRAM headroom. No flash, release, physical output or shutdown was performed.

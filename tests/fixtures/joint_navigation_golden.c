@@ -10,6 +10,7 @@
 #include "navigation_integrity.h"
 #include "system_user_config.h"
 #include "project_log_decoder_profile.h"
+#include "project_log_config.h"
 #include "project_device_instances.h"
 #include "sslog_protocol.h"
 
@@ -27,9 +28,22 @@ static void Golden_Write(const FlightLogRecord *record)
 {
     uint8_t bytes[FLIGHT_LOG_MAX_RECORD_SIZE];
     uint16_t size;
-    if (FlightLog_RecordSerialize(record, ++s_sequence, bytes, sizeof(bytes), &size) !=
+    if (FlightLog_RecordSerialize(record, s_sequence++, bytes, sizeof(bytes), &size) !=
         FLIGHT_LOG_SERIALIZE_RESULT_OK || fwrite(bytes, 1, size, s_file) != size)
     { exit(3); }
+}
+
+static uint8_t Golden_StreamEnabled(FlightLogRecordType type)
+{
+    uint16_t index;
+    for (index = 0U; index < SSLOG_RECORD_COUNT; index++)
+    {
+        const SystemLogStreamConfig *config =
+            ProjectLogConfig_StreamByIndexGet(index);
+        if (config == NULL) { exit(3); }
+        if (config->record_type == type) { return config->enabled; }
+    }
+    exit(3);
 }
 
 static void Golden_Snapshot(uint64_t timestamp)
@@ -49,12 +63,21 @@ static void Golden_Snapshot(uint64_t timestamp)
     for (unsigned row = 0; row < 6; row++)
     { record.payload.estimator.covariance_diagonal[row] = s_kf.covariance[row][row]; }
     Golden_Write(&record);
-    record.record_type = FLIGHT_LOG_RECORD_KF6_FULL_P;
-    unsigned item = 0;
-    for (unsigned row = 0; row < 6; row++)
-    { for (unsigned col = row; col < 6; col++)
-      { record.payload.kf6_full_p.covariance_upper_triangle[item++] = s_kf.covariance[row][col]; } }
-    Golden_Write(&record);
+    if (Golden_StreamEnabled(FLIGHT_LOG_RECORD_KF6_FULL_P) != 0U)
+    {
+        unsigned item = 0U;
+        record.record_type = FLIGHT_LOG_RECORD_KF6_FULL_P;
+        for (unsigned row = 0U; row < 6U; row++)
+        {
+            for (unsigned col = row; col < 6U; col++)
+            {
+                record.payload.kf6_full_p.covariance_upper_triangle[item++] =
+                    s_kf.covariance[row][col];
+            }
+        }
+        if (item != 21U) { exit(3); }
+        Golden_Write(&record);
+    }
 }
 
 static void Golden_Bootstrap(void)

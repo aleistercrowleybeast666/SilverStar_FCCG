@@ -2,18 +2,23 @@ from __future__ import annotations
 
 import json
 import os
-from pathlib import Path
 import shutil
 import struct
 import subprocess
 import sys
 import zlib
+from pathlib import Path
 
 import pytest
 
 from silverstar_fccg.app.service import FccgService
 from silverstar_fccg.core.workspace import WorkspacePolicy
-from tools.sslog_audit import Audit_Bytes, Audit_CandidatesScan, Audit_ProfileLoad, Audit_FieldsRead
+from tools.sslog_audit import (
+    Audit_Bytes,
+    Audit_CandidatesScan,
+    Audit_FieldsRead,
+    Audit_ProfileLoad,
+)
 
 
 @pytest.fixture(scope="module")
@@ -76,14 +81,14 @@ def test_default_200hz_startup_and_overload_recovery(storage_project):
         assert report["sequence_gap_records"] == report["queue_overflow_max"]
         assert (report["queue_overflow_max"] > 0) == mode.endswith("overload")
         counts = report["record_counts"]
-        assert "KF6_DIAGNOSTIC" not in counts
+        assert "KF6_DIAGNOSTIC" not in counts and "KF6_FULL_P" not in counts
         assert counts["CALIBRATION_RESULT"] == counts["ALIGNMENT_RESULT"] == 1
         assert counts["INITIAL_STATE"] == counts["MISSION_CONFIG"] == 1
         assert counts["SYSTEM_CONFIG"] == 2  # Bootstrap and actual START configuration.
         assert counts["DECODER_PROFILE_DESCRIPTOR"] == 1
         assert {"BARO_NATIVE", "GNSS_NATIVE", "POWER",
                 "IMU_CORRECTED", "INERTIAL_INCREMENT", "ESTIMATOR_STEP", "GNSS_RECOVERY",
-                "ESTIMATOR", "KF6_FULL_P", "GNSS_MEASUREMENT",
+                "ESTIMATOR", "GNSS_MEASUREMENT",
                 "BARO_MEASUREMENT", "STATS", "TELEMETRY_DIAG", "HEALTH"} <= set(counts)
         assert not {"SAMPLE", "RAW_SENSOR", "IMU_NATIVE", "HW_QUAT_NATIVE", "PURE_INS"}.intersection(counts)
         if not mode.endswith("overload"):
@@ -96,7 +101,6 @@ def test_default_200hz_startup_and_overload_recovery(storage_project):
             assert counts["GNSS_NATIVE"] == counts["GNSS_MEASUREMENT"] == 4850
             assert counts["GNSS_RECOVERY"] == 4850
             assert counts["ESTIMATOR"] == 4850
-            assert counts["KF6_FULL_P"] == 970
 
 
 CASES = json.loads((Path(__file__).parent / "fixtures/sslog_corruption_cases.json").read_text())

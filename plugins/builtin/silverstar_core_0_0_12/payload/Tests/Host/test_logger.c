@@ -7,6 +7,7 @@
 #include "imu_sample_bus.h"
 #include "estimator_task.h"
 #include "logger_bus.h"
+#include "project_log_config.h"
 #include "project_log_decoder_profile.h"
 #include "sslog_protocol.h"
 #include "system_descriptor_if.h"
@@ -399,34 +400,64 @@ static void Test_SourceChangeEventPacking(void)
     TEST_CHECK(((arg1 >> 16U) & 0xFFFFUL) == 0xABCDU);
 }
 
+static void Test_GeneratedStreamConfiguration(void)
+{
+    SystemLogStreamConfig runtime;
+    const SystemLogStreamConfig *generated;
+    SystemDeviceResult result;
+    uint16_t index;
+
+    TEST_CHECK(SystemLogPolicy_StreamCountGet() == SSLOG_RECORD_COUNT);
+    for (index = 0U; index < SSLOG_RECORD_COUNT; index++)
+    {
+        generated = ProjectLogConfig_StreamByIndexGet(index);
+        TEST_CHECK(generated != NULL);
+        if (generated == NULL)
+        {
+            return;
+        }
+        result = SystemLogPolicy_StreamByIndexGet(index, &runtime);
+        TEST_CHECK(result == SYSTEM_DEVICE_OK);
+        if (result != SYSTEM_DEVICE_OK)
+        {
+            return;
+        }
+        TEST_CHECK(runtime.record_type == generated->record_type);
+        TEST_CHECK(runtime.enabled == generated->enabled);
+        TEST_CHECK(runtime.policy == generated->policy);
+        TEST_CHECK(runtime.decimation == generated->decimation);
+        TEST_CHECK(runtime.period_us == generated->period_us);
+    }
+    TEST_CHECK(index == SSLOG_RECORD_COUNT);
+}
+
 static void Test_StreamConfiguration(void)
 {
     SystemLogStreamConfig config;
+    SystemLogStreamConfig full_rate;
+    SystemDeviceResult result;
 
     SystemLogPolicy_Init();
-    TEST_CHECK(SystemLogPolicy_StreamCountGet() == SSLOG_RECORD_COUNT);
-    TEST_CHECK(SystemLogPolicy_StreamGet(
-        FLIGHT_LOG_RECORD_STATS, &config) == SYSTEM_DEVICE_OK);
-    TEST_CHECK(config.enabled != 0U);
-    TEST_CHECK(config.period_us == 1000000UL);
-    TEST_CHECK(config.policy == SSLOG_STREAM_POLICY_PERIODIC);
-    TEST_CHECK(SystemLogPolicy_StreamGet(
-        FLIGHT_LOG_RECORD_TELEMETRY_DIAG, &config) == SYSTEM_DEVICE_OK);
-    TEST_CHECK(config.enabled != 0U);
-    TEST_CHECK(config.period_us == 1000000UL);
-    TEST_CHECK(config.policy == SSLOG_STREAM_POLICY_PERIODIC);
-    TEST_CHECK(SystemLogPolicy_StreamGet(
-        FLIGHT_LOG_RECORD_KF6_DIAGNOSTIC, &config) == SYSTEM_DEVICE_OK);
-    TEST_CHECK(config.enabled == 0U);
-    TEST_CHECK(config.decimation == 1U);
+    Test_GeneratedStreamConfiguration();
+    result = SystemLogPolicy_StreamGet(
+        FLIGHT_LOG_RECORD_KF6_DIAGNOSTIC, &config);
+    TEST_CHECK(result == SYSTEM_DEVICE_OK);
+    if (result != SYSTEM_DEVICE_OK)
+    {
+        return;
+    }
     if (TEST_EXPECT_ESTIMATOR_CONFIG_ENABLED != 0U)
     {
         config.enabled = 1U;
         TEST_CHECK(SystemLogPolicy_StreamConfigure(&config) == SYSTEM_DEVICE_OK);
     }
-    SystemLogStreamConfig full_rate;
-    TEST_CHECK(SystemLogPolicy_StreamGet(FLIGHT_LOG_RECORD_IMU_CORRECTED,
-        &full_rate) == SYSTEM_DEVICE_OK);
+    result = SystemLogPolicy_StreamGet(
+        FLIGHT_LOG_RECORD_IMU_CORRECTED, &full_rate);
+    TEST_CHECK(result == SYSTEM_DEVICE_OK);
+    if (result != SYSTEM_DEVICE_OK)
+    {
+        return;
+    }
     full_rate.decimation = 2U;
     TEST_CHECK(SystemLogPolicy_StreamConfigure(&full_rate) == SYSTEM_DEVICE_INVALID_ARGUMENT);
     full_rate.decimation = 1U;

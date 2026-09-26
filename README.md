@@ -143,6 +143,20 @@ also embedded in generated C; FCCG does not modify FLP or execute decoder code.
 
 ## Logging cadence and task progress
 
+Logging metadata declares two independent dimensions for every Record. **Level** (required,
+recommended, optional) states contract necessity. **Purpose** (flight, test) states normal
+flight/replay use versus deep development diagnosis. Required streams preserve log identity,
+configuration, and essential mission events. The only Test streams are KF6_DIAGNOSTIC and
+KF6_FULL_P; both are Optional and off by default. Replay evidence such as
+INERTIAL_INCREMENT, GNSS_MEASUREMENT, BARO_MEASUREMENT, and ESTIMATOR_STEP remains Flight.
+
+The Logging table offers **Enable All**, **Flight Logs Only**, and **Required Only**. Each button
+edits the currently available streams once; later manual changes remain valid and persist only
+through logging.streams[].enabled in project format 12. Required streams remain on. Required Only
+does not guarantee faithful FLP replay. When component, algorithm, or protocol availability changes, a stream
+that stays available keeps its chosen state, one that becomes unavailable turns off, and one that
+becomes available uses its metadata default. The GUI never automatically applies Enable All.
+
 The Logging table calls its timing column **Cadence**. PERIODIC records edit a microsecond-backed
 period with an automatically suitable `us`, `ms`, or `s` display. DECIMATION records show their
 declared data-source cadence and alone expose an extraction factor; EVERY, EVENT, and ONE_SHOT
@@ -154,7 +168,7 @@ Record availability may additionally require a declared producer in the selected
 Metadata without producer declarations retains the pre-release permissive behavior. FCCG synchronizes the real
 STATS producer (`silverstar.core.device_task`) and TELEMETRY_DIAG producer
 (`silverstar.core.telemetry_task`). Both are available and enabled by default in the reference
-composition, with Cadence values of 1 s and 200 ms respectively.
+composition, with Cadence values of 1 s each.
 
 **Export Log Decoder Profile** first requires a saved, non-stale generated project, rebuilds and
 verifies its canonical hashes, then writes the selected `.ssdecoder` destination atomically. It

@@ -46,7 +46,7 @@ def test_gui_service_loads_catalog_opens_project_and_previews(
             .property("streamId")
             == "FLIGHT_LOG_RECORD_TELEMETRY_DIAG"
         )
-        period_editor = logging_table.cellWidget(periodic_row, 4)
+        period_editor = logging_table.cellWidget(periodic_row, 5)
         assert period_editor.unit_combo.currentData() == "s"
         period_editor.unit_combo.setCurrentIndex(period_editor.unit_combo.findData("ms"))
         period_editor.value_spin.setValue(250)

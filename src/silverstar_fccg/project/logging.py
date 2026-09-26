@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from silverstar_fccg.project.model import LogStreamConfig, ProjectModel
-from silverstar_fccg.project.capabilities import CapabilityResolution_Resolve
 from silverstar_fccg.core.errors import FccgError
+from silverstar_fccg.project.capabilities import CapabilityResolution_Resolve
+from silverstar_fccg.project.model import LogStreamConfig, ProjectModel
 
 if TYPE_CHECKING:
     from silverstar_fccg.plugins.catalog import PluginCatalog
@@ -23,6 +23,11 @@ class LogPolicyLevel(StrEnum):
     REQUIRED = "required"
     RECOMMENDED = "recommended"
     OPTIONAL = "optional"
+
+
+class LogPurpose(StrEnum):
+    FLIGHT = "flight"
+    TEST = "test"
 
 
 class LogCadenceKind(StrEnum):
@@ -53,6 +58,7 @@ class LogRecordDefinition:
     payload_size: int
     default_stream: LogStreamConfig
     level: LogPolicyLevel
+    purpose: LogPurpose
     capabilities_required: tuple[str, ...] = ()
     recordable_capabilities_required: tuple[str, ...] = ()
     components_required: tuple[str, ...] = ()
@@ -202,6 +208,7 @@ def ProtocolLogDefinitions_Load(path: Path) -> tuple[LogRecordDefinition, ...]:
         policy_data = record_policies.get(record, {})
         if not isinstance(policy_data, dict) or set(policy_data) - {
             "level",
+            "purpose",
             "requires",
             "display_names",
             "cadence",
@@ -219,6 +226,12 @@ def ProtocolLogDefinitions_Load(path: Path) -> tuple[LogRecordDefinition, ...]:
             level = LogPolicyLevel(policy_data.get("level", fallback_level))
         except ValueError as error:
             raise LogMetadataError(f"FCCG policy level for {record} is invalid") from error
+        try:
+            purpose = LogPurpose(policy_data["purpose"])
+        except (KeyError, TypeError, ValueError) as error:
+            raise LogMetadataError(
+                f"FCCG purpose for {record} must be flight or test"
+            ) from error
         requirements = policy_data.get("requires", {})
         if not isinstance(requirements, dict) or set(requirements) - {
             "capabilities",
@@ -250,6 +263,7 @@ def ProtocolLogDefinitions_Load(path: Path) -> tuple[LogRecordDefinition, ...]:
                     period_us,
                 ),
                 level=level,
+                purpose=purpose,
                 capabilities_required=_StringTuple_Get(
                     requirements.get("capabilities"),
                     f"{record}.requires.capabilities",
@@ -495,6 +509,47 @@ def LoggingProfile_Reconcile(
                 period_us=(0 if definition.default_stream.policy == "EVERY" else stream.period_us),
             )
         )
+    model.logging_streams = reconciled
+    return definitions
+
+
+def LoggingProfile_AvailabilityTransitionApply(
+    previous_model: ProjectModel,
+    model: ProjectModel,
+    catalog: PluginCatalog,
+) -> tuple[LogRecordDefinition, ...]:
+    """Restore metadata defaults only for records newly available after a change."""
+    definitions = LoggingProfile_Reconcile(model, catalog)
+    if not definitions:
+        if previous_model.protocols.get("logging") is not None:
+            model.logging_streams = [
+                replace(stream, enabled=False) for stream in model.logging_streams
+            ]
+        return definitions
+    previous_definitions = {
+        definition.record: definition
+        for definition in ProtocolLogDefinitions_Get(previous_model, catalog)
+    }
+    current = {stream.record: stream for stream in model.logging_streams}
+    reconciled: list[LogStreamConfig] = []
+    for definition in definitions:
+        stream = current[definition.record]
+        available = LogAvailability_Get(definition, model, catalog).available
+        previous_definition = previous_definitions.get(definition.record)
+        previously_available = (
+            previous_definition is not None
+            and LogAvailability_Get(
+                previous_definition, previous_model, catalog
+            ).available
+        )
+        enabled = stream.enabled
+        if not available:
+            enabled = False
+        elif definition.level == LogPolicyLevel.REQUIRED:
+            enabled = True
+        elif not previously_available:
+            enabled = definition.default_stream.enabled
+        reconciled.append(replace(stream, enabled=enabled))
     model.logging_streams = reconciled
     return definitions
 

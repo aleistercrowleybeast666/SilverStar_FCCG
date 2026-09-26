@@ -1,11 +1,7 @@
 from __future__ import annotations
 
-from silverstar_fccg.ui.pages.algorithm_parameters import AlgorithmParametersPage
-from silverstar_fccg.ui.touch_scroll import TouchScroll_Enable
-from silverstar_fccg.project.algorithm_parameters import AlgorithmParameterOwners_Get
-
-import logging
 import json
+import logging
 import os
 import re
 import shutil
@@ -17,8 +13,14 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import QThreadPool, QTimer, QUrl, Qt
-from PySide6.QtGui import QAction, QCloseEvent, QDesktopServices, QDragEnterEvent, QDropEvent
+from PySide6.QtCore import Qt, QThreadPool, QTimer, QUrl
+from PySide6.QtGui import (
+    QAction,
+    QCloseEvent,
+    QDesktopServices,
+    QDragEnterEvent,
+    QDropEvent,
+)
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
@@ -44,10 +46,10 @@ from silverstar_fccg.app.service import FccgService
 from silverstar_fccg.app.version import PRODUCT_NAME, __version__
 from silverstar_fccg.build.runner import BuildAction, BuildProgress, BuildResult
 from silverstar_fccg.build.toolchain import ArmGnuSubtoolPaths_Derive
-from silverstar_fccg.core.i18n import Translator
 from silverstar_fccg.core.errors import FccgError
-from silverstar_fccg.core.settings import SettingsStore
+from silverstar_fccg.core.i18n import Translator
 from silverstar_fccg.core.path_preferences import PathPreferences
+from silverstar_fccg.core.settings import SettingsStore
 from silverstar_fccg.core.task import (
     TaskProgressEvent_Parse,
     TaskProgressState,
@@ -64,7 +66,21 @@ from silverstar_fccg.generator.assembler import ApplyResult, GenerationPlan
 from silverstar_fccg.generator.hardware_preparation import (
     HardwareAssignmentFingerprint_Get,
 )
+from silverstar_fccg.project.algorithm_parameters import AlgorithmParameterOwners_Get
 from silverstar_fccg.project.capabilities import CapabilityResolution_Resolve
+from silverstar_fccg.project.configuration import (
+    ModeOptionAvailabilities_Get,
+    ProjectConfigurationResult,
+    StrategyAvailabilities_Get,
+)
+from silverstar_fccg.project.lifecycle import ProjectLifecycleState
+from silverstar_fccg.project.logging import (
+    LogAvailability_Get,
+    LogCadenceKind,
+    LoggingProfile_AvailabilityTransitionApply,
+    LogPolicyLevel,
+    ProtocolLogDefinitions_Get,
+)
 from silverstar_fccg.project.model import (
     DeviceInstance,
     HardwareConfiguration,
@@ -72,22 +88,9 @@ from silverstar_fccg.project.model import (
     ProjectModel,
     ProtocolSelection,
 )
-from silverstar_fccg.project.logging import (
-    LogCadenceKind,
-    LogAvailability_Get,
-    LogPolicyLevel,
-    LoggingProfile_SelectAllAvailable,
-    ProtocolLogDefinitions_Get,
-)
-from silverstar_fccg.project.lifecycle import ProjectLifecycleState
-from silverstar_fccg.project.quality_results import QualityResultRecord
-from silverstar_fccg.project.configuration import (
-    ModeOptionAvailabilities_Get,
-    ProjectConfigurationResult,
-    StrategyAvailabilities_Get,
-)
-from silverstar_fccg.project.resources import ResourceAssignments_Resolve
 from silverstar_fccg.project.protocols import ProtocolProfileAvailabilities_Get
+from silverstar_fccg.project.quality_results import QualityResultRecord
+from silverstar_fccg.project.resources import ResourceAssignments_Resolve
 from silverstar_fccg.project.validation import Project_EditValidate, ValidationIssue
 from silverstar_fccg.ui.dialogs import NewProjectWizard
 from silverstar_fccg.ui.message_box import MessageBoxButtons_Localize
@@ -98,8 +101,10 @@ from silverstar_fccg.ui.pages import (
     FlightConfigurationPage,
     PluginManagerDialog,
 )
+from silverstar_fccg.ui.pages.algorithm_parameters import AlgorithmParametersPage
 from silverstar_fccg.ui.pages.build import DefaultTools_Get
 from silverstar_fccg.ui.theme import Theme_Apply, WindowCaption_Apply
+from silverstar_fccg.ui.touch_scroll import TouchScroll_Enable
 from silverstar_fccg.ui.widgets import EngineeringTable, HeaderComboBox
 from silverstar_fccg.ui.workers import FunctionWorker
 
@@ -197,7 +202,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(PRODUCT_NAME)
         self.setAcceptDrops(True)
         self.resize(1460, 900)
-        self.setMinimumSize(1080, 700)
+        self.setMinimumSize(1000, 700)
         self._Ui_Build()
         self._Menu_Build()
         self._Signals_Connect()
@@ -757,6 +762,7 @@ class MainWindow(QMainWindow):
                     policy=stream.policy,
                     period_us=stream.period_us,
                     level=definition.level.value,
+                    purpose=definition.purpose.value,
                     required=definition.level == LogPolicyLevel.REQUIRED,
                     available=availability.available,
                     availability_reason=reason,
@@ -880,8 +886,8 @@ class MainWindow(QMainWindow):
             mutator(candidate)
             result = self._service.ProjectConfiguration_Reconcile(candidate)
             if logging_availability_changed:
-                LoggingProfile_SelectAllAvailable(
-                    result.model, self._service.catalog
+                LoggingProfile_AvailabilityTransitionApply(
+                    self._model, result.model, self._service.catalog
                 )
                 result = replace(
                     result,

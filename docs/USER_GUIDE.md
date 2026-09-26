@@ -18,6 +18,13 @@ Platform 仍为 0.0.12，Record Catalog 与协议布局不变。
 ## 3. Flight Configuration
 选择Alignment/INS/Estimator/Landing Strategy、Calibration/Deployment Mode、三种协议以及Logging。
 
+Logging表的“级别”与“用途”分别表示契约必要性（必须/推荐/可选）和使用场景（飞行/测试）。
+Required记录提供日志身份、配置与必要任务事件；Flight记录用于正常飞行、故障分析与FLP离线复算；
+Test记录用于深度开发与数值诊断。只有KF6_DIAGNOSTIC、KF6_FULL_P为Test，均为可选且默认关闭。
+“打开全部”“只保留飞行日志”“只留必须”是一次性批量修改，之后仍可单独勾选日志；
+“只留必须”不保证FLP完整复算。硬件、算法或协议变动时，仍可用日志保留用户选择，
+失去可用性的日志关闭，重新可用的日志按metadata默认值恢复。
+
 Calibration采样procedure只有OneFace/SixFace，默认都不选；NONE始终是飞控可用模式。若一个或多个采样procedure被编入，GSHC运行时仍可选择默认NONE。
 
 ## 4. Algorithm Parameters

@@ -249,6 +249,8 @@ static int Test_Writer(const char *output)
     LoggerBusDiagnostics bus;
     LoggerTaskDiagnostics task;
     SystemStorageHealth storage;
+    SystemLogStreamConfig power_config;
+    SystemLogStreamConfig imu_config;
     FILE *exported;
     uint8_t buffer[513];
     UINT read;
@@ -260,6 +262,16 @@ static int Test_Writer(const char *output)
         config.enabled = 1U;
         config.decimation = 1U;
         CHECK(SystemLogPolicy_StreamConfigure(&config) == SYSTEM_DEVICE_OK);
+    }
+    if (s_startup_burst_test && s_overflow_test)
+    {
+        SystemLogStreamConfig stats_config;
+        /* Overload audit needs a durable counter for dropped queue records. */
+        CHECK(SystemLogPolicy_StreamGet(
+            FLIGHT_LOG_RECORD_STATS, &stats_config) == SYSTEM_DEVICE_OK);
+        stats_config.enabled = 1U;
+        stats_config.decimation = 1U;
+        CHECK(SystemLogPolicy_StreamConfigure(&stats_config) == SYSTEM_DEVICE_OK);
     }
     s_startup.completed = (uint8_t)!s_startup_burst_test;
     s_startup.passed = 1U;
@@ -303,14 +315,19 @@ static int Test_Writer(const char *output)
     CHECK(bus.normal_count == 0U && bus.estimator_count == 0U);
     CHECK(bus.accepted_count == bus.dequeued_count);
     CHECK(bus.startup_state == LOGGER_STREAMING_READY && task.streaming_ready_us != 0ULL);
-    CHECK(s_sparse_test || bus.bootstrap_suppressed_count > 0U);
+    CHECK(SystemLogPolicy_StreamGet(
+        FLIGHT_LOG_RECORD_POWER, &power_config) == SYSTEM_DEVICE_OK);
+    CHECK(s_sparse_test || (power_config.enabled == 0U) ||
+          (bus.bootstrap_suppressed_count > 0U));
     CHECK(task.session_count == 1U && task.open_attempt_count == 1U);
     CHECK(task.append_failure_count == 0U && task.flush_failure_count == 0U);
     CHECK(task.serialize_failure_count == 0U && task.discarded_bytes == 0U);
     CHECK(task.drain_count == bus.dequeued_count && task.iteration_count >= task.drain_count);
     if (s_startup_burst_test)
     {
-        CHECK(s_jitter_count >= 5U);
+        CHECK(SystemLogPolicy_StreamGet(
+            FLIGHT_LOG_RECORD_IMU_CORRECTED, &imu_config) == SYSTEM_DEVICE_OK);
+        CHECK((imu_config.enabled == 0U) || (s_jitter_count >= 5U));
         CHECK(s_overflow_test || s_producer_failures == 0U);
         CHECK(s_device_steps == TEST_RECORD_COUNT && s_flight_steps == TEST_RECORD_COUNT);
         CHECK(s_first_delay_ticks != 10U);

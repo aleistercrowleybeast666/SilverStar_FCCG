@@ -19,6 +19,7 @@ def NavigationGolden_Generate(project: Path, output: Path, scenario: str = "norm
         "Protocol/SSLOG/Src/sslog_protocol.c",
         "Protocol/SSLOG/Src/sslog_records.c",
         "Generated/Src/project_log_decoder_profile.c",
+        "Generated/Src/project_log_config.c",
         "Common/Src/silverstar_assert.c",
     )
     command = ["D:/msys64/ucrt64/bin/gcc.exe", "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror",

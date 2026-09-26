@@ -136,6 +136,7 @@ class LoggingStreamView:
     stream_id: str
     name: str
     enabled: bool
+    purpose: str
     decimation: int = 1
     cadence_kind: str = ""
     cadence_text: str = ""

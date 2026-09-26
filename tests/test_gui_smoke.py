@@ -539,7 +539,7 @@ def test_devices_page_is_physical_and_capabilities_are_on_flight_page(
         logging_table = window.flight_configuration_page.logging_table
         assert logging_table.horizontalHeaderItem(1).text() == "日志记录 / 日志流"
         assert logging_table.item(0, 1).text() == "飞行事件"
-        assert abs(logging_table.columnWidth(1) - logging_table.columnWidth(5)) <= 2
+        assert abs(logging_table.columnWidth(1) - logging_table.columnWidth(6)) <= 2
         assert any(
             isinstance(
                 logging_table.cellWidget(row, 0).findChild(LockedCheckBox),

@@ -174,7 +174,7 @@ def test_algorithm_and_logging_numbers_commit_on_enter(
 
         page = window.flight_configuration_page
         row = _StreamRow_Get(window, "FLIGHT_LOG_RECORD_MAG_NATIVE")
-        decimation = page.logging_table.cellWidget(row, 3)
+        decimation = page.logging_table.cellWidget(row, 4)
         assert isinstance(decimation, EnterCommittedSpinBox)
         old_decimation = int(decimation.CommittedValue_Get())
         decimation.setValue(old_decimation + 2)
@@ -185,7 +185,7 @@ def test_algorithm_and_logging_numbers_commit_on_enter(
         assert not decimation.isEnabled()
 
         row = _StreamRow_Get(window, "FLIGHT_LOG_RECORD_STATS")
-        cadence = page.logging_table.cellWidget(row, 4)
+        cadence = page.logging_table.cellWidget(row, 5)
         assert isinstance(cadence, CadenceEditor)
         cadence.unit_combo.setCurrentIndex(cadence.unit_combo.findData("ms"))
         cadence.value_spin.setValue(500)
@@ -215,7 +215,7 @@ def test_available_decimation_emits_once_only_after_enter(
             replace(stream, available=True) if index == row else stream
             for index, stream in enumerate(page._streams)
         )
-        decimation = page.logging_table.cellWidget(row, 3)
+        decimation = page.logging_table.cellWidget(row, 4)
         assert isinstance(decimation, EnterCommittedSpinBox)
         assert decimation.isEnabled()
         changed = QSignalSpy(page.loggingChanged)

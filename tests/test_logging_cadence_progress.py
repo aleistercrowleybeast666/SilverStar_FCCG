@@ -149,7 +149,7 @@ def test_logging_metadata_declares_cadence_and_legacy_policy_fallback(
         )
     legacy_path = tmp_path / "legacy_logging_metadata.json"
     legacy_path.write_text(
-        json.dumps({"records": records}, ensure_ascii=False),
+        json.dumps({"records": records, "fccg": {"records": {record["enum"]: {"purpose": "flight"} for record in records}}}, ensure_ascii=False),
         encoding="utf-8",
     )
 
@@ -175,10 +175,10 @@ def test_logging_gui_uses_semantic_cadence_and_preserves_microseconds(
     qapp.processEvents()
     try:
         table = window.flight_configuration_page.logging_table
-        assert table.horizontalHeaderItem(4).text() == "周期"
+        assert table.horizontalHeaderItem(5).text() == "周期"
 
         stats_row = _StreamRow_Get(window, "FLIGHT_LOG_RECORD_STATS")
-        stats_cadence = table.cellWidget(stats_row, 4)
+        stats_cadence = table.cellWidget(stats_row, 5)
         assert isinstance(stats_cadence, CadenceEditor)
         assert stats_cadence.PeriodUs_Get() == 1_000_000
         assert not stats_cadence.value_spin.isHidden()
@@ -192,7 +192,7 @@ def test_logging_gui_uses_semantic_cadence_and_preserves_microseconds(
         }
         for stream_id, expected_text in semantic_rows.items():
             row = _StreamRow_Get(window, stream_id)
-            cadence = table.cellWidget(row, 4)
+            cadence = table.cellWidget(row, 5)
             assert isinstance(cadence, CadenceEditor)
             assert cadence.value_spin.isHidden()
             assert cadence.text_label.text() == expected_text
@@ -201,7 +201,7 @@ def test_logging_gui_uses_semantic_cadence_and_preserves_microseconds(
         decimation_row = _StreamRow_Get(
             window, "FLIGHT_LOG_RECORD_MAG_NATIVE"
         )
-        decimation_editor = table.cellWidget(decimation_row, 3)
+        decimation_editor = table.cellWidget(decimation_row, 4)
         assert isinstance(decimation_editor, QSpinBox)
         assert decimation_editor.prefix() == "每 "
         assert decimation_editor.suffix() == " 次记录 1 次"
@@ -217,8 +217,8 @@ def test_logging_gui_uses_semantic_cadence_and_preserves_microseconds(
             "FLIGHT_LOG_RECORD_GNSS_MEASUREMENT",
         ):
             row = _StreamRow_Get(window, stream_id)
-            assert table.cellWidget(row, 3) is None
-            assert table.item(row, 3).text() == "—"
+            assert table.cellWidget(row, 4) is None
+            assert table.item(row, 4).text() == "—"
 
         stats_cadence.unit_combo.setCurrentIndex(
             stats_cadence.unit_combo.findData("ms")
@@ -245,8 +245,8 @@ def test_logging_gui_uses_semantic_cadence_and_preserves_microseconds(
         ) == 500_000
 
         window.Language_Apply("en_US")
-        assert table.horizontalHeaderItem(4).text() == "Cadence"
-        assert table.horizontalHeaderItem(3).text() == "Decimation Factor"
+        assert table.horizontalHeaderItem(5).text() == "Cadence"
+        assert table.horizontalHeaderItem(4).text() == "Decimation Factor"
     finally:
         window.close()
         qapp.processEvents()
@@ -263,11 +263,11 @@ def test_logging_bulk_selection_respects_availability_and_configuration_refresh(
     qapp.processEvents()
     try:
         page = window.flight_configuration_page
-        assert page.logging_select_all_button.text() == "勾选全部可选"
-        assert page.logging_required_only_button.text() == "仅保留必须"
+        assert page.logging_select_all_button.text() == "打开全部"
+        assert page.logging_required_only_button.text() == "只留必须"
         assert (
             page.logging_select_all_button.objectName()
-            == "loggingSelectAllAvailableButton"
+            == "loggingEnableAllButton"
         )
         assert (
             page.logging_required_only_button.objectName()
@@ -277,7 +277,8 @@ def test_logging_bulk_selection_respects_availability_and_configuration_refresh(
             stream for stream in page._streams if stream.required
         )
         required_row = _StreamRow_Get(window, required_view.stream_id)
-        assert page.logging_table.item(required_row, 2).text() == "必须"
+        assert page.logging_table.item(required_row, 2).text() == "飞行"
+        assert page.logging_table.item(required_row, 3).text() == "必须"
 
         logging_settings = {
             stream.record: (
@@ -355,15 +356,13 @@ def test_logging_bulk_selection_respects_availability_and_configuration_refresh(
         }
         assert all(
             streams[definition.record].enabled
-            == LogAvailability_Get(
-                definition, window._model, window._service.catalog
-            ).available
+            == (definition.level == "required")
             for definition in definitions
         )
 
         window.Language_Apply("en_US")
-        assert page.logging_select_all_button.text() == "Select All Available"
-        assert page.logging_required_only_button.text() == "Keep Required Only"
+        assert page.logging_select_all_button.text() == "Enable All"
+        assert page.logging_required_only_button.text() == "Required Only"
     finally:
         window.close()
         qapp.processEvents()

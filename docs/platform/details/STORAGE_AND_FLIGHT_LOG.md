@@ -253,7 +253,16 @@ typedef struct
 
 静态runtime表大小为`SSLOG_RECORD_COUNT`，不使用heap。默认值来自`ProjectLogConfig_StreamByIndexGet()`；START时冻结，rollback才允许解冻。策略包括EVERY、DECIMATION、PERIODIC、EVENT和ONE_SHOT。算法启用与算法日志启用独立；没有运行的数据源自然不会产生Record。
 
-每个stream最终配置通过`LOG_STREAM_DESCRIPTOR`记录，离线工具不需要推断C宏。
+每个stream最终配置通过LOG_STREAM_DESCRIPTOR记录，离线工具不需要推断C宏。
+
+FCCG的日志metadata对全部28个Record显式声明独立的level和purpose。
+required保障身份、配置及必要任务事件，flight涵盖正常飞行与FLP离线复算，
+test用于开发/数值深度诊断。当前仅KF6_DIAGNOSTIC与KF6_FULL_P是Test，
+均为Optional且默认关闭。高频的INERTIAL_INCREMENT、ESTIMATOR_STEP
+和量测记录仍属Flight，因为完整重放需要这些证据。GUI的Enable All、Flight Logs Only、
+Required Only只批量修改现有stream启用位；Required Only不保证faithful replay。
+组件或协议变动时保持仍可用stream的用户选择，对失去可用性的stream关闭，
+重新可用时按metadata默认启用位恢复，不自动执行Enable All。
 
 ### 6.1 真实诊断生产路径
 

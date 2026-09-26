@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import io
 import hashlib
+import io
 import json
 import zipfile
 from dataclasses import replace
@@ -15,8 +15,10 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
+import tools.import_reference_components as reference_import
 from silverstar_fccg.app.service import FccgService
 from silverstar_fccg.build.runner import BuildAction, BuildResult
+from silverstar_fccg.core.i18n import Translator
 from silverstar_fccg.core.settings import SettingsStore
 from silverstar_fccg.core.view_models import (
     ComponentType,
@@ -31,10 +33,11 @@ from silverstar_fccg.generator.log_decoder_profile import (
 from silverstar_fccg.generator.render import GeneratedFiles_Render, MetadataFiles_Render
 from silverstar_fccg.generator.source_graph import SourceGraph_Resolve
 from silverstar_fccg.hardware.inventory import CubeMxInventory_Parse
+from silverstar_fccg.plugins.manifest import PluginManifest_Load, PluginManifestError
 from silverstar_fccg.project.logging import (
     LogAvailability_Get,
-    LogPolicyLevel,
     LoggingProfile_Reconcile,
+    LogPolicyLevel,
     ProtocolLogDefinitions_Load,
 )
 from silverstar_fccg.project.model import (
@@ -42,10 +45,9 @@ from silverstar_fccg.project.model import (
     HardwareConfiguration,
     HardwareResource,
 )
-from silverstar_fccg.project.resources import ResourceAssignments_Resolve
 from silverstar_fccg.project.reference import ReferenceProject_Create
+from silverstar_fccg.project.resources import ResourceAssignments_Resolve
 from silverstar_fccg.project.validation import Project_Validate
-from silverstar_fccg.plugins.manifest import PluginManifestError, PluginManifest_Load
 from silverstar_fccg.ui.main_window import MainWindow
 from silverstar_fccg.ui.pages.components import DevicesPage
 from silverstar_fccg.ui.theme import Stylesheet_Get
@@ -55,8 +57,6 @@ from silverstar_fccg.ui.widgets import (
     LockedCheckBox,
     StandardCheckBox,
 )
-from silverstar_fccg.core.i18n import Translator
-import tools.import_reference_components as reference_import
 from tools.import_reference_components import _ProtocolMetadata_Adapt
 
 
@@ -637,7 +637,7 @@ def test_protocol_can_add_a_record_without_fccg_source_changes(
         }
     )
     data["records"].append(added)
-    data["fccg"]["records"][added["enum"]] = {"level": "optional"}
+    data["fccg"]["records"][added["enum"]] = {"level": "optional", "purpose": "flight"}
     metadata = tmp_path / "extended_sslog_metadata.json"
     metadata.write_text(json.dumps(data), encoding="utf-8")
     definitions = ProtocolLogDefinitions_Load(metadata)

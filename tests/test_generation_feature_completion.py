@@ -202,7 +202,7 @@ def test_logging_signals_are_deferred_and_widgets_survive_fifty_changes(
             == "FLIGHT_LOG_RECORD_MAG_NATIVE"
         )
         check = table.cellWidget(row, 0).findChild(StandardCheckBox)
-        decimation = table.cellWidget(row, 3)
+        decimation = table.cellWidget(row, 4)
         assert isinstance(check, StandardCheckBox)
         assert isinstance(decimation, EnterCommittedSpinBox)
         initial_decimation = int(decimation.CommittedValue_Get())
@@ -217,7 +217,7 @@ def test_logging_signals_are_deferred_and_widgets_survive_fifty_changes(
         assert shiboken6.isValid(check)
         assert shiboken6.isValid(decimation)
         assert table.cellWidget(row, 0).findChild(StandardCheckBox) is check
-        assert table.cellWidget(row, 3) is decimation
+        assert table.cellWidget(row, 4) is decimation
         stream = next(
             item
             for item in window._model.logging_streams

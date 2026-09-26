@@ -5,11 +5,12 @@ from collections.abc import Iterable
 from typing import ClassVar
 
 from PySide6.QtCore import QSignalBlocker, Qt, Signal
-from PySide6.QtGui import QColor, QPalette
+from PySide6.QtGui import QColor, QPalette, QResizeEvent
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QAbstractSpinBox,
     QFormLayout,
+    QGridLayout,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -1227,11 +1228,12 @@ class FlightConfigurationPage(ScrollableLocalizedPage):
         self.root_layout.addWidget(self.capability_group)
         logging_layout = QVBoxLayout()
         self.logging_group = self.Group_Create("group.logging", logging_layout)
-        logging_header_layout = QHBoxLayout()
+        self._logging_header_layout = QGridLayout()
+        self._logging_button_columns = 4
         logging_notice = QLabel()
         logging_notice.setWordWrap(True)
         self.Text_Register(logging_notice, "logging.thin_glue_notice")
-        logging_header_layout.addWidget(logging_notice, 1)
+        logging_layout.addWidget(logging_notice)
         self.logging_disabled_label = QLabel()
         self.logging_disabled_label.setWordWrap(True)
         self.Text_Register(
@@ -1241,19 +1243,31 @@ class FlightConfigurationPage(ScrollableLocalizedPage):
         logging_layout.addWidget(self.logging_disabled_label)
         self.logging_select_all_button = QPushButton()
         self.logging_select_all_button.setObjectName(
-            "loggingSelectAllAvailableButton"
+            "loggingEnableAllButton"
         )
         self.Text_Register(
             self.logging_select_all_button,
-            "action.logging_select_all_available",
+            "action.logging_enable_all",
         )
         self.logging_select_all_button.clicked.connect(
             lambda _checked=False: self.Streams_SelectAllAvailable()
         )
-        logging_header_layout.addWidget(
-            self.logging_select_all_button,
-            0,
-            Qt.AlignmentFlag.AlignTop,
+        self._logging_header_layout.addWidget(
+            self.logging_select_all_button, 0, 0, alignment=Qt.AlignmentFlag.AlignTop
+        )
+        self.logging_flight_only_button = QPushButton()
+        self.logging_flight_only_button.setObjectName(
+            "loggingKeepFlightOnlyButton"
+        )
+        self.Text_Register(
+            self.logging_flight_only_button,
+            "action.logging_keep_flight_only",
+        )
+        self.logging_flight_only_button.clicked.connect(
+            lambda _checked=False: self.Streams_KeepFlightOnly()
+        )
+        self._logging_header_layout.addWidget(
+            self.logging_flight_only_button, 0, 1, alignment=Qt.AlignmentFlag.AlignTop
         )
         self.logging_required_only_button = QPushButton()
         self.logging_required_only_button.setObjectName(
@@ -1266,10 +1280,8 @@ class FlightConfigurationPage(ScrollableLocalizedPage):
         self.logging_required_only_button.clicked.connect(
             lambda _checked=False: self.Streams_KeepRequiredOnly()
         )
-        logging_header_layout.addWidget(
-            self.logging_required_only_button,
-            0,
-            Qt.AlignmentFlag.AlignTop,
+        self._logging_header_layout.addWidget(
+            self.logging_required_only_button, 0, 2, alignment=Qt.AlignmentFlag.AlignTop
         )
         self.log_decoder_export_button = QPushButton()
         self.log_decoder_export_button.setObjectName("logDecoderExportButton")
@@ -1280,13 +1292,11 @@ class FlightConfigurationPage(ScrollableLocalizedPage):
         self.log_decoder_export_button.clicked.connect(
             lambda _checked=False: self.logDecoderExportRequested.emit()
         )
-        logging_header_layout.addWidget(
-            self.log_decoder_export_button,
-            0,
-            Qt.AlignmentFlag.AlignTop,
+        self._logging_header_layout.addWidget(
+            self.log_decoder_export_button, 0, 3, alignment=Qt.AlignmentFlag.AlignTop
         )
-        logging_layout.addLayout(logging_header_layout)
-        self.logging_table = SmoothTableWidget(0, 6)
+        logging_layout.addLayout(self._logging_header_layout)
+        self.logging_table = SmoothTableWidget(0, 7)
         self.logging_table.setObjectName("engineeringTable")
         self.logging_table.setAlternatingRowColors(True)
         self.logging_table.verticalHeader().setVisible(False)
@@ -1298,6 +1308,7 @@ class FlightConfigurationPage(ScrollableLocalizedPage):
             )
         logging_header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         logging_header.setSectionResizeMode(5, QHeaderView.ResizeMode.Stretch)
+        logging_header.setSectionResizeMode(6, QHeaderView.ResizeMode.Stretch)
         logging_layout.addWidget(self.logging_table)
         self.root_layout.addWidget(self.logging_group)
         self.root_layout.addStretch(1)
@@ -1620,6 +1631,7 @@ class FlightConfigurationPage(ScrollableLocalizedPage):
         self.logging_disabled_label.setVisible(not enabled)
         self.logging_table.setEnabled(enabled)
         self.logging_select_all_button.setEnabled(enabled)
+        self.logging_flight_only_button.setEnabled(enabled)
         self.logging_required_only_button.setEnabled(enabled)
         self.log_decoder_export_button.setEnabled(enabled)
 
@@ -1699,8 +1711,8 @@ class FlightConfigurationPage(ScrollableLocalizedPage):
                 if isinstance(enabled_container, QWidget)
                 else None
             )
-            decimation = self.logging_table.cellWidget(row, 3)
-            cadence = self.logging_table.cellWidget(row, 4)
+            decimation = self.logging_table.cellWidget(row, 4)
+            cadence = self.logging_table.cellWidget(row, 5)
             if not same_records or enabled_check is None:
                 enabled_check = (
                     LockedCheckBox() if stream.required else StandardCheckBox()
@@ -1718,7 +1730,7 @@ class FlightConfigurationPage(ScrollableLocalizedPage):
             if stream.policy == "DECIMATION":
                 if not isinstance(decimation, EnterCommittedSpinBox):
                     if isinstance(decimation, QWidget):
-                        self.logging_table.removeCellWidget(row, 3)
+                        self.logging_table.removeCellWidget(row, 4)
                         decimation.deleteLater()
                     decimation = EnterCommittedSpinBox()
                     decimation.setRange(1, 65535)
@@ -1726,7 +1738,7 @@ class FlightConfigurationPage(ScrollableLocalizedPage):
                     decimation.committed.connect(
                         lambda _value: self.loggingChanged.emit()
                     )
-                    self.logging_table.setCellWidget(row, 3, decimation)
+                    self.logging_table.setCellWidget(row, 4, decimation)
                 with QSignalBlocker(decimation):
                     decimation.setPrefix(
                         self._translator.Text_Get("logging.decimation_prefix")
@@ -1741,17 +1753,17 @@ class FlightConfigurationPage(ScrollableLocalizedPage):
                 )
             else:
                 if isinstance(decimation, QWidget):
-                    self.logging_table.removeCellWidget(row, 3)
+                    self.logging_table.removeCellWidget(row, 4)
                     decimation.deleteLater()
-                self.logging_table.setItem(row, 3, QTableWidgetItem("—"))
+                self.logging_table.setItem(row, 4, QTableWidgetItem("—"))
                 decimation = None
             if not isinstance(cadence, CadenceEditor):
                 if isinstance(cadence, QWidget):
-                    self.logging_table.removeCellWidget(row, 4)
+                    self.logging_table.removeCellWidget(row, 5)
                     cadence.deleteLater()
                 cadence = CadenceEditor(self._translator)
                 cadence.changed.connect(lambda: self.loggingChanged.emit())
-                self.logging_table.setCellWidget(row, 4, cadence)
+                self.logging_table.setCellWidget(row, 5, cadence)
             assert isinstance(enabled_check, StandardCheckBox)
             assert isinstance(cadence, CadenceEditor)
             with QSignalBlocker(enabled_check):
@@ -1777,20 +1789,27 @@ class FlightConfigurationPage(ScrollableLocalizedPage):
                 self.logging_table.setItem(row, 1, name_item)
             name_item.setText(stream.name)
             name_item.setToolTip(stream.name)
-            level_item = self.logging_table.item(row, 2)
+            purpose_item = self.logging_table.item(row, 2)
+            if purpose_item is None:
+                purpose_item = QTableWidgetItem()
+                self.logging_table.setItem(row, 2, purpose_item)
+            purpose_item.setText(
+                self._translator.Text_Get(f"logging.purpose.{stream.purpose}")
+            )
+            level_item = self.logging_table.item(row, 3)
             if level_item is None:
                 level_item = QTableWidgetItem()
-                self.logging_table.setItem(row, 2, level_item)
+                self.logging_table.setItem(row, 3, level_item)
             level_item.setText(
                 self._translator.Text_Get(f"logging.level.{stream.level}")
             )
             description = stream.description or "—"
             if not stream.available and stream.availability_reason:
                 description = stream.availability_reason
-            description_item = self.logging_table.item(row, 5)
+            description_item = self.logging_table.item(row, 6)
             if description_item is None:
                 description_item = QTableWidgetItem()
-                self.logging_table.setItem(row, 5, description_item)
+                self.logging_table.setItem(row, 6, description_item)
             description_item.setText(description)
             description_item.setToolTip(description)
         self._streams = updated_streams
@@ -1806,8 +1825,8 @@ class FlightConfigurationPage(ScrollableLocalizedPage):
                 if isinstance(enabled_container, QWidget)
                 else None
             )
-            decimation = self.logging_table.cellWidget(row, 3)
-            cadence = self.logging_table.cellWidget(row, 4)
+            decimation = self.logging_table.cellWidget(row, 4)
+            cadence = self.logging_table.cellWidget(row, 5)
             values.append(
                 LoggingStreamView(
                     stream_id=original.stream_id,
@@ -1825,6 +1844,7 @@ class FlightConfigurationPage(ScrollableLocalizedPage):
                     policy=original.policy,
                     period_us=(cadence.PeriodUs_Get() if isinstance(cadence, CadenceEditor) else original.period_us),
                     level=original.level,
+                    purpose=original.purpose,
                     required=original.required,
                     available=original.available,
                     availability_reason=original.availability_reason,
@@ -1838,10 +1858,17 @@ class FlightConfigurationPage(ScrollableLocalizedPage):
     def Streams_SelectAllAvailable(self) -> None:
         self._LoggingSelection_Apply(include_available=True)
 
+    def Streams_KeepFlightOnly(self) -> None:
+        self._LoggingSelection_Apply(
+            include_available=True, allowed_purpose="flight"
+        )
+
     def Streams_KeepRequiredOnly(self) -> None:
         self._LoggingSelection_Apply(include_available=False)
 
-    def _LoggingSelection_Apply(self, *, include_available: bool) -> None:
+    def _LoggingSelection_Apply(
+        self, *, include_available: bool, allowed_purpose: str | None = None
+    ) -> None:
         changed = False
         for row, stream in enumerate(self._streams):
             enabled_container = self.logging_table.cellWidget(row, 0)
@@ -1853,7 +1880,9 @@ class FlightConfigurationPage(ScrollableLocalizedPage):
             if enabled_check is None:
                 continue
             selected = stream.required or (
-                include_available and stream.available
+                include_available
+                and stream.available
+                and (allowed_purpose is None or stream.purpose == allowed_purpose)
             )
             if enabled_check.isChecked() == selected:
                 continue
@@ -1863,9 +1892,49 @@ class FlightConfigurationPage(ScrollableLocalizedPage):
         if changed:
             self.loggingChanged.emit()
 
+    def _LoggingButtons_LayoutUpdate(self) -> None:
+        buttons = (
+            self.logging_select_all_button,
+            self.logging_flight_only_button,
+            self.logging_required_only_button,
+            self.log_decoder_export_button,
+        )
+        spacing = max(0, self._logging_header_layout.horizontalSpacing())
+        required_width = sum(button.sizeHint().width() for button in buttons)
+        required_width += spacing * (len(buttons) - 1)
+        available_width = self.logging_group.width() - 24
+        columns = 4 if available_width >= required_width else 2
+        if columns == self._logging_button_columns:
+            return
+        for button in buttons:
+            self._logging_header_layout.removeWidget(button)
+        for index, button in enumerate(buttons):
+            self._logging_header_layout.addWidget(
+                button,
+                index // columns,
+                index % columns,
+                alignment=Qt.AlignmentFlag.AlignTop,
+            )
+        self._logging_button_columns = columns
+
+    def resizeEvent(self, event: QResizeEvent) -> None:
+        super().resizeEvent(event)
+        if hasattr(self, "_logging_header_layout"):
+            self._LoggingButtons_LayoutUpdate()
+
     def Language_Apply(self, translator: Translator) -> None:
         super().Language_Apply(translator)
         self._LoggingHeaders_Apply()
+        self._LoggingButtons_LayoutUpdate()
+        self.logging_select_all_button.setToolTip(
+            self._translator.Text_Get("action.logging_enable_all_tooltip")
+        )
+        self.logging_flight_only_button.setToolTip(
+            self._translator.Text_Get("action.logging_keep_flight_only_tooltip")
+        )
+        self.logging_required_only_button.setToolTip(
+            self._translator.Text_Get("action.logging_keep_required_only_tooltip")
+        )
         self._CapabilityHeaders_Apply()
         if self._components:
             self.Configuration_Set(
@@ -1904,6 +1973,7 @@ class FlightConfigurationPage(ScrollableLocalizedPage):
             [
                 self._translator.Text_Get("column.enabled"),
                 self._translator.Text_Get("column.record_stream"),
+                self._translator.Text_Get("column.log_purpose"),
                 self._translator.Text_Get("column.policy_level"),
                 self._translator.Text_Get("column.decimation"),
                 self._translator.Text_Get("column.cadence"),
