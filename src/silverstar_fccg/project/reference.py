@@ -4,19 +4,16 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from silverstar_fccg.app.version import SILVERSTAR_CORE_COMPONENT_ID
-from silverstar_fccg.plugins.manifest import PluginManifest_Load
 from silverstar_fccg.hardware.platform import (
     DetectedMcuFacts_FromInventory,
     PlatformMatch_Resolve,
 )
+from silverstar_fccg.plugins.manifest import PluginManifest_Load
 from silverstar_fccg.project.logging import (
-    LoggingProfile_SelectAllAvailable,
+    LoggingProfile_Reconcile,
     ProtocolLogDefinitions_Load,
     ProtocolLogMetadataPath_Get,
 )
-
-if TYPE_CHECKING:
-    from silverstar_fccg.plugins.catalog import PluginCatalog
 from silverstar_fccg.project.model import (
     BuildOptions,
     DeviceInstance,
@@ -27,6 +24,9 @@ from silverstar_fccg.project.model import (
     ProtocolSelection,
 )
 from silverstar_fccg.project.resources import BoardHardwareInventory_Get
+
+if TYPE_CHECKING:
+    from silverstar_fccg.plugins.catalog import PluginCatalog
 
 
 REFERENCE_COMPONENT_IDS = {
@@ -70,8 +70,8 @@ REFERENCE_COMPONENT_IDS = {
 def ProtocolDefaultStreams_Get() -> list[LogStreamConfig]:
     """Load new-project defaults from Protocol-owned metadata.
 
-    Every record available in the reference composition starts enabled. Existing
-    projects retain their serialized choices when they are opened.
+    Each record starts with its Protocol-declared default. Existing projects
+    retain their serialized choices when they are opened.
     """
     repository_root = Path(__file__).resolve().parents[3]
     manifest = PluginManifest_Load(
@@ -84,7 +84,7 @@ def ProtocolDefaultStreams_Get() -> list[LogStreamConfig]:
     return [
         LogStreamConfig(
             definition.record,
-            True,
+            definition.default_stream.enabled,
             definition.default_stream.policy,
             definition.default_stream.decimation,
             definition.default_stream.period_us,
@@ -96,7 +96,6 @@ def ProtocolDefaultStreams_Get() -> list[LogStreamConfig]:
 
 
 def ReferenceResourceAssignments_Get() -> dict[str, str]:
-    ids = REFERENCE_COMPONENT_IDS
     return {
         "imu0:data": "PLATFORM_UART_1",
         "imu0:time": "PLATFORM_TIME_1",
@@ -256,7 +255,9 @@ def ReferenceProject_Create(
         ),
         reference_provenance=dict(reference_provenance or {}),
     )
-    LoggingProfile_SelectAllAvailable(model, catalog)
-    from silverstar_fccg.project.algorithm_parameters import AlgorithmParameters_Reconcile
+    LoggingProfile_Reconcile(model, catalog)
+    from silverstar_fccg.project.algorithm_parameters import (
+        AlgorithmParameters_Reconcile,
+    )
     AlgorithmParameters_Reconcile(model, catalog)
     return model

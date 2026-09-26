@@ -459,7 +459,7 @@ class FccgService:
                     ),
                 ):
                     target = policy.root / staged_path.name
-                    staged_path.replace(target)
+                    policy.Path_Replace(staged_path, target)
                     moved.append(target)
                 progress(3, True)
             except Exception:

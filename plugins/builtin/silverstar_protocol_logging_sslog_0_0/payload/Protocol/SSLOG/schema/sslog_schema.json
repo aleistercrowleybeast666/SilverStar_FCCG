@@ -609,7 +609,7 @@
       "c_type": "FlightLogKf6DiagnosticRecord",
       "member": "kf6_diagnostic",
       "default_stream": {
-        "enabled": true,
+        "enabled": false,
         "policy": "periodic",
         "decimation": 1,
         "period_us": 40000

@@ -31,6 +31,7 @@
 #include "system_gnss_if.h"
 #include "system_lifecycle.h"
 #include "system_navigation_profile.h"
+#include "system_source_selector.h"
 #include "system_time.h"
 
 _Static_assert(SYSTEM_ESTIMATOR_MEAS_ACCEPTED == 0U, "SSLOG accepted result");
@@ -216,7 +217,7 @@ static PLATFORM_CPU_FAST_BSS EstimatorRuntime s_estimator;
 #if (SYSTEM_BUILD_ESTIMATOR_ENABLED != 0U)
 static NavigationReplayContext s_replay;
 static PLATFORM_CPU_FAST_BSS NavigationReplayStorage s_replay_storage;
-static NavigationIntegrityContext s_integrity;
+static PLATFORM_CPU_FAST_BSS NavigationIntegrityContext s_integrity;
 static uint32_t s_replay_epoch;
 #endif
 
@@ -1805,6 +1806,47 @@ static void Estimator_GnssGroupDiagnosticsRefresh(const EstimatorGnssUpdateWork 
 }
 
 #if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
+typedef struct
+{
+    FlightLogGnssRecoveryRecord record;
+    uint32_t group_generation[NAV_KF_GNSS_GROUP_COUNT];
+    uint8_t valid;
+} EstimatorGnssRecoverySnapshot;
+
+static PLATFORM_CPU_FAST_BSS EstimatorGnssRecoverySnapshot s_gnss_recovery_previous;
+
+static uint8_t Estimator_GnssRecoveryChanged(const FlightLogGnssRecoveryRecord *record)
+{
+    uint8_t group;
+    SILVERSTAR_ASSERT_OBJECT(record, FlightLogGnssRecoveryRecord,
+                             SILVERSTAR_ASSERT_MODULE_APP);
+    SILVERSTAR_ASSERT(s_gnss_recovery_previous.valid <= 1U,
+        SILVERSTAR_ASSERT_MODULE_APP, SILVERSTAR_ASSERT_REASON_STATE_INVARIANT);
+    if ((s_gnss_recovery_previous.valid == 0U) ||
+        (record->replay_epoch != s_gnss_recovery_previous.record.replay_epoch))
+    { return 1U; }
+    for (group = 0U; group < NAV_KF_GNSS_GROUP_COUNT; group++)
+    {
+        const FlightLogGnssRecoveryRecord *previous = &s_gnss_recovery_previous.record;
+        SILVERSTAR_ASSERT(group < NAV_KF_GNSS_GROUP_COUNT,
+            SILVERSTAR_ASSERT_MODULE_APP, SILVERSTAR_ASSERT_REASON_LENGTH_RANGE);
+        if ((record->outage[group] != previous->outage[group]) ||
+            (record->recovery_active[group] != previous->recovery_active[group]) ||
+            (record->inflation_factor[group] != previous->inflation_factor[group]) ||
+            (record->inflation_attempt_count[group] !=
+             previous->inflation_attempt_count[group]) ||
+            (record->reanchor_count[group] != previous->reanchor_count[group]) ||
+            (record->quality_reject_mask[group] !=
+             previous->quality_reject_mask[group]) ||
+            (record->valid[group] != previous->valid[group]) ||
+            (record->update_result[group] != previous->update_result[group]) ||
+            (s_estimator.kf.gnss_reacquisition.group[group].generation !=
+             s_gnss_recovery_previous.group_generation[group]))
+        { return 1U; }
+    }
+    return 0U;
+}
+
 static void Estimator_GnssRecoveryLogPush(uint64_t timestamp_us, uint32_t source_sequence)
 {
     FlightLogGnssRecoveryRecord record;
@@ -1823,6 +1865,8 @@ static void Estimator_GnssRecoveryLogPush(uint64_t timestamp_us, uint32_t source
         const SystemEstimatorGnssGroupDiagnostics *diagnostic =
             &s_estimator.gnss_diagnostics.group[group];
         const NavigationKfGnssReacquireGroupState *recovery = &s_estimator.kf.gnss_reacquisition.group[group];
+        SILVERSTAR_ASSERT(group < NAV_KF_GNSS_GROUP_COUNT,
+            SILVERSTAR_ASSERT_MODULE_APP, SILVERSTAR_ASSERT_REASON_LENGTH_RANGE);
         record.quality_reject_mask[group] = diagnostic->quality_reject_mask;
         record.consistency_count[group] = recovery->consistent_count;
         record.inflation_attempt_count[group] = recovery->inflation_attempt_count;
@@ -1834,8 +1878,27 @@ static void Estimator_GnssRecoveryLogPush(uint64_t timestamp_us, uint32_t source
         record.recovery_active[group] = recovery->active;
         record.reanchor_reason[group] = (uint8_t)(record.reanchor_count[group] != 0U);
     }
-    (void)LoggerBus_GnssRecoveryPush(record.estimator_present_timestamp_us, &record);
+    if (Estimator_GnssRecoveryChanged(&record) != 0U)
+    {
+        LoggerBusResult result = LoggerBus_GnssRecoveryPush(
+            record.estimator_present_timestamp_us, &record);
+        if (result == LOGGER_BUS_RESULT_OK)
+        {
+            s_gnss_recovery_previous.record = record;
+            for (group = 0U; group < NAV_KF_GNSS_GROUP_COUNT; group++)
+            {
+                SILVERSTAR_ASSERT(group < NAV_KF_GNSS_GROUP_COUNT,
+                    SILVERSTAR_ASSERT_MODULE_APP, SILVERSTAR_ASSERT_REASON_LENGTH_RANGE);
+                s_gnss_recovery_previous.group_generation[group] =
+                    s_estimator.kf.gnss_reacquisition.group[group].generation;
+            }
+            s_gnss_recovery_previous.valid = 1U;
+        }
+        SILVERSTAR_ASSERT(result <= LOGGER_BUS_RESULT_BAD_STATE,
+            SILVERSTAR_ASSERT_MODULE_APP, SILVERSTAR_ASSERT_REASON_ENUM_RANGE);
+    }
 }
+
 #endif
 
 static void Estimator_GnssUpdateFinalize(
@@ -1919,42 +1982,21 @@ static NavigationIntegrityConfig Estimator_IntegrityConfigGet(void)
 {
     const NavigationIntegrityConfig config = {
         .enabled = SYSTEM_ESTIMATOR_GNSS_INTEGRITY_ENABLE,
-        .window_us = SYSTEM_ESTIMATOR_GNSS_INTEGRITY_WINDOW_S * 1000000U,
         .max_gap_us = SYSTEM_ESTIMATOR_GNSS_INTEGRITY_MAX_GAP_MS * 1000U,
-        .max_evidence_age_us =
-            SYSTEM_ESTIMATOR_GNSS_INTEGRITY_MAX_EVIDENCE_AGE_MS * 1000U,
-        .reference_max_age_us =
-            SYSTEM_ESTIMATOR_GNSS_INTEGRITY_REFERENCE_MAX_AGE_S * 1000000U,
         .suspect_duration_us =
             SYSTEM_ESTIMATOR_GNSS_INTEGRITY_SUSPECT_DURATION_MS * 1000U,
-        .untrusted_duration_us =
-            SYSTEM_ESTIMATOR_GNSS_INTEGRITY_UNTRUSTED_DURATION_MS * 1000U,
+        .reject_duration_us =
+            SYSTEM_ESTIMATOR_GNSS_INTEGRITY_REJECT_DURATION_MS * 1000U,
         .recovery_duration_us =
             SYSTEM_ESTIMATOR_GNSS_INTEGRITY_RECOVERY_DURATION_MS * 1000U,
-        .recovery_min_samples =
-            SYSTEM_ESTIMATOR_GNSS_INTEGRITY_RECOVERY_MIN_SAMPLES,
-        .rolling_threshold_m =
-            SYSTEM_ESTIMATOR_GNSS_INTEGRITY_ROLLING_THRESHOLD_M,
-        .anchored_threshold_m =
-            SYSTEM_ESTIMATOR_GNSS_INTEGRITY_ANCHORED_THRESHOLD_M,
-        .recovery_rolling_m =
-            SYSTEM_ESTIMATOR_GNSS_INTEGRITY_RECOVERY_ROLLING_M,
-        .recovery_anchored_m =
-            SYSTEM_ESTIMATOR_GNSS_INTEGRITY_RECOVERY_ANCHORED_M,
+        .error_threshold_m = SYSTEM_ESTIMATOR_GNSS_INTEGRITY_ERROR_THRESHOLD_M,
+        .recovery_threshold_m =
+            SYSTEM_ESTIMATOR_GNSS_INTEGRITY_RECOVERY_THRESHOLD_M,
+        .position_r_scale = SYSTEM_ESTIMATOR_GNSS_INTEGRITY_POSITION_R_SCALE,
         .hacc_max_m = SYSTEM_ESTIMATOR_GNSS_INTEGRITY_HACC_MAX_M,
-        .sacc_max_mps = SYSTEM_ESTIMATOR_GNSS_INTEGRITY_SACC_MAX_MPS,
-        .velocity_bias_bound_mps =
-            SYSTEM_ESTIMATOR_GNSS_INTEGRITY_VELOCITY_BIAS_BOUND_MPS,
-        .reference_renewal_max_m =
-            SYSTEM_ESTIMATOR_GNSS_INTEGRITY_REFERENCE_RENEWAL_MAX_M,
-        .position_r_scale =
-            SYSTEM_ESTIMATOR_GNSS_INTEGRITY_POSITION_R_SCALE,
-        .reanchor_min_distance_m =
-            SYSTEM_ESTIMATOR_GNSS_INTEGRITY_REANCHOR_MIN_DISTANCE_M,
-        .reanchor_covariance_floor_m2 =
-            SYSTEM_ESTIMATOR_GNSS_INTEGRITY_REANCHOR_COVARIANCE_FLOOR_M2
+        .sacc_max_mps = SYSTEM_ESTIMATOR_GNSS_INTEGRITY_SACC_MAX_MPS
     };
-    SILVERSTAR_ASSERT(config.window_us <= NAV_INTEGRITY_MAX_WINDOW_US,
+    SILVERSTAR_ASSERT(config.max_gap_us <= 1200000U,
         SILVERSTAR_ASSERT_MODULE_APP, SILVERSTAR_ASSERT_REASON_LENGTH_RANGE);
     SILVERSTAR_ASSERT(NavigationIntegrity_ConfigValidate(&config) ==
         NAV_INTEGRITY_PROCESS_OK,
@@ -2024,34 +2066,26 @@ static void Estimator_GnssReplayEventApply(const NavigationReplayEvent *event,
         work->measurement.replay_generation = s_replay.diagnostics.replay_count;
 #endif
         Estimator_GnssReplayOutcomeCopy(work, event->kind, &outcome);
-        if ((SYSTEM_ESTIMATOR_GNSS_INTEGRITY_ENABLE != 0U) &&
-            (event->integrity_reanchor_requested != 0U))
-        {
-            NavigationIntegrity_ReanchorAcknowledge(&s_integrity, (uint8_t)(
-                (result == NAV_REPLAY_OK) &&
-                (outcome.integrity_reanchor == NAV_KF_UPDATE_ACCEPTED)));
-        }
     (void)result;
     (void)operation_sequence;
 }
 
-static void Estimator_GnssReplayEventPrepare(EstimatorGnssUpdateWork *work,
-    NavigationReplayEvent *event, uint64_t position_us, uint64_t velocity_us)
+static void Estimator_GnssIntegrityApply(EstimatorGnssUpdateWork *work,
+    NavigationReplayEvent *event)
 {
     SILVERSTAR_ASSERT_OBJECT(work, EstimatorGnssUpdateWork,
                              SILVERSTAR_ASSERT_MODULE_APP);
     SILVERSTAR_ASSERT_OBJECT(event, NavigationReplayEvent,
                              SILVERSTAR_ASSERT_MODULE_APP);
-    SILVERSTAR_ASSERT(event->valid_group_mask <= 15U,
-        SILVERSTAR_ASSERT_MODULE_APP, SILVERSTAR_ASSERT_REASON_ENUM_RANGE);
-    event->source = 0U;
-    event->vertical_valid = (uint8_t)(work->velocity_dimension == 3U);
     if (SYSTEM_ESTIMATOR_GNSS_INTEGRITY_ENABLE != 0U)
     {
         NavigationIntegrityInput input = {0};
-        input.receive_us = work->sample.receive_timestamp_us;
-        input.position_us = position_us;
-        input.velocity_us = velocity_us;
+        input.timestamp_us =
+            ((work->sample.measurement_timestamp_trusted != 0U) &&
+             (work->sample.sample_timestamp_us != 0ULL) &&
+             (work->sample.sample_timestamp_us <= work->sample.receive_timestamp_us)) ?
+            work->sample.sample_timestamp_us : work->sample.receive_timestamp_us;
+        input.source = (uint8_t)event->source;
         input.epoch = s_replay.epoch;
         input.sequence = work->sample.sequence;
         input.valid_group_mask = event->valid_group_mask;
@@ -2068,7 +2102,37 @@ static void Estimator_GnssReplayEventPrepare(EstimatorGnssUpdateWork *work,
             (work->integrity_result == NAV_INTEGRITY_PROCESS_OK) ?
             work->integrity_decision.admitted_group_mask :
             (uint8_t)(event->valid_group_mask & (uint8_t)~1U);
+#if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
+        work->measurement.valid_group_mask = event->integrity_admitted_group_mask;
+        if ((work->integrity_result == NAV_INTEGRITY_PROCESS_OK) &&
+            (work->integrity_decision.state_changed != 0U))
+        {
+            uint32_t arg0 = (uint32_t)work->integrity_decision.previous_state |
+                ((uint32_t)work->integrity_decision.state << 8U) |
+                ((uint32_t)work->integrity_decision.reason << 16U) |
+                ((uint32_t)work->integrity_decision.chain_reset << 24U);
+            LoggerBusResult log_result = LoggerBus_EventPush(
+                input.timestamp_us,
+                FLIGHT_LOG_EVENT_GNSS_POSITION_INTEGRITY_STATE_CHANGE,
+                arg0, input.sequence);
+            SILVERSTAR_ASSERT(log_result <= LOGGER_BUS_RESULT_BAD_STATE,
+                SILVERSTAR_ASSERT_MODULE_APP, SILVERSTAR_ASSERT_REASON_ENUM_RANGE);
+        }
+#endif
     }
+}
+
+static void Estimator_GnssReplayEventPrepare(EstimatorGnssUpdateWork *work,
+    NavigationReplayEvent *event)
+{
+    SILVERSTAR_ASSERT_OBJECT(work, EstimatorGnssUpdateWork,
+                             SILVERSTAR_ASSERT_MODULE_APP);
+    SILVERSTAR_ASSERT_OBJECT(event, NavigationReplayEvent,
+                             SILVERSTAR_ASSERT_MODULE_APP);
+    SILVERSTAR_ASSERT(event->valid_group_mask <= 15U,
+        SILVERSTAR_ASSERT_MODULE_APP, SILVERSTAR_ASSERT_REASON_ENUM_RANGE);
+    event->vertical_valid = (uint8_t)(work->velocity_dimension == 3U);
+    Estimator_GnssIntegrityApply(work, event);
     (void)memcpy(event->position, work->position_enu_m, sizeof(event->position));
     (void)memcpy(event->position_variance, work->position_variance, sizeof(event->position_variance));
     if ((SYSTEM_ESTIMATOR_GNSS_INTEGRITY_ENABLE != 0U) &&
@@ -2076,6 +2140,10 @@ static void Estimator_GnssReplayEventPrepare(EstimatorGnssUpdateWork *work,
     {
         event->position_variance[0] *= work->integrity_decision.position_r_scale;
         event->position_variance[1] *= work->integrity_decision.position_r_scale;
+#if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
+        work->measurement.position_variance_m2[0] = event->position_variance[0];
+        work->measurement.position_variance_m2[1] = event->position_variance[1];
+#endif
     }
     (void)memcpy(event->velocity, work->sample.velocity_enu_mps, sizeof(event->velocity));
     (void)memcpy(event->velocity_variance, work->velocity_variance, sizeof(event->velocity_variance));
@@ -2097,6 +2165,13 @@ static void Estimator_GnssReplay(uint64_t state_timestamp_us,
     work->replay_outcome.velocity = NAV_KF_UPDATE_REJECTED_INVALID;
     work->epoch.timestamp_us = work->sample.receive_timestamp_us;
     operation_sequence = Estimator_OperationNext();
+    {
+        uint8_t source_instance = 0U;
+        if (SystemSourceSelector_GnssActiveInstanceGet(&source_instance) !=
+            SYSTEM_DEVICE_OK)
+        { source_instance = UINT8_MAX; }
+        event.source = source_instance;
+    }
     result = NavigationReplay_ReceiveTrack(&s_replay, &work->epoch, &event);
     (void)operation_sequence;
 #if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
@@ -2119,7 +2194,7 @@ static void Estimator_GnssReplay(uint64_t state_timestamp_us,
     work->measurement.position_measurement_timestamp_us = position_us;
     work->measurement.velocity_measurement_timestamp_us = velocity_us;
 #endif
-    Estimator_GnssReplayEventPrepare(work, &event, position_us, velocity_us);
+    Estimator_GnssReplayEventPrepare(work, &event);
     for (part = 0U; part < 2U; part++)
     {
         /* Insert this packet's older component first, so its rewind cannot
@@ -2130,11 +2205,6 @@ static void Estimator_GnssReplay(uint64_t state_timestamp_us,
             position_us : velocity_us;
         if (position_us == velocity_us)
         { event.kind = NAV_REPLAY_POSITION | NAV_REPLAY_VELOCITY; }
-        event.integrity_reanchor_requested = (uint8_t)(
-            ((event.kind & NAV_REPLAY_POSITION) != 0U) &&
-            (work->integrity_result == NAV_INTEGRITY_PROCESS_OK) &&
-            (work->integrity_decision.reanchor_requested != 0U) &&
-            ((event.integrity_admitted_group_mask & 1U) != 0U));
         Estimator_GnssReplayEventApply(&event, work);
         if (position_us == velocity_us) { break; }
     }
@@ -3219,11 +3289,8 @@ SystemDeviceResult EstimatorTask_InitializeMission(void)
     if (SYSTEM_ESTIMATOR_GNSS_INTEGRITY_ENABLE != 0U)
     {
         NavigationIntegrityConfig integrity_config = Estimator_IntegrityConfigGet();
-        if ((NavigationIntegrity_Reset(&s_integrity, &integrity_config) !=
-             NAV_INTEGRITY_PROCESS_OK) ||
-            (NavigationReplay_IntegrityConfigSet(&s_replay,
-                integrity_config.reanchor_min_distance_m,
-                integrity_config.reanchor_covariance_floor_m2) != NAV_REPLAY_OK))
+        if (NavigationIntegrity_Reset(&s_integrity, &integrity_config) !=
+            NAV_INTEGRITY_PROCESS_OK)
         { return SYSTEM_DEVICE_INVALID_ARGUMENT; }
     }
     Estimator_SnapshotPublish(0U);

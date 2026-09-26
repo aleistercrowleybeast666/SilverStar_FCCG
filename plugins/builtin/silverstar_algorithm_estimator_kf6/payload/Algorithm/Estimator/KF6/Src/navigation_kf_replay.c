@@ -39,22 +39,6 @@ void NavigationReplay_Reset(NavigationReplayContext *history,
     history->receive_tracker = *state;
 }
 
-NavigationReplayResult NavigationReplay_IntegrityConfigSet(
-    NavigationReplayContext *history, float minimum_distance_m,
-    float covariance_floor_m2)
-{
-    if ((history == NULL) || (history->checkpoint_count != 1U) ||
-        (history->event_count != 0U) || (history->prediction_count != 0U) ||
-        !isfinite(minimum_distance_m) || (minimum_distance_m <= 0.0f) ||
-        !isfinite(covariance_floor_m2) || (covariance_floor_m2 <= 0.0f))
-    { return NAV_REPLAY_INVALID; }
-    SILVERSTAR_ASSERT_OBJECT(history, NavigationReplayContext,
-                             SILVERSTAR_ASSERT_MODULE_ALGORITHM);
-    history->integrity_reanchor_min_distance_m = minimum_distance_m;
-    history->integrity_reanchor_covariance_floor_m2 = covariance_floor_m2;
-    return NAV_REPLAY_OK;
-}
-
 static uint64_t NavigationReplay_EventTimeGet(
     const NavigationReplayContext *history, uint16_t index)
 {
@@ -237,19 +221,10 @@ static uint8_t NavigationReplay_EventValid(const NavigationReplayContext *histor
                              SILVERSTAR_ASSERT_MODULE_ALGORITHM);
     if ((event->kind == 0U) || (event->kind > NAV_REPLAY_BAROMETER) ||
         (event->vertical_valid > 1U) || (event->receive_timestamp_us == 0U) ||
-        (event->integrity_admission_valid > 1U) ||
-        (event->integrity_reanchor_requested > 1U))
+        (event->integrity_admission_valid > 1U))
     { return 0U; }
     if ((event->integrity_admission_valid != 0U) &&
         ((event->integrity_admitted_group_mask & (uint8_t)~event->valid_group_mask) != 0U))
-    { return 0U; }
-    if ((event->integrity_reanchor_requested != 0U) &&
-        (((event->kind & NAV_REPLAY_POSITION) == 0U) ||
-         ((event->valid_group_mask & 1U) == 0U) ||
-         !isfinite(history->integrity_reanchor_min_distance_m) ||
-         (history->integrity_reanchor_min_distance_m <= 0.0f) ||
-         !isfinite(history->integrity_reanchor_covariance_floor_m2) ||
-         (history->integrity_reanchor_covariance_floor_m2 <= 0.0f)))
     { return 0U; }
     for (axis = 0U; axis < 3U; axis++)
     {
@@ -469,7 +444,10 @@ static void NavigationReplay_OutcomeReset(NavigationReplayOutcome *outcome)
     outcome->position = NAV_KF_UPDATE_REJECTED_INVALID;
     outcome->velocity = NAV_KF_UPDATE_REJECTED_INVALID;
     outcome->barometer = NAV_KF_UPDATE_REJECTED_INVALID;
-    outcome->integrity_reanchor = NAV_KF_UPDATE_REJECTED_INVALID;
+    outcome->position_groups.horizontal_result = NAV_KF_UPDATE_REJECTED_INVALID;
+    outcome->position_groups.vertical_result = NAV_KF_UPDATE_REJECTED_INVALID;
+    outcome->velocity_groups.horizontal_result = NAV_KF_UPDATE_REJECTED_INVALID;
+    outcome->velocity_groups.vertical_result = NAV_KF_UPDATE_REJECTED_INVALID;
 }
 
 static NavigationReplayResult NavigationReplay_GroupRecoveryApply(
@@ -485,9 +463,6 @@ static NavigationReplayResult NavigationReplay_GroupRecoveryApply(
         NavigationKfGnssSeparatedUpdateResult *result = (group < 2U) ?
             &outcome->position_groups : &outcome->velocity_groups;
         uint8_t vertical = (uint8_t)(group & 1U);
-        if ((group == 0U) &&
-            (outcome->integrity_reanchor == NAV_KF_UPDATE_ACCEPTED))
-        { outcome->group_nis[group] = NAN; continue; }
         if ((vertical != 0U) ? result->vertical_attempted : result->horizontal_attempted)
         {
             NavigationKfUpdateResult recovered = NavigationKf_GnssGroupRecover(state,
@@ -511,38 +486,6 @@ static NavigationReplayResult NavigationReplay_GroupRecoveryApply(
     return NAV_REPLAY_OK;
 }
 
-static NavigationReplayResult NavigationReplay_IntegrityReanchorApply(
-    const NavigationReplayContext *history, NavigationKfContext *state,
-    const NavigationReplayEvent *event,
-    NavigationReplayOutcome *outcome, uint8_t *admitted_mask)
-{
-    SILVERSTAR_ASSERT_OBJECT(history, NavigationReplayContext,
-                             SILVERSTAR_ASSERT_MODULE_ALGORITHM);
-    SILVERSTAR_ASSERT_OBJECT(state, NavigationKfContext,
-                             SILVERSTAR_ASSERT_MODULE_ALGORITHM);
-    SILVERSTAR_ASSERT_OBJECT(event, NavigationReplayEvent,
-                             SILVERSTAR_ASSERT_MODULE_ALGORITHM);
-    if (((event->kind & NAV_REPLAY_POSITION) != 0U) &&
-        (event->integrity_reanchor_requested != 0U) &&
-        ((*admitted_mask & 1U) != 0U))
-    {
-        outcome->integrity_reanchor = NavigationKf_GnssIntegrityReanchor(
-            state, event->position, event->position_variance,
-            history->integrity_reanchor_min_distance_m,
-            history->integrity_reanchor_covariance_floor_m2);
-        if (outcome->integrity_reanchor == NAV_KF_UPDATE_NUMERIC_ERROR)
-        { return NAV_REPLAY_NUMERIC_ERROR; }
-        if (outcome->integrity_reanchor == NAV_KF_UPDATE_ACCEPTED)
-        {
-            *admitted_mask &= (uint8_t)~1U;
-            outcome->position = NAV_KF_UPDATE_ACCEPTED;
-            outcome->position_groups.horizontal_attempted = 1U;
-            outcome->position_groups.horizontal_result = NAV_KF_UPDATE_ACCEPTED;
-        }
-    }
-    return NAV_REPLAY_OK;
-}
-
 static void NavigationReplay_GnssPositionApply(NavigationKfContext *state,
     const NavigationReplayEvent *event, NavigationReplayOutcome *outcome,
     uint8_t admitted_mask)
@@ -554,18 +497,9 @@ static void NavigationReplay_GnssPositionApply(NavigationKfContext *state,
     if (((event->kind & NAV_REPLAY_POSITION) != 0U) &&
         ((admitted_mask & 3U) != 0U))
     {
-        NavigationKfUpdateResult position_result =
-            NavigationKf_UpdateGnssPositionGroups(state,
-                event->position, event->position_variance, admitted_mask,
-                &outcome->position_groups);
-        if ((outcome->integrity_reanchor != NAV_KF_UPDATE_ACCEPTED) ||
-            (position_result == NAV_KF_UPDATE_NUMERIC_ERROR))
-        { outcome->position = position_result; }
-        if (outcome->integrity_reanchor == NAV_KF_UPDATE_ACCEPTED)
-        {
-            outcome->position_groups.horizontal_attempted = 1U;
-            outcome->position_groups.horizontal_result = NAV_KF_UPDATE_ACCEPTED;
-        }
+        outcome->position = NavigationKf_UpdateGnssPositionGroups(state,
+            event->position, event->position_variance, admitted_mask,
+            &outcome->position_groups);
         (void)memcpy(outcome->position_innovation, state->last_position_innovation,
                       sizeof(outcome->position_innovation));
     }
@@ -586,9 +520,6 @@ static NavigationReplayResult NavigationReplay_EventApply(
                              SILVERSTAR_ASSERT_MODULE_ALGORITHM);
     NavigationReplay_OutcomeReset(outcome);
     NavigationReplay_EvidenceApply(state, event);
-    if (NavigationReplay_IntegrityReanchorApply(history, state, event, outcome,
-                                                &admitted_mask) != NAV_REPLAY_OK)
-    { return NAV_REPLAY_NUMERIC_ERROR; }
     NavigationReplay_GnssPositionApply(state, event, outcome, admitted_mask);
     if (((event->kind & NAV_REPLAY_VELOCITY) != 0U) &&
         ((admitted_mask & 12U) != 0U))

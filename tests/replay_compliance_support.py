@@ -152,6 +152,8 @@ def estimator_trace_run(project: Path, output: Path, fixture: Path) -> dict:
 #include <string.h>
 #include "navigation_kf_replay.h"
 #include "navigation_integrity.h"
+#include "logger_bus.h"
+#include "system_source_selector.h"
 #include "system_user_config.h"
 #include "system_gnss_if.h"
 #include "system_estimator_diagnostics.h"
@@ -164,6 +166,21 @@ PlatformResult PlatformTime_Init(void) { return PLATFORM_OK; }
 uint64_t PlatformTime_Us(void) { return 0ULL; }
 PlatformCriticalState PlatformCritical_Enter(void) { return 0U; }
 void PlatformCritical_Exit(PlatformCriticalState state) { (void)state; }
+LoggerBusResult LoggerBus_EventPush(uint64_t timestamp_us, FlightLogEventId event_id,
+    uint32_t arg0, uint32_t arg1)
+{
+    (void)timestamp_us;
+    (void)event_id;
+    (void)arg0;
+    (void)arg1;
+    return LOGGER_BUS_RESULT_BAD_STATE;
+}
+SystemDeviceResult SystemSourceSelector_GnssActiveInstanceGet(uint8_t *instance_id)
+{
+    if (instance_id == NULL) { return SYSTEM_DEVICE_INVALID_ARGUMENT; }
+    *instance_id = 0U;
+    return SYSTEM_DEVICE_OK;
+}
 static struct { NavigationKfContext kf; SystemEstimatorGnssDiagnostics gnss_diagnostics; uint32_t operation_sequence; } s_estimator;
 static struct { float position_innovation[3]; } s_snapshot;
 static NavigationReplayContext s_replay;

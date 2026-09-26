@@ -511,7 +511,10 @@ def test_protocol_metadata_defaults_required_and_availability(
     definitions = LoggingProfile_Reconcile(model, builtin_catalog)
     streams = {stream.record: stream for stream in model.logging_streams}
     assert all(
-        streams[definition.record].enabled
+        streams[definition.record].enabled == (
+            definition.level == LogPolicyLevel.REQUIRED
+            or definition.default_stream.enabled
+        )
         for definition in definitions
         if LogAvailability_Get(definition, model, builtin_catalog).available
     )
@@ -571,7 +574,10 @@ def test_new_project_mode_and_logging_defaults_do_not_override_later_choices(
     ]
     assert model.modes["calibration"] == []
     assert all(
-        streams[definition.record].enabled
+        streams[definition.record].enabled == (
+            definition.level == LogPolicyLevel.REQUIRED
+            or definition.default_stream.enabled
+        )
         for definition in definitions
         if LogAvailability_Get(definition, model, builtin_catalog).available
     )

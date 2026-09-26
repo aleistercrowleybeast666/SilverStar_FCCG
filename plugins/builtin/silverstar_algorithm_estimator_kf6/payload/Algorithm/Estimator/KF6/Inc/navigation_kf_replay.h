@@ -52,7 +52,6 @@ typedef struct
     uint8_t vertical_valid;
     uint8_t integrity_admission_valid;
     uint8_t integrity_admitted_group_mask;
-    uint8_t integrity_reanchor_requested;
     float position[3];
     float position_variance[3];
     float velocity[3];
@@ -67,7 +66,6 @@ typedef struct
     NavigationKfUpdateResult position;
     NavigationKfUpdateResult velocity;
     NavigationKfUpdateResult barometer;
-    NavigationKfUpdateResult integrity_reanchor;
     NavigationKfGnssSeparatedUpdateResult position_groups;
     NavigationKfGnssSeparatedUpdateResult velocity_groups;
     float group_nis[4];
@@ -140,8 +138,6 @@ typedef struct
     uint64_t epoch_start_us;
     uint32_t epoch;
     uint32_t prediction_count;
-    float integrity_reanchor_min_distance_m;
-    float integrity_reanchor_covariance_floor_m2;
     uint16_t imu_head;
     uint16_t imu_count;
     uint16_t event_count;
@@ -149,9 +145,6 @@ typedef struct
     uint8_t faulted;
 } NavigationReplayContext;
 
-NavigationReplayResult NavigationReplay_IntegrityConfigSet(
-    NavigationReplayContext *history, float minimum_distance_m,
-    float covariance_floor_m2);
 void NavigationReplay_Reset(NavigationReplayContext *history,
                             NavigationReplayStorage *storage,
                             const NavigationKfContext *state,

@@ -65,6 +65,9 @@ def test_logging_metadata_declares_cadence_and_legacy_policy_fallback(
         assert parser_record["default_stream"] == catalog_record["default_stream"]
     assert definitions["FLIGHT_LOG_RECORD_IMU_CORRECTED"].default_stream.enabled
     assert definitions["FLIGHT_LOG_RECORD_MAG_NATIVE"].default_stream.enabled
+    assert not definitions["FLIGHT_LOG_RECORD_KF6_DIAGNOSTIC"].default_stream.enabled
+    assert not next(stream.enabled for stream in model.logging_streams
+                    if stream.record == "FLIGHT_LOG_RECORD_KF6_DIAGNOSTIC")
     assert definitions["FLIGHT_LOG_RECORD_IMU_CORRECTED"].cadence == replace(
         definitions["FLIGHT_LOG_RECORD_IMU_CORRECTED"].cadence,
         kind=LogCadenceKind.SOURCE,

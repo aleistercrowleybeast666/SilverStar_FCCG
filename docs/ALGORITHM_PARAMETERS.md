@@ -166,51 +166,45 @@ fields receive 5.0/1.0. New projects use 2.5/1.75 and velocity delay 270 ms.
 Recommendations never participate in shared-parameter contract equality.
 
 
-## GNSS position self-check candidate contract
+## GNSS position self-check, revision 2
 
-The KF6 plugin is the authority for the following values. FCCG format-12 projects
-store per-owner actual values, generated constants use the same values, and
-`.ssdecoder` project-semantics 1.2 declares `navigation_replay.gnss_integrity_revision = 1`
-for newly generated projects. FLP mirrors the exact types, units, ranges and
-representation. A newly selected KF6 defaults to enabled; an existing KF6
-owner missing the new fields reconciles with `legacy_default` and stays disabled.
-Revision-0 logs must remain disabled for faithful replay. A revision-1 KF6
-parameter set must contain all 20 values. These defaults are candidates, not
-flight-qualified thresholds.
+The KF6 plugin owns ten actual parameters. Project format 12 stores the resolved
+values; generated C constants and the 1.2 decoder package use the same values.
+New KF6 projects enable the check. Previously saved owners missing these parameters
+receive `legacy_default` and remain disabled. Revision 0 logs use the older
+firmware behavior in Recorded Configuration and may enable revision 2 explicitly
+in What-if. Revision 1 was a different history-buffer candidate and is rejected
+by FLP rather than reinterpreted. These thresholds are conservative software
+candidates, not flight-qualified settings.
 
 | KF6 parameter | Type | New default | Legacy default | Unit | Allowed range |
 | --- | --- | ---: | ---: | --- | --- |
 | `gnss_integrity_enable` | integer | 1 | 0 | 1 | 0–1 |
-| `gnss_integrity_window_s` | integer | 5 | 5 | s | 1–10 |
 | `gnss_integrity_max_gap_ms` | integer | 120 | 120 | ms | 40–1200 |
-| `gnss_integrity_max_evidence_age_ms` | integer | 550 | 550 | ms | 0–550 |
-| `gnss_integrity_reference_max_age_s` | integer | 30 | 30 | s | 11–300 |
+| `gnss_integrity_error_threshold_m` | float | 10.0 | 10.0 | m | 0.1–200.0 |
+| `gnss_integrity_recovery_threshold_m` | float | 4.0 | 4.0 | m | 0.1–100.0 |
 | `gnss_integrity_suspect_duration_ms` | integer | 2000 | 2000 | ms | 100–30000 |
-| `gnss_integrity_untrusted_duration_ms` | integer | 5000 | 5000 | ms | 100–30000 |
+| `gnss_integrity_reject_duration_ms` | integer | 5000 | 5000 | ms | 100–30000 |
 | `gnss_integrity_recovery_duration_ms` | integer | 8000 | 8000 | ms | 100–30000 |
-| `gnss_integrity_recovery_min_samples` | integer | 25 | 25 | samples | 1–1000 |
-| `gnss_integrity_rolling_threshold_m` | float | 7.0 | 7.0 | m | 0.1–100.0 |
-| `gnss_integrity_anchored_threshold_m` | float | 15.0 | 15.0 | m | 0.1–200.0 |
-| `gnss_integrity_recovery_rolling_m` | float | 2.0 | 2.0 | m | 0.1–50.0 |
-| `gnss_integrity_recovery_anchored_m` | float | 8.0 | 8.0 | m | 0.1–100.0 |
+| `gnss_integrity_position_r_scale` | float | 4.0 | 4.0 | 1 | 1.0–100.0 |
 | `gnss_integrity_hacc_max_m` | float | 6.0 | 6.0 | m | 0.1–100.0 |
 | `gnss_integrity_sacc_max_mps` | float | 1.2 | 1.2 | m/s | 0.01–20.0 |
-| `gnss_integrity_velocity_bias_bound_mps` | float | 0.15 | 0.15 | m/s | 0.0–5.0 |
-| `gnss_integrity_reference_renewal_max_m` | float | 2.0 | 2.0 | m | 0.1–50.0 |
-| `gnss_integrity_position_r_scale` | float | 4.0 | 4.0 | 1 | 1.0–100.0 |
-| `gnss_integrity_reanchor_min_distance_m` | float | 8.0 | 8.0 | m | 0.1–100.0 |
-| `gnss_integrity_reanchor_covariance_floor_m2` | float | 25.0 | 25.0 | m^2 | 0.01–10000.0 |
 
-The receive-side C state machine compares position displacement and velocity
-integral over a causal aligned history window using the existing resolved
-position/velocity times. It admits only horizontal position (E/N) through
-normal R, a conservative R multiplier, or pause; other GNSS groups retain their
-own native validity. An anchored residual uses the bounded reference age and
-`anchored_threshold_m + velocity_bias_bound_mps * age_s`. Reference renewal is
-permitted only while trusted and within both rolling and anchored renewal
-bounds. A true velocity/sequence discontinuity clears duration counters and
-pending reanchor. Reanchor operates on the historical position state and
-covariance, followed by normal fixed-lag replay.
+The firmware compares horizontal displacement from one receiver-native GNSS
+solution epoch with trapezoidal integration of GNSS horizontal velocity. A
+single monitoring anchor and integral use constant memory. A short invalid
+position interval leaves the velocity chain running; velocity invalidity,
+sequence/time gap, epoch reset, or source switch clears the chain and anchor.
+A new anchor formed after SUSPECT or REJECTED is untrusted and cannot by itself
+restore NORMAL.
 
-The candidate has unresolved resource and replay/logging validation failures;
-its exact gate results and limits are recorded in [VALIDATION](../VALIDATION.md).
+Closure above the error threshold for the suspect duration enters SUSPECT and
+multiplies Pos EN R. Continued abnormal closure for the additional reject
+duration enters REJECTED and masks Pos EN while preserving GNSS velocity and
+vertical groups. Recovery below the lower threshold requires the original
+trusted anchor and a complete recovery duration for each step back to NORMAL.
+The integrity module never rewrites the KF state; existing group reacquisition
+handles position return. GNSS_NATIVE retains receiver evidence,
+GNSS_MEASUREMENT records the actual admitted mask and input R, and EVENT records
+state transitions. KF6_DIAGNOSTIC retains its wire type but starts disabled in
+new projects. See [VALIDATION](../VALIDATION.md) for measured gates.

@@ -2021,3 +2021,52 @@ Revision-0 legacy KF6 replays actually ran on both BINs. They are flagged `APPRO
 4. Measure target CPU/receive rates, record bytes/s, queue HWM and flight behavior in controlled bench/field work after software gates pass. No open-area or high-dynamic ground-truth log was available here.
 
 Reproduction from each generated project root: `mingw32-make -j4 SHELL=cmd.exe CONFIG=Release architecture-check power10-check host-tests`, then `mingw32-make -j4 SHELL=cmd.exe CONFIG=Release all stack-report memory-report artifact-check` and repeat the latter with `CONFIG=Debug`. The enabled artifact command is expected to exit nonzero until item 1 is fixed. Full FCCG suite: `python -m pytest (Get-ChildItem tests/test_*.py).FullName -q --basetemp=tests/.integrity-generated/full-suite-work`; run the focused fixture with `python -m pytest tests/test_navigation_integrity_host.py -q --basetemp=tests/.integrity-generated/integrity-host-work`. Host/gate logs are beside each ignored generated project. No generated binary or raw log was added to Git.
+
+## GNSS Integrity Simplification
+
+2026-09-26. This section supersedes the blocked 2026-09-25 integrity candidate. FCCG and FLP were edited; GSHC was frozen. This is software acceptance evidence for a controlled retest candidate, not target CPU timing or flight truth.
+
+### Algorithm and firmware integration
+
+The 272-sample 1/2/5/10-second receive history, its searches/interpolation/compaction, and the integrity-specific historical KF re-anchor were removed. NavigationIntegrityContext is **112 B**, down from **11,088 B** (10,976 B saved). Processing uses fixed two-axis arithmetic per native GNSS solution epoch, no dynamic allocation, no recursion, and no unbounded loop. Receiver-native EN position displacement is compared with trapezoid-integrated receiver-native EN velocity; the KF6 270 ms scheduling delay is not treated as a sensor epoch offset. Short position-invalid intervals preserve the velocity integral and anchor. Velocity, sequence, time, source, or replay-epoch breaks reset the integration reference. A new anchor after SUSPECT/REJECTED cannot by itself restore NORMAL. Recovery against the original trusted anchor is hysteretic; existing KF6 group reacquisition remains the position recovery mechanism. No velocity-derived position measurement or high-frequency integrity record was added. The C fixture passed eight scenarios, including drift, one-point jump, position gap, chain break, original-anchor recovery, lost-anchor sticky state, and healthy 20-second/25 Hz high dynamics. Actual target execution time was not measured.
+
+The manifest has **10** integrity parameters instead of 20 and declares revision 2. FLP accepts revision 0 as legacy integrity-off, revision 2 as this stream algorithm, and explicitly rejects revision 1. GNSS_NATIVE preserves raw receiver validity; GNSS_MEASUREMENT records actual KF6 Pos EN admission and R. EVENT 0x2E records only state transitions. KF6_DIAGNOSTIC remains decodable but defaults off. GNSS_RECOVERY is emitted when its recovery state, generation, update result, or other meaningful fields change. Existing SSLOG wire layouts and the reviewed 102,400 B main-SRAM budget were not changed.
+
+### Generated Release/Debug and quality matrix
+
+Three generated SS0.5 projects live in tests/.tmp_final_matrix/{KF6IntegrityOn,KF6IntegrityOff,PureINS}. Production and generated C source hashes were matched before final gates. For each project, Release and Debug all, stack-report, memory-report, artifact-check, plus architecture-check, power10-check, and host-tests all exited **0**; exact exit codes are in tests/.tmp_final_matrix/results-final.json. All eight linked static task-stack budgets passed. The minimum was Idle **256 B**; KF6-on Release Flight **668 B** and Estimator **1,036 B**. Linked stack estimates are not measured target high-water marks.
+
+| Project | Release FLASH / main SRAM / CCMRAM (B) | Debug FLASH / main SRAM / CCMRAM (B) | Reviewed main-SRAM margin Release / Debug (B) |
+| --- | ---: | ---: | ---: |
+| KF6 integrity ON | 276,288 / 102,120 / 64,424 | 293,288 / 102,144 / 64,424 | **280 / 256** |
+| KF6 integrity OFF | 273,152 / 102,120 / 64,312 | 289,952 / 102,144 / 64,312 | **280 / 256** |
+| Fusion=None / Pure INS | 246,200 / 82,808 / 53,080 | 261,520 / 82,832 / 53,080 | 19,592 / 19,568 |
+
+FLASH capacity is 524,288 B, physical main SRAM capacity 131,072 B, and CCMRAM capacity 65,536 B. KF6-on has **1,112 B** CCMRAM headroom and only **280/256 B** reviewed main-SRAM headroom. The gate passes, but later source or buffer growth requires a fresh linked resource review. Heap reserve/runtime symbols remained zero. The previous enabled candidate used 113,216/113,240 B main SRAM and failed the unchanged review gate.
+
+**Power of Ten:** KF6 integrity ON and OFF each passed **6,133 checks, 96 first-party C files, 2,299 functions, 0 failures**. Fusion=None passed **5,792 checks, 93 C files, 2,175 functions, 0 failures**. **Architecture:** all three passed **262 checks, 0 failures** each. Both KF6 conditional paths and Fusion=None were checked; neither checker nor budget was changed. **Host:** each KF6 project passed **68 executables, 4,386,471 checks, 0 failures**; Pure INS passed **66 executables, 4,352,291 checks, 0 failures**.
+
+### Logging and joint replay
+
+The comparable Host normal full-rate logger model before/after the KF6_DIAGNOSTIC default change accepted **163,694 → 158,845** records over **199.7058 → 199.7418 s**, or **819.68 → 795.25 records/s**. Validated bytes were **15,513,371 → 14,873,215**, or **77,681.12 → 74,462.21 B/s**. Normal/estimator queue high-water marks were **76/44 → 77/38**; both runs had **0 drops and 0 producer failures**. In finite overload, the final run had HWM **80/39**, **436 drops**, and **14 producer failures** (before: **80/43**, **436**, **14**). The Host fixture deliberately still emits GNSS_RECOVERY each epoch, so this rate comparison measures the diagnostic default and does not quantify the production change-driven producer. Host scheduling is only a model.
+
+The separate 16-second real-C-codec golden measured the recovery producer: **391 → 1 GNSS_RECOVERY** records, **13,903 → 13,513 total records**, and **1,482,220 → 1,422,940 encoded bytes** (390 records and 59,280 B saved, or 24.375 records/s and 3,705 B/s). It contains three EVENT records, exactly two of them new integrity transitions; the latter contribute 80 encoded B. No per-epoch integrity stream was added. The matching generated decoder parsed without CRC, framing, or sequence failure. FLP compared the 600-epoch direct C/Python stream state, closure, mask, R, reason, reset and evidence, then the SSLOG golden's logged mask/R, x/P/q, Pos EN update result and NIS. A revision-2 What-if changed the Pos EN disable count as expected. This synthetic golden is not universal real-log fidelity; FLP marks the real replays APPROXIMATE.
+
+### Read-only real inputs and limits
+
+SS0000.BIN, SS0001.BIN and their exact decoder at D:/stm32_project/SS_0_5_TEST_2/ retained SHA-256 b20da913ffc599a92eafb8191841b4bdd1d1e81277ed5ffc39ce81384c986d9b, d5297f7a901684922360e0c3158c6759d9725755df5959dd0018059bc9b7def3, and 3fc7000fc027b153b604596850d516eb7960892afc22a6c6681da9d57a95d7bd after replay. Their accessible filenames omit (3); identity with absent copies is not claimed. Endpoint horizontal values below are replay outputs, not external trajectory truth or algorithm inputs.
+
+| Log | GNSS epochs | Revision-0 endpoint horizontal (m) | Revision-2 What-if endpoint horizontal (m) | First SUSPECT / REJECTED (mission s) | Pos EN disabled |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| SS0000 | 368 | 8.013 | 8.013 | none / none | 0 |
+| SS0001 | 9,517 | 52.825 | 8.380 | 10.1494 / 15.1604 | 9,139 |
+
+FLP VALIDATION.md records the six-tab State Estimation UI, two Measurements plots, three GNSS integrity plot/export classes, independent frozen export source, revision handling, parity, and **385 passed / 8 skipped** FLP tests. The original BINs were not modified and return-to-start was never used as an algorithm input. No commit, push, release, flash, physical output, or shutdown was performed.
+
+### Final regression and disposition
+
+The first complete FCCG run exposed four failures: two stale default-on assertions, one Host storage expectation for KF6_DIAGNOSTIC, and one missing reference-import overlay default. The overlay now declares default_enabled=false and the assertions check protocol-owned defaults; the four focused cases passed. The next complete run exposed an intermittent Windows Save As PermissionError while moving a staged System directory. Save As now commits through the existing WorkspacePolicy.Path_Replace path validator and bounded five-attempt Windows retry. The regression injects one transient directory lock and passed; a persistent replacement error still propagates through the existing rollback. No Power of Ten checker, resource budget, or C source was changed for these test repairs.
+
+The final complete FCCG pytest command was: python -B -m pytest (Get-ChildItem tests/test_*.py).FullName -q -x --basetemp=tests/.tmp_full_revision2_accept_final -p no:cacheprovider. Result: **426 passed, 1 skipped, 0 failed** in 1,460.97 s. The skip is the pre-existing active read-only reference-firmware task; pytest also emitted the existing unknown cache_dir configuration warning. Focused Save As, reference-import, logging-default and storage-pressure reruns passed. Critical Ruff F/E9 on changed Python, JSON parse, and git diff --check passed; broader Ruff style findings in untouched test sections remain outside this gate.
+
+**READY FOR CONTROLLED FIELD RETEST.** This is a software-gate decision with only 280/256 B of reviewed main-SRAM margin and 1,112 B of KF6-on CCMRAM margin. A controlled target retest must measure actual CPU load, task high-water marks, storage throughput, and GNSS behavior before any operational use. No flash, hardware output, push, tag, release, or shutdown was performed.

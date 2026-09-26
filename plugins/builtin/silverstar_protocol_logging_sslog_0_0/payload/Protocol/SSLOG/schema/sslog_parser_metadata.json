@@ -432,7 +432,7 @@
       "c_type": "FlightLogKf6DiagnosticRecord",
       "member": "kf6_diagnostic",
       "default_stream": {
-        "enabled": true,
+        "enabled": false,
         "policy": "periodic",
         "decimation": 1,
         "period_us": 40000
@@ -2272,6 +2272,7 @@
       },
       "FLIGHT_LOG_RECORD_KF6_DIAGNOSTIC": {
         "level": "recommended",
+        "default_enabled": false,
         "display_names": {
           "zh_CN": "KF6 诊断",
           "en_US": "KF6 Diagnostic"
@@ -2617,7 +2618,7 @@
   "project_semantics": {
     "navigation_replay": {
       "revision": 2,
-      "gnss_integrity_revision": 1,
+      "gnss_integrity_revision": 2,
       "clock": "MCU monotonic microseconds",
       "operation_order": "Sort ESTIMATOR_STEP.operation_sequence, GNSS_MEASUREMENT.receive_operation_sequence/position_operation_sequence/velocity_operation_sequence, and BARO_MEASUREMENT.operation_sequence within replay_epoch. Zero means not executed. Equal position/velocity operation IDs mean one combined insert.",
       "initial_state": "INITIAL_STATE; P0 diagonal and initial velocity; attitude shared with chosen navigation algorithm",

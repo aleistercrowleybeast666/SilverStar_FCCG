@@ -7,6 +7,7 @@
 #include "ins_mechanization.h"
 #include "attitude_frame.h"
 #include "navigation_kf_replay.h"
+#include "navigation_integrity.h"
 #include "system_user_config.h"
 #include "project_log_decoder_profile.h"
 #include "project_device_instances.h"
@@ -15,6 +16,8 @@
 static FILE *s_file;
 static uint32_t s_sequence, s_operation;
 static uint8_t s_reanchor_scenario;
+static uint8_t s_integrity_scenario;
+static NavigationIntegrityContext s_integrity;
 static NavigationKfContext s_kf;
 static NavigationReplayContext s_replay;
 static NavigationReplayStorage s_storage;
@@ -102,6 +105,160 @@ static void Golden_Bootstrap(void)
     Golden_Write(&record);
 }
 
+static int Golden_IntegrityInit(void)
+{
+    const NavigationIntegrityConfig config = {
+        SYSTEM_ESTIMATOR_GNSS_INTEGRITY_ENABLE,
+        SYSTEM_ESTIMATOR_GNSS_INTEGRITY_MAX_GAP_MS * 1000U,
+        SYSTEM_ESTIMATOR_GNSS_INTEGRITY_SUSPECT_DURATION_MS * 1000U,
+        SYSTEM_ESTIMATOR_GNSS_INTEGRITY_REJECT_DURATION_MS * 1000U,
+        SYSTEM_ESTIMATOR_GNSS_INTEGRITY_RECOVERY_DURATION_MS * 1000U,
+        SYSTEM_ESTIMATOR_GNSS_INTEGRITY_ERROR_THRESHOLD_M,
+        SYSTEM_ESTIMATOR_GNSS_INTEGRITY_RECOVERY_THRESHOLD_M,
+        SYSTEM_ESTIMATOR_GNSS_INTEGRITY_POSITION_R_SCALE,
+        SYSTEM_ESTIMATOR_GNSS_INTEGRITY_HACC_MAX_M,
+        SYSTEM_ESTIMATOR_GNSS_INTEGRITY_SACC_MAX_MPS
+    };
+    return NavigationIntegrity_Reset(&s_integrity, &config) ==
+        NAV_INTEGRITY_PROCESS_OK;
+}
+
+static int Golden_IntegrityApply(uint64_t now, uint32_t sequence,
+    NavigationReplayEvent *event, FlightLogGnssMeasurementRecord *measurement)
+{
+    NavigationIntegrityInput input = {0};
+    NavigationIntegrityDecision decision;
+    NavigationIntegrityProcessResult result;
+    input.timestamp_us = now;
+    input.epoch = s_replay.epoch;
+    input.sequence = sequence;
+    input.source = 0U;
+    input.valid_group_mask = event->valid_group_mask;
+    input.position_en[0] = event->position[0];
+    input.position_en[1] = event->position[1];
+    input.velocity_en[0] = event->velocity[0];
+    input.velocity_en[1] = event->velocity[1];
+    input.hacc_m = 2.0f;
+    input.sacc_mps = 0.24f;
+    result = NavigationIntegrity_Receive(&s_integrity, &input, &decision);
+    if (result != NAV_INTEGRITY_PROCESS_OK) { return 0; }
+    event->integrity_admission_valid = 1U;
+    event->integrity_admitted_group_mask = decision.admitted_group_mask;
+    measurement->valid_group_mask = decision.admitted_group_mask;
+    event->position_variance[0] *= decision.position_r_scale;
+    event->position_variance[1] *= decision.position_r_scale;
+    measurement->position_variance_m2[0] = event->position_variance[0];
+    measurement->position_variance_m2[1] = event->position_variance[1];
+    if (decision.state_changed != 0U)
+    {
+        FlightLogRecord transition = {0};
+        transition.record_type = FLIGHT_LOG_RECORD_EVENT;
+        transition.timestamp_us = now;
+        transition.payload.event.event_id =
+            FLIGHT_LOG_EVENT_GNSS_POSITION_INTEGRITY_STATE_CHANGE;
+        transition.payload.event.arg0 = (uint32_t)decision.previous_state |
+            ((uint32_t)decision.state << 8U) |
+            ((uint32_t)decision.reason << 16U) |
+            ((uint32_t)decision.chain_reset << 24U);
+        transition.payload.event.arg1 = sequence;
+        Golden_Write(&transition);
+    }
+    return 1;
+}
+
+static void Golden_RecoveryWrite(uint64_t now, uint32_t sequence,
+    const NavigationKfGnssEpoch *epoch, const FlightLogGnssMeasurementRecord *m)
+{
+    FlightLogRecord recovery = {0};
+    recovery.record_type = FLIGHT_LOG_RECORD_GNSS_RECOVERY; recovery.timestamp_us = now;
+    recovery.payload.gnss_recovery.source_sequence = sequence;
+    recovery.payload.gnss_recovery.estimator_present_timestamp_us = now;
+    recovery.payload.gnss_recovery.replay_epoch = s_replay.epoch;
+    recovery.payload.gnss_recovery.operation_sequence = s_operation;
+    recovery.payload.gnss_recovery.replay_generation = s_replay.diagnostics.replay_count;
+    for (unsigned g = 0; g < 4; g++)
+    {
+        const NavigationKfGnssReacquireGroupState *state = &s_kf.gnss_reacquisition.group[g];
+        recovery.payload.gnss_recovery.reanchor_count[g] = s_kf.gnss_reacquisition.reanchor_count[g];
+        recovery.payload.gnss_recovery.reanchor_reason[g] = (uint8_t)(s_kf.gnss_reacquisition.reanchor_count[g] != 0);
+        recovery.payload.gnss_recovery.valid[g] = (uint8_t)((epoch->valid_group_mask >> g) & 1);
+        recovery.payload.gnss_recovery.consistency_count[g] = state->consistent_count;
+        recovery.payload.gnss_recovery.inflation_attempt_count[g] = state->inflation_attempt_count;
+        recovery.payload.gnss_recovery.inflation_factor[g] = state->last_inflation_factor;
+        recovery.payload.gnss_recovery.outage[g] = state->outage;
+        recovery.payload.gnss_recovery.recovery_active[g] = state->active;
+        recovery.payload.gnss_recovery.update_result[g] = m->group_update_result[g];
+    }
+    {
+        static FlightLogGnssRecoveryRecord previous;
+        static uint8_t previous_valid;
+        uint8_t changed = (uint8_t)(previous_valid == 0U ||
+            previous.replay_epoch != recovery.payload.gnss_recovery.replay_epoch);
+        for (unsigned group = 0U; group < 4U; group++)
+        {
+            const FlightLogGnssRecoveryRecord *now_record =
+                &recovery.payload.gnss_recovery;
+            if (now_record->outage[group] != previous.outage[group] ||
+                now_record->recovery_active[group] != previous.recovery_active[group] ||
+                now_record->inflation_factor[group] != previous.inflation_factor[group] ||
+                now_record->inflation_attempt_count[group] !=
+                    previous.inflation_attempt_count[group] ||
+                now_record->reanchor_count[group] != previous.reanchor_count[group])
+            { changed = 1U; }
+        }
+        if (changed != 0U)
+        {
+            Golden_Write(&recovery);
+            previous = recovery.payload.gnss_recovery;
+            previous_valid = 1U;
+        }
+    }
+}
+
+static void Golden_GnssNativeWrite(uint64_t now, uint32_t sequence,
+    const NavigationKfGnssEpoch *epoch)
+{
+    FlightLogRecord native = {0};
+    native.record_type = FLIGHT_LOG_RECORD_GNSS_NATIVE; native.timestamp_us = now;
+    native.payload.gnss_native.source_descriptor_id = PROJECT_DESCRIPTOR_ID_GNSS_0;
+    native.payload.gnss_native.sample_timestamp_us = now;
+    native.payload.gnss_native.receive_timestamp_us = now;
+    native.payload.gnss_native.sequence = sequence;
+    if (s_integrity_scenario != 0U)
+    { native.payload.gnss_native.longitude_e7 = (int32_t)(18U * sequence); }
+    native.payload.gnss_native.fix_type = 3; native.payload.gnss_native.fix_ok = 1;
+    native.payload.gnss_native.satellite_count = 12; native.payload.gnss_native.online = 1;
+    native.payload.gnss_native.valid_group_mask = epoch->valid_group_mask;
+    native.payload.gnss_native.horizontal_accuracy_m = 2.0f;
+    native.payload.gnss_native.vertical_accuracy_m = 2.0f;
+    native.payload.gnss_native.speed_accuracy_mps = 0.24f;
+    native.payload.gnss_native.supported_fields = 7; native.payload.gnss_native.valid_fields = 7;
+    native.payload.gnss_native.position_usable = 1; native.payload.gnss_native.velocity_valid_mask = 3;
+    memcpy(native.payload.gnss_native.velocity_enu_mps, epoch->velocity_enu_mps, 3 * sizeof(float));
+    Golden_Write(&native);
+}
+
+static void Golden_GnssEpochPrepare(uint64_t now, uint32_t sequence,
+    NavigationKfGnssEpoch *epoch, NavigationReplayEvent *event)
+{
+    epoch->timestamp_us = now;
+    epoch->valid_group_mask = (!s_reanchor_scenario && sequence % 7 == 0) ? 13 : 15; /* bad vertical position */
+    for (unsigned axis = 0; axis < 3; axis++)
+    {
+        epoch->position_std_m[axis] = 2.5f;
+        epoch->velocity_std_mps[axis] = 0.3f;
+        event->position_variance[axis] = 6.25f;
+        event->velocity_variance[axis] = 0.09f;
+    }
+    epoch->position_enu_m[0] = s_reanchor_scenario ? 0.0f : 0.2f * (float)sequence;
+    if (s_integrity_scenario != 0U)
+    {
+        epoch->position_enu_m[0] = (float)(6378137.0 * 3.141592653589793 / 180.0 *
+            (double)(18U * sequence) * 1e-7);
+    }
+    epoch->velocity_enu_mps[0] = s_reanchor_scenario ? 0.0f : 0.15f;
+}
+
 static void Golden_Gnss(uint64_t now, uint32_t sequence)
 {
     NavigationReplayEvent event = {0};
@@ -109,33 +266,8 @@ static void Golden_Gnss(uint64_t now, uint32_t sequence)
     NavigationReplayOutcome outcome;
     FlightLogRecord record = {0};
     FlightLogGnssMeasurementRecord *m = &record.payload.gnss_measurement;
-    epoch.timestamp_us = now;
-    epoch.valid_group_mask = (!s_reanchor_scenario && sequence % 7 == 0) ? 13 : 15; /* bad vertical position */
-    for (unsigned axis = 0; axis < 3; axis++)
-    {
-        epoch.position_std_m[axis] = 2.5f;
-        epoch.velocity_std_mps[axis] = 0.3f;
-        event.position_variance[axis] = 6.25f;
-        event.velocity_variance[axis] = 0.09f;
-    }
-    epoch.position_enu_m[0] = s_reanchor_scenario ? 0.0f : 0.2f * (float)sequence;
-    epoch.velocity_enu_mps[0] = s_reanchor_scenario ? 0.0f : 0.15f;
-    FlightLogRecord native = {0};
-    native.record_type = FLIGHT_LOG_RECORD_GNSS_NATIVE; native.timestamp_us = now;
-    native.payload.gnss_native.source_descriptor_id = PROJECT_DESCRIPTOR_ID_GNSS_0;
-    native.payload.gnss_native.sample_timestamp_us = now;
-    native.payload.gnss_native.receive_timestamp_us = now;
-    native.payload.gnss_native.sequence = sequence;
-    native.payload.gnss_native.fix_type = 3; native.payload.gnss_native.fix_ok = 1;
-    native.payload.gnss_native.satellite_count = 12; native.payload.gnss_native.online = 1;
-    native.payload.gnss_native.valid_group_mask = epoch.valid_group_mask;
-    native.payload.gnss_native.horizontal_accuracy_m = 2.0f;
-    native.payload.gnss_native.vertical_accuracy_m = 2.0f;
-    native.payload.gnss_native.speed_accuracy_mps = 0.24f;
-    native.payload.gnss_native.supported_fields = 7; native.payload.gnss_native.valid_fields = 7;
-    native.payload.gnss_native.position_usable = 1; native.payload.gnss_native.velocity_valid_mask = 3;
-    memcpy(native.payload.gnss_native.velocity_enu_mps, epoch.velocity_enu_mps, 3 * sizeof(float));
-    Golden_Write(&native);
+    Golden_GnssEpochPrepare(now, sequence, &epoch, &event);
+    Golden_GnssNativeWrite(now, sequence, &epoch);
     record.record_type = FLIGHT_LOG_RECORD_GNSS_MEASUREMENT;
     record.timestamp_us = now;
     m->sample_timestamp_us = now; m->receive_timestamp_us = now;
@@ -151,6 +283,8 @@ static void Golden_Gnss(uint64_t now, uint32_t sequence)
     memcpy(m->velocity_enu_mps, event.velocity, sizeof(event.velocity));
     memcpy(m->position_variance_m2, event.position_variance, sizeof(event.position_variance));
     memcpy(m->velocity_variance_m2ps2, event.velocity_variance, sizeof(event.velocity_variance));
+    if (s_integrity_scenario != 0U &&
+        !Golden_IntegrityApply(now, sequence, &event, m)) { exit(6); }
     m->position_measurement_timestamp_us = now - SYSTEM_ESTIMATOR_GNSS_POSITION_MEASUREMENT_DELAY_MS * 1000ULL;
     m->velocity_measurement_timestamp_us = now - SYSTEM_ESTIMATOR_GNSS_VELOCITY_MEASUREMENT_DELAY_MS * 1000ULL;
     /* This fixture uses the reference project's older velocity / current position. */
@@ -172,27 +306,7 @@ static void Golden_Gnss(uint64_t now, uint32_t sequence)
     memcpy(m->position_innovation_m, outcome.position_innovation, 3 * sizeof(float));
     m->replay_generation = s_replay.diagnostics.replay_count;
     Golden_Write(&record);
-    FlightLogRecord recovery = {0};
-    recovery.record_type = FLIGHT_LOG_RECORD_GNSS_RECOVERY; recovery.timestamp_us = now;
-    recovery.payload.gnss_recovery.source_sequence = sequence;
-    recovery.payload.gnss_recovery.estimator_present_timestamp_us = now;
-    recovery.payload.gnss_recovery.replay_epoch = s_replay.epoch;
-    recovery.payload.gnss_recovery.operation_sequence = s_operation;
-    recovery.payload.gnss_recovery.replay_generation = s_replay.diagnostics.replay_count;
-    for (unsigned g = 0; g < 4; g++)
-    {
-        const NavigationKfGnssReacquireGroupState *state = &s_kf.gnss_reacquisition.group[g];
-        recovery.payload.gnss_recovery.reanchor_count[g] = s_kf.gnss_reacquisition.reanchor_count[g];
-        recovery.payload.gnss_recovery.reanchor_reason[g] = (uint8_t)(s_kf.gnss_reacquisition.reanchor_count[g] != 0);
-        recovery.payload.gnss_recovery.valid[g] = (uint8_t)((epoch.valid_group_mask >> g) & 1);
-        recovery.payload.gnss_recovery.consistency_count[g] = state->consistent_count;
-        recovery.payload.gnss_recovery.inflation_attempt_count[g] = state->inflation_attempt_count;
-        recovery.payload.gnss_recovery.inflation_factor[g] = state->last_inflation_factor;
-        recovery.payload.gnss_recovery.outage[g] = state->outage;
-        recovery.payload.gnss_recovery.recovery_active[g] = state->active;
-        recovery.payload.gnss_recovery.update_result[g] = m->group_update_result[g];
-    }
-    Golden_Write(&recovery);
+    Golden_RecoveryWrite(now, sequence, &epoch, m);
 }
 
 static void Golden_Baro(uint64_t now, uint32_t sequence)
@@ -228,29 +342,8 @@ static void Golden_Baro(uint64_t now, uint32_t sequence)
     Golden_Write(&record);
 }
 
-int main(int argc, char **argv)
+static int Golden_FlightStep(uint32_t index, InsInertialContext *frontend)
 {
-    s_reanchor_scenario = (uint8_t)(argc == 3 && strcmp(argv[2], "reanchor") == 0);
-    if ((argc != 2 && argc != 3) || (s_file = fopen(argv[1], "wb")) == NULL) { return 1; }
-    FlightLogFileHeaderInfo header = {0};
-    uint8_t bytes[FLIGHT_LOG_MAX_RECORD_SIZE]; uint16_t size;
-    header.nominal_imu_rate_hz = 200; header.nominal_ins_rate_hz = 100;
-    header.local_gravity_mps2 = SYSTEM_KF_GRAVITY_MPS2;
-    header.firmware_version[2] = SILVERSTAR_VERSION_PATCH;
-    header.coordinate_frame = 1; header.quaternion_order = 1; header.quaternion_semantics = 1;
-    header.mechanization_subsample_count = 2;
-    header.position_axis_order[0] = 3; header.position_axis_order[1] = 1; header.position_axis_order[2] = 2;
-    if (FlightLog_FileHeaderSerialize(&header, bytes, sizeof(bytes), &size) !=
-        FLIGHT_LOG_SERIALIZE_RESULT_OK || fwrite(bytes, 1, size, s_file) != size) { return 2; }
-    NavigationKf_Init(&s_kf);
-    float process[3] = {SYSTEM_ESTIMATOR_PROCESS_ACCEL_E_STD_MPS2_OVERRIDE,
-        SYSTEM_ESTIMATOR_PROCESS_ACCEL_N_STD_MPS2_OVERRIDE, SYSTEM_ESTIMATOR_PROCESS_ACCEL_U_STD_MPS2_OVERRIDE};
-    NavigationKf_SetProcessAccelStd(&s_kf, process);
-    NavigationReplay_Reset(&s_replay, &s_storage, &s_kf, 0, 1);
-    Golden_Bootstrap();
-    InsInertialContext frontend; InsInertial_Reset(&frontend);
-    for (uint32_t index = 0; index <= (s_reanchor_scenario ? 4000U : 800U); index++)
-    {
         InsAlgorithmSample sample = {0}; InsState increment;
         FlightLogRecord record = {0};
         sample.timestamp_us = (uint64_t)index * 5000ULL;
@@ -271,7 +364,7 @@ int main(int argc, char **argv)
         memcpy(record.payload.imu_corrected.accel_b_mps2, sample.accel_b_mps2, 3 * sizeof(float));
         memcpy(record.payload.imu_corrected.gyro_b_radps, sample.gyro_b_radps, 3 * sizeof(float));
         Golden_Write(&record);
-        if (InsInertial_Update(&frontend, &sample, &increment) != INS_INERTIAL_UPDATE_READY) { continue; }
+        if (InsInertial_Update(frontend, &sample, &increment) != INS_INERTIAL_UPDATE_READY) { return 0; }
         memset(&record, 0, sizeof(record));
         record.timestamp_us = sample.timestamp_us; record.record_type = FLIGHT_LOG_RECORD_INERTIAL_INCREMENT;
         record.valid_flags = 1;
@@ -300,6 +393,36 @@ int main(int argc, char **argv)
         if (index >= 80 && index % 8 == 0 && (!s_reanchor_scenario || index < 100 || index > 400)) { Golden_Gnss(sample.timestamp_us, index / 8); }
         if (index >= 80) { Golden_Baro(sample.timestamp_us, index / 2); }
         Golden_Snapshot(sample.timestamp_us);
+    return 0;
+}
+
+int main(int argc, char **argv)
+{
+    s_reanchor_scenario = (uint8_t)(argc == 3 && strcmp(argv[2], "reanchor") == 0);
+    s_integrity_scenario = (uint8_t)(argc == 3 && strcmp(argv[2], "integrity") == 0);
+    if ((argc != 2 && argc != 3) || (s_file = fopen(argv[1], "wb")) == NULL) { return 1; }
+    FlightLogFileHeaderInfo header = {0};
+    uint8_t bytes[FLIGHT_LOG_MAX_RECORD_SIZE]; uint16_t size;
+    header.nominal_imu_rate_hz = 200; header.nominal_ins_rate_hz = 100;
+    header.local_gravity_mps2 = SYSTEM_KF_GRAVITY_MPS2;
+    header.firmware_version[2] = SILVERSTAR_VERSION_PATCH;
+    header.coordinate_frame = 1; header.quaternion_order = 1; header.quaternion_semantics = 1;
+    header.mechanization_subsample_count = 2;
+    header.position_axis_order[0] = 3; header.position_axis_order[1] = 1; header.position_axis_order[2] = 2;
+    if (FlightLog_FileHeaderSerialize(&header, bytes, sizeof(bytes), &size) !=
+        FLIGHT_LOG_SERIALIZE_RESULT_OK || fwrite(bytes, 1, size, s_file) != size) { return 2; }
+    NavigationKf_Init(&s_kf);
+    float process[3] = {SYSTEM_ESTIMATOR_PROCESS_ACCEL_E_STD_MPS2_OVERRIDE,
+        SYSTEM_ESTIMATOR_PROCESS_ACCEL_N_STD_MPS2_OVERRIDE, SYSTEM_ESTIMATOR_PROCESS_ACCEL_U_STD_MPS2_OVERRIDE};
+    NavigationKf_SetProcessAccelStd(&s_kf, process);
+    NavigationReplay_Reset(&s_replay, &s_storage, &s_kf, 0, 1);
+    if (!Golden_IntegrityInit()) { return 6; }
+    Golden_Bootstrap();
+    InsInertialContext frontend; InsInertial_Reset(&frontend);
+    for (uint32_t index = 0; index <=
+         (s_reanchor_scenario ? 4000U : (s_integrity_scenario ? 3200U : 800U)); index++)
+    {
+        if (Golden_FlightStep(index, &frontend) != 0) { return 4; }
     }
     return fclose(s_file) == 0 ? 0 : 5;
 }

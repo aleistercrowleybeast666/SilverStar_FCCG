@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import time
 import yaml
 from dataclasses import replace
@@ -26,7 +27,6 @@ from silverstar_fccg.project.capabilities import (
 )
 from silverstar_fccg.project.logging import (
     LogAvailability_Get,
-    LogPolicyLevel,
     LoggingProfile_Reconcile,
     ProjectRecordableOutputs_Get,
     ProtocolLogDefinitions_Get,
@@ -962,7 +962,7 @@ def test_physical_names_and_protocol_versions_are_structured(
 
 
 def test_save_as_copies_full_source_and_excludes_intermediates(
-    tmp_path: Path, workspace_root: Path
+    tmp_path: Path, workspace_root: Path, monkeypatch
 ) -> None:
     service = FccgService(workspace_root)
     source = tmp_path / "SourceProject"
@@ -988,7 +988,19 @@ def test_save_as_copies_full_source_and_excludes_intermediates(
     cache_file.write_bytes(b"cache")
     destination.mkdir()
 
+    actual_replace = os.replace
+    transient_locks = 0
+
+    def replace_with_transient_lock(src, dst):
+        nonlocal transient_locks
+        if Path(dst) == destination / "System" and transient_locks == 0:
+            transient_locks += 1
+            raise PermissionError(5, "transient directory lock", str(src))
+        return actual_replace(src, dst)
+
+    monkeypatch.setattr(os, "replace", replace_with_transient_lock)
     copied = service.Project_SaveAs(model, source, destination)
+    assert transient_locks == 1
     copied_source = (
         copied / "Devices" / "IMU" / "JY901B" / "Src" / "jy901b_device.c"
     )

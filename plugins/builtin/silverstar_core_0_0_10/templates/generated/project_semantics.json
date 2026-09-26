@@ -1591,7 +1591,7 @@
     },
     {
       "decimation_factor": 4,
-      "enabled": true,
+      "enabled": false,
       "period_us": 0,
       "policy": "DECIMATION",
       "record": "FLIGHT_LOG_RECORD_KF6_DIAGNOSTIC"
@@ -2327,7 +2327,7 @@
       "events": {},
       "logging": {
         "decimation_factor": 4,
-        "enabled": true,
+        "enabled": false,
         "period_us": 0,
         "policy": "DECIMATION"
       },

@@ -67,6 +67,7 @@
       },
       "FLIGHT_LOG_RECORD_KF6_DIAGNOSTIC": {
         "level": "recommended",
+        "default_enabled": false,
         "display_names": {
           "zh_CN": "KF6 诊断",
           "en_US": "KF6 Diagnostic"

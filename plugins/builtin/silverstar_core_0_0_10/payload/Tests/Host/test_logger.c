@@ -417,9 +417,13 @@ static void Test_StreamConfiguration(void)
     TEST_CHECK(config.policy == SSLOG_STREAM_POLICY_PERIODIC);
     TEST_CHECK(SystemLogPolicy_StreamGet(
         FLIGHT_LOG_RECORD_KF6_DIAGNOSTIC, &config) == SYSTEM_DEVICE_OK);
-    TEST_CHECK(config.enabled ==
-               (uint8_t)(TEST_EXPECT_ESTIMATOR_CONFIG_ENABLED != 0U));
+    TEST_CHECK(config.enabled == 0U);
     TEST_CHECK(config.decimation == 1U);
+    if (TEST_EXPECT_ESTIMATOR_CONFIG_ENABLED != 0U)
+    {
+        config.enabled = 1U;
+        TEST_CHECK(SystemLogPolicy_StreamConfigure(&config) == SYSTEM_DEVICE_OK);
+    }
     SystemLogStreamConfig full_rate;
     TEST_CHECK(SystemLogPolicy_StreamGet(FLIGHT_LOG_RECORD_IMU_CORRECTED,
         &full_rate) == SYSTEM_DEVICE_OK);

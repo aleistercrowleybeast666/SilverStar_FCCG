@@ -1,6 +1,6 @@
 {
-  "purpose": "Regression snapshot of group-isolated recovery with frozen integrity extension layout; independent numerical references and negative controls run in the same C fixture. All pre-extension operation counts are retained.",
-  "source_sha256": "78a3a508da654a5111b65d19cb55f939bd2352629f0d15b5820fb3bacd4dee53",
+  "purpose": "Revision-2 reduced replay context and explicit invalid defaults for unattempted GNSS groups. Operation counts match the pre-revision-2 golden; the C fixture also enforces numerical references, SPD and failure controls.",
+  "source_sha256": "1afee50b4e603ad21f020fe348b11dc2c51e3d86096d20f07f178bbd86fb2a3e",
   "traces": {
     "Test_ReanchorInvalidCovariance": {
       "operations": 0,
@@ -12,65 +12,65 @@
     },
     "Test_IndependentReplayGroups": {
       "operations": 8,
-      "sha256": "6fce201464bf639afb9260544b058def2fb704911b908aedbdda9bf630aadd64"
+      "sha256": "0ee788fdb38db5bbcb756a847a44caa176fc4fa43622ca8d21657cdc5f9fa6f0"
     },
     "Test_ReanchorDelayed1U": {
       "operations": 2343,
-      "sha256": "716dccc0ca5b53b7114dcb2832786e10c392108f90376b679eb412ae4e6efd37"
+      "sha256": "db41222dbd86cbe8ad4f263b54a146d7a1154bea21bd302548cd20ada30cbb7a"
     },
     "Test_ReanchorDelayed0U": {
       "operations": 2415,
-      "sha256": "8486d8b791d36c5b5d8d21dba63e9ff6dbc48226f10d74416aa50cbd397c0c89"
+      "sha256": "f24bf9ff63a0239d049326c1bb943dc51c3731ad4e2ef192201be38bb5991c5b"
     },
     "Test_NumericFailureAndInvalidPointers": {
       "operations": 11,
-      "sha256": "0b22ef6e9c27da967dc5159127ba3305397ac4a46991617cc177faa906b0acf8"
+      "sha256": "eab43cac2d081fad0b2fc446c8ffb36ef6b0a95ad102eeeec6b802905bf215ff"
     },
     "Test_NominalFullRate0U": {
       "operations": 4688,
-      "sha256": "7505ee80e11ce5a6be03a4561f1292ae90dee673935b21d4f2902c33c45bbf46"
+      "sha256": "f9c8ecdce4c3477dc9dcb48a85a1d02455b4071838861f0e57066ea74296854d"
     },
     "Test_NominalFullRate20U": {
       "operations": 4728,
-      "sha256": "73d52fa2ad55afa92a3e25df59d75d950d3e2d5d55d8cc9930b439252e81b9c9"
+      "sha256": "ac4aebe8c74bf201c65541f15ded9a6789378598cdef388568da38d0cc50bb38"
     },
     "Test_NominalFullRate110U": {
       "operations": 4908,
-      "sha256": "aa58de7fde4c191d3df60e0326edc6d0be6cfe917f68dc34f6f44fceac9c7efc"
+      "sha256": "850d247c669043ed58ac4e23788b1db22cca4323676fa00cfdcba45ae3dc839f"
     },
     "Test_HardInputAndRateCapacity": {
       "operations": 146,
-      "sha256": "6da6f962d915157655b98ddffddf9da5661eaa97e0c899324a2ec9130d189a22"
+      "sha256": "1cd80c6e64a67c48e2a210341fca16c1e0525fae93d3ffe25e10c59442391da5"
     },
     "Test_ZeroDelayDirectReference": {
       "operations": 928,
-      "sha256": "bf0ebc6ef0b85bab896fce0f52fbc9fff050061b938ea5e6af47ff6d237cc575"
+      "sha256": "9aa0639201dfe2648b61daf7517eea6638c08a2679bee6b7a91b97c16ecbbccf"
     },
     "Test_BarometerBetweenImuSamples": {
       "operations": 101,
-      "sha256": "6f07cf616304425f07aaed79f1284d7582d388ed2b2de42bacbdd6b938698dbb"
+      "sha256": "d82910aca81a7d8fc7afa0b0600251b4d49b148b9f188024312592ec9b00a97d"
     },
     "Test_OverflowEpochAndDiscontinuity": {
       "operations": 164,
-      "sha256": "94ec1c5bb140bc2a81af1691889c68c29af018efc39f92f91d7a7eb850a07cea"
+      "sha256": "08f0791e5b76cac1859e1a7715f25cd4444515dfed2242fb5882e30eb5668be6"
     },
     "Test_MixedAndWrap": {
       "operations": 5628,
-      "sha256": "37f1556518b079633a11db959c770b8906890000d3fb8d6451cd0a1a38a2422c"
+      "sha256": "12317d128ce3c764d8d246e83af94258af840e35ece7c219dd70d8dbf3da27b0"
     },
     "Test_BarometerAndTies": {
       "operations": 166,
-      "sha256": "bd0d5562b187f0adafc585856f2b8cca4e90eb940db20184c9318e3de5f47b59"
+      "sha256": "c355a754df6009132054eff1753ec983e4cd1445b6ccd17a2fed5b01e2faca8c"
     },
     "Test_ReceiveClockAndTimeSync": {
       "operations": 80,
-      "sha256": "4f408f4b45f9a28977947a6ca0583a5c916c448d6a750d69455cca778d363f43"
+      "sha256": "136bde446efbfada72a2296f1eab62ffa90c8f59ad3be2dd719b57637f8ab35a"
     }
   },
   "app_traces": {
-    "0/270": "04909c7a8783a32e3a25135a997a234ad289f49c8e796538ae11bc9505422681",
-    "270/0": "514afcddd6c77e148df7cb362fc1345f191b885f571b12ca536919e4b7943637",
-    "0/0": "69e16fe299465c7c2f891583a2aed0b86cfff07be8ba8a43288511ef8246ab56",
-    "100/100": "98eab3b0dc68201246dbb6dfb1d65de3128c735ef645c973bd8efbb8816a749a"
+    "0/270": "c0462fc48d264c9f93e49818e75245dbddbf42352e214981a99a23d5444e2e02",
+    "270/0": "5a585562b2a4c00a724d72af3f5ea77ab6d9aa45ff34b2ce83cf620178379825",
+    "0/0": "c4e6188345d5fd44c1cdcefb4a2ac3ce6c6e647864b51713d4b21f359208b4cc",
+    "100/100": "1c52a9622268f852531bce28d01188f48561662dc3e6f59384de8ad780ee664b"
   }
 }

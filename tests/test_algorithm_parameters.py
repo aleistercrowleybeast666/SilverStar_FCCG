@@ -47,7 +47,7 @@ def test_actual_defaults_roundtrip_and_decoder(builtin_catalog):
     assert values['process_accel_std_u'] == 2.0
     assert values['gnss_velocity_std'] == 0.15
     assert values['baro_std_m'] == 2.5
-    assert len(values) == 46
+    assert len(values) == 36
     assert values['gnss_integrity_enable'] == 1
     assert values["gnss_velocity_vertical_scale"] == 1.75
     assert values["gnss_position_measurement_delay_ms"] == 0

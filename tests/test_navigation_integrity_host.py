@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 
-def test_kf6_integrity_reference_recovery_and_quality(tmp_path: Path) -> None:
+def test_kf6_integrity_streaming_closure_and_recovery(tmp_path: Path) -> None:
     gcc = shutil.which("gcc")
     if gcc is None:
         pytest.skip("Host GCC unavailable")
@@ -29,4 +29,4 @@ def test_kf6_integrity_reference_recovery_and_quality(tmp_path: Path) -> None:
     result = subprocess.run([str(executable)], check=False, capture_output=True, text=True,
                             env=environment)
     assert result.returncode == 0, result.stderr + result.stdout
-    assert "13 checks, 0 failures" in result.stdout
+    assert "8 scenarios, 0 failures" in result.stdout
