@@ -15,6 +15,8 @@ void HostPlatformMock_UartInitResultSet(PlatformUartId id,
                                         PlatformResult result);
 void HostPlatformMock_UartWriteResultSet(PlatformUartId id,
                                          PlatformResult result);
+void HostPlatformMock_Jy901bEnable(PlatformUartId id, uint8_t enabled,
+    uint8_t ignore_writes);
 uint16_t HostPlatformMock_UartRxInject(PlatformUartId id,
                                        const uint8_t *data,
                                        uint16_t length);

@@ -4,9 +4,18 @@
 
 新增独立算法参数页面（硬件连接之前），插件声明实际值、单位和 representation。
 Project format 12；`.ssdecoder` / project-semantics 1.2，拒绝 decoder 1.1；
-Platform 仍为 0.0.12，Record Catalog 与协议布局不变。
+Platform 仍为 0.0.12，保留旧记录布局；新增独立 ESKF15 与导航质量记录，当前 decoder 要求 FLP 0.0.5。
 参数清单、生成绑定与 Recorded Configuration / Offline What-if 边界见[参数契约](docs/ALGORITHM_PARAMETERS.md)。
 精确验证结果仅见仓库根 VALIDATION.md。
+
+## Joint navigation implementation
+
+Pure INS、KF6、ESKF15 按选择生成。当前质量策略 revision 3 使用低卫星数有界方差降权、
+10 秒/5 秒交错一致性窗口和五组融合超时监督。ESKF15 使用校准后的机体系双半样本，
+在延迟更新后重算姿态、bias、状态和完整协方差；旧日志仍按原 decoder/revision 解释。
+GSHC 导航准备必须收到实际状态，ACK 不能代替 READY。完整约定见
+[导航契约](docs/NAVIGATION_CONTRACT.md)，设备能力见[生成契约](docs/DEVICE_BUILD_CAPABILITIES.md)。
+新增传感器必须分别列出模拟、编译与硬件验证状态，插件可选不代表已通过实物验证。
 
 
 ## Logger startup admission

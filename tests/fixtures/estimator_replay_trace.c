@@ -38,9 +38,9 @@ int main(void)
     NavigationKf_Reset(&s_estimator.kf);
     NavigationReplay_Reset(&s_replay, &storage, &s_estimator.kf, 1000000ULL, 7U);
     {
-        NavigationIntegrityConfig config = Estimator_IntegrityConfigGet();
-        if (NavigationIntegrity_Reset(&s_integrity, &config) !=
-            NAV_INTEGRITY_PROCESS_OK) { return 6; }
+        NavigationWindowConfig config = Estimator_IntegrityConfigGet();
+        if ((NavigationWindow_ConfigValidate(&config) != NAV_QUALITY_OK) ||
+            (NavigationWindow_Reset(&s_integrity) != NAV_QUALITY_OK)) { return 6; }
     }
     for (step = 1U; step <= 450U; step++)
     {
@@ -89,7 +89,8 @@ int main(void)
                  (work.measurement.position_operation_sequence != work.measurement.velocity_operation_sequence)))
             { fprintf(stderr, "Split/combined GNSS operation ordering differs\n"); return 5; }
             hash = TestApp_Hash(hash, &work.replay_outcome, sizeof(work.replay_outcome));
-            hash = TestApp_Hash(hash, &s_snapshot, sizeof(s_snapshot));
+            /* Retain the original numerical trace domain; health has its own causal tests. */
+            hash = TestApp_Hash(hash, s_snapshot.position_innovation, sizeof(s_snapshot.position_innovation));
         }
         hash = TestApp_Hash(hash, &s_estimator.kf, sizeof(s_estimator.kf));
         hash = TestApp_Hash(hash, (const unsigned char *)&s_replay + offsetof(NavigationReplayContext, events),

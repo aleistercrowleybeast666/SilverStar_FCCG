@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-from silverstar_fccg.plugins.recommendations import SensorRecommendations_Parse
-from silverstar_fccg.plugins.algorithm_parameters import AlgorithmParameterDefinition, AlgorithmParameters_Parse
-
 import hashlib
 import json
 import math
@@ -12,12 +9,16 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
+from silverstar_fccg.core.errors import FccgError
 from silverstar_fccg.core.workspace import (
     PortableRelativePath_Validate,
     WorkspacePolicyError,
 )
-from silverstar_fccg.core.errors import FccgError
-
+from silverstar_fccg.plugins.algorithm_parameters import (
+    AlgorithmParameterDefinition,
+    AlgorithmParameters_Parse,
+)
+from silverstar_fccg.plugins.recommendations import SensorRecommendations_Parse
 
 PLUGIN_ID_PATTERN = re.compile(r"^[a-z0-9]+(?:[._-][a-z0-9]+)*$")
 VERSION_PATTERN = re.compile(r"^[0-9]+\.[0-9]+(?:\.[0-9]+)?(?:[-+][0-9A-Za-z.-]+)?$")
@@ -861,6 +862,7 @@ def _BusConstraints_Validate(
         "dma_rx_required",
         "dma_tx_required",
         "irq_required",
+        "pin_label",
     }
     typed_fields = {"uart", "spi", "i2c", "can", "pwm", "storage"}
     unknown = set(constraints) - legacy_fields - typed_fields
@@ -892,6 +894,15 @@ def _BusConstraints_Validate(
             baud_rate, f"Resource baud_rate constraint for {name}"
         )
     constraint_mode = constraints.get("mode")
+    pin_label = constraints.get("pin_label")
+    if pin_label is not None and (
+        kind not in {"gpio_input", "gpio_interrupt", "gpio_output"}
+        or not isinstance(pin_label, str)
+        or not pin_label.strip()
+    ):
+        raise PluginManifestError(
+            f"Resource pin_label constraint for {name} requires a non-empty GPIO net label"
+        )
     if constraint_mode is not None and (
         not isinstance(constraint_mode, str) or not constraint_mode
     ):

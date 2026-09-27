@@ -6,14 +6,13 @@
 
 _Static_assert(SYSTEM_PROFILE_OUTPUT_CHANNEL_COUNT > 0U,
                "SYSTEM_PROFILE_OUTPUT_CHANNEL_COUNT must be non-zero");
-_Static_assert(SYSTEM_MAGNETOMETER_OUTPUT_RATE_HZ ==
-               SYSTEM_IMU_OUTPUT_RATE_HZ,
-               "magnetometer and IMU rates must match");
-_Static_assert(SYSTEM_BAROMETER_OUTPUT_RATE_HZ == SYSTEM_IMU_OUTPUT_RATE_HZ,
-               "barometer and IMU rates must match");
-_Static_assert(SYSTEM_HARDWARE_QUATERNION_OUTPUT_RATE_HZ ==
-               SYSTEM_IMU_OUTPUT_RATE_HZ,
-               "hardware quaternion and IMU rates must match");
+/* Rates belong to their selected physical providers. A standalone IMU at
+ * 240 Hz may coexist with a separate 200 Hz JY auxiliary source. Exact allowed
+ * rates are verified by each provider; unrelated sensors need not be equal. */
+_Static_assert(SYSTEM_IMU_OUTPUT_RATE_HZ > 0U, "IMU rate must be non-zero");
+_Static_assert(SYSTEM_MAGNETOMETER_OUTPUT_RATE_HZ > 0U, "magnetometer rate must be non-zero");
+_Static_assert(SYSTEM_BAROMETER_OUTPUT_RATE_HZ > 0U, "barometer rate must be non-zero");
+_Static_assert(SYSTEM_HARDWARE_QUATERNION_OUTPUT_RATE_HZ > 0U, "quaternion rate must be non-zero");
 
 static const SystemProfile s_system_profile =
 {

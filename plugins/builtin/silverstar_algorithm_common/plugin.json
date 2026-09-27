@@ -22,7 +22,8 @@
   "build": {
     "sources": [
       "Algorithm/Common/Src/attitude_frame.c",
-      "Algorithm/Common/Src/geodesy_local.c"
+      "Algorithm/Common/Src/geodesy_local.c",
+      "Algorithm/Common/Src/navigation_quality.c"
     ],
     "asm_sources": [],
     "include_dirs": [
@@ -44,6 +45,10 @@
     "display_names": {
       "zh_CN": "导航算法公共层",
       "en_US": "Navigation Algorithm Common"
+    },
+    "source_origins": {
+      "Algorithm/Common/Src/navigation_quality.c": "fccg_joint_navigation",
+      "Algorithm/Common/Inc/navigation_quality.h": "fccg_joint_navigation"
     }
   }
 }

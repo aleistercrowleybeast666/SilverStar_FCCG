@@ -183,6 +183,18 @@ if ($sections.ContainsKey('.ccmram_bss')) {
             ('vma=0x{0:X8} size={1}' -f $ccmBss.Vma, $ccmBss.Size))
 }
 
+$loggingEnabled = $true
+$generatedConfigPath = Join-Path $repoRoot 'Generated\Inc\project_flight_config.h'
+if (Test-Path -LiteralPath $generatedConfigPath -PathType Leaf) {
+    $generatedConfig = Get-Content -Raw -LiteralPath $generatedConfigPath
+    $loggingDefinitions = [regex]::Matches($generatedConfig,
+        '(?m)^\s*#define\s+SILVERSTAR_PROTOCOL_LOGGING_ENABLED\s+([01])U?\s*$')
+    Assert-ArtifactCondition -Condition ($loggingDefinitions.Count -eq 1) `
+        -Message 'Generated logging selection must have exactly one literal 0/1 definition.'
+    if ($loggingDefinitions.Count -eq 1) {
+        $loggingEnabled = $loggingDefinitions[0].Groups[1].Value -eq '1'
+    }
+}
 $requiredCcmSymbols = @(
     's_estimator',
     's_alignment_strategy',
@@ -190,11 +202,15 @@ $requiredCcmSymbols = @(
     's_ins_stack',
     's_estimator_stack',
     's_flight_stack',
-    's_logger_stack',
     's_serial_stack',
     's_telemetry_stack',
     's_idle_task_stack'
 )
+if ($loggingEnabled) { $requiredCcmSymbols += 's_logger_stack' }
+else {
+    Assert-ArtifactCondition -Condition (-not $symbols.ContainsKey('s_logger_stack')) `
+        -Message 'Disabled logging must not allocate a Logger task stack.'
+}
 foreach ($name in $requiredCcmSymbols) {
     Assert-SymbolRange -Symbols $symbols -Name $name -Start $ccmStart `
         -Length $ccmLength -MemoryName 'CCMRAM'
@@ -205,9 +221,13 @@ $requiredDmaSymbols = @(
     's_uart2_rx_dma',
     's_uart3_rx_dma',
     's_uart3_tx_ring',
-    's_uart3_tx_priority_ring',
-    's_aggregate_buffer'
+    's_uart3_tx_priority_ring'
 )
+if ($loggingEnabled) { $requiredDmaSymbols += 's_aggregate_buffer' }
+else {
+    Assert-ArtifactCondition -Condition (-not $symbols.ContainsKey('s_aggregate_buffer')) `
+        -Message 'Disabled logging must not allocate the log aggregation buffer.'
+}
 foreach ($name in $requiredDmaSymbols) {
     Assert-SymbolRange -Symbols $symbols -Name $name -Start $mainSramStart `
         -Length $mainSramLength -MemoryName 'DMA-accessible main SRAM'

@@ -95,6 +95,8 @@ class DeviceInstanceView:
     class_max: int = 0
     same_plugin_multiple: bool = False
     multi_instance_ready: bool = False
+    initialization: dict[str, Any] = field(default_factory=dict)
+    runtime_defaults: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)

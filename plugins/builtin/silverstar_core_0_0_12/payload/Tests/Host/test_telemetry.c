@@ -5,6 +5,9 @@
 
 #include "air_protocol.h"
 #include "estimator_task.h"
+#if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
+#include "logger_bus.h"
+#endif
 #include "system_alignment.h"
 #include "system_barometer_if.h"
 #include "system_calibration.h"
@@ -15,6 +18,7 @@
 #include "system_imu_if.h"
 #include "system_inertial.h"
 #include "system_lifecycle.h"
+#include "system_navigation_health.h"
 #include "system_sensor_status.h"
 #include "system_startup.h"
 #include "system_telemetry_transport_if.h"
@@ -66,6 +70,26 @@ static SystemSensorStatus s_sensor_snapshot[4];
 static SystemSensorStatusSnapshotInfo s_sensor_snapshot_info;
 static uint32_t s_sensor_snapshot_capture_count;
 static SystemDeviceResult s_transport_send_result;
+static EstimatorPreparationSnapshot s_navigation_preparation;
+static SystemNavigationGroupHealth s_navigation_health[SYSTEM_NAVIGATION_GROUP_COUNT];
+
+SystemDeviceResult EstimatorTask_PreparationGet(EstimatorPreparationSnapshot *snapshot)
+{
+    if (snapshot == NULL) { return SYSTEM_DEVICE_INVALID_ARGUMENT; }
+    *snapshot = s_navigation_preparation;
+    return SYSTEM_DEVICE_OK;
+}
+
+SystemDeviceResult SystemNavigationHealth_GroupGet(uint8_t group,
+    uint64_t evaluation_us, SystemNavigationGroupHealth *snapshot)
+{
+    if ((group >= SYSTEM_NAVIGATION_GROUP_COUNT) || (snapshot == NULL) || (evaluation_us == 0ULL))
+    {
+        return SYSTEM_DEVICE_INVALID_ARGUMENT;
+    }
+    *snapshot = s_navigation_health[group];
+    return SYSTEM_DEVICE_OK;
+}
 
 static uint8_t Test_Next(uint8_t index, uint8_t depth)
 {
@@ -367,6 +391,30 @@ static SystemDeviceResult Mock_ImuSample(SystemImuSample *sample)
 
 SystemDeviceResult SystemImu_LatestSampleGet(SystemImuSample *sample)
 { return Mock_ImuSample(sample); }
+SystemDeviceResult SystemImu_IoDetailGet(SystemImuIoDetail *detail)
+{
+    (void)memset(detail, 0, sizeof(*detail));
+    detail->config_generation = 5U;
+    detail->config_generation_valid = 1U;
+    return SYSTEM_DEVICE_OK;
+}
+SystemDeviceResult SystemImu_EffectiveConfigGet(SystemImuConfig *config)
+{
+    (void)memset(config, 0, sizeof(*config));
+    config->requested_mask = SYSTEM_IMU_CFG_GYRO_RANGE | SYSTEM_IMU_CFG_ACCEL_RANGE;
+    config->gyro_range_dps = 2000.0f;
+    config->accel_range_g = 16.0f;
+    return SYSTEM_DEVICE_OK;
+}
+#if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
+LoggerBusResult LoggerBus_DiagnosticsGet(LoggerBusDiagnostics *diagnostics)
+{
+    (void)memset(diagnostics, 0, sizeof(*diagnostics));
+    diagnostics->overflow_count = 70000U;
+    diagnostics->normal_high_water = 17U;
+    return LOGGER_BUS_RESULT_OK;
+}
+#endif
 SystemDeviceResult SystemImu_NextSampleGet(SystemImuSample *sample)
 { return Mock_ImuSample(sample); }
 
@@ -770,6 +818,8 @@ uint8_t Estimator_GetLatestSnapshot(EstimatorOutputSnapshot *snapshot)
 
 static void Test_Reset(void)
 {
+    (void)memset(&s_navigation_preparation, 0, sizeof(s_navigation_preparation));
+    (void)memset(s_navigation_health, 0, sizeof(s_navigation_health));
     (void)memset(s_rx, 0, sizeof(s_rx));
     (void)memset(s_tx, 0, sizeof(s_tx));
     (void)memset(&s_gnss_sample, 0, sizeof(s_gnss_sample));
@@ -1855,6 +1905,168 @@ static void Test_FlightRecoveryEvents(void)
     TEST_CHECK(Test_StatusIdCount(AIR_STATUS_LANDING) == landing_count);
 }
 
+static void Test_NavigationSubscription(void)
+{
+    const TestFrame *frame;
+    uint8_t index;
+
+    Test_Reset();
+    Test_CommandQueue(20U, AIR_CMD_NAV_SUBSCRIBE, 0x4E561234UL, 1U, 0U);
+    TelemetryService_Process();
+    frame = Test_AckGet(20U, AIR_CMD_NAV_SUBSCRIBE);
+    TEST_CHECK(frame != NULL);
+    TEST_CHECK(frame->data[4] == AIR_ACK_RESULT_CAPABILITY_REQUIRED);
+    TEST_CHECK(Test_TypeCount(AIR_TYPE_NAV_CAPABILITY) == 0U);
+    Test_Authorize();
+    s_calibration_status_result = SYSTEM_DEVICE_OK;
+    s_alignment_status_result = SYSTEM_DEVICE_OK;
+    s_calibration_status.ready = 1U;
+    s_alignment_status.required_mask = SYSTEM_ALIGNMENT_SOURCE_MASK_ATTITUDE |
+        SYSTEM_ALIGNMENT_SOURCE_MASK_GNSS_ORIGIN;
+    s_alignment_status.ready_mask = SYSTEM_ALIGNMENT_SOURCE_MASK_ATTITUDE;
+    s_navigation_preparation.generation = 7U;
+    s_navigation_preparation.algorithm_id = 2U;
+    Test_CommandQueue(21U, AIR_CMD_NAV_SUBSCRIBE, 0x4E561234UL, 1U, 0U);
+    for (index = 0U; index < 32U; index++)
+    {
+        TelemetryService_Process();
+        s_now_us += 20000ULL;
+    }
+    frame = Test_LastTypeGet(AIR_TYPE_NAV_CAPABILITY);
+    TEST_CHECK(frame != NULL);
+    if (frame == NULL) { return; }
+    TEST_CHECK(frame->length == 9U && frame->data[2] == 0x34U && frame->data[3] == 0x12U);
+    TEST_CHECK(frame->data[4] == 7U && frame->data[6] == 1U && frame->data[7] == 2U);
+    frame = Test_LastTypeGet(AIR_TYPE_NAV_PREPARATION);
+    TEST_CHECK(frame != NULL);
+    if (frame == NULL) { return; }
+    TEST_CHECK((frame->data[6] & 0x50U) == 0x50U);
+    TEST_CHECK((frame->data[7] & 0x50U) == 0U);
+    /* Same command sequence with a new nonce must start a new subscription. */
+    s_navigation_preparation.generation++;
+    s_navigation_preparation.initialized = 1U;
+    s_alignment_status.ready_mask |= SYSTEM_ALIGNMENT_SOURCE_MASK_GNSS_ORIGIN;
+    Test_CommandQueue(21U, AIR_CMD_NAV_SUBSCRIBE, 0x4E561235UL, 1U, 0U);
+    for (index = 0U; index < 32U; index++)
+    {
+        TelemetryService_Process();
+        s_now_us += 20000ULL;
+    }
+    frame = Test_LastTypeGet(AIR_TYPE_NAV_PREPARATION);
+    TEST_CHECK(frame != NULL);
+    if (frame == NULL) { return; }
+    TEST_CHECK(frame->data[2] == 0x35U && frame->data[4] == 8U);
+    TEST_CHECK((frame->data[7] & 0x50U) == 0x50U);
+}
+
+static void Test_NavigationHealth(void)
+{
+    uint8_t index;
+    uint8_t state_mask = 0U;
+    uint8_t age_mask = 0U;
+
+    Test_Reset();
+    Test_Authorize();
+    s_calibration_status_result = SYSTEM_DEVICE_OK;
+    s_alignment_status_result = SYSTEM_DEVICE_OK;
+    s_navigation_preparation.algorithm_id = 1U;
+    s_navigation_health[0].state = SYSTEM_NAVIGATION_REJECTED;
+    s_navigation_health[0].quality = 1U;
+    s_navigation_health[0].reason = 5U;
+    Test_CommandQueue(22U, AIR_CMD_NAV_SUBSCRIBE, 0x4E561234UL, 1U, 0U);
+    for (index = 0U; index < 200U; index++)
+    {
+        TelemetryService_Process();
+        s_now_us += 20000ULL;
+    }
+    for (index = 0U; index < s_tx_count; index++)
+    {
+        const uint8_t *frame = s_tx[index].data;
+        if (frame[0] != AIR_TYPE_NAV_HEALTH) { continue; }
+        if (frame[6] < 5U)
+        {
+            state_mask |= (uint8_t)(1U << frame[6]);
+            if (frame[6] == 0U) { TEST_CHECK(frame[7] == 0x13U && frame[8] == 5U); }
+        }
+        else if ((frame[6] >= 8U) && (frame[6] <= 12U))
+        {
+            age_mask |= (uint8_t)(1U << (frame[6] - 8U));
+            TEST_CHECK(frame[7] == UINT8_MAX && frame[8] == UINT8_MAX);
+        }
+    }
+    TEST_CHECK(state_mask == 31U && age_mask == 31U);
+    TEST_CHECK(s_navigation_health[0].has_success == 0U);
+}
+
+static void Test_NavigationDetails(void)
+{
+    uint16_t cycle;
+    uint64_t detail_mask = 0ULL;
+    uint64_t last_primary[10] = {0ULL};
+    uint8_t frame_index;
+    Test_Reset();
+    Test_Authorize();
+    s_calibration_status_result = SYSTEM_DEVICE_OK;
+    s_alignment_status_result = SYSTEM_DEVICE_OK;
+    s_navigation_preparation.algorithm_id = 2U;
+    s_gnss_sample.supported_fields = SYSTEM_GNSS_FIELD_SATELLITE_COUNT |
+        SYSTEM_GNSS_FIELD_HORIZONTAL_ACCURACY | SYSTEM_GNSS_FIELD_VERTICAL_ACCURACY |
+        SYSTEM_GNSS_FIELD_SPEED_ACCURACY | SYSTEM_GNSS_FIELD_FIX_TYPE | SYSTEM_GNSS_FIELD_FIX_OK;
+    s_gnss_sample.valid_fields = s_gnss_sample.supported_fields;
+    s_gnss_sample.satellite_count = 4U;
+    s_gnss_sample.horizontal_accuracy_m = 1.25f;
+    s_gnss_sample.vertical_accuracy_m = 2.5f;
+    s_gnss_sample.speed_accuracy_mps = 0.5f;
+    s_imu_sample.quality_flags = SYSTEM_IMU_QUALITY_CLIPPED | SYSTEM_IMU_QUALITY_TIME_UNCERTAIN;
+    Test_CommandQueue(23U, AIR_CMD_NAV_SUBSCRIBE, 0x4E561234UL, 1U, 0U);
+    for (cycle = 0U; cycle < 500U; cycle++)
+    {
+        s_gnss_sample.receive_timestamp_us = s_now_us;
+        s_imu_sample.receive_timestamp_us = s_now_us;
+        TelemetryService_Process();
+        for (frame_index = 0U; frame_index < s_tx_count; frame_index++)
+        {
+            const uint8_t *frame = s_tx[frame_index].data;
+            uint8_t group = frame[6] & 7U;
+            uint8_t metric = frame[6] >> 3U;
+            uint16_t value = (uint16_t)(frame[7] | ((uint16_t)frame[8] << 8U));
+            if (frame[0] != AIR_TYPE_NAV_HEALTH) { continue; }
+            if ((group < 5U) && (metric < 2U))
+            {
+                uint8_t primary = (uint8_t)(metric * 5U + group);
+                if (last_primary[primary] != 0ULL)
+                { TEST_CHECK((s_now_us - last_primary[primary]) < 3000000ULL); }
+                last_primary[primary] = s_now_us;
+            }
+            else
+            {
+                uint8_t detail = (group == 7U) ? (uint8_t)(35U + metric) :
+                    (uint8_t)((metric - 2U) * 5U + group);
+                TEST_CHECK(detail < 52U);
+                detail_mask |= 1ULL << detail;
+                if (group != 7U) { continue; }
+                if (metric == 0U) { TEST_CHECK(value == 4U); }
+                if (metric == 1U) { TEST_CHECK(value == 125U); }
+                if (metric == 2U) { TEST_CHECK(value == 250U); }
+                if (metric == 3U) { TEST_CHECK(value == 50U); }
+                if (metric == 6U) { TEST_CHECK(value == 6U); }
+                if (metric == 8U) { TEST_CHECK(value == 5U); }
+                if (metric == 9U) { TEST_CHECK(value == 2000U); }
+#if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
+                if (metric == 10U) { TEST_CHECK(value == UINT16_MAX - 1U); }
+                if (metric == 11U) { TEST_CHECK(value == 17U); }
+#else
+                if (metric == 10U) { TEST_CHECK(value == UINT16_MAX); }
+#endif
+                if (metric == 16U) { TEST_CHECK(value == 1600U); }
+            }
+        }
+        s_tx_count = 0U;
+        s_now_us += 20000ULL;
+    }
+    TEST_CHECK(detail_mask == ((1ULL << 52U) - 1ULL));
+}
+
 int main(void)
 {
     TEST_CHECK(AIR_MAX_FRAME_LEN <= 64U);
@@ -1875,5 +2087,8 @@ int main(void)
     Test_FlightRxPolicy();
     Test_SelfTestAndGnssEdges();
     Test_FlightRecoveryEvents();
+    Test_NavigationSubscription();
+    Test_NavigationHealth();
+    Test_NavigationDetails();
     return Test_Finish("telemetry");
 }

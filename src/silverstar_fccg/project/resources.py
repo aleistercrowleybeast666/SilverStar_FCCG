@@ -16,11 +16,11 @@ from silverstar_fccg.hardware.platform import (
 )
 from silverstar_fccg.plugins.catalog import PluginCatalog
 from silverstar_fccg.plugins.manifest import (
+    PluginManifest,
     ResourceMode,
     ResourceProvision,
     ResourceRequirement,
     ResourceRole,
-    PluginManifest,
 )
 from silverstar_fccg.project.model import HardwareConfiguration, ProjectModel
 
@@ -445,6 +445,8 @@ def _RequirementConstraintsErrors_Get(
 
     if "baud_rate" in constraints and metadata.get("baud_rate") != constraints["baud_rate"]:
         mismatch("baud_rate", constraints["baud_rate"], metadata.get("baud_rate"))
+    if "pin_label" in constraints and metadata.get("label") != constraints["pin_label"]:
+        mismatch("pin_label", constraints["pin_label"], metadata.get("label"))
     if "mode" in constraints and str(metadata.get("mode", "")).casefold() != str(
         constraints["mode"]
     ).casefold():

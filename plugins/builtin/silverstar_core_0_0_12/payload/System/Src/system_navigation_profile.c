@@ -15,7 +15,8 @@ _Static_assert(SYSTEM_MECHANIZATION_ALGORITHM ==
                SYSTEM_MECHANIZATION_CONING2_SCULLING2,
                "Unsupported SYSTEM_MECHANIZATION_ALGORITHM");
 _Static_assert((SYSTEM_FUSION_ALGORITHM == SYSTEM_FUSION_NONE) ||
-               (SYSTEM_FUSION_ALGORITHM == SYSTEM_FUSION_KF6),
+               (SYSTEM_FUSION_ALGORITHM == SYSTEM_FUSION_KF6) ||
+               (SYSTEM_FUSION_ALGORITHM == SYSTEM_FUSION_ESKF15),
                "Unsupported SYSTEM_FUSION_ALGORITHM");
 
 static const SystemNavigationProfile s_navigation_profile =

@@ -63,7 +63,7 @@ def test_actual_defaults_roundtrip_and_decoder(builtin_catalog):
     package = LogDecoderProfile_Render(model, builtin_catalog)
     verified=LogDecoderPackage_Verify(package.content)
     assert verified['package_schema']['minor'] == 2
-    assert verified['required_flp_minimum_version'] == '0.0.4'
+    assert verified['required_flp_minimum_version'] == '0.0.5'
     with zipfile.ZipFile(BytesIO(package.content)) as archive:
         semantics = json.loads(archive.read('project_semantics.json'))
     assert semantics['schema_id'] == 'silverstar.project-semantics/1.2'

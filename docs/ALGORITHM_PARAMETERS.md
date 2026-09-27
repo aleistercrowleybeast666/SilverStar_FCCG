@@ -1,8 +1,9 @@
 # Algorithm actual parameters and decoder 1.2
 
 Platform remains **0.0.12**. Project format is **12**; `.ssdecoder` package schema and
-project semantics are **1.2**. Record Catalog and AIR M0 / Maintenance 0.0 / SSLOG 0.0
-remain independent and unchanged. Decoder 1.1 is rejected; this is a package contract break.
+project semantics are **1.2**. AIR M0 / Maintenance 0.0 / SSLOG 0.0 remain independent.
+Old record identities and layouts remain intact; independent ESKF15 and navigation-quality
+records extend the catalog. New packages require **FLP 0.0.5**. Decoder 1.1 is rejected.
 
 The five pages are Devices → Flight Configuration → **Algorithm Parameters / 算法参数** →
 Hardware Connection → Code Generation & Build. The new page shows only selected algorithms
@@ -34,9 +35,10 @@ FLP's old default-multiplier vocabulary must not enter the project: P0 scale map
 actual diagonal floors, GNSS R scales to the real firmware sigma-floor parameters, and baro R
 scale to actual sigma. There is no invented fixed GNSS R; the declared vertical velocity scale multiplies sigma after its dynamic floor. This does
 not emulate arbitrary offline R multipliers: reported receiver uncertainty still participates.
-FLP process sigma, gravity and NIS values already have actual semantics. FLP is read-only in
-this change; its later consumer must adopt this explicit contract independently.
-State dimension, coning/sculling coefficients, matrix safeguards and source selection remain unchanged.
+FLP process sigma, gravity and NIS values have actual semantics. FLP separates immutable
+Recorded Configuration from Offline What-if, including the selected quality revision.
+KF6 state dimension and coning/sculling coefficients retain their meanings. ESKF15 has its own
+15-dimensional error state and generated parameters; see [the navigation contract](NAVIGATION_CONTRACT.md).
 Measurement timing is extended by the [fixed-lag replay contract](KF6_FIXED_LAG_REPLAY.md). GNSS outage recovery and its two compatible parameter additions are defined in [the recovery contract](KF6_OUTAGE_RECOVERY.md).
 
 ## Coning2 + Sculling2 INS
@@ -142,11 +144,12 @@ precision and step must match exactly. The GUI renders each selected group once 
 all per-owner format-12 values; strict validation rejects conflicts, while reconciliation only
 inherits an existing value for a newly selected owner.
 
-Pure INS and KF6 declare `navigation.gravity_mps2`. Their separate generated macros and separate
+Pure INS, KF6 and ESKF15 declare `navigation.gravity_mps2`. Their separate generated macros and separate
 `.ssdecoder` `firmware_algorithm_parameters` values resolve to the same float32. `shared_key` is
 FCCG-only and is not serialized to `.ssdecoder`; FLP does not interpret it. This navigation group
 does not include `SYSTEM_LOCAL_GRAVITY_MPS2`, Calibration, or Alignment. Package schema and project
-semantics remain 1.2, required FLP minimum is 0.0.4, and algorithm formulas/timing are unchanged.
+semantics remain 1.2; new packages require FLP 0.0.5. The historical 0.0.4 decoder requirement
+is retained in original packages, not rewritten onto new navigation records.
 
 ## Fixed-lag parameters and migration
 
@@ -166,7 +169,13 @@ fields receive 5.0/1.0. New projects use 2.5/1.75 and velocity delay 270 ms.
 Recommendations never participate in shared-parameter contract equality.
 
 
-## GNSS position self-check, revision 2
+## Historical GNSS position self-check, revision 2
+
+This section describes historical decoder revision 2 only. Current firmware emits quality
+revision 3 and does not run its permanent cumulative position-rejection state machine.
+FLP retains the old implementation for old recordings. The range below is historical;
+current revision 3 limits the position variance multiplier to 4 and rejects larger stored
+values explicitly. It never silently clamps a project into a different configuration.
 
 The KF6 plugin owns ten actual parameters. Project format 12 stores the resolved
 values; generated C constants and the 1.2 decoder package use the same values.
@@ -208,3 +217,39 @@ handles position return. GNSS_NATIVE retains receiver evidence,
 GNSS_MEASUREMENT records the actual admitted mask and input R, and EVENT records
 state transitions. KF6_DIAGNOSTIC retains its wire type but starts disabled in
 new projects. See [VALIDATION](../VALIDATION.md) for measured gates.
+
+## Current quality policy, revision 3
+
+The two 10 s windows, 5 s stagger, evidence TTL and per-group supervisor are defined in
+[NAVIGATION_CONTRACT.md](NAVIGATION_CONTRACT.md). Four stored KF6 controls remain effective:
+`gnss_integrity_enable`, `gnss_integrity_max_gap_ms`, `gnss_integrity_error_threshold_m`
+and `gnss_integrity_position_r_scale` (now strictly 1–4). The last is a variance factor.
+It applies only to Pos EN and cannot permanently switch that group off.
+
+Six historical fields use generic manifest `lifecycle: legacy_read_only`:
+`gnss_integrity_recovery_threshold_m`, `gnss_integrity_suspect_duration_ms`,
+`gnss_integrity_reject_duration_ms`, `gnss_integrity_recovery_duration_ms`,
+`gnss_integrity_hacc_max_m` and `gnss_integrity_sacc_max_mps`.
+They remain in existing format-12 snapshots and decoder parameter metadata so history
+is not rewritten. Current GUI presents them read-only with a retirement explanation;
+Restore Defaults leaves them unchanged. The declaration `retired_parameter_ids` lets
+FLP distinguish the 36 stored KF6 fields from the 30 effective current fields. Historical
+revision-2 replay still uses its six fields as originally recorded. No current runtime
+decision reads them, and no current editable control advertises a false effect.
+
+## ESKF15 parameters
+
+`silverstar.algorithm.estimator.eskf15` declares 35 actual parameters: gravity, the 15 P0
+diagonals, four continuous noise amplitude densities, GNSS position/velocity sigma floors,
+barometer sigma, one-/two-dimensional soft/hard NIS limits, bounded robust R multiplier,
+three body-frame GNSS lever-arm coordinates and three measurement delays. The exact IDs,
+defaults, ranges, units and representations are in its manifest and the identical
+`eskf15.parameters` mapping in [the machine contract](contracts/navigation_v1.json).
+
+`navigation_eskf_config.h` requires generated values with compile-time errors for missing
+symbols. It does not silently substitute a second private default table. Initialization
+validates finite/positive noise and NIS ordering; bad configuration cannot mark the kernel
+ready. P0 is not squared; noise density and measurement sigma are squared exactly once
+at their calculation sites. The velocity delay candidate of 270 ms is configurable and
+does not assert a measured receiver hardware delay. Residual biases are applied to saved
+body input during every replay, so changing them affects subsequent propagation.

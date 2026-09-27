@@ -33,6 +33,7 @@ static FlightLogRecord
 static LoggerBusDiagnostics s_diagnostics;
 static uint8_t s_initialized;
 static uint8_t s_next_estimator_queue;
+static uint8_t s_queue_drain_run;
 static uint8_t s_accepting_records;
 static LoggerBusFinalizationState s_finalization_state;
 static uint64_t s_finalization_deadline_us;
@@ -133,6 +134,8 @@ static uint8_t LoggerBus_BootstrapAllows(FlightLogRecordType type)
         (type == FLIGHT_LOG_RECORD_ALIGNMENT_RESULT) ||
         (type == FLIGHT_LOG_RECORD_MISSION_CONFIG) ||
         (type == FLIGHT_LOG_RECORD_INITIAL_STATE) ||
+        (type == FLIGHT_LOG_RECORD_ESKF15_INITIAL_STATE) ||
+        (type == FLIGHT_LOG_RECORD_ESKF15_INITIAL_P_PART) ||
         (type == FLIGHT_LOG_RECORD_LANDING_DIAGNOSTIC));
 }
 
@@ -230,6 +233,7 @@ LoggerBusResult LoggerBus_Init(void)
     }
     s_initialized = 1U;
     s_next_estimator_queue = 0U;
+    s_queue_drain_run = 0U;
     s_accepting_records = 1U;
     s_finalization_state = LOGGER_BUS_FINALIZATION_IDLE;
     s_finalization_deadline_us = 0ULL;
@@ -247,6 +251,7 @@ void LoggerBus_Reset(void)
         CommonSpscQueue_Reset(&s_logger_queue);
         CommonSpscQueue_Reset(&s_estimator_logger_queue);
         s_next_estimator_queue = 0U;
+        s_queue_drain_run = 0U;
         s_accepting_records = 1U;
         s_finalization_state = LOGGER_BUS_FINALIZATION_IDLE;
         s_finalization_deadline_us = 0ULL;
@@ -262,7 +267,7 @@ LoggerBusResult LoggerBus_EventPush(
     FlightLogEventRecord record;
 
     if ((event_id < FLIGHT_LOG_EVENT_BOOT) ||
-        (event_id > FLIGHT_LOG_EVENT_SENSOR_SOURCE_CHANGE))
+        (event_id >= FLIGHT_LOG_EVENT_ID_LIMIT))
     {
         return LOGGER_BUS_RESULT_BAD_PARAM;
     }
@@ -649,6 +654,103 @@ LoggerBusResult LoggerBus_Kf6DiagnosticPush(
         record, sizeof(*record), 1U);
 }
 
+LoggerBusResult LoggerBus_NavigationQualityPush(
+    uint64_t timestamp_us, const FlightLogNavigationQualityRecord *record)
+{
+    return LoggerBus_ConfiguredRecordPush(
+        FLIGHT_LOG_RECORD_NAV_QUALITY, timestamp_us, 0U,
+        record, sizeof(*record), 1U);
+}
+
+LoggerBusResult LoggerBus_Eskf15BodyInputPush(
+    uint64_t timestamp_us, const FlightLogEskf15BodyInputRecord *record)
+{
+    return LoggerBus_ConfiguredRecordPush(
+        FLIGHT_LOG_RECORD_ESKF15_BODY_INPUT, timestamp_us, 0U,
+        record, sizeof(*record), 1U);
+}
+
+LoggerBusResult LoggerBus_Eskf15StatePush(
+    uint64_t timestamp_us, const FlightLogEskf15StateRecord *record)
+{
+    return LoggerBus_ConfiguredRecordPush(
+        FLIGHT_LOG_RECORD_ESKF15_STATE, timestamp_us, 0U,
+        record, sizeof(*record), 0U);
+}
+
+LoggerBusResult LoggerBus_Eskf15CovariancePush(
+    uint64_t timestamp_us, const FlightLogEskf15CovariancePartRecord *identity,
+    const float *covariance_row_major)
+{
+    FlightLogEskf15CovariancePartRecord part;
+    FlightLogRecordType type;
+    LoggerBusResult first_failure = LOGGER_BUS_RESULT_OK;
+    uint16_t row = 0U;
+    uint16_t column = 0U;
+    uint8_t part_index;
+    if ((identity == NULL) || (covariance_row_major == NULL) ||
+        (identity->algorithm_id != 2U) || (identity->phase > 1U))
+    { return LOGGER_BUS_RESULT_BAD_PARAM; }
+    SILVERSTAR_ASSERT_OBJECT(identity, FlightLogEskf15CovariancePartRecord,
+        SILVERSTAR_ASSERT_MODULE_APP);
+    SILVERSTAR_ASSERT_OBJECT(covariance_row_major, float, SILVERSTAR_ASSERT_MODULE_APP);
+    type = (identity->phase == 0U) ? FLIGHT_LOG_RECORD_ESKF15_INITIAL_P_PART :
+        FLIGHT_LOG_RECORD_ESKF15_FULL_P_PART;
+    if (LoggerBus_PushStateGet() != LOGGER_BUS_RESULT_OK)
+    { return LOGGER_BUS_RESULT_BAD_STATE; }
+    /* Cadence belongs to a whole covariance snapshot. Evaluating it for each
+     * fragment silently suppresses fragments 1..3 after fragment 0 succeeds. */
+    if (SystemLogPolicy_ShouldEmitAt(type, timestamp_us) == 0U)
+    { return LOGGER_BUS_RESULT_OK; }
+    if (LoggerBus_BootstrapSuppress(type) != 0U)
+    { return LOGGER_BUS_RESULT_OK; }
+    part = *identity;
+    part.part_count = 4U;
+    part.count = 30U;
+    for (part_index = 0U; part_index < 4U; ++part_index)
+    {
+        uint16_t index;
+        LoggerBusResult result;
+        part.part_index = part_index;
+        part.offset = (uint16_t)((uint16_t)part_index * 30U);
+        for (index = 0U; index < 30U; ++index)
+        {
+            SILVERSTAR_ASSERT((row < 15U) && (column < 15U) && (column >= row),
+                SILVERSTAR_ASSERT_MODULE_APP, SILVERSTAR_ASSERT_REASON_LENGTH_RANGE);
+            part.values[index] = covariance_row_major[(size_t)row * 15U + column];
+            column++;
+            if (column == 15U) { row++; column = row; }
+        }
+        /* Never stop on the first full queue: every attempted fragment retains
+         * normal sequence-gap, overflow and capacity-rejection accounting. */
+        /* Initial snapshots retain replay-input ordering. Periodic covariance
+         * is a diagnostic alongside the normal state summaries. */
+        result = LoggerBus_RecordPush(type, timestamp_us, 0U, &part, sizeof(part),
+            (uint8_t)(identity->phase == 0U));
+        if ((result != LOGGER_BUS_RESULT_OK) && (first_failure == LOGGER_BUS_RESULT_OK))
+        { first_failure = result; }
+    }
+    if (first_failure == LOGGER_BUS_RESULT_OK)
+    { SystemLogPolicy_EmissionTimeRecord(type, timestamp_us); }
+    return first_failure;
+}
+
+LoggerBusResult LoggerBus_Eskf15InitialStatePush(
+    uint64_t timestamp_us, const FlightLogEskf15StateRecord *record)
+{
+    return LoggerBus_ConfiguredRecordPush(
+        FLIGHT_LOG_RECORD_ESKF15_INITIAL_STATE, timestamp_us, 0U,
+        record, sizeof(*record), 1U);
+}
+
+LoggerBusResult LoggerBus_Eskf15MeasurementPush(
+    uint64_t timestamp_us, const FlightLogEskf15MeasurementRecord *record)
+{
+    return LoggerBus_ConfiguredRecordPush(
+        FLIGHT_LOG_RECORD_ESKF15_MEASUREMENT, timestamp_us, 0U,
+        record, sizeof(*record), 1U);
+}
+
 LoggerBusResult LoggerBus_Kf6FullPPush(
     uint64_t timestamp_us, const FlightLogKf6FullPRecord *record)
 {
@@ -876,18 +978,40 @@ LoggerBusResult LoggerBus_EstimatorPop(FlightLogRecord *record)
     return LoggerBus_QueuePop(&s_estimator_logger_queue, record);
 }
 
+static uint8_t LoggerBus_QueuePreferenceGet(void)
+{
+    PlatformCriticalState state = LoggerBus_IrqLock();
+    uint32_t normal = CommonSpscQueue_Count(&s_logger_queue);
+    uint32_t estimator = CommonSpscQueue_Count(&s_estimator_logger_queue);
+    uint8_t preferred = s_next_estimator_queue;
+    LoggerBus_IrqUnlock(state);
+    if (normal == 0U) { return 1U; }
+    if (estimator == 0U) { return 0U; }
+    normal *= LOGGER_ESTIMATOR_RECORD_QUEUE_DEPTH;
+    estimator *= LOGGER_RECORD_QUEUE_DEPTH;
+    if (normal != estimator) { preferred = (uint8_t)(estimator > normal); }
+    /* Normalize pressure by the existing queue capacities. A busy producer
+     * can never deny the other nonempty queue more than three successful pops. */
+    if ((s_queue_drain_run >= 3U) &&
+        (preferred == (uint8_t)(s_next_estimator_queue == 0U)))
+    { preferred = (uint8_t)(preferred == 0U); }
+    return preferred;
+}
+
 LoggerBusResult LoggerBus_NextPop(FlightLogRecord *record)
 {
     LoggerBusResult result;
-
+    uint8_t preferred;
     if (record == NULL) { return LOGGER_BUS_RESULT_BAD_PARAM; }
     SILVERSTAR_ASSERT_OBJECT(record, FlightLogRecord,
                              SILVERSTAR_ASSERT_MODULE_APP);
-    if (s_next_estimator_queue != 0U)
+    preferred = LoggerBus_QueuePreferenceGet();
+    if (preferred != 0U)
     {
         result = LoggerBus_EstimatorPop(record);
         if (result == LOGGER_BUS_RESULT_EMPTY)
         {
+            preferred = 0U;
             result = LoggerBus_Pop(record);
         }
     }
@@ -896,12 +1020,16 @@ LoggerBusResult LoggerBus_NextPop(FlightLogRecord *record)
         result = LoggerBus_Pop(record);
         if (result == LOGGER_BUS_RESULT_EMPTY)
         {
+            preferred = 1U;
             result = LoggerBus_EstimatorPop(record);
         }
     }
     if (result == LOGGER_BUS_RESULT_OK)
     {
-        s_next_estimator_queue = (uint8_t)(s_next_estimator_queue == 0U);
+        if ((preferred == (uint8_t)(s_next_estimator_queue == 0U)) &&
+            (s_queue_drain_run < 3U)) { s_queue_drain_run++; }
+        else { s_queue_drain_run = 1U; }
+        s_next_estimator_queue = (uint8_t)(preferred == 0U);
     }
     return result;
 }

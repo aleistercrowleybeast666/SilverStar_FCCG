@@ -18,6 +18,7 @@ typedef struct
     float gyro_b_radps[3];
     float temperature_c;
     uint32_t valid_mask;
+    uint32_t quality_flags; /* Device evidence, preserved without changing raw values. */
 } SystemInertialSample;
 
 #endif /* __SYSTEM_INERTIAL_TYPES_H */

@@ -64,7 +64,9 @@ typedef enum
     FLIGHT_LOG_EVENT_PARACHUTE_DEPLOY_DETAIL,
     FLIGHT_LOG_EVENT_LANDING_IMPACT,
     FLIGHT_LOG_EVENT_SENSOR_SOURCE_CHANGE,
-    FLIGHT_LOG_EVENT_GNSS_POSITION_INTEGRITY_STATE_CHANGE
+    FLIGHT_LOG_EVENT_GNSS_POSITION_INTEGRITY_STATE_CHANGE,
+    FLIGHT_LOG_EVENT_NAV_FUSION_STATE_CHANGE, /* 0x2F; live supervisor transitions only */
+    FLIGHT_LOG_EVENT_ID_LIMIT /* exclusive bound; never serialized */
 } FlightLogEventId;
 
 typedef enum
@@ -590,8 +592,117 @@ typedef struct
     uint16_t reserved;
 } FlightLogLandingDiagnosticRecord;
 
+typedef struct
+{
+    uint32_t snapshot_id;
+    uint32_t epoch;
+    uint32_t source_id;
+    uint32_t calibration_generation;
+    uint8_t algorithm_id;
+    uint8_t algorithm_revision;
+    uint8_t quality_revision;
+    uint8_t health;
+    float position_enu_m[3];
+    float velocity_enu_mps[3];
+    float q_nb[4];
+    float gyro_bias_radps[3];
+    float accel_bias_mps2[3];
+    float p_diagonal[15];
+} FlightLogEskf15StateRecord;
+
+typedef struct
+{
+    uint32_t snapshot_id;
+    uint32_t epoch;
+    uint32_t source_id;
+    uint32_t calibration_generation;
+    uint8_t algorithm_id;
+    uint8_t phase;
+    uint8_t part_index;
+    uint8_t part_count;
+    uint16_t offset;
+    uint16_t count;
+    float values[30];
+} FlightLogEskf15CovariancePartRecord;
+
+typedef struct
+{
+    uint64_t sample_timestamp_us;
+    uint64_t receive_timestamp_us;
+    uint64_t measurement_timestamp_us;
+    uint64_t evaluation_timestamp_us;
+    uint32_t operation_sequence;
+    uint32_t epoch;
+    uint32_t source_id;
+    uint32_t calibration_generation;
+    uint8_t group;
+    uint8_t physically_valid;
+    uint8_t admitted;
+    uint8_t update_result;
+    float observation[2];
+    float innovation[2];
+    float base_variance[2];
+    float effective_variance[2];
+    float nis;
+    float quality_scale;
+    float consistency_scale;
+    float robust_scale;
+} FlightLogEskf15MeasurementRecord;
+
+typedef struct
+{
+    uint64_t interval_start_timestamp_us;
+    uint64_t interval_end_timestamp_us;
+    uint32_t sequence;
+    uint32_t source_id;
+    uint32_t calibration_generation;
+    uint32_t quality_flags;
+    float dt_s;
+    float body_gyro_radps[6];
+    float body_accel_mps2[6];
+} FlightLogEskf15BodyInputRecord;
+
+typedef struct
+{
+    uint64_t native_epoch_us;
+    uint64_t receive_us;
+    uint64_t evaluation_us;
+    uint64_t window_start_us;
+    uint64_t window_end_us;
+    uint64_t evidence_age_us;
+    uint32_t native_sequence;
+    uint32_t source_id;
+    uint32_t calibration_generation;
+    uint32_t covered_us;
+    uint32_t position_epoch_count;
+    uint32_t velocity_epoch_count;
+    float closure_en_m[2];
+    float closure_norm_m;
+    float variance_scale;
+    uint8_t quality_revision;
+    uint8_t physical_mask;
+    uint8_t admitted_mask;
+    uint8_t accepted_mask;
+    uint8_t nav_output_valid;
+    uint8_t health;
+    uint8_t evidence_valid;
+    uint8_t numsv;
+    uint8_t window_reason;
+    uint8_t numsv_valid;
+    uint8_t window_index;
+    uint8_t quality_degraded_mask;
+} FlightLogNavigationQualityRecord;
+
 typedef union
 {
+    FlightLogNavigationQualityRecord navigation_quality;
+    FlightLogEskf15BodyInputRecord eskf15_body_input;
+    FlightLogEskf15StateRecord eskf15_state;
+    FlightLogEskf15CovariancePartRecord eskf15_full_p_part;
+    FlightLogEskf15StateRecord eskf15_initial_state;
+    FlightLogEskf15CovariancePartRecord eskf15_initial_p_part;
+    FlightLogEskf15MeasurementRecord eskf15_measurement;
+
     FlightLogLandingDiagnosticRecord landing_diagnostic;
     FlightLogGnssRecoveryRecord gnss_recovery;
     FlightLogEstimatorStepRecord estimator_step;

@@ -1,0 +1,3 @@
+neo_m9n_device: 566 checks, 0 failures
+
+exit_code=0

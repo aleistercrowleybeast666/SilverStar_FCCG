@@ -11,7 +11,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-
 WORKSPACE_ROOT = Path(__file__).resolve().parents[1]
 SOURCE_ROOT = WORKSPACE_ROOT / "src"
 if str(SOURCE_ROOT) not in sys.path:
@@ -30,7 +29,6 @@ from silverstar_fccg.app.version import (  # noqa: E402
 )
 from silverstar_fccg.core.workspace import WorkspacePolicy  # noqa: E402
 from silverstar_fccg.plugins.catalog import PluginCatalog  # noqa: E402
-
 
 BUILTIN_ROOT = WORKSPACE_ROOT / "plugins" / "builtin"
 REFERENCE_OVERLAY_ROOT = WORKSPACE_ROOT / "tools" / "reference_overlays"
@@ -984,6 +982,23 @@ def _BoardConnections_Get() -> dict[str, Any]:
     }
 
 
+def _WorkspaceOwnedPackages_Get(known_ids: set[str]) -> list[dict[str, Any]]:
+    """Retain explicitly FCCG-owned packages absent from the old reference."""
+    packages: list[dict[str, Any]] = []
+    owners = {"fccg_joint_navigation", "fccg_joint_sensor_library"}
+    for path in sorted((WORKSPACE_ROOT / "plugins" / "builtin").glob("*/plugin.json")):
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+        if manifest["id"] in known_ids:
+            continue
+        origin = manifest.get("metadata", {}).get("source_origins", {}).get("default")
+        if origin in owners:
+            if any(item["manifest"]["id"] == manifest["id"] for item in packages):
+                raise RuntimeError(f"Duplicate workspace package identity: {manifest['id']}")
+            packages.append({"manifest": manifest, "workspace_owned_package": True,
+                             "workspace_package_name": path.parent.name})
+    return packages
+
+
 def _Components_Get(
     reference: Path, provenance: dict[str, Any]
 ) -> list[dict[str, Any]]:
@@ -1020,6 +1035,8 @@ def _Components_Get(
     ]
     if "System/Src/system_source_selector.c" not in core_sources:
         core_sources.append("System/Src/system_source_selector.c")
+    if "System/Src/system_navigation_health.c" not in core_sources:
+        core_sources.append("System/Src/system_navigation_health.c")
     core_source_root = _ExistingCorePackageRoot_Get()
     core_source_relative = core_source_root.relative_to(WORKSPACE_ROOT).as_posix()
     core_fccg_owned_files = {
@@ -1053,6 +1070,14 @@ def _Components_Get(
             "Tests/Host/storage_integrity/run_storage_integrity.py",
             "Tests/Target/storage_integrity.c",
             "Tests/Target/storage_integrity.h",
+            "Tests/Target/timing_bench.c",
+            "Tests/Target/timing_bench.h",
+            "Tests/Target/timing_bench_f407.c",
+            "Tests/Target/timing_bench_f407.h",
+            "Tests/Target/timing_bench_example.c",
+            "Tests/Target/timing_bench_example.h",
+            "Tests/Target/TIMING_BENCH.md",
+            "Tests/Host/test_timing_bench.c",
             "Tools/sslog_audit.py",
             "Common/Inc/silverstar_assert.h",
             "Common/Src/silverstar_assert.c",
@@ -1066,6 +1091,8 @@ def _Components_Get(
             "Tests/Host/test_fault_hook.c",
             "Tests/Host/test_runtime_commands.c",
             "Tests/Host/test_runtime_startup.c",
+            "Tests/Host/test_system_startup.c",
+            "Tests/Host/test_lifecycle.c",
             "Tests/Host/test_calibration_build_gate.c",
             "APP/Src/app_tasks.c",
             "APP/Inc/app_tasks.h",
@@ -1740,6 +1767,8 @@ def _Components_Get(
                 "Devices/IMU/JY901B/Inc/jy901b_device.h",
                 "Devices/IMU/JY901B/Adapter/Inc/jy901b_sensor_adapter.h",
                 "Devices/IMU/JY901B/Adapter/Inc/jy901b_instance.h",
+                "Devices/IMU/JY901B/Adapter/Inc/jy901b_sample_quality.h",
+                "Devices/IMU/JY901B/Adapter/Src/jy901b_sample_quality.c",
                 "Devices/IMU/JY901B/Src/jy901b_device.c",
                 "Devices/IMU/JY901B/Adapter/Src/jy901b_barometer_adapter.c",
                 "Devices/IMU/JY901B/Adapter/Src/jy901b_imu_adapter.c",
@@ -2575,6 +2604,10 @@ def _Components_Get(
                     "docs/AIR_PROTOCOL.md"
                 )
             },
+            fccg_owned_files={
+                relative: "plugins/builtin/silverstar_protocol_telemetry_air_m0/payload/" + relative
+                for relative in ("Protocol/Inc/air_protocol.h", "Protocol/Src/air_protocol.c")
+            },
             overlay_files={
                 "Protocol/metadata/air_m0.json": "protocol/air_m0.json"
             },
@@ -2747,6 +2780,17 @@ def _Components_Get(
         builtin_manifest_path = WORKSPACE_ROOT / "plugins" / "builtin" / slug / "plugin.json"
         if component["manifest"]["type"] == "algorithm" and builtin_manifest_path.is_file():
             owned_manifest = json.loads(builtin_manifest_path.read_text(encoding="utf-8"))
+            for key in ("algorithm_revision", "gnss_integrity_revision", "navigation_contract", "retired_parameter_ids"):
+                if key in owned_manifest.get("metadata", {}):
+                    component["manifest"]["metadata"][key] = owned_manifest["metadata"][key]
+            # New shared quality code has no user parameters, but is still an
+            # FCCG-owned source of truth independent of the reference snapshot.
+            for relative, origin in owned_manifest.get("metadata", {}).get("source_origins", {}).items():
+                if origin == "fccg_joint_navigation":
+                    component["fccg_owned_files"][relative] = f"plugins/builtin/{slug}/payload/{relative}"
+                    component["manifest"]["metadata"].setdefault("source_origins", {})[relative] = origin
+                    if relative.endswith(".c") and relative not in component["manifest"]["build"]["sources"]:
+                        component["manifest"]["build"]["sources"].append(relative)
             if "algorithm_parameters" in owned_manifest:
                 component["manifest"]["algorithm_parameters"] = owned_manifest["algorithm_parameters"]
                 component["manifest"]["build"]["sources"] = list(dict.fromkeys(
@@ -2766,16 +2810,32 @@ def _Components_Get(
                     component["fccg_owned_docs"][document.name] = f"plugins/builtin/{slug}/docs/{document.name}"
         # Recommendation metadata and timestamp contracts are package-owned.
         if component_id == core_id:
+            owned_core = json.loads(builtin_manifest_path.read_text(encoding="utf-8"))
+            if "capability_source_groups" in owned_core.get("metadata", {}):
+                component["manifest"]["metadata"]["capability_source_groups"] = owned_core["metadata"]["capability_source_groups"]
             for relative in (
+                "Tools/check_firmware_artifact.ps1",
+                "APP/Inc/ins_task.h", "Interfaces/Inc/system_device_types.h",
+                "Interfaces/Inc/system_imu_if.h", "Modules/Src/telemetry_service.c",
+                "System/Inc/system_configuration_types.h",
+                "System/Inc/system_navigation_health.h", "System/Src/system_navigation_health.c",
+                "Interfaces/Inc/system_navigation_backend.h",
+                "System/Inertial/Inc/system_inertial_types.h", "System/Inertial/Src/system_inertial.c",
+                "System/Src/system_profile.c", "System/Src/system_navigation_profile.c",
                 "APP/Inc/estimator_bus.h", "APP/Inc/estimator_task.h", "APP/Src/estimator_task.c", "APP/Src/device_task.c",
                 "APP/Src/flight_task.c", "System/Src/system_gnss_quality.c",
                 "System/Inc/system_estimator_diagnostics.h", "System/Src/system_estimator_diagnostics.c",
                 "Tests/Host/test_sensor_quality.c", "Tests/Host/test_flight_recovery.c",
+                "Tests/Host/test_navigation_quality_supervisor.c",
                 "System/Inc/system_time.h", "System/Src/system_time.c",
                 "Interfaces/Inc/system_gnss_if.h", "Interfaces/Inc/system_barometer_if.h",
                 "Tests/Host/test_navigation_kf_replay.c", "Tests/Host/test_profiles.c", "Tests/Host/test_air_kf.c", "Tests/Host/test_jy901b_adapter.c", "Tests/Host/run_tests.ps1",
             ):
                 component["fccg_owned_files"][relative] = f"plugins/builtin/{slug}/payload/{relative}"
+            for owned_test in (builtin_manifest_path.parent / "payload" / "Tests" / "Host").rglob("*"):
+                if owned_test.is_file() and owned_test.suffix in (".c", ".h", ".py", ".ps1"):
+                    relative = owned_test.relative_to(builtin_manifest_path.parent / "payload").as_posix()
+                    component["fccg_owned_files"][relative] = f"plugins/builtin/{slug}/payload/{relative}"
         if component_id in ("silverstar.flight_logic.cycle.reference", "silverstar.flight_logic.landing.baro_imu_window", "silverstar.algorithm.ins.coning2_sculling2"):
             for owned_file in (builtin_manifest_path.parent / "payload").rglob("*"):
                 if owned_file.is_file() and owned_file.suffix in (".c", ".h"):
@@ -2784,6 +2844,9 @@ def _Components_Get(
                     component["manifest"]["metadata"].setdefault("source_origins", {})[relative] = "fccg_field_runtime"
         if component["manifest"]["type"] == "device" and builtin_manifest_path.is_file():
             owned_device = json.loads(builtin_manifest_path.read_text(encoding="utf-8"))
+            for key in ("runtime_defaults", "initialization", "initialization_profile", "initialization_profiles"):
+                if key in owned_device.get("metadata", {}):
+                    component["manifest"]["metadata"][key] = owned_device["metadata"][key]
             recommendations = owned_device.get("metadata", {}).get("sensor_recommendations")
             if recommendations is not None:
                 component["manifest"]["metadata"]["sensor_recommendations"] = recommendations
@@ -2793,6 +2856,18 @@ def _Components_Get(
                     "Devices/IMU/JY901B/Adapter/Src/jy901b_barometer_adapter.c",
                 ):
                     component["fccg_owned_files"][relative] = f"plugins/builtin/{slug}/payload/{relative}"
+            if component_id in ("silverstar.device.imu.jy901b", "silverstar.device.gnss.neo_m9n"):
+                component["manifest"]["provides"] = owned_device["provides"]
+                for owned_file in (builtin_manifest_path.parent / "payload").rglob("*"):
+                    if owned_file.is_file() and owned_file.suffix in (".c", ".h"):
+                        relative = owned_file.relative_to(builtin_manifest_path.parent / "payload").as_posix()
+                        component["fccg_owned_files"][relative] = f"plugins/builtin/{slug}/payload/{relative}"
+        if component_id == mcu_id and builtin_manifest_path.is_file():
+            owned_mcu = json.loads(builtin_manifest_path.read_text(encoding="utf-8"))
+            if "device_build_capabilities" in owned_mcu.get("metadata", {}):
+                component["manifest"]["metadata"]["device_build_capabilities"] = owned_mcu["metadata"]["device_build_capabilities"]
+            relative = "Targets/SilverStar_F407/Inc/target_system_config.h"
+            component["fccg_owned_files"][relative] = f"plugins/builtin/{slug}/payload/{relative}"
         component["fccg_owned_docs"].update({
             name: f"plugins/builtin/{slug}/docs/{name}"
             for name in owned_documentation.get(component_id, ())
@@ -2812,6 +2887,7 @@ def _Components_Get(
             component["manifest"]["metadata"].setdefault("source_origins", {}).update(
                 {name: "fccg_storage_integrity" for name in storage_files}
             )
+    components.extend(_WorkspaceOwnedPackages_Get({item["manifest"]["id"] for item in components}))
     return components
 
 
@@ -4579,10 +4655,13 @@ def Components_Import(reference: Path, *, force: bool = False) -> dict[str, Any]
     try:
         for component in _Components_Get(reference, provenance):
             manifest = component["manifest"]
-            slug = manifest["id"].replace(".", "_")
+            slug = component.get("workspace_package_name", manifest["id"].replace(".", "_"))
             package_root = staged_builtin / slug
             payload_root = package_root / "payload"
             package_root.mkdir(parents=True)
+            if component.get("workspace_owned_package"):
+                _Tree_Copy(policy, builtin_root / slug, package_root)
+                continue
             overlay_files = component.get("overlay_files", {})
             fccg_owned_files = component.get("fccg_owned_files", {})
             fccg_owned_docs = component.get("fccg_owned_docs", {})
@@ -4766,7 +4845,7 @@ def Components_Import(reference: Path, *, force: bool = False) -> dict[str, Any]
                 ).read_bytes()
             ).hexdigest()
             expected = provenance["protocol_source_sha256"][reference_path]
-            if reference_path == "Protocol/SSLOG/Src/sslog_records.c":
+            if reference_path in ("Protocol/Src/air_protocol.c", "Protocol/SSLOG/Src/sslog_records.c"):
                 owned_source = BUILTIN_ROOT / package / "payload" / payload_path
                 expected = hashlib.sha256(owned_source.read_bytes()).hexdigest()
                 provenance.setdefault("fccg_protocol_source_sha256", {})[reference_path] = expected

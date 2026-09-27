@@ -226,6 +226,7 @@ class MainWindow(QMainWindow):
         header_layout.setContentsMargins(14, 6, 14, 6)
         self.title_label = QLabel()
         self.title_label.setObjectName("headerTitle")
+        self.title_label.setWordWrap(True)
         self.version_label = QLabel(f"v{__version__}")
         self.version_label.setObjectName("headerVersion")
         self.credit_label = QLabel()
@@ -972,6 +973,7 @@ class MainWindow(QMainWindow):
                 for component in self._component_views
                 if component.component_type == ComponentType.DEVICE
                 and component.component_class == component_class
+                and not component.options.get("internal", False)
             ),
             key=lambda item: item.name,
         )
@@ -1000,10 +1002,16 @@ class MainWindow(QMainWindow):
         ]
         if not available_candidates:
             return
+        selected_plugins = {instance.plugin for instance in selected}
+        preferred = next(
+            (component for component in available_candidates
+             if component.component_id in selected_plugins),
+            available_candidates[0],
+        )
         instance_id = self._DeviceInstanceId_Next(component_class)
         self._ProjectConfiguration_Change(
             lambda candidate: candidate.device_instances.append(
-                DeviceInstance(instance_id, available_candidates[0].component_id)
+                DeviceInstance(instance_id, preferred.component_id)
             ),
             logging_availability_changed=True,
         )
@@ -1493,6 +1501,10 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(0, self._ModeChanges_Apply)
 
     def _AlgorithmParameter_Change(self, component: str, parameter: str, value: object) -> None:
+        definition = next(p for p in self._service.Plugin_Get(component).algorithm_parameters
+                          if p.parameter_id == parameter)
+        if definition.lifecycle != "active":
+            return
         self._ProjectConfiguration_Change(
             lambda candidate: candidate.algorithm_parameters[component].__setitem__(parameter, value)
         )
@@ -1515,7 +1527,8 @@ class MainWindow(QMainWindow):
 
     def _AlgorithmDefaults_Reset(self, component: str) -> None:
         defaults = {p.parameter_id: p.default
-                    for p in self._service.Plugin_Get(component).algorithm_parameters if not p.shared_key}
+                      for p in self._service.Plugin_Get(component).algorithm_parameters
+                      if not p.shared_key and p.lifecycle == "active"}
         self._ProjectConfiguration_Change(
             lambda candidate: candidate.algorithm_parameters[component].update(defaults)
         )

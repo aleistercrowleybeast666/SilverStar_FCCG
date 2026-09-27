@@ -90,11 +90,30 @@ static void Test_LoggerQueueDrain(void)
 
 static void Test_RecordMetadata(void)
 {
+    static const FlightLogRecordType navigation_records[7] = {
+        FLIGHT_LOG_RECORD_ESKF15_STATE, FLIGHT_LOG_RECORD_ESKF15_FULL_P_PART,
+        FLIGHT_LOG_RECORD_ESKF15_INITIAL_STATE, FLIGHT_LOG_RECORD_ESKF15_INITIAL_P_PART,
+        FLIGHT_LOG_RECORD_ESKF15_MEASUREMENT, FLIGHT_LOG_RECORD_ESKF15_BODY_INPUT,
+        FLIGHT_LOG_RECORD_NAV_QUALITY
+    };
+    static const uint16_t navigation_sizes[7] = {144U, 144U, 144U, 144U, 100U, 84U, 100U};
     const SslogRecordMetadata *metadata;
     uint16_t index;
 
     TEST_CHECK(SslogRecords_RecordCountGet() == SSLOG_RECORD_COUNT);
-    TEST_CHECK(SSLOG_RECORD_COUNT == 28U);
+    TEST_CHECK(SSLOG_RECORD_COUNT == 35U);
+    for (index = 0U; index < 7U; index++)
+    {
+        TEST_CHECK((uint16_t)navigation_records[index] == (uint16_t)(0x21U + index));
+        metadata = SslogRecords_MetadataGet(navigation_records[index]);
+        TEST_CHECK(metadata != NULL);
+        if (metadata != NULL)
+        {
+            TEST_CHECK(metadata->record_type == navigation_records[index]);
+            TEST_CHECK(metadata->record_version == 1U);
+            TEST_CHECK(metadata->payload_size == navigation_sizes[index]);
+        }
+    }
     TEST_CHECK(SslogRecords_MetadataGet((FlightLogRecordType)0x01U) == NULL);
     TEST_CHECK(FLIGHT_LOG_RECORD_STATS == 0x03U);
     TEST_CHECK(FLIGHT_LOG_RECORD_TELEMETRY_DIAG == 0x0CU);
@@ -830,6 +849,141 @@ static void Test_QueueCounterWrap(void)
     }
 }
 
+static void Test_QueuePressureFairness(void)
+{
+    FlightLogEskf15BodyInputRecord body = {0};
+    FlightLogRecord record;
+    SystemLogStreamConfig config;
+    for (uint8_t phase = 0U; phase < 2U; ++phase)
+    {
+        uint8_t run = 0U;
+        uint8_t observed_other = 0U;
+        uint16_t normal_depth = (phase == 0U) ? 60U : 5U;
+        uint16_t estimator_depth = (phase == 0U) ? 8U : 40U;
+        LoggerBus_Reset();
+        TEST_CHECK(LoggerBus_StreamingReady() == LOGGER_BUS_RESULT_OK);
+        TEST_CHECK(SystemLogPolicy_StreamGet(FLIGHT_LOG_RECORD_ESKF15_BODY_INPUT, &config) == SYSTEM_DEVICE_OK);
+        config.enabled = 1U; config.decimation = 1U;
+        TEST_CHECK(SystemLogPolicy_StreamConfigure(&config) == SYSTEM_DEVICE_OK);
+        for (uint16_t index = 0U; index < normal_depth; ++index)
+        { TEST_CHECK(LoggerBus_EventPush(index, FLIGHT_LOG_EVENT_SAMPLE_GAP, index, 0U) == LOGGER_BUS_RESULT_OK); }
+        for (uint16_t index = 0U; index < estimator_depth; ++index)
+        { TEST_CHECK(LoggerBus_Eskf15BodyInputPush(index, &body) == LOGGER_BUS_RESULT_OK); }
+        for (uint8_t index = 0U; index < 16U; ++index)
+        {
+            uint8_t estimator;
+            TEST_CHECK(LoggerBus_NextPop(&record) == LOGGER_BUS_RESULT_OK);
+            estimator = (uint8_t)(record.record_type == FLIGHT_LOG_RECORD_ESKF15_BODY_INPUT);
+            if (index == 0U) { TEST_CHECK(estimator == phase); }
+            if (estimator == phase) { run++; }
+            else { observed_other++; run = 0U; }
+            TEST_CHECK(run <= 3U);
+            TEST_CHECK((estimator ? LoggerBus_Eskf15BodyInputPush(1000ULL + index, &body) :
+                LoggerBus_EventPush(1000ULL + index, FLIGHT_LOG_EVENT_SAMPLE_GAP, index, 0U)) == LOGGER_BUS_RESULT_OK);
+        }
+        TEST_CHECK(observed_other >= 4U);
+        TEST_CHECK(LoggerBus_Count() == normal_depth + estimator_depth);
+    }
+    LoggerBus_Reset();
+}
+
+static LoggerBusResult Test_CovariancePop(uint8_t phase, FlightLogRecord *record)
+{
+    return (phase == 0U) ? LoggerBus_EstimatorPop(record) : LoggerBus_Pop(record);
+}
+
+static void Test_Eskf15CovarianceSnapshot(void)
+{
+    FlightLogEskf15CovariancePartRecord identity = {0};
+    FlightLogEskf15StateRecord state_record = {0};
+    FlightLogEskf15BodyInputRecord body_record = {0};
+    FlightLogRecord record;
+    SystemLogStreamConfig config;
+    LoggerBusDiagnostics before;
+    LoggerBusDiagnostics after;
+    float covariance[225];
+    uint16_t index;
+    uint16_t row;
+    uint16_t column;
+    uint8_t phase;
+    uint8_t part;
+    uint8_t fragments = 0U;
+    TEST_CHECK(LoggerBus_Init() == LOGGER_BUS_RESULT_OK);
+    SystemLogPolicy_UnfreezeForRollback();
+    LoggerBus_Reset();
+    identity.algorithm_id = 2U;
+    identity.snapshot_id = 17U;
+    identity.epoch = 3U;
+    for (index = 0U; index < 225U; index++) { covariance[index] = (float)index; }
+    for (phase = 0U; phase < 2U; phase++)
+    {
+        FlightLogRecordType type = (phase == 0U) ? FLIGHT_LOG_RECORD_ESKF15_INITIAL_P_PART :
+            FLIGHT_LOG_RECORD_ESKF15_FULL_P_PART;
+        identity.phase = phase;
+        TEST_CHECK(SystemLogPolicy_StreamGet(type, &config) == SYSTEM_DEVICE_OK);
+        config.enabled = 1U;
+        if (phase != 0U) { config.period_us = 1000U; }
+        TEST_CHECK(SystemLogPolicy_StreamConfigure(&config) == SYSTEM_DEVICE_OK);
+        if (phase != 0U) { TEST_CHECK(LoggerBus_StreamingReady() == LOGGER_BUS_RESULT_OK); }
+        TEST_CHECK(LoggerBus_Eskf15CovariancePush(2000ULL, &identity, covariance) == LOGGER_BUS_RESULT_OK);
+        row = 0U; column = 0U;
+        for (part = 0U; part < 4U; part++)
+        {
+            const FlightLogEskf15CovariancePartRecord *payload;
+            TEST_CHECK(Test_CovariancePop(phase, &record) == LOGGER_BUS_RESULT_OK);
+            TEST_CHECK(record.record_type == type && record.timestamp_us == 2000ULL);
+            payload = (phase == 0U) ? &record.payload.eskf15_initial_p_part : &record.payload.eskf15_full_p_part;
+            TEST_CHECK(payload->part_index == part && payload->part_count == 4U);
+            TEST_CHECK(payload->offset == (uint16_t)(part * 30U) && payload->count == 30U);
+            TEST_CHECK(payload->snapshot_id == 17U && payload->epoch == 3U && payload->phase == phase);
+            for (index = 0U; index < 30U; index++)
+            {
+                TEST_CHECK(payload->values[index] == covariance[row * 15U + column]);
+                column++;
+                if (column == 15U) { row++; column = row; }
+            }
+        }
+        TEST_CHECK(row == 15U && Test_CovariancePop(phase, &record) == LOGGER_BUS_RESULT_EMPTY);
+    }
+    TEST_CHECK(LoggerBus_Eskf15CovariancePush(2500ULL, &identity, covariance) == LOGGER_BUS_RESULT_OK);
+    TEST_CHECK(LoggerBus_Pop(&record) == LOGGER_BUS_RESULT_EMPTY);
+    TEST_CHECK(LoggerBus_Eskf15CovariancePush(3000ULL, &identity, covariance) == LOGGER_BUS_RESULT_OK);
+    for (part = 0U; part < 4U; part++) { TEST_CHECK(LoggerBus_Pop(&record) == LOGGER_BUS_RESULT_OK); }
+    TEST_CHECK(LoggerBus_Pop(&record) == LOGGER_BUS_RESULT_EMPTY);
+    for (phase = 0U; phase < 2U; phase++)
+    {
+        uint16_t depth = (phase == 0U) ? SYSTEM_LOG_ESTIMATOR_QUEUE_DEPTH : SYSTEM_LOG_RECORD_QUEUE_DEPTH;
+        FlightLogRecordType filler = (phase == 0U) ? FLIGHT_LOG_RECORD_ESKF15_BODY_INPUT : FLIGHT_LOG_RECORD_ESKF15_STATE;
+        FlightLogRecordType type = (phase == 0U) ? FLIGHT_LOG_RECORD_ESKF15_INITIAL_P_PART : FLIGHT_LOG_RECORD_ESKF15_FULL_P_PART;
+        identity.phase = phase;
+        fragments = 0U;
+        LoggerBus_Reset();
+        TEST_CHECK(LoggerBus_StreamingReady() == LOGGER_BUS_RESULT_OK);
+        TEST_CHECK(SystemLogPolicy_StreamGet(filler, &config) == SYSTEM_DEVICE_OK);
+        config.enabled = 1U;
+        config.decimation = 1U;
+        TEST_CHECK(SystemLogPolicy_StreamConfigure(&config) == SYSTEM_DEVICE_OK);
+        for (index = 0U; index < depth - 2U; index++)
+        {
+            uint64_t timestamp = 4000ULL + (uint64_t)index * config.period_us;
+            TEST_CHECK(((phase == 0U) ? LoggerBus_Eskf15BodyInputPush(timestamp, &body_record) :
+                LoggerBus_Eskf15StatePush(timestamp, &state_record)) == LOGGER_BUS_RESULT_OK);
+        }
+        TEST_CHECK(LoggerBus_DiagnosticsGet(&before) == LOGGER_BUS_RESULT_OK);
+        TEST_CHECK(LoggerBus_Eskf15CovariancePush(5000ULL, &identity, covariance) == LOGGER_BUS_RESULT_FULL);
+        TEST_CHECK(LoggerBus_DiagnosticsGet(&after) == LOGGER_BUS_RESULT_OK);
+        TEST_CHECK(after.accepted_count == before.accepted_count + 2U);
+        TEST_CHECK(after.overflow_count == before.overflow_count + 2U);
+        TEST_CHECK(((phase == 0U) ? after.estimator_high_water : after.normal_high_water) == depth);
+        for (index = 0U; index < depth; index++)
+        {
+            TEST_CHECK(Test_CovariancePop(phase, &record) == LOGGER_BUS_RESULT_OK);
+            if (record.record_type == type) { fragments++; }
+        }
+        TEST_CHECK(fragments == 2U && Test_CovariancePop(phase, &record) == LOGGER_BUS_RESULT_EMPTY);
+    }
+}
+
 int main(void)
 {
     HostPlatformMock_Reset();
@@ -848,5 +1002,7 @@ int main(void)
     Test_DecoderProfileDescriptor();
     Test_BootstrapAdmission();
     Test_QueueOverflowAndFinalization();
+    Test_Eskf15CovarianceSnapshot();
+    Test_QueuePressureFairness();
     return Test_Finish("logger");
 }

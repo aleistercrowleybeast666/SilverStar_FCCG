@@ -29,6 +29,7 @@ class AlgorithmParameterDefinition:
     shared_key: str = ""
     greater_than: str = ""
     legacy_default: float | int | None = None
+    lifecycle: str = "active"
 
     def DisplayName_Get(self, language: str) -> str:
         return self.display_names.get(language, self.display_names["en_US"])
@@ -68,7 +69,7 @@ def AlgorithmParameters_Parse(value: Any) -> tuple[AlgorithmParameterDefinition,
                 "generated_symbol"}
     definitions = []
     for entry in value["parameters"]:
-        if not isinstance(entry, dict) or not required <= set(entry) or set(entry) - required - {"greater_than", "shared_key", "legacy_default"}:
+        if not isinstance(entry, dict) or not required <= set(entry) or set(entry) - required - {"greater_than", "shared_key", "legacy_default", "lifecycle"}:
             raise ValueError("Algorithm parameter has missing or unknown fields")
         if not isinstance(entry["id"], str) or not re.fullmatch(r"[a-z][a-z0-9_]*", entry["id"]):
             raise ValueError("Invalid algorithm parameter id")
@@ -104,13 +105,18 @@ def AlgorithmParameters_Parse(value: Any) -> tuple[AlgorithmParameterDefinition,
         if not isinstance(shared_key, str) or (shared_key and not re.fullmatch(r"[a-z][a-z0-9_.-]*", shared_key)):
             raise ValueError("Invalid parameter shared_key")
         greater = entry.get("greater_than", "")
+        lifecycle = entry.get("lifecycle", "active")
+        if lifecycle not in ("active", "legacy_read_only"):
+            raise ValueError("Invalid algorithm parameter lifecycle")
+        if lifecycle != "active" and shared_key:
+            raise ValueError("Legacy parameters cannot own shared runtime values")
         if not isinstance(greater, str):
             raise TypeError("Invalid parameter comparison")
         definition = AlgorithmParameterDefinition(
             entry["id"], entry["type"], entry["default"], entry["unit"],
             entry["representation"], entry["min"], entry["max"], entry["precision"],
             entry["step"], entry["group"], entry["order"], entry["description"],
-            entry["display_names"], entry["generated_symbol"], shared_key, greater, entry.get("legacy_default"))
+            entry["display_names"], entry["generated_symbol"], shared_key, greater, entry.get("legacy_default"), lifecycle)
         definition.Value_Resolve(definition.default)
         if definition.legacy_default is not None:
             definition.Value_Resolve(definition.legacy_default)

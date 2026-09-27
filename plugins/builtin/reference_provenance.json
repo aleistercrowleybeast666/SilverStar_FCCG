@@ -67,6 +67,7 @@
     ]
   },
   "fccg_protocol_source_sha256": {
-    "Protocol/SSLOG/Src/sslog_records.c": "09366a89395000befc2dc7f83f7da84ae0f93df7a1059d41ecb6f609b05d6240"
+    "Protocol/SSLOG/Src/sslog_records.c": "0c3d2419306d32ed7495030f6069317aaff4d7dd6cd8a1c92655f235a4830194",
+    "Protocol/Src/air_protocol.c": "f9b3a9ef4637468e89e2ba415a7eab79814b5cc8bd2a133aa246c959a1a1dec4"
   }
 }

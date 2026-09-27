@@ -21,6 +21,7 @@ from silverstar_fccg.app.version import (
     SILVERSTAR_PLATFORM_VERSION,
     SILVERSTAR_SYSTEM_PROFILE_ID,
 )
+from silverstar_fccg.core.i18n import Translator
 from silverstar_fccg.generator.log_decoder_profile import (
     LogDecoderPackage_Verify,
 )
@@ -32,34 +33,32 @@ from silverstar_fccg.generator.render import (
 from silverstar_fccg.generator.source_graph import SourceGraph_Resolve
 from silverstar_fccg.hardware.platform import (
     DetectedMcuFacts,
-    PlatformMatchError,
     PlatformMatch_Resolve,
+    PlatformMatchError,
 )
-from silverstar_fccg.core.i18n import Translator
 from silverstar_fccg.plugins.catalog import PluginCatalog
 from silverstar_fccg.plugins.manifest import (
-    PluginManifestError,
     PluginManifest_Parse,
+    PluginManifestError,
 )
 from silverstar_fccg.project.configuration import (
     ProjectConfiguration_Reconcile,
 )
 from silverstar_fccg.project.lifecycle import ProjectReadiness_Inspect
 from silverstar_fccg.project.logging import (
-    LogPolicyLevel,
     LoggingProfile_Reconcile,
+    LogPolicyLevel,
     ProtocolLogDefinitions_Get,
 )
 from silverstar_fccg.project.model import (
-    HardwareConfiguration,
     PROJECT_FORMAT_VERSION,
-    ProjectModelError,
+    HardwareConfiguration,
     ProjectModel_Parse,
+    ProjectModelError,
 )
 from silverstar_fccg.project.reference import ReferenceProject_Create
 from silverstar_fccg.project.validation import Project_Validate
 from silverstar_fccg.ui.pages.components import FlightConfigurationPage
-
 
 CALIBRATION_COMPONENT = "silverstar.algorithm.calibration"
 CALIBRATION_RECORD = "FLIGHT_LOG_RECORD_CALIBRATION_RESULT"
@@ -332,7 +331,7 @@ def test_platform_release_has_one_runtime_version_truth(
             )
         )
     ]
-    assert len(manifests) == 36
+    assert len(manifests) == 65
     for manifest in manifests:
         expected = (
             "11.3.0"

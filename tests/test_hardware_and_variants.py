@@ -91,7 +91,7 @@ def test_estimator_none_is_absent_from_make_and_eide(
             assert '#include "navigation_kf.h"' not in content, header
             assert '#include "navigation_kf_replay.h"' not in content, header
             assert "Algorithm/Estimator/KF6/" not in content, header
-    assert "return SYSTEM_BUILD_ESTIMATOR_ENABLED;" in estimator_source
+    assert "return (uint8_t)(SYSTEM_FUSION_ALGORITHM != SYSTEM_FUSION_NONE);" in estimator_source
 
 
 def test_environment_plugin_renders_one_resolved_source_graph(

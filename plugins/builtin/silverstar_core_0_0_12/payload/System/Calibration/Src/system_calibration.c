@@ -877,6 +877,14 @@ SystemDeviceResult SystemCalibration_Reset(void)
     return SYSTEM_DEVICE_OK;
 }
 
+uint32_t SystemCalibration_GenerationGet(void)
+{
+    PlatformCriticalState lock = SystemCalibration_IrqLock();
+    uint32_t generation = s_status.start_sequence;
+    SystemCalibration_IrqUnlock(lock);
+    return generation;
+}
+
 SystemDeviceResult SystemCalibration_StatusGet(SystemCalibrationStatus *status)
 {
     uint32_t primask;

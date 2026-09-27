@@ -1,0 +1,9 @@
+NEO-M8N: factory baud/config/readback/SI/week/reboot zero-write PASS
+NEO-M9N: factory baud/config/readback/SI/week/reboot zero-write PASS
+MAX-M10S: factory baud/config/readback/SI/week/reboot zero-write PASS
+NEO-F10N: factory baud/config/readback/SI/week/reboot zero-write PASS
+UBX model session suite PASS (HARDWARE_UNVERIFIED)
+NEO-M8N: adapter fresh read/response evidence/zero-write mismatch/timeout/explicit persistence PASS
+NEO-M9N: adapter fresh read/response evidence/zero-write mismatch/timeout/explicit persistence PASS
+MAX-M10S: adapter fresh read/response evidence/zero-write mismatch/timeout/explicit persistence PASS
+NEO-F10N: adapter fresh read/response evidence/zero-write mismatch/timeout/explicit persistence PASS

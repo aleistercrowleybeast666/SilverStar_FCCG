@@ -3,21 +3,21 @@ from __future__ import annotations
 import json
 import os
 import time
-import yaml
 from dataclasses import replace
 from pathlib import Path
 
+import yaml
 from PySide6.QtWidgets import QFileDialog
 
 from silverstar_fccg.app.service import FccgService
 from silverstar_fccg.core.i18n import Translator
 from silverstar_fccg.core.settings import SettingsStore
-from silverstar_fccg.generator.source_graph import SourceGraph_Resolve
 from silverstar_fccg.generator.render import (
     _DeviceInstancesHeader_Render,
     _DeviceInstancesSource_Render,
     _MetadataSource_Render,
 )
+from silverstar_fccg.generator.source_graph import SourceGraph_Resolve
 from silverstar_fccg.plugins.catalog import PluginCatalog
 from silverstar_fccg.project.capabilities import (
     CapabilityKind,
@@ -32,8 +32,8 @@ from silverstar_fccg.project.logging import (
     ProtocolLogDefinitions_Get,
 )
 from silverstar_fccg.project.model import (
-    DeviceInstance,
     PROJECT_FORMAT_VERSION,
+    DeviceInstance,
     ProjectModel_Load,
     ProjectModel_Parse,
 )
@@ -461,6 +461,7 @@ def test_reference_capability_resolution_matches_physical_truth(
         "imu.angular_rate",
         "attitude.external",
         "magnetometer.field",
+        "magnetometer.physical_unit",
         "barometer.altitude",
     }
     assert qualified == {
@@ -471,6 +472,7 @@ def test_reference_capability_resolution_matches_physical_truth(
         "imu.software_propagation_qualified",
         "imu.landing_stillness_qualified",
         "barometer.landing_window_qualified",
+        "barometer.alignment_origin_qualified",
     }
     assert set(jy901b.metadata["unqualified_capabilities"]) == {
         "magnetometer.absolute_vector_qualified",

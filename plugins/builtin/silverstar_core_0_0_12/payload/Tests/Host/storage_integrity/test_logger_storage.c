@@ -37,6 +37,10 @@ static uint32_t s_device_steps;
 static uint32_t s_flight_steps;
 static uint32_t s_first_delay_ticks;
 static uint32_t s_recovery_drops;
+static uint32_t s_last_drop_frame;
+static uint32_t s_observed_drops;
+static uint16_t s_peak_frame_normal;
+static uint16_t s_peak_frame_estimator;
 static uint8_t s_burst_done;
 static uint8_t s_final_armed;
 static uint32_t s_produced;
@@ -63,18 +67,31 @@ TickType_t xTaskGetTickCount(void)
     return (s_startup_burst_test || s_sparse_test) ? (TickType_t)(PlatformTime_Us() / 1000ULL) : Fixture_BaseTickCount();
 }
 
-static void Fixture_ResultCheck(LoggerBusResult result)
+static void Fixture_ResultCheckAt(LoggerBusResult result, const char *file, unsigned line)
 {
     if (result != LOGGER_BUS_RESULT_OK)
     {
         s_producer_failures++;
+        if (s_producer_failures < 24U)
+        {
+            LoggerBusDiagnostics diagnostics;
+            (void)LoggerBus_DiagnosticsGet(&diagnostics);
+            fprintf(stderr, "PUSH_FAILURE file=%s line=%u result=%u frame=%lu normal=%u estimator=%u time=%llu\n",
+                file, line, result, (unsigned long)s_produced, diagnostics.normal_count,
+                diagnostics.estimator_count, (unsigned long long)PlatformTime_Us());
+        }
         if (s_sparse_test && s_producer_failures < 8U)
         { fprintf(stderr, "SPARSE_PUSH result=%u frame=%lu time=%llu\n", result,
             (unsigned long)s_produced, (unsigned long long)PlatformTime_Us()); }
     }
 }
 
+#define Fixture_ResultCheck(result) Fixture_ResultCheckAt((result), __FILE__, __LINE__)
+
 #include "test_sparse_preflight.h"
+#if SYSTEM_BUILD_ESKF15_ENABLED
+#include "test_eskf_storage.h"
+#endif
 
 static void Fixture_DefaultFrame(uint32_t frame, uint64_t now)
 {
@@ -95,6 +112,9 @@ static void Fixture_DefaultFrame(uint32_t frame, uint64_t now)
     Fixture_ResultCheck(LoggerBus_BaroNativePush(now, frame, &r.payload.baro_native));
     if (frame % 8U == 0U) { Fixture_ResultCheck(LoggerBus_GnssNativePush(now, frame, &r.payload.gnss_native)); }
     Fixture_ResultCheck(LoggerBus_ImuCorrectedPush(now, frame, &r.payload.imu_corrected));
+#if SYSTEM_BUILD_ESKF15_ENABLED
+    Fixture_EskfFrame(frame, now);
+#else
     if (frame % 2U == 0U)
     {
         Fixture_ResultCheck(LoggerBus_InertialIncrementPush(now, frame, &r.payload.inertial_increment));
@@ -109,6 +129,7 @@ static void Fixture_DefaultFrame(uint32_t frame, uint64_t now)
         Fixture_ResultCheck(LoggerBus_GnssMeasurementPush(now, frame, &r.payload.gnss_measurement));
         Fixture_ResultCheck(LoggerBus_GnssRecoveryPush(now, &r.payload.gnss_recovery));
     }
+#endif
     if (frame % 40U == 0U) { Fixture_ResultCheck(LoggerBus_TelemetryDiagnosticPush(now, &r.payload.telemetry_diagnostic)); }
     if (frame % 200U == 0U)
     {
@@ -156,6 +177,9 @@ static void Fixture_Produce(void)
     while (s_produced < s_frame_limit && now >= s_next_production_us)
     {
         LoggerBusResult result;
+        LoggerBusDiagnostics before_frame;
+        LoggerBusDiagnostics after_frame;
+        (void)LoggerBus_DiagnosticsGet(&before_frame);
         if (s_produced == 1500U) { s_recovery_drops = LoggerBus_OverflowCountGet(); }
         if (s_produced == 0U) { s_production_begin_us = now; }
         if (s_produced == (s_sparse_test ? s_preflight_frames : (s_startup_burst_test ? 1200U : 1000U)))
@@ -179,6 +203,19 @@ static void Fixture_Produce(void)
         if (result != LOGGER_BUS_RESULT_OK && result != LOGGER_BUS_RESULT_FULL) { abort(); }
         s_next_production_us += s_sparse_test ? 10000ULL : (s_startup_burst_test ? 5000ULL : (s_produced < 1000U ? 10000ULL : 2000ULL));
         s_production_end_us = now;
+        (void)LoggerBus_DiagnosticsGet(&after_frame);
+        if (s_startup_burst_test && s_produced > 1201U)
+        {
+            uint16_t normal_added = (uint16_t)(after_frame.normal_count - before_frame.normal_count);
+            uint16_t estimator_added = (uint16_t)(after_frame.estimator_count - before_frame.estimator_count);
+            if (normal_added > s_peak_frame_normal) { s_peak_frame_normal = normal_added; }
+            if (estimator_added > s_peak_frame_estimator) { s_peak_frame_estimator = estimator_added; }
+        }
+        if (LoggerBus_OverflowCountGet() != s_observed_drops)
+        {
+            s_observed_drops = LoggerBus_OverflowCountGet();
+            s_last_drop_frame = s_produced;
+        }
     }
     if (s_startup_burst_test && s_produced >= 100U) { s_startup.completed = 1U; }
     if (s_overflow_test && !s_burst_done && s_produced > (s_startup_burst_test ? 1201U : 1001U))
@@ -310,6 +347,8 @@ static int Test_Writer(const char *output)
         bus.estimator_high_water, SYSTEM_LOG_ESTIMATOR_QUEUE_DEPTH,
         (unsigned long)bus.overflow_count, (unsigned long)s_producer_failures,
         (unsigned long)s_jitter_count);
+    printf("LOGGER_SAME_EPOCH_PEAK normal=%u estimator=%u period_us=5000\n",
+        s_peak_frame_normal, s_peak_frame_estimator);
     CHECK(LoggerTask_DiagnosticsGet(&task) == SYSTEM_DEVICE_OK && task.io_fault == 0U);
     CHECK(SystemStorage_HealthGet(&storage) == SYSTEM_DEVICE_OK && storage.error_count == 0U);
     CHECK(bus.normal_count == 0U && bus.estimator_count == 0U);
@@ -333,6 +372,9 @@ static int Test_Writer(const char *output)
         CHECK(s_first_delay_ticks != 10U);
     }
     CHECK(s_overflow_test ? bus.overflow_count > 0U : bus.overflow_count == 0U);
+    printf("LOGGER_OVERLOAD_RECOVERY sampled_frame=1500 sampled_drops=%lu final_drops=%lu last_drop_frame=%lu\n",
+        (unsigned long)s_recovery_drops, (unsigned long)bus.overflow_count,
+        (unsigned long)s_last_drop_frame);
     CHECK(bus.overflow_count == s_recovery_drops);
     CHECK(f_mount(NULL, "0:", 0U) == FR_OK);
     CHECK(f_mount(&s_fs, "0:", 1U) == FR_OK);
@@ -362,6 +404,17 @@ static int Test_Writer(const char *output)
         (unsigned long)s_first_delay_ticks, (unsigned)sizeof(FlightLogRecord),
         SYSTEM_LOG_RECORD_QUEUE_DEPTH, SYSTEM_LOG_ESTIMATOR_QUEUE_DEPTH);
     printf("LOGGER_JITTER count=%lu range_ms=20-100\n", (unsigned long)s_jitter_count);
+#if SYSTEM_BUILD_ESKF15_ENABLED
+    if (s_startup_burst_test)
+    {
+        CHECK(s_eskf_body_attempts == (TEST_RECORD_COUNT - 1200U) / 2U);
+        CHECK(s_eskf_measurement_attempts == s_eskf_body_attempts * 2U);
+        CHECK(s_eskf_covariance_attempts == s_eskf_body_attempts + 1U);
+        printf("ESKF_STORAGE_LOAD body_hz=100 gnss_hz=25 groups=4 baro_hz=100 body=%lu meas=%lu covariance_attempts=%lu\n",
+            (unsigned long)s_eskf_body_attempts, (unsigned long)s_eskf_measurement_attempts,
+            (unsigned long)s_eskf_covariance_attempts);
+    }
+#endif
     printf("LOGGER_CAUSALITY capacity_reject=%lu state_reject=%lu append_fail=%lu flush_fail=%lu discard_bytes=%lu opens=%lu/%lu write_avg_us=%llu steps=%lu/%lu\n",
         (unsigned long)bus.capacity_reject_count, (unsigned long)bus.state_reject_count,
         (unsigned long)task.append_failure_count, (unsigned long)task.flush_failure_count,

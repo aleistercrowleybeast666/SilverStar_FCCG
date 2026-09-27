@@ -147,8 +147,8 @@ static void Test_StartTransaction(void)
     TEST_CHECK(SystemLifecycle_GetState() == SYSTEM_STATE_FLIGHT);
     TEST_CHECK(s_prepare_count == 1U && s_origin_count == 1U &&
                s_navigation_count == 1U && s_queue_count == 1U);
-    TEST_CHECK(s_profile_frozen != 0U && s_log_frozen != 0U &&
-               s_navigation_frozen != 0U && s_estimator_frozen != 0U);
+    TEST_CHECK(s_profile_frozen != 0U && s_navigation_frozen != 0U && s_estimator_frozen != 0U);
+    TEST_CHECK(s_log_frozen == (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U ? 1U : 0U));
     TEST_CHECK(s_mission_started != 0U && s_mission_start_us != 0U);
     TEST_CHECK(SystemLifecycle_IsConfigurationLocked() != 0U);
     TEST_CHECK(SystemLifecycle_StartTransaction() ==

@@ -54,7 +54,8 @@
       "System/Indicator/Src/system_indicator.c",
       "System/Inertial/Src/system_inertial.c",
       "System/User/system_user_inertial_config.c",
-      "System/Src/system_source_selector.c"
+      "System/Src/system_source_selector.c",
+      "System/Src/system_navigation_health.c"
     ],
     "asm_sources": [],
     "include_dirs": [
@@ -107,7 +108,7 @@
       "snapshot_digest": "7998cace3e609d4e0c3f16f8d9e4cdf531f3f82939670638d4fe4d02f3c4e942"
     },
     "display_names": {
-      "zh_CN": "SilverStar 核心 0.0.12",
+      "zh_CN": "SilverStar 鏍稿績 0.0.12",
       "en_US": "SilverStar Core 0.0.12"
     },
     "protocol_log_producers": {
@@ -177,7 +178,9 @@
       "APP/Inc/logger_bus.h": "fccg_storage_integrity",
       "APP/Inc/logger_task.h": "fccg_storage_integrity",
       "APP/Src/logger_bus.c": "fccg_storage_integrity",
-      "Interfaces/Inc/system_storage_if.h": "fccg_storage_integrity"
+      "Interfaces/Inc/system_storage_if.h": "fccg_storage_integrity",
+      "System/Src/system_navigation_health.c": "fccg_joint_navigation",
+      "System/Inc/system_navigation_health.h": "fccg_joint_navigation"
     },
     "device_descriptors": [
       {
@@ -192,6 +195,15 @@
         "driver_hash": "0x162F2C94UL",
         "name_hash": "0xADE08D82UL"
       }
+    ],
+    "capability_source_groups": [
+      [
+        "imu.acceleration",
+        "imu.angular_rate",
+        "imu.software_alignment_qualified",
+        "imu.software_propagation_qualified",
+        "imu.landing_stillness_qualified"
+      ]
     ]
   }
 }

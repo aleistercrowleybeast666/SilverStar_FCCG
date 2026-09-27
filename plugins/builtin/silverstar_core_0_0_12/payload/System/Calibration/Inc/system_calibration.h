@@ -129,6 +129,7 @@ SystemCalibration_ImuCorrectionApply(
     float corrected_gyro_b_radps[3]);
 uint8_t SystemCalibration_CapabilityMaskGet(void);
 uint8_t SystemCalibration_IsReady(void);
+uint32_t SystemCalibration_GenerationGet(void);
 const char *SystemCalibration_ModeText(SystemCalibrationMode mode);
 const char *SystemCalibration_StateText(SystemCalibrationState state);
 const char *SystemCalibration_FaceText(SystemCalibrationFace face);

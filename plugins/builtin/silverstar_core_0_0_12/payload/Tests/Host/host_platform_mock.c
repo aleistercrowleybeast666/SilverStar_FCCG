@@ -21,6 +21,9 @@ typedef struct
     PlatformResult init_result;
     PlatformResult write_result;
     PlatformUartDiagnostics diagnostics;
+    uint16_t jy901b_registers[128];
+    uint8_t jy901b_enabled;
+    uint8_t jy901b_ignore_writes;
 } HostPlatformUartState;
 
 static HostPlatformUartState s_uart[PLATFORM_UART_COUNT];
@@ -82,6 +85,38 @@ void HostPlatformMock_UartWriteResultSet(PlatformUartId id,
     {
         s_uart[id].write_result = result;
     }
+}
+
+void HostPlatformMock_Jy901bEnable(PlatformUartId id, uint8_t enabled,
+    uint8_t ignore_writes)
+{
+    if (HostPlatformMock_UartIdValid(id) == 0U) { return; }
+    s_uart[id].jy901b_enabled = enabled;
+    s_uart[id].jy901b_ignore_writes = ignore_writes;
+}
+
+static void HostPlatformMock_Jy901bRespond(PlatformUartId id,
+    const uint8_t *data, uint16_t length)
+{
+    HostPlatformUartState *uart = &s_uart[id];
+    uint8_t response[11] = {0x55U, 0x5FU, 0U};
+    uint8_t index;
+    uint16_t value;
+    if ((uart->jy901b_enabled == 0U) || (length != 5U) ||
+        (data[0] != 0xFFU) || (data[1] != 0xAAU) || (data[2] >= 128U)) { return; }
+    if (data[2] != 0x27U)
+    {
+        if (uart->jy901b_ignore_writes == 0U)
+        { uart->jy901b_registers[data[2]] = (uint16_t)((uint16_t)data[3] | ((uint16_t)data[4] << 8U)); }
+        return;
+    }
+    if (data[3] >= 128U) { return; }
+    value = uart->jy901b_registers[data[3]];
+    response[2] = (uint8_t)value;
+    response[3] = (uint8_t)(value >> 8U);
+    for (index = 0U; index < 10U; index++)
+    { response[10] = (uint8_t)(response[10] + response[index]); }
+    (void)HostPlatformMock_UartRxInject(id, response, sizeof(response));
 }
 
 uint16_t HostPlatformMock_UartRxInject(PlatformUartId id,
@@ -213,6 +248,7 @@ PlatformResult PlatformUart_Write(PlatformUartId id,
     (void)memcpy(&uart->tx[uart->tx_count], data, length);
     uart->tx_count = (uint16_t)(uart->tx_count + length);
     uart->diagnostics.tx_bytes += length;
+    HostPlatformMock_Jy901bRespond(id, data, length);
     return PLATFORM_OK;
 }
 

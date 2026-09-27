@@ -36,30 +36,41 @@ def test_inertial_frontend_and_selected_navigation(tmp_path, workspace_root):
     fixture = r'''
 #include <stddef.h>
 #include <stdint.h>
-#define SYSTEM_BUILD_ESTIMATOR_ENABLED 1U
+#define SYSTEM_FUSION_NONE 0U
+#define SYSTEM_FUSION_KF6 1U
+#define SYSTEM_FUSION_ESKF15 2U
+#define SYSTEM_FUSION_ALGORITHM SYSTEM_FUSION_KF6
 #define SILVERSTAR_PROTOCOL_LOGGING_ENABLED 1U
 #define SILVERSTAR_ASSERT_OBJECT(p,t,m) ((void)(p))
 #define INS_INERTIAL_UPDATE_READY 0
-typedef int InsImuSample;
+typedef struct { uint8_t quality_flags; int value; } InsImuSample;
 typedef int InsAlgorithmSample;
 typedef int InsState;
-static struct { int inertial, pure_ins; } s_navigation_input;
+typedef struct { unsigned int sample_count; } InertialContext;
+static struct { InertialContext inertial; int pure_ins; } s_navigation_input;
 static unsigned int input_count, navigation_count, publication_count, pure_log_count;
-static int InsTask_SampleCorrect(const int *a, int *b) { *b=*a; return 1; }
-static int InsInertial_Update(int *c, const int *s, int *o)
+static unsigned int quality_count, body_pair_count;
+static void SystemNavigationHealth_ImuQualityRecord(uint8_t flags)
+{ (void)flags; quality_count++; }
+static void InsTask_BodyPairBuild(const int *s) { (void)s; body_pair_count++; }
+static int InsTask_SampleCorrect(const InsImuSample *a, int *b) { *b=a->value; return 1; }
+static int InsInertial_Update(InertialContext *c, const int *s, int *o)
 { (void)c; input_count++; *o=*s; return 0; }
 static int InsMechanization_Update(int *c, const int *s, int *o)
 { (void)c; (void)s; (void)o; navigation_count++; return 1; }
-static void InsTask_InertialOutputsPublish(const int *s, const int *o)
+static void InsTask_InertialOutputsPublish(const InsImuSample *s, const int *o)
 { (void)s; (void)o; publication_count++; }
-static void InsTask_PureRecordWrite(const int *s, const int *o)
+static void InsTask_PureRecordWrite(const InsImuSample *s, const int *o)
 { (void)s; (void)o; pure_log_count++; }
 '''
     fixture += body + r'''
 int main(void) {
-    int sample=1;
+    InsImuSample sample={0U, 1};
     InsTask_Propagate(&sample);
-    return input_count != 1 || publication_count != 1 || navigation_count || pure_log_count;
+    sample.quality_flags = 0x02U;
+    InsTask_Propagate(&sample);
+    return input_count != 1 || publication_count != 1 || navigation_count ||
+        pure_log_count || body_pair_count || quality_count != 2;
 }
 '''
     path = output / 'dispatch.c'

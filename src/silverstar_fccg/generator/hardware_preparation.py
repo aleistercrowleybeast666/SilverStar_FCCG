@@ -6,12 +6,12 @@ from pathlib import Path
 from typing import Any
 
 from silverstar_fccg.plugins.catalog import PluginCatalog
+from silverstar_fccg.project.model import ProjectModel
 from silverstar_fccg.project.resources import (
     BoardResourceProvisions_Get,
+    ResourceAssignments_Resolve,
     ResourceProvisionResolvedSymbol_Get,
 )
-from silverstar_fccg.project.model import ProjectModel
-
 
 RESOURCE_BINDING_RENDERER_CONTRACT = "verified-board-fixed-v1"
 
@@ -23,6 +23,16 @@ def _FileDigest_Get(path: Path) -> str:
 def HardwareResourceBindingDescriptor_Get(
     model: ProjectModel, catalog: PluginCatalog
 ) -> dict[str, Any]:
+    # Ordinary labels are display metadata. A manifest can explicitly make one
+    # a physical-net constraint; only these labels become binding integrity data.
+    pin_labels = [
+        {"requirement": item.requirement_key,
+         "expected": item.requirement.constraints["pin_label"],
+         "actual": item.provision.metadata.get("label", "")}
+        for item in ResourceAssignments_Resolve(model, catalog).assignments
+        if "pin_label" in item.requirement.constraints
+    ]
+    pin_contract = {"pin_label_contracts": pin_labels} if pin_labels else {}
     if model.hardware.mode == "board_plugin":
         board = catalog.Component_Get(model.board)
         bindings = []
@@ -53,6 +63,7 @@ def HardwareResourceBindingDescriptor_Get(
                 }
             )
         return {
+            **pin_contract,
             "renderer_contract": RESOURCE_BINDING_RENDERER_CONTRACT,
             "mode": (
                 "verified_board"
@@ -103,6 +114,7 @@ def HardwareResourceBindingDescriptor_Get(
             }
         )
     return {
+        **pin_contract,
         "renderer_contract": RESOURCE_BINDING_RENDERER_CONTRACT,
         "mode": "custom",
         "board": None,

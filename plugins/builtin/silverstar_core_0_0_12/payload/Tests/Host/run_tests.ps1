@@ -370,14 +370,40 @@ function Invoke-ExpectedCompileSuccess {
 }
 
 Initialize-HostCompiler
-Invoke-RecordCatalogValidator
 
 $projectDocument = Get-Content -Raw -Encoding UTF8 -LiteralPath `
     (Join-Path $repoRoot 'SilverStar.ssproject') | ConvertFrom-Json
-$goldenDirectory = Join-Path $repoRoot 'Logs\Golden'
-New-Item -ItemType Directory -Force -Path $goldenDirectory | Out-Null
-$goldenFilename = ([string]$projectDocument.project.name) + '_golden.sslog'
-$env:SILVERSTAR_GOLDEN_OUTPUT = Join-Path $goldenDirectory $goldenFilename
+$hostFlightConfiguration = Get-Content -Raw -Encoding UTF8 -LiteralPath `
+    (Join-Path $repoRoot 'Generated\Inc\project_flight_config.h')
+$hostLoggingDeclarations = [regex]::Matches($hostFlightConfiguration,
+    '(?m)^[ \t]*#[ \t]*define[ \t]+SILVERSTAR_PROTOCOL_LOGGING_ENABLED\b[^\r\n]*$')
+$hostLoggingLiteral = [regex]::Match($hostFlightConfiguration,
+    '(?m)^[ \t]*#[ \t]*define[ \t]+SILVERSTAR_PROTOCOL_LOGGING_ENABLED[ \t]+(?<value>[01])U[ \t]*$')
+if (($hostLoggingDeclarations.Count -ne 1) -or (-not $hostLoggingLiteral.Success)) {
+    throw 'Host logging selection must be exactly one generated literal 0U or 1U.'
+}
+$hostLoggingEnabled = $hostLoggingLiteral.Groups['value'].Value -eq '1'
+if ((@($projectDocument.protocols.PSObject.Properties.Name) -notcontains 'logging') -or
+    ($hostLoggingEnabled -ne ($null -ne $projectDocument.protocols.logging))) {
+    throw 'Host logging selection differs from saved project protocol selection.'
+}
+if ($hostLoggingEnabled) {
+    Invoke-RecordCatalogValidator
+    $goldenDirectory = Join-Path $repoRoot 'Logs\Golden'
+    New-Item -ItemType Directory -Force -Path $goldenDirectory | Out-Null
+    $goldenFilename = ([string]$projectDocument.project.name) + '_golden.sslog'
+    $env:SILVERSTAR_GOLDEN_OUTPUT = Join-Path $goldenDirectory $goldenFilename
+}
+else {
+    $hostSourceGraph = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'Generated\project_sources.mk')
+    if (($hostSourceGraph -match 'Protocol/SSLOG/|Generated/Src/project_log_(?:config|decoder_profile)\.c') -or
+        (Test-Path -LiteralPath (Join-Path $repoRoot 'Protocol\SSLOG')) -or
+        (Test-Path -LiteralPath (Join-Path $repoRoot 'Generated\Src\project_log_decoder_profile.c')) -or
+        (@(Get-ChildItem -LiteralPath $repoRoot -File -Filter '*.ssdecoder').Count -ne 0)) {
+        throw 'Logging-disabled Host project retains SSLOG source, payload, or decoder package.'
+    }
+    Write-Output 'Host configuration: logging disabled; no codec, golden log, or storage-log acceptance is claimed.'
+}
 
 $hostPlatformMock = "$repoRoot\Tests\Host\host_platform_mock.c"
 $sslogSources = @(
@@ -482,9 +508,7 @@ Invoke-HostTest -Name 'alignment_strategy_hardware_quat9' `
         "$repoRoot\Algorithm\Alignment\HardwareQuat9Axis\Src\alignment_strategy_binding.c"
     ))
 
-Invoke-HostTest -Name 'system_alignment' -ExtraCompilerArgs @(
-    '-DSYSTEM_CALIBRATION_BUILD_PROCEDURE_MASK=6U'
-) -Sources @(
+$alignmentSystemSources = @(
     "$repoRoot\Tests\Host\test_system_alignment.c",
     "$repoRoot\Tests\Host\Fixtures\source_selector_lock_stub.c",
     $hostPlatformMock,
@@ -494,6 +518,14 @@ Invoke-HostTest -Name 'system_alignment' -ExtraCompilerArgs @(
     "$repoRoot\System\Calibration\Src\system_calibration.c",
     "$repoRoot\Algorithm\Calibration\Src\imu_six_face_calibration.c"
 )
+Invoke-HostTest -Name 'system_alignment' -ExtraCompilerArgs @(
+    '-DSYSTEM_CALIBRATION_BUILD_PROCEDURE_MASK=6U'
+) -Sources $alignmentSystemSources
+Invoke-HostTest -Name 'system_alignment_pure_ins' -ExtraCompilerArgs @(
+    '-DSYSTEM_CALIBRATION_BUILD_PROCEDURE_MASK=6U',
+    '-DSYSTEM_BUILD_ESTIMATOR_ENABLED=0U',
+    '-DSYSTEM_BUILD_FUSION_ALGORITHM=SYSTEM_FUSION_NONE'
+) -Sources $alignmentSystemSources
 
 Invoke-HostTest -Name 'system_inertial' -Sources @(
     "$repoRoot\Tests\Host\test_system_inertial.c",
@@ -739,6 +771,7 @@ Invoke-HostTest -Name 'jy901b_adapter' -ExtraCompilerArgs @(
     "$repoRoot\Generated\Src\project_resources.c",
     "$repoRoot\Devices\IMU\JY901B\Src\jy901b_device.c",
     "$repoRoot\Devices\IMU\JY901B\Adapter\Src\jy901b_imu_adapter.c",
+    "$repoRoot\Devices\IMU\JY901B\Adapter\Src\jy901b_sample_quality.c",
     "$repoRoot\Devices\IMU\JY901B\Adapter\Src\jy901b_barometer_adapter.c"
 )
 Invoke-HostTest -Name 'neo_m9n_device' -Sources @(
@@ -809,6 +842,12 @@ Invoke-HostTest -Name 'sensor_quality' -Sources @(
 Invoke-HostTest -Name 'estimator_barometer_pending' -Sources @(
     "$repoRoot\Tests\Host\test_estimator_barometer_pending.c",
     "$repoRoot\APP\Src\estimator_barometer_pending.c"
+)
+Invoke-HostTest -Name 'navigation_quality_supervisor' -Sources @(
+    "$repoRoot\Tests\Host\test_navigation_quality_supervisor.c",
+    $hostPlatformMock,
+    "$repoRoot\Algorithm\Common\Src\navigation_quality.c",
+    "$repoRoot\System\Src\system_navigation_health.c"
 )
 Invoke-HostTest -Name 'sensor_status' -Sources @(
     "$repoRoot\Tests\Host\test_sensor_status.c",
@@ -916,6 +955,7 @@ Invoke-ExpectedCompileFailure -Name 'impact_capability_guard' `
         '-DSYSTEM_SELECTED_IMU_LANDING_IMPACT_QUALIFIED=0U'
     ) -Source "$repoRoot\Tests\Host\test_flight_config_compile.c"
 
+if ($hostLoggingEnabled) {
 Invoke-HostTest -Name 'lifecycle_logging' -Sources @(
     "$repoRoot\Tests\Host\test_lifecycle_logging.c",
     "$repoRoot\Tests\Host\Fixtures\source_selector_lock_stub.c",
@@ -923,8 +963,10 @@ Invoke-HostTest -Name 'lifecycle_logging' -Sources @(
     "$repoRoot\APP\Src\flight_task.c",
     "$repoRoot\APP\Src\logger_task.c",
     "$repoRoot\FlightLogic\FlightCycle\Src\silverstar_flight_cycle.c",
+    "$repoRoot\System\Src\system_navigation_health.c",
     "$repoRoot\System\Alignment\Src\system_alignment.c"
 )
+}
 
 $startupSources = @(
     "$repoRoot\Tests\Host\test_system_startup.c",
@@ -973,6 +1015,54 @@ $estimatorBuildValue = [regex]::Match(
     $estimatorBuildLines[0], 'SYSTEM_BUILD_ESTIMATOR_ENABLED=(0U|1U)').Groups[1].Value
 $estimatorLoggerArgs = @("-DTEST_EXPECT_ESTIMATOR_CONFIG_ENABLED=$estimatorBuildValue")
 
+# Exercise actual task preparation and the selected kernel. LTO discards only
+# unused RTOS task loops; the origin collector, prepare and reset stay real.
+$preparationFusionLines = @(Get-Content -LiteralPath $projectSourcesPath |
+    Where-Object { $_ -match '^\s*SYSTEM_BUILD_FUSION_ALGORITHM=[A-Z0-9_]+\s*(?:\\)?\s*$' })
+if ($preparationFusionLines.Count -ne 1) {
+    throw 'Generated graph must define SYSTEM_BUILD_FUSION_ALGORITHM exactly once.'
+}
+$preparationFusion = [regex]::Match($preparationFusionLines[0],
+    'SYSTEM_BUILD_FUSION_ALGORITHM=([A-Z0-9_]+)').Groups[1].Value
+$preparationArgs = @('-flto', '-ffunction-sections', '-fdata-sections', '-Wl,--gc-sections',
+    '-DSILVERSTAR_PROTOCOL_LOGGING_ENABLED=0U',
+    "-DSYSTEM_BUILD_ESTIMATOR_ENABLED=$estimatorBuildValue",
+    "-DSYSTEM_BUILD_FUSION_ALGORITHM=$preparationFusion")
+$preparationSources = @(
+    "$repoRoot\Tests\Host\test_estimator_preparation.c", $hostPlatformMock,
+    "$repoRoot\APP\Src\ins_task.c", "$repoRoot\APP\Src\estimator_bus.c",
+    "$repoRoot\APP\Src\estimator_barometer_pending.c",
+    "$repoRoot\Algorithm\Common\Src\attitude_frame.c",
+    "$repoRoot\Algorithm\Common\Src\geodesy_local.c",
+    "$repoRoot\Algorithm\Common\Src\navigation_quality.c",
+    "$repoRoot\Algorithm\INS\Coning2Sculling2\Src\ins_mechanization.c",
+    "$repoRoot\System\Src\system_estimator_diagnostics.c",
+    "$repoRoot\System\Src\system_estimator_profile.c",
+    "$repoRoot\System\Src\system_navigation_profile.c",
+    "$repoRoot\System\Src\system_navigation_health.c",
+    "$repoRoot\System\Src\system_gnss_quality.c",
+    "$repoRoot\System\Src\system_barometer.c"
+)
+if ($preparationFusion -eq 'SYSTEM_FUSION_KF6') {
+    $preparationSources += @(
+        "$repoRoot\Algorithm\Estimator\KF6\Src\navigation_kf.c",
+        "$repoRoot\Algorithm\Estimator\KF6\Src\navigation_kf_replay.c",
+        "$repoRoot\Algorithm\Estimator\KF6\Src\navigation_integrity.c"
+    )
+}
+elseif ($preparationFusion -eq 'SYSTEM_FUSION_ESKF15') {
+    $preparationArgs += @('-DSYSTEM_BUILD_ESKF15_ENABLED=1U',
+        "-I$repoRoot\Algorithm\Estimator\ESKF15\Inc")
+    $preparationSources += @(
+        "$repoRoot\Algorithm\Estimator\ESKF15\Src\navigation_eskf.c",
+        "$repoRoot\Algorithm\Estimator\ESKF15\Src\navigation_eskf_replay.c",
+        "$repoRoot\Algorithm\Estimator\ESKF15\Src\navigation_eskf_backend.c",
+        "$repoRoot\System\Calibration\Src\system_calibration.c"
+    )
+}
+Invoke-HostTest -Name 'estimator_preparation_actual' -ExtraCompilerArgs $preparationArgs `
+    -Sources $preparationSources
+
 $loggerSources = @(
     "$repoRoot\Tests\Host\test_logger.c",
     $hostPlatformMock,
@@ -989,6 +1079,32 @@ $loggerSources = @(
 ) + $sslogSources
 Invoke-HostTest -Name 'logger' `
     -ExtraCompilerArgs $estimatorLoggerArgs -Sources $loggerSources
+Invoke-HostTest -Name 'logger_streaming_actual' -ExtraCompilerArgs @(
+    '-flto', '-ffunction-sections', '-fdata-sections', '-Wl,--gc-sections'
+) -Sources (@("$repoRoot\Tests\Host\test_logger_streaming.c", $hostPlatformMock) + $sslogSources)
+if ($preparationFusion -eq 'SYSTEM_FUSION_ESKF15') {
+    $backendSources = @($loggerSources | Where-Object {
+        $_ -notmatch '(test_logger|diagnostic_log)\.c$'
+    }) + @(
+        "$repoRoot\Tests\Host\test_eskf_backend.c",
+        "$repoRoot\Algorithm\Estimator\ESKF15\Src\navigation_eskf.c",
+        "$repoRoot\Algorithm\Estimator\ESKF15\Src\navigation_eskf_replay.c",
+        "$repoRoot\Algorithm\Estimator\ESKF15\Src\navigation_eskf_backend.c",
+        "$repoRoot\Algorithm\Common\Src\geodesy_local.c",
+        "$repoRoot\Algorithm\Common\Src\navigation_quality.c",
+        "$repoRoot\APP\Src\estimator_bus.c",
+        "$repoRoot\System\Src\system_navigation_health.c",
+        "$repoRoot\System\Src\system_gnss_quality.c",
+        "$repoRoot\System\Src\system_time.c",
+        "$repoRoot\System\Calibration\Src\system_calibration.c"
+    )
+    Invoke-HostTest -Name 'eskf_backend_actual' -ExtraCompilerArgs @(
+        '-flto', '-ffunction-sections', '-fdata-sections', '-Wl,--gc-sections',
+        '-DSYSTEM_BUILD_ESTIMATOR_ENABLED=0U', '-DSYSTEM_BUILD_ESKF15_ENABLED=1U',
+        '-DSYSTEM_BUILD_FUSION_ALGORITHM=SYSTEM_FUSION_ESKF15',
+        "-I$repoRoot\Algorithm\Estimator\ESKF15\Inc"
+    ) -Sources $backendSources
+}
 Invoke-HostTest -Name 'logger_estimator_noise_overrides' `
     -ExtraCompilerArgs ($estimatorNoiseOverrideArgs + $estimatorLoggerArgs) `
     -Sources $loggerSources

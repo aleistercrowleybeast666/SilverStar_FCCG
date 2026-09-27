@@ -8,6 +8,7 @@
 #include "jy901b_config.h"
 #include "jy901b_imu_build_capabilities.h"
 #include "jy901b_instance.h"
+#include "jy901b_sample_quality.h"
 #include "platform_critical.h"
 #include "platform_time.h"
 #include "platform_uart.h"
@@ -23,6 +24,9 @@ typedef struct
     SystemImuConfig effective_config;
     IMUData published_data;
     uint32_t imu_logical_sequence;
+    uint64_t quality_previous_epoch_us;
+    uint32_t quality_last_flags;
+    uint32_t config_generation;
     IMUAlgorithm staged_algorithm;
 } Jy901bImuAdapterContext;
 
@@ -147,6 +151,7 @@ static void Jy901bAdapter_EffectiveRangeUpdate(uint8_t instance, const IMUConfig
 static void Jy901bAdapter_EffectiveConfigUpdate(uint8_t instance,
     const IMUConfig *private_config)
 {
+    SystemImuConfig previous = s_effective_config;
     if (private_config == NULL) { return; }
     SILVERSTAR_ASSERT_OBJECT(private_config, IMUConfig,
         SILVERSTAR_ASSERT_MODULE_DEVICE);
@@ -193,6 +198,12 @@ static void Jy901bAdapter_EffectiveConfigUpdate(uint8_t instance,
             SYSTEM_IMU_CFG_GYRO_BANDWIDTH;
     }
     Jy901bAdapter_EffectiveRangeUpdate(instance, private_config);
+    if ((s_contexts[instance].config_generation == 0U) ||
+        (memcmp(&previous, &s_effective_config, sizeof(previous)) != 0))
+    {
+        s_contexts[instance].config_generation++;
+        s_contexts[instance].quality_previous_epoch_us = 0U;
+    }
 }
 
 static uint8_t Jy901bAdapter_LegalFramesWait(uint8_t instance, uint32_t timeout_ms)
@@ -315,6 +326,9 @@ SystemDeviceResult Jy901bAdapter_SharedInit(uint8_t instance)
     (void)memset(&s_effective_config, 0, sizeof(s_effective_config));
     (void)memset(&s_published_data, 0, sizeof(s_published_data));
     s_imu_logical_sequence = 0U;
+    s_contexts[instance].quality_previous_epoch_us = 0U;
+    s_contexts[instance].quality_last_flags = SYSTEM_IMU_QUALITY_RANGE_UNVERIFIED |
+        SYSTEM_IMU_QUALITY_TIME_UNCERTAIN;
     s_runtime_owner_active = 0U;
     s_staged_algorithm = Algorithm_6Axis;
     state = IMU_LocalGravitySet(instance, SYSTEM_LOCAL_GRAVITY_MPS2);
@@ -394,11 +408,15 @@ void Jy901bAdapter_SharedProcess(uint8_t instance)
             snapshot.GyroTimestampUs : snapshot.AccTimestampUs;
     health.last_receive_timestamp_us = health.last_sample_timestamp_us;
     health.sample_count = s_imu_logical_sequence;
+    health.health_flags = s_contexts[instance].quality_last_flags;
     health.error_count += Jy901bImu_OverflowCountTake(instance);
     health.online = IMU_IsOnline(instance);
     health.healthy = (uint8_t)((health.online != 0U) &&
         ((snapshot.ValidMask & 0x03U) == 0x03U) &&
-        (io_diagnostics.rx_active != 0U));
+        (io_diagnostics.rx_active != 0U) &&
+        ((health.health_flags & (SYSTEM_IMU_QUALITY_CLIPPED |
+            SYSTEM_IMU_QUALITY_TIME_DISCONTINUITY | SYSTEM_IMU_QUALITY_RANGE_UNVERIFIED |
+            SYSTEM_IMU_QUALITY_PAIR_SKEW)) == 0U));
     primask = Jy901bAdapter_IrqLock();
     s_published_data = snapshot;
     s_health = health;
@@ -509,6 +527,7 @@ static SystemDeviceResult Jy901bImuAdapter_GetLatestSample(uint8_t instance,
     SystemDeviceResult result;
 
     if (sample == NULL) { return SYSTEM_DEVICE_INVALID_ARGUMENT; }
+    SILVERSTAR_ASSERT_OBJECT(sample, SystemImuSample, SILVERSTAR_ASSERT_MODULE_DEVICE);
     result = Jy901bAdapter_SharedSnapshotGet(instance, &data);
     if (result != SYSTEM_DEVICE_OK) { return result; }
     (void)index;
@@ -517,6 +536,17 @@ static SystemDeviceResult Jy901bImuAdapter_GetLatestSample(uint8_t instance,
         return SYSTEM_DEVICE_NOT_READY;
     }
     sample->sequence = s_imu_logical_sequence;
+    {
+        uint64_t skew = (data.AccTimestampUs > data.GyroTimestampUs) ?
+            data.AccTimestampUs - data.GyroTimestampUs : data.GyroTimestampUs - data.AccTimestampUs;
+        uint64_t previous = (sample->sample_timestamp_us > 0U) ? sample->sample_timestamp_us - 1U : 0U;
+        if (Jy901bSample_QualityEvaluate(sample, &s_effective_config, previous, skew) != SYSTEM_DEVICE_OK)
+        {
+            return SYSTEM_DEVICE_VERIFY_FAILED;
+        }
+        sample->quality_flags |= s_contexts[instance].quality_last_flags &
+            (SYSTEM_IMU_QUALITY_TIME_DISCONTINUITY | SYSTEM_IMU_QUALITY_HISTORY_RESET);
+    }
     return SYSTEM_DEVICE_OK;
 }
 
@@ -527,6 +557,7 @@ static SystemDeviceResult Jy901bImuAdapter_GetNextSample(uint8_t instance,
     Jy901bImuSampleGetResult result;
 
     if (sample == NULL) { return SYSTEM_DEVICE_INVALID_ARGUMENT; }
+    SILVERSTAR_ASSERT_OBJECT(sample, SystemImuSample, SILVERSTAR_ASSERT_MODULE_DEVICE);
     result = Jy901bImu_SampleGetNext(instance, &native);
     if (result == JY901B_IMU_SAMPLE_GET_EMPTY)
     {
@@ -537,6 +568,13 @@ static SystemDeviceResult Jy901bImuAdapter_GetNextSample(uint8_t instance,
         return SYSTEM_DEVICE_INVALID_ARGUMENT;
     }
     Jy901bAdapter_NativeSampleConvert(&native, sample);
+    if (Jy901bSample_QualityEvaluate(sample, &s_effective_config,
+        s_contexts[instance].quality_previous_epoch_us, 0U) != SYSTEM_DEVICE_OK)
+    {
+        return SYSTEM_DEVICE_VERIFY_FAILED;
+    }
+    s_contexts[instance].quality_previous_epoch_us = sample->sample_timestamp_us;
+    s_contexts[instance].quality_last_flags = sample->quality_flags;
     sample->sequence = ++s_imu_logical_sequence;
     return SYSTEM_DEVICE_OK;
 }
@@ -569,27 +607,11 @@ SystemDeviceResult Jy901bAdapter_OutputRateValueGet(uint16_t rate_hz,
     return SYSTEM_DEVICE_OK;
 }
 
-static uint8_t Jy901bImuAdapter_BandwidthToValue(float bandwidth_hz,
-                                                   IMUBandwidth *value)
-{
-    if (value == NULL) { return 0U; }
-    if (bandwidth_hz == 5.0f) { *value = Bandwidth_5Hz; }
-    else if (bandwidth_hz == 10.0f) { *value = Bandwidth_10Hz; }
-    else if (bandwidth_hz == 20.0f) { *value = Bandwidth_20Hz; }
-    else if (bandwidth_hz == 42.0f) { *value = Bandwidth_42Hz; }
-    else if (bandwidth_hz == 98.0f) { *value = Bandwidth_98Hz; }
-    else if (bandwidth_hz == 188.0f) { *value = Bandwidth_188Hz; }
-    else if (bandwidth_hz == 256.0f) { *value = Bandwidth_256Hz; }
-    else { return 0U; }
-    return 1U;
-}
-
 static SystemDeviceResult Jy901bImuAdapter_ConfigValidate(
     const SystemImuConfig *config,
     SystemDeviceConfigReport *report)
 {
     IMUOutputRate rate;
-    IMUBandwidth bandwidth;
     const uint32_t supported = SYSTEM_IMU_CFG_OUTPUT_RATE |
                                SYSTEM_IMU_CFG_ACCEL_BANDWIDTH |
                                SYSTEM_IMU_CFG_GYRO_BANDWIDTH |
@@ -614,25 +636,17 @@ static SystemDeviceResult Jy901bImuAdapter_ConfigValidate(
          (Jy901bAdapter_OutputRateValueGet(config->output_rate_hz, &rate) !=
           SYSTEM_DEVICE_OK)) ||
         (((config->requested_mask & SYSTEM_IMU_CFG_ACCEL_BANDWIDTH) != 0U) &&
-         (Jy901bImuAdapter_BandwidthToValue(
-             config->accel_bandwidth_hz, &bandwidth) == 0U)) ||
+         (config->accel_bandwidth_hz != 256.0f)) ||
         (((config->requested_mask & SYSTEM_IMU_CFG_GYRO_BANDWIDTH) != 0U) &&
-         (Jy901bImuAdapter_BandwidthToValue(
-             config->gyro_bandwidth_hz, &bandwidth) == 0U)) ||
+         (config->gyro_bandwidth_hz != 256.0f)) ||
         (((config->requested_mask & (SYSTEM_IMU_CFG_ACCEL_BANDWIDTH |
                                      SYSTEM_IMU_CFG_GYRO_BANDWIDTH)) ==
           (SYSTEM_IMU_CFG_ACCEL_BANDWIDTH |
            SYSTEM_IMU_CFG_GYRO_BANDWIDTH)) &&
          (config->accel_bandwidth_hz != config->gyro_bandwidth_hz)) ||
         (((config->requested_mask & SYSTEM_IMU_CFG_ACCEL_RANGE) != 0U) &&
-         (config->accel_range_g != 2.0f) &&
-         (config->accel_range_g != 4.0f) &&
-         (config->accel_range_g != 8.0f) &&
          (config->accel_range_g != 16.0f)) ||
         (((config->requested_mask & SYSTEM_IMU_CFG_GYRO_RANGE) != 0U) &&
-         (config->gyro_range_dps != 200.0f) &&
-         (config->gyro_range_dps != 500.0f) &&
-         (config->gyro_range_dps != 1000.0f) &&
          (config->gyro_range_dps != 2000.0f)))
     {
         report->verify_failed_mask = config->requested_mask & supported;
@@ -644,44 +658,13 @@ static SystemDeviceResult Jy901bImuAdapter_ConfigValidate(
         SYSTEM_DEVICE_UNSUPPORTED : SYSTEM_DEVICE_OK;
 }
 
-static void Jy901bImuAdapter_EffectiveConfigApply(uint8_t instance,
-    const SystemImuConfig *config,
-    const SystemDeviceConfigReport *report)
-{
-    SILVERSTAR_ASSERT_OBJECT(config, SystemImuConfig,
-        SILVERSTAR_ASSERT_MODULE_DEVICE);
-    s_effective_config.requested_mask |= report->applied_mask;
-    s_effective_config.required_mask =
-        (s_effective_config.required_mask & ~report->applied_mask) |
-        (config->required_mask & report->applied_mask);
-    if ((report->applied_mask & SYSTEM_IMU_CFG_OUTPUT_RATE) != 0U)
-    {
-        s_effective_config.output_rate_hz = config->output_rate_hz;
-    }
-    if ((report->applied_mask & SYSTEM_IMU_CFG_ACCEL_BANDWIDTH) != 0U)
-    {
-        s_effective_config.accel_bandwidth_hz = config->accel_bandwidth_hz;
-    }
-    if ((report->applied_mask & SYSTEM_IMU_CFG_GYRO_BANDWIDTH) != 0U)
-    {
-        s_effective_config.gyro_bandwidth_hz = config->gyro_bandwidth_hz;
-    }
-    if ((report->applied_mask & SYSTEM_IMU_CFG_ACCEL_RANGE) != 0U)
-    {
-        s_effective_config.accel_range_g = config->accel_range_g;
-    }
-    if ((report->applied_mask & SYSTEM_IMU_CFG_GYRO_RANGE) != 0U)
-    {
-        s_effective_config.gyro_range_dps = config->gyro_range_dps;
-    }
-}
-
 static SystemDeviceResult Jy901bImuAdapter_ApplyConfig(uint8_t instance,
     const SystemImuConfig *config,
     SystemDeviceConfigReport *report)
 {
     IMUOutputRate rate;
     IMUState state;
+    IMUConfig readback;
     SystemDeviceResult result;
 
     if ((config == NULL) || (report == NULL))
@@ -717,9 +700,17 @@ static SystemDeviceResult Jy901bImuAdapter_ApplyConfig(uint8_t instance,
                                              SYSTEM_DEVICE_IO_ERROR;
     }
     report->applied_mask = report->matched_mask;
-    report->persisted = 1U;
+    state = IMU_ReadCurrentConfig(instance, &readback);
+    if (state != IMU_OK)
+    {
+        report->success = 0U;
+        report->verify_failed_mask = report->applied_mask;
+        return SYSTEM_DEVICE_VERIFY_FAILED;
+    }
+    Jy901bAdapter_EffectiveConfigUpdate(instance, &readback);
+    /* JY901B does not expose a separately readable persistent layer. */
+    report->persisted = 0U;
     report->success = 1U;
-    Jy901bImuAdapter_EffectiveConfigApply(instance, config, report);
     return result;
 }
 
@@ -868,9 +859,12 @@ static SystemDeviceResult Jy901bImuAdapter_GetIoDetail(uint8_t instance,
 
     if (detail == NULL) { return SYSTEM_DEVICE_INVALID_ARGUMENT; }
     IMU_StreamDiagnosticsGet(instance, &source);
+    (void)memset(detail, 0, sizeof(*detail));
     detail->valid_frame_count = source.valid_frame_count;
     detail->checksum_error_count = source.checksum_error_count;
     detail->parser_resync_count = source.parser_resync_count;
+    detail->config_generation = s_contexts[instance].config_generation;
+    detail->config_generation_valid = (detail->config_generation != 0U);
     return SYSTEM_DEVICE_OK;
 }
 

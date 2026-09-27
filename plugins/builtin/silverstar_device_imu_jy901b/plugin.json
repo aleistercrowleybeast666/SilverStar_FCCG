@@ -59,12 +59,15 @@
     "imu.software_alignment_qualified",
     "imu.software_propagation_qualified",
     "imu.landing_stillness_qualified",
-    "barometer.landing_window_qualified"
+    "barometer.landing_window_qualified",
+    "barometer.alignment_origin_qualified",
+    "magnetometer.physical_unit"
   ],
   "build": {
     "sources": [
       "Devices/IMU/JY901B/Src/jy901b_device.c",
       "Devices/IMU/JY901B/Adapter/Src/jy901b_imu_adapter.c",
+      "Devices/IMU/JY901B/Adapter/Src/jy901b_sample_quality.c",
       "Devices/IMU/JY901B/Adapter/Src/jy901b_barometer_adapter.c",
       "Devices/IMU/JY901B/Adapter/Src/jy901b_magnetometer_adapter.c",
       "Devices/IMU/JY901B/Adapter/Src/jy901b_quaternion_adapter.c"
@@ -245,7 +248,9 @@
       "Devices/IMU/JY901B/Adapter/Src/jy901b_barometer_adapter.c": "fccg_multi_instance_context",
       "Devices/IMU/JY901B/Adapter/Src/jy901b_imu_adapter.c": "fccg_multi_instance_context",
       "Devices/IMU/JY901B/Adapter/Src/jy901b_magnetometer_adapter.c": "fccg_multi_instance_context",
-      "Devices/IMU/JY901B/Adapter/Src/jy901b_quaternion_adapter.c": "fccg_multi_instance_context"
+      "Devices/IMU/JY901B/Adapter/Src/jy901b_quaternion_adapter.c": "fccg_multi_instance_context",
+      "Devices/IMU/JY901B/Adapter/Inc/jy901b_sample_quality.h": "fccg_multi_instance_context",
+      "Devices/IMU/JY901B/Adapter/Src/jy901b_sample_quality.c": "fccg_multi_instance_context"
     },
     "sensor_recommendations": [
       {
@@ -292,7 +297,39 @@
           "zh_CN": "仅用于初始建议或无显式配置时的回退；以算法实际配置为准。不是逐样本原生不确定度。"
         }
       }
-    ]
+    ],
+    "runtime_defaults": {
+      "SYSTEM_DEVICE_CLASS_IMU": {
+        "SYSTEM_IMU_OUTPUT_RATE_HZ": 200
+      }
+    },
+    "initialization": {
+      "configure_on_boot": true,
+      "output_rate_hz": 200,
+      "target_baud": 230400,
+      "accelerometer_range_g": 16,
+      "gyroscope_range_dps": 2000,
+      "filter": {
+        "zh_CN": "固定 256 Hz 带宽；读回后生效",
+        "en_US": "Fixed 256 Hz bandwidth; effective only after readback"
+      },
+      "fifo": {
+        "zh_CN": "UART 帧队列；接收时间代理，TIME_UNCERTAIN",
+        "en_US": "UART frame queue; receive-time proxy, TIME_UNCERTAIN"
+      },
+      "readback": {
+        "zh_CN": "逐项读取 10 个配置寄存器；实际值不符则拒绝就绪",
+        "en_US": "Read all 10 configuration registers; mismatch rejects readiness"
+      },
+      "conditional_persistence": {
+        "zh_CN": "默认仅 RAM，不发 SAVE；没有独立 NVM 读回，显式维护保存仍不假称已验证",
+        "en_US": "RAM only by default, no SAVE; no independent NVM readback, explicit maintenance save never claims verified persistence"
+      },
+      "hardware_status": {
+        "zh_CN": "当前试验硬件型号；本轮仅软件测试，配置变更待台架验证",
+        "en_US": "Current test hardware model; this turn tests software only, changed configuration requires bench validation"
+      }
+    }
   },
   "instance_policy": {
     "plugin_max": 4,

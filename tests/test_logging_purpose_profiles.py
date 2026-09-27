@@ -51,7 +51,7 @@ def test_purpose_metadata_is_explicit_and_strict(
     metadata_path = ProjectProtocolLogMetadataPath_Get(model, builtin_catalog)
     data = json.loads(metadata_path.read_text(encoding="utf-8"))
     definitions = ProtocolLogDefinitions_Load(metadata_path)
-    assert len(definitions) == 28
+    assert len(definitions) == 35
     assert {definition.purpose for definition in definitions} == {
         LogPurpose.FLIGHT, LogPurpose.TEST
     }
@@ -59,7 +59,7 @@ def test_purpose_metadata_is_explicit_and_strict(
         definition.name
         for definition in definitions
         if definition.purpose == LogPurpose.TEST
-    } == {"KF6_DIAGNOSTIC", "KF6_FULL_P"}
+    } == {"KF6_DIAGNOSTIC", "KF6_FULL_P", "ESKF15_FULL_P_PART"}
     for definition in definitions:
         policy = data["fccg"]["records"][definition.record]
         assert policy["purpose"] == definition.purpose.value
@@ -223,8 +223,7 @@ def test_three_logging_buttons_are_one_shot_and_save_only_stream_values(
         states = _States_Get(window._model)
         assert all(
             states[item.record] ==
-            (item.level == LogPolicyLevel.REQUIRED or
-             LogAvailability_Get(item, window._model, service.catalog).available)
+            LogAvailability_Get(item, window._model, service.catalog).available
             for item in definitions
         )
         assert states["FLIGHT_LOG_RECORD_KF6_DIAGNOSTIC"]
@@ -234,11 +233,10 @@ def test_three_logging_buttons_are_one_shot_and_save_only_stream_values(
         qapp.processEvents()
         states = _States_Get(window._model)
         assert all(
-            states[item.record] == (
+            states[item.record] == (LogAvailability_Get(item, window._model, service.catalog).available and (
                 item.level == LogPolicyLevel.REQUIRED or
-                (item.purpose == LogPurpose.FLIGHT and
-                 LogAvailability_Get(item, window._model, service.catalog).available)
-            )
+                item.purpose == LogPurpose.FLIGHT
+            ))
             for item in definitions
         )
         for name in (
@@ -252,7 +250,8 @@ def test_three_logging_buttons_are_one_shot_and_save_only_stream_values(
         qapp.processEvents()
         states = _States_Get(window._model)
         assert all(
-            states[item.record] == (item.level == LogPolicyLevel.REQUIRED)
+            states[item.record] == (item.level == LogPolicyLevel.REQUIRED and
+                                   LogAvailability_Get(item, window._model, service.catalog).available)
             for item in definitions
         )
         page.logging_flight_only_button.click()

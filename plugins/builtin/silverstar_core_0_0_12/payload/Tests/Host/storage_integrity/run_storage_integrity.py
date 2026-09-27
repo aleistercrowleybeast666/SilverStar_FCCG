@@ -2,11 +2,12 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
-from pathlib import Path
 import subprocess
 import sys
+from pathlib import Path
 
 
 def StorageIntegrity_Run(project: Path, compiler: str) -> Path:
@@ -70,6 +71,18 @@ def StorageIntegrity_Run(project: Path, compiler: str) -> Path:
     writer = output / "logger_storage.exe"
     command = flags + ["-ffunction-sections", "-fdata-sections", "-Wl,--gc-sections",
                        "-include", str(project / "Generated/Inc/project_flight_config.h")]
+    source_graph = (project / "Generated/project_sources.mk").read_text(encoding="utf-8")
+    for name in ("SYSTEM_BUILD_ESTIMATOR_ENABLED", "SYSTEM_BUILD_FUSION_ALGORITHM"):
+        values = re.findall(r"^\s+" + name + r"=(\w+)\s*\\?\s*$", source_graph, re.MULTILINE)
+        if len(values) != 1:
+            raise ValueError(f"storage fixture requires one generated {name} definition")
+        command.append(f"-D{name}={values[0]}")
+    eskf_values = re.findall(r"^\s+SYSTEM_BUILD_ESKF15_ENABLED=(\w+)\s*\\?\s*$",
+                             source_graph, re.MULTILINE)
+    if len(eskf_values) > 1:
+        raise ValueError("duplicate ESKF15 definition in source graph")
+    if eskf_values:
+        command.append(f"-DSYSTEM_BUILD_ESKF15_ENABLED={eskf_values[0]}")
     command += ["-I" + str(path) for path in logger_includes]
     command += [str(path) for path in logger_sources] + ["-lm", "-o", str(writer)]
     writer_command = list(command)
@@ -86,7 +99,22 @@ def StorageIntegrity_Run(project: Path, compiler: str) -> Path:
         command = [sys.executable, str(auditor), str(writer_log), "--decoder", str(decoders[0])]
         if mode in ("overflow", "startup-overflow", "startup-burst-overload"):
             command += ["--allow-queue-drops"]
-        subprocess.run(command, check=True, cwd=project, env=environment)
+        audited = subprocess.run(command, cwd=project, env=environment, text=True, capture_output=True)
+        print(audited.stdout, end="", flush=True)
+        print(audited.stderr, end="", file=sys.stderr, flush=True)
+        audited.check_returncode()
+        if eskf_values == ["1U"] and mode == "startup-burst":
+            counts = json.loads(audited.stdout)["record_counts"]
+            expected = {"ESKF15_BODY_INPUT": 19400, "ESKF15_MEASUREMENT": 38800,
+                        "ESKF15_INITIAL_STATE": 1, "ESKF15_INITIAL_P_PART": 4}
+            for name, count in expected.items():
+                if counts.get(name, 0) != count:
+                    raise ValueError(f"ESKF storage load omitted {name}: {counts.get(name, 0)} != {count}")
+            project_data = json.loads((project / "SilverStar.ssproject").read_text(encoding="utf-8"))
+            streams = project_data["logging"]["streams"]
+            full_p = next(stream for stream in streams if stream["record"] == "FLIGHT_LOG_RECORD_ESKF15_FULL_P_PART")
+            if full_p["enabled"] and (counts.get("ESKF15_FULL_P_PART", 0) == 0 or counts["ESKF15_FULL_P_PART"] % 4):
+                raise ValueError("Enabled ESKF full covariance must persist whole four-part snapshots")
     for diagnostic in (False, True):
         if diagnostic:
             writer = output / "logger_preflight_diagnostic.exe"

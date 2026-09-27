@@ -86,7 +86,7 @@ def replay_trace_run(project: Path, output: Path, fixture: Path) -> dict:
     command += [str(project / p) for p in (
         "Algorithm/Estimator/KF6/Src/navigation_kf.c",
         "Algorithm/Estimator/KF6/Src/navigation_kf_replay.c",
-        "System/Src/system_time.c", "Common/Src/silverstar_assert.c")]
+        "System/Src/system_navigation_health.c", "System/Src/system_time.c", "Common/Src/silverstar_assert.c")]
     command += [str(instrumented), "-lm", "-o", str(output / "trace.exe")]
     env = dict(os.environ, TEMP=str(output), TMP=str(output))
     env["PATH"] = "D:/msys64/ucrt64/bin;" + env.get("PATH", "")
@@ -152,6 +152,10 @@ def estimator_trace_run(project: Path, output: Path, fixture: Path) -> dict:
 #include <string.h>
 #include "navigation_kf_replay.h"
 #include "navigation_integrity.h"
+#include "navigation_quality.h"
+#include "system_navigation_health.h"
+#include "system_calibration.h"
+#include "estimator_task.h"
 #include "logger_bus.h"
 #include "system_source_selector.h"
 #include "system_user_config.h"
@@ -182,9 +186,13 @@ SystemDeviceResult SystemSourceSelector_GnssActiveInstanceGet(uint8_t *instance_
     return SYSTEM_DEVICE_OK;
 }
 static struct { NavigationKfContext kf; SystemEstimatorGnssDiagnostics gnss_diagnostics; uint32_t operation_sequence; } s_estimator;
-static struct { float position_innovation[3]; } s_snapshot;
+static struct { float position_innovation[3]; uint32_t health_flags; } s_snapshot;
 static NavigationReplayContext s_replay;
-static NavigationIntegrityContext s_integrity;
+static NavigationWindowContext s_integrity;
+static uint64_t s_native_week_us;
+static uint32_t s_native_previous_tow_ms;
+static uint32_t s_integrity_log_failures;
+SystemDeviceResult SystemGnss_TimeGet(SystemGnssTime *time) { (void)time; return SYSTEM_DEVICE_NOT_READY; }
 '''
     conversion_start = app.index(
         "static SystemEstimatorMeasurementResult Estimator_MeasurementResultConvert("
@@ -194,10 +202,14 @@ static NavigationIntegrityContext s_integrity;
     diagnostic_end = app.index("#if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED", diagnostic_start)
     operation_start = app.index("static uint32_t Estimator_OperationNext(")
     operation_end = app.index("\n}", operation_start) + 2
+    dispatch = app[start:end]
+    quality_start = dispatch.index("static void Estimator_NavigationQualityLog(")
+    quality_end = dispatch.index("\n}", quality_start) + 2
+    dispatch = dispatch[:quality_start] + dispatch[quality_end:]
     source += (app[type_start:type_end] + "\n"
                + app[conversion_start:conversion_end] + "\n"
                + app[diagnostic_start:diagnostic_end]
-               + app[operation_start:operation_end] + "\n" + app[start:end]
+               + app[operation_start:operation_end] + "\n" + dispatch
                + fixture.read_text(encoding="utf-8"))
     instrumented = output / "app_trace.c"
     instrumented.write_text(source, encoding="utf-8")
@@ -209,7 +221,8 @@ static NavigationIntegrityContext s_integrity;
     command += [str(project / p) for p in (
         "Algorithm/Estimator/KF6/Src/navigation_kf.c", "Algorithm/Estimator/KF6/Src/navigation_kf_replay.c",
         "Algorithm/Estimator/KF6/Src/navigation_integrity.c",
-        "System/Src/system_time.c", "Common/Src/silverstar_assert.c")]
+        "Algorithm/Common/Src/navigation_quality.c",
+        "System/Src/system_navigation_health.c", "System/Src/system_time.c", "Common/Src/silverstar_assert.c")]
     command += [str(instrumented), "-lm", "-o", str(output / "app.exe")]
     env = dict(os.environ, TEMP=str(output), TMP=str(output))
     env["PATH"] = "D:/msys64/ucrt64/bin;" + env.get("PATH", "")
@@ -244,6 +257,8 @@ def barometer_operation_run(project: Path, output: Path, fixture: Path) -> None:
 #include <string.h>
 #include "navigation_kf_replay.h"
 #include "estimator_bus.h"
+#include "system_navigation_health.h"
+#include "estimator_task.h"
 #include "system_estimator_diagnostics.h"
 #include "system_estimator_profile.h"
 #include "system_user_config.h"
@@ -257,13 +272,14 @@ uint64_t PlatformTime_Us(void) { return 0ULL; }
 PlatformCriticalState PlatformCritical_Enter(void) { return 0U; }
 void PlatformCritical_Exit(PlatformCriticalState state) { (void)state; }
 static struct { NavigationKfContext kf; uint32_t operation_sequence; } s_estimator;
-static struct { SystemEstimatorMeasurementResult baro_update_result; float baro_innovation, baro_r_scale; } s_snapshot;
+static struct { SystemEstimatorMeasurementResult baro_update_result; float baro_innovation, baro_r_scale; uint32_t health_flags; } s_snapshot;
 static NavigationReplayContext s_replay;
 '''
     source += app[type_start:type_end] + "\n"
     for name in ("Estimator_OperationNext", "Estimator_MeasurementResultConvert",
                  "Estimator_ResultScale", "Estimator_MeasurementTimeResolve",
-                 "Estimator_ReplayInsert", "Estimator_BarometerReplay"):
+                 "Estimator_ReplayInsert", "Estimator_BarometerHealthPublish",
+                 "Estimator_BarometerReplay"):
         source += function_get(name)
     source += fixture.read_text(encoding="utf-8")
     instrumented = output / "barometer_app.c"
@@ -275,7 +291,7 @@ static NavigationReplayContext s_replay;
     command += ["-I" + str(project / p.replace("\\", "/")) for p in includes]
     command += [str(project / p) for p in (
         "Algorithm/Estimator/KF6/Src/navigation_kf.c", "Algorithm/Estimator/KF6/Src/navigation_kf_replay.c",
-        "System/Src/system_time.c", "Common/Src/silverstar_assert.c")]
+        "System/Src/system_navigation_health.c", "System/Src/system_time.c", "Common/Src/silverstar_assert.c")]
     command += [str(instrumented), "-lm", "-o", str(output / "barometer.exe")]
     env = dict(os.environ, TEMP=str(output), TMP=str(output))
     env["PATH"] = "D:/msys64/ucrt64/bin;" + env.get("PATH", "")

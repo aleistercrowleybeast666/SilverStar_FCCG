@@ -246,6 +246,9 @@ static uint8_t Air_CommandFieldsAreValid(const uint8_t *frame)
         case AIR_CMD_CAPABILITY_ACK:
             return (uint8_t)(param1 == AIR_PROFILE_ID_CURRENT);
 
+        case AIR_CMD_NAV_SUBSCRIBE:
+            return (uint8_t)((param0 == AIR_NAV_SCHEMA_VERSION) && (param1 == 0U));
+
         case AIR_CMD_CAL_START:
             return (uint8_t)((param0 <= AIR_CALIBRATION_MODE_SIX_FACE) &&
                              (param1 == 0U));
@@ -344,6 +347,9 @@ uint8_t Air_GetExpectedFrameLength(uint8_t air_type)
         case AIR_TYPE_CAPABILITY: return AIR_CAPABILITY_LEN;
         case AIR_TYPE_PREFLIGHT_STATUS: return AIR_PREFLIGHT_STATUS_LEN;
         case AIR_TYPE_SENSOR_STATUS: return AIR_SENSOR_STATUS_LEN;
+        case AIR_TYPE_NAV_CAPABILITY: return AIR_NAV_CAPABILITY_LEN;
+        case AIR_TYPE_NAV_PREPARATION: return AIR_NAV_PREPARATION_LEN;
+        case AIR_TYPE_NAV_HEALTH: return AIR_NAV_HEALTH_LEN;
         case AIR_TYPE_STATUS: return AIR_STATUS_LEN;
         case AIR_TYPE_CMD: return AIR_CMD_LEN;
         case AIR_TYPE_ACK: return AIR_ACK_LEN;
@@ -449,6 +455,26 @@ static AirParseResult Air_AckFrameValidate(const uint8_t *frame)
     return AIR_PARSE_OK;
 }
 
+static AirParseResult Air_NavigationFrameValidate(const uint8_t *frame)
+{
+    if (Air_GetU16Le(&frame[2]) == 0U) { return AIR_PARSE_BAD_FIELD; }
+    if (frame[0] == AIR_TYPE_NAV_CAPABILITY)
+    {
+        return ((frame[6] == AIR_NAV_SCHEMA_VERSION) && (frame[7] <= 2U) &&
+            ((frame[8] & (uint8_t)~AIR_NAV_GROUP_MASK) == 0U)) ?
+            AIR_PARSE_OK : AIR_PARSE_BAD_FIELD;
+    }
+    if (frame[0] == AIR_TYPE_NAV_PREPARATION)
+    {
+        return ((((frame[6] | frame[7]) & (uint8_t)~AIR_NAV_PREPARATION_MASK) == 0U) &&
+            (Air_StartBlockReasonIsValid(frame[8]) != 0U)) ?
+            AIR_PARSE_OK : AIR_PARSE_BAD_FIELD;
+    }
+    return ((((frame[6] & 7U) <= 4U) && ((frame[6] >> 3U) <= 8U)) ||
+            (((frame[6] & 7U) == 7U) && ((frame[6] >> 3U) <= 16U))) ?
+        AIR_PARSE_OK : AIR_PARSE_BAD_FIELD;
+}
+
 AirParseResult Air_FrameValidate(const uint8_t *frame, uint8_t frame_len)
 {
     uint8_t expected_len;
@@ -480,6 +506,10 @@ AirParseResult Air_FrameValidate(const uint8_t *frame, uint8_t frame_len)
             return Air_PreflightStatusFrameValidate(frame);
         case AIR_TYPE_SENSOR_STATUS:
             return Air_SensorStatusFrameValidate(frame);
+        case AIR_TYPE_NAV_CAPABILITY:
+        case AIR_TYPE_NAV_PREPARATION:
+        case AIR_TYPE_NAV_HEALTH:
+            return Air_NavigationFrameValidate(frame);
         case AIR_TYPE_STATUS:
             return Air_StatusFrameValidate(frame);
         case AIR_TYPE_CMD:
@@ -491,6 +521,35 @@ AirParseResult Air_FrameValidate(const uint8_t *frame, uint8_t frame_len)
         default:
             return AIR_PARSE_OK;
     }
+}
+
+AirBuildResult Air_NavigationStatusBuild(uint8_t seq, uint8_t air_type,
+    const AirNavigationStatusPayload *status, uint8_t *out_frame,
+    uint8_t out_size, uint8_t *out_len)
+{
+    if ((status == NULL) || (out_frame == NULL) || (out_len == NULL))
+    {
+        return AIR_BUILD_BAD_PARAM;
+    }
+    *out_len = 0U;
+    SILVERSTAR_ASSERT_OBJECT(status, AirNavigationStatusPayload,
+        SILVERSTAR_ASSERT_MODULE_PROTOCOL);
+    if ((air_type < AIR_TYPE_NAV_CAPABILITY) || (air_type > AIR_TYPE_NAV_HEALTH))
+    {
+        return AIR_BUILD_BAD_TYPE;
+    }
+    if (out_size < AIR_NAV_CAPABILITY_LEN) { return AIR_BUILD_BAD_LEN; }
+    out_frame[0] = air_type;
+    out_frame[1] = seq;
+    Air_PutU16Le(&out_frame[2], status->session);
+    Air_PutU16Le(&out_frame[4], status->generation);
+    (void)memcpy(&out_frame[6], status->tail, sizeof(status->tail));
+    if (Air_NavigationFrameValidate(out_frame) != AIR_PARSE_OK)
+    {
+        return AIR_BUILD_BAD_PARAM;
+    }
+    *out_len = AIR_NAV_CAPABILITY_LEN;
+    return AIR_BUILD_OK;
 }
 
 AirBuildResult Air_CapabilityBuild(uint8_t seq,
@@ -918,6 +977,9 @@ uint8_t Air_CmdTokenIsValid(uint8_t cmd_id, uint32_t token)
             return (token == AIR_TOKEN_LOCK) ? 1U : 0U;
         case AIR_CMD_UNLOCK:
             return (token == AIR_TOKEN_UNLOCK) ? 1U : 0U;
+        case AIR_CMD_NAV_SUBSCRIBE:
+            return (uint8_t)(((token & 0xFFFF0000UL) == AIR_TOKEN_NAV_SUBSCRIBE) &&
+                ((token & 0xFFFFUL) != 0U));
         case AIR_CMD_CAL_START:
         case AIR_CMD_CAL_FACE:
         case AIR_CMD_CAL_STOP:
@@ -951,6 +1013,7 @@ uint8_t Air_CmdIdIsValid(uint8_t cmd_id)
         case AIR_CMD_UNLOCK:
         case AIR_CMD_CAPABILITY_ACK:
         case AIR_CMD_CAL_START:
+        case AIR_CMD_NAV_SUBSCRIBE:
         case AIR_CMD_CAL_FACE:
         case AIR_CMD_CAL_STOP:
         case AIR_CMD_CAL_RESET:

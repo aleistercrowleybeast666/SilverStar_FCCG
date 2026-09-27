@@ -15,6 +15,8 @@
 #define ESTIMATOR_HEALTH_GNSS_MEASUREMENT_INVALID  (1U << 4)
 #define ESTIMATOR_HEALTH_BARO_MEASUREMENT_INVALID  (1U << 5)
 #define ESTIMATOR_HEALTH_GEODESY_ERROR              (1U << 6)
+#define ESTIMATOR_HEALTH_FUSION_TIMEOUT             (1U << 7)
+#define ESTIMATOR_HEALTH_LOG_EVENT_FAILED           (1U << 8)
 
 #define ESTIMATOR_MEAS_POSITION_ACCEPTED (1U << 0)
 #define ESTIMATOR_MEAS_POSITION_SOFT     (1U << 1)
@@ -109,6 +111,16 @@ typedef struct
 } EstimatorInitialStateSnapshot;
 
 void AppTask_Estimator(void *argument);
+typedef struct
+{
+    uint32_t generation;
+    uint8_t initialized;
+    uint8_t algorithm_id;
+    uint8_t last_result;
+} EstimatorPreparationSnapshot;
+
+SystemDeviceResult EstimatorTask_PrepareNavigation(void);
+SystemDeviceResult EstimatorTask_PreparationGet(EstimatorPreparationSnapshot *snapshot);
 SystemDeviceResult EstimatorTask_FreezeOrigins(void);
 SystemDeviceResult EstimatorTask_InitializeMission(void);
 void EstimatorTask_AbortMission(void);

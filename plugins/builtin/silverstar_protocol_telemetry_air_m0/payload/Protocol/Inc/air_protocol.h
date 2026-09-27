@@ -18,6 +18,12 @@
 #define AIR_CAPABILITY_LEN                 9U
 #define AIR_PREFLIGHT_STATUS_LEN            9U
 #define AIR_SENSOR_STATUS_LEN               9U
+#define AIR_NAV_CAPABILITY_LEN              9U
+#define AIR_NAV_PREPARATION_LEN             9U
+#define AIR_NAV_HEALTH_LEN                  9U
+#define AIR_NAV_SCHEMA_VERSION             1U
+#define AIR_NAV_PREPARATION_MASK            0x7FU
+#define AIR_NAV_GROUP_MASK                  0x1FU
 #define AIR_STATUS_LEN                     9U
 #define AIR_CMD_LEN                        9U
 #define AIR_ACK_LEN                        9U
@@ -27,6 +33,7 @@
 #define AIR_TOKEN_UNLOCK                  0x55AA6996UL
 #define AIR_TOKEN_CALIBRATION             0x43414C30UL
 #define AIR_TOKEN_ALIGNMENT               0x414C4947UL
+#define AIR_TOKEN_NAV_SUBSCRIBE           0x4E560000UL
 
 #define AIR_CALIBRATION_MODE_MASK_NONE       (1U << 0)
 #define AIR_CALIBRATION_MODE_MASK_ONE_FACE   (1U << 1)
@@ -71,6 +78,9 @@ typedef enum
     AIR_TYPE_CAPABILITY     = 0x12U,
     AIR_TYPE_PREFLIGHT_STATUS = 0x13U,
     AIR_TYPE_SENSOR_STATUS  = 0x14U,
+    AIR_TYPE_NAV_CAPABILITY = 0x15U,
+    AIR_TYPE_NAV_PREPARATION = 0x16U,
+    AIR_TYPE_NAV_HEALTH = 0x17U,
     AIR_TYPE_STATUS         = 0x20U,
     AIR_TYPE_CMD            = 0x30U,
     AIR_TYPE_ACK            = 0x40U
@@ -197,7 +207,8 @@ typedef enum
     AIR_CMD_CAL_RESET          = 0x0AU,
     AIR_CMD_ALIGN_START        = 0x0BU,
     AIR_CMD_ALIGN_STOP         = 0x0CU,
-    AIR_CMD_ALIGN_RESET        = 0x0DU
+    AIR_CMD_ALIGN_RESET        = 0x0DU,
+    AIR_CMD_NAV_SUBSCRIBE      = 0x0EU
 } AirCmdId;
 
 typedef enum
@@ -285,6 +296,18 @@ typedef struct
     uint8_t index;
     uint8_t total;
 } AirSensorStatusPayload;
+
+/* Atomic schema-1 status: session/generation common; type owns all tail bytes. */
+typedef struct
+{
+    uint16_t session;
+    uint16_t generation;
+    uint8_t tail[3];
+} AirNavigationStatusPayload;
+
+AirBuildResult Air_NavigationStatusBuild(uint8_t seq, uint8_t air_type,
+    const AirNavigationStatusPayload *status, uint8_t *out_frame,
+    uint8_t out_size, uint8_t *out_len);
 
 typedef struct
 {

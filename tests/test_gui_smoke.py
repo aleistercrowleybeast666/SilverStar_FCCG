@@ -268,7 +268,7 @@ def test_main_window_shell_navigation_theme_and_language(tmp_path: Path, qapp) -
         assert "build_release" not in window.build_page.action_buttons
         assert "flash" not in window.build_page.action_buttons
         assert window.save_as_action.shortcut().toString() == "Ctrl+Shift+S"
-        assert window.plugin_manager_dialog.panel.plugin_table.rowCount() == 36
+        assert window.plugin_manager_dialog.panel.plugin_table.rowCount() == 65
         for index in range(window.pages.count()):
             window.navigation_list.setCurrentRow(index)
             assert window.pages.currentIndex() == index
@@ -472,7 +472,7 @@ def test_devices_page_is_physical_and_capabilities_are_on_flight_page(
         assert "磁场绝对矢量资格" in jy901b_summary.text()
 
         capability_table = window.flight_configuration_page.capability_table
-        assert capability_table.rowCount() == 18
+        assert capability_table.rowCount() == 20
         assert all(
             capability_table.cellWidget(row, 3) is None
             for row in range(capability_table.rowCount())

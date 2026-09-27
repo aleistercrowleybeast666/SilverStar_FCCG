@@ -61,12 +61,14 @@ class CapabilityResolution:
     unused_by_instance: dict[str, tuple[str, ...]]
     required_by_instance: dict[str, tuple[str, ...]] = field(default_factory=dict)
     enabled_by_instance: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    source_conflicts: tuple[str, ...] = ()
 
     @property
     def valid(self) -> bool:
         return (
             not self.missing
             and not self.invalid_overrides
+            and not self.source_conflicts
             and not any(choice.requires_selection for choice in self.choices)
         )
 
@@ -243,6 +245,7 @@ def CapabilityResolution_Resolve(
             if Capability_UserSelectable_Is(capability)
             and capability not in enabled
         )
+    source_conflicts = _SourceConflicts_Get(model, catalog, routes)
     return CapabilityResolution(
         requirements=requirements,
         routes=tuple(routes),
@@ -252,7 +255,33 @@ def CapabilityResolution_Resolve(
         unused_by_instance=unused_by_instance,
         required_by_instance=required_by_instance,
         enabled_by_instance=enabled_by_instance,
+        source_conflicts=source_conflicts,
     )
+
+
+def _SourceConflicts_Get(
+    model: ProjectModel, catalog: PluginCatalog, routes: list[CapabilityRoute]
+) -> tuple[str, ...]:
+    """A declared qualification must describe the selected physical data source."""
+    selected = {route.requirement.capability: route.provider.instance_id for route in routes}
+    conflicts: list[str] = []
+    for component in dict.fromkeys(model.ComponentIds_Get()):
+        manifest = catalog.Component_Get(component)
+        groups = manifest.metadata.get("capability_source_groups", [])
+        if not isinstance(groups, list):
+            raise ValueError(f"{component}: capability_source_groups must be a list")
+        for group in groups:
+            if not isinstance(group, list) or len(group) < 2 or any(
+                not isinstance(value, str) or not value for value in group
+            ):
+                raise ValueError(f"{component}: invalid capability source group")
+            active = {capability: selected[capability] for capability in group if capability in selected}
+            if len(set(active.values())) > 1:
+                conflicts.append(
+                    "Capabilities require one physical source / 数据与资格必须来自同一物理源: "
+                    + ", ".join(f"{capability}={instance}" for capability, instance in active.items())
+                )
+    return tuple(dict.fromkeys(conflicts))
 
 
 def CapabilitySourceOverrides_Reconcile(

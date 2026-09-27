@@ -7,6 +7,10 @@ from copy import deepcopy
 from dataclasses import dataclass, fields
 from pathlib import Path
 
+from silverstar_fccg.app.source_export import (
+    SourcePackage_Export,
+    SourcePackageExportResult,
+)
 from silverstar_fccg.build.runner import (
     BuildAction,
     BuildProgress,
@@ -14,10 +18,8 @@ from silverstar_fccg.build.runner import (
     BuildRunner,
 )
 from silverstar_fccg.build.toolchain import ToolchainDetector, ToolchainResult
-from silverstar_fccg.app.source_export import (
-    SourcePackageExportResult,
-    SourcePackage_Export,
-)
+from silverstar_fccg.core.errors import FccgError
+from silverstar_fccg.core.i18n import Translator
 from silverstar_fccg.core.view_models import (
     BoardCompatibilityView,
     CapabilityUsageView,
@@ -28,47 +30,43 @@ from silverstar_fccg.core.view_models import (
     PlatformMatchView,
     ResourceRequirementView,
 )
-from silverstar_fccg.core.errors import FccgError
-from silverstar_fccg.core.i18n import Translator
 from silverstar_fccg.core.workspace import WorkspacePolicy
-from silverstar_fccg.generator.assembler import ApplyResult, GenerationPlan, ProjectAssembler
+from silverstar_fccg.generator.assembler import (
+    ApplyResult,
+    GenerationPlan,
+    ProjectAssembler,
+)
+from silverstar_fccg.generator.hardware_preparation import (
+    HardwarePreparationFingerprint_Get,
+)
 from silverstar_fccg.generator.log_decoder_profile import (
     LogDecoderProfileHeader_Render,
     LogDecoderProfileSource_Render,
     Sha256_Get,
 )
 from silverstar_fccg.generator.render import LogDecoderProfile_Render
-from silverstar_fccg.generator.hardware_preparation import (
-    HardwarePreparationFingerprint_Get,
-)
 from silverstar_fccg.hardware import (
     BoardPluginExporter,
-    CubeMxImportResult,
     CubeMxImporter,
-    DetectedMcuFacts,
-    PlatformMatch_Resolve,
-    PlatformCompatibilityErrors_Get,
     CubeMxImportError,
+    CubeMxImportResult,
+    DetectedMcuFacts,
+    PlatformCompatibilityErrors_Get,
+    PlatformMatch_Resolve,
 )
 from silverstar_fccg.plugins.catalog import PluginCatalog
 from silverstar_fccg.plugins.installer import PluginInstaller
 from silverstar_fccg.plugins.manifest import PluginManifest
-from silverstar_fccg.project.model import (
-    DeviceInstance,
-    HardwareConfiguration,
-    ProjectModel,
-    ProjectModel_Load,
-)
 from silverstar_fccg.project.capabilities import (
+    Capability_UserSelectable_Is,
     CapabilityKind_Get,
     CapabilityResolution,
     CapabilityResolution_Resolve,
     CapabilitySourceOverrides_Reconcile,
-    Capability_UserSelectable_Is,
 )
 from silverstar_fccg.project.configuration import (
-    ProjectConfigurationResult,
     ProjectConfiguration_Reconcile,
+    ProjectConfigurationResult,
     SelectionAvailability,
 )
 from silverstar_fccg.project.lifecycle import (
@@ -76,12 +74,18 @@ from silverstar_fccg.project.lifecycle import (
     ProjectReadiness_Inspect,
 )
 from silverstar_fccg.project.logging import LoggingProfile_Reconcile
-from silverstar_fccg.project.reference import ReferenceProject_Create
+from silverstar_fccg.project.model import (
+    DeviceInstance,
+    HardwareConfiguration,
+    ProjectModel,
+    ProjectModel_Load,
+)
 from silverstar_fccg.project.quality_results import (
-    QualityResultRecord,
     QualityResult_Save,
+    QualityResultRecord,
     QualityResults_Load,
 )
+from silverstar_fccg.project.reference import ReferenceProject_Create
 from silverstar_fccg.project.resources import (
     BoardCompatibility_Resolve,
     ResourceAssignmentResult,
@@ -1112,6 +1116,12 @@ class FccgService:
                 multi_instance_ready=self.catalog.Component_Get(
                     instance.plugin
                 ).instance_policy.multi_instance_ready,
+                initialization=deepcopy(self.catalog.Component_Get(
+                    instance.plugin
+                ).metadata.get("initialization", {})),
+                runtime_defaults=deepcopy(self.catalog.Component_Get(
+                    instance.plugin
+                ).metadata.get("runtime_defaults", {})),
             )
             for instance in model.device_instances
         )
@@ -1294,6 +1304,7 @@ class FccgService:
             provides=manifest.provides,
             requirements=requirements,
             options={
+                "internal": manifest.metadata.get("internal") is True,
                 "device_category": str(
                     manifest.metadata.get("device_category", "")
                 ),

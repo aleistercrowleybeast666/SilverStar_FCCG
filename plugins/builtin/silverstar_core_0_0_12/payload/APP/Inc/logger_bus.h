@@ -70,6 +70,20 @@ LoggerBusResult LoggerBus_PureInsPush(
 LoggerBusResult LoggerBus_Kf6DiagnosticPush(
     uint64_t timestamp_us, uint32_t valid_flags,
     const FlightLogKf6DiagnosticRecord *record);
+LoggerBusResult LoggerBus_NavigationQualityPush(
+    uint64_t timestamp_us, const FlightLogNavigationQualityRecord *record);
+LoggerBusResult LoggerBus_Eskf15BodyInputPush(
+    uint64_t timestamp_us, const FlightLogEskf15BodyInputRecord *record);
+LoggerBusResult LoggerBus_Eskf15StatePush(
+    uint64_t timestamp_us, const FlightLogEskf15StateRecord *record);
+LoggerBusResult LoggerBus_Eskf15CovariancePush(
+    uint64_t timestamp_us, const FlightLogEskf15CovariancePartRecord *identity,
+    const float *covariance_row_major);
+LoggerBusResult LoggerBus_Eskf15InitialStatePush(
+    uint64_t timestamp_us, const FlightLogEskf15StateRecord *record);
+LoggerBusResult LoggerBus_Eskf15MeasurementPush(
+    uint64_t timestamp_us, const FlightLogEskf15MeasurementRecord *record);
+
 LoggerBusResult LoggerBus_Kf6FullPPush(
     uint64_t timestamp_us, const FlightLogKf6FullPRecord *record);
 LoggerBusResult LoggerBus_PowerPush(

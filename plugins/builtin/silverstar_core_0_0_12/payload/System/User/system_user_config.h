@@ -32,7 +32,11 @@
 /* -------------------------------------------------------------------------- */
 /* Local indicators                                                           */
 /* -------------------------------------------------------------------------- */
-#define SYSTEM_INDICATOR_SYSTEM_ENABLE                    1U
+/* The generated project owns the actual selected indicator. Missing binding
+ * is an invalid build; never silently enable an absent physical device. */
+#ifndef SYSTEM_INDICATOR_SYSTEM_ENABLE
+#error "System indicator selection must be bound by project_flight_config.h"
+#endif
 #ifndef SYSTEM_INDICATOR_GNSS_ENABLE
 #define SYSTEM_INDICATOR_GNSS_ENABLE                      0U
 #endif
@@ -62,21 +66,30 @@
 #ifndef SYSTEM_BUILD_ESTIMATOR_ENABLED
 #define SYSTEM_BUILD_ESTIMATOR_ENABLED 1U
 #endif
+#ifndef SYSTEM_BUILD_ESKF15_ENABLED
+#define SYSTEM_BUILD_ESKF15_ENABLED 0U
+#endif
 #define SYSTEM_MECHANIZATION_ALGORITHM \
     SYSTEM_BUILD_MECHANIZATION_ALGORITHM
 #define SYSTEM_FUSION_ALGORITHM SYSTEM_BUILD_FUSION_ALGORITHM
 
 #include "system_user_alignment_config.h"
 
+#ifndef SYSTEM_IMU_OUTPUT_RATE_HZ
 #define SYSTEM_IMU_OUTPUT_RATE_HZ                      200U
+#endif
 #define SYSTEM_HARDWARE_QUATERNION_OUTPUT_RATE_HZ      200U
+#ifndef SYSTEM_GNSS_NAVIGATION_RATE_HZ
 #define SYSTEM_GNSS_NAVIGATION_RATE_HZ                 25U
+#endif
 #define SYSTEM_GNSS_CONSTELLATION_MASK                 \
     (SYSTEM_GNSS_CONSTELLATION_GPS |                   \
      SYSTEM_GNSS_CONSTELLATION_BDS |                   \
      SYSTEM_GNSS_CONSTELLATION_GALILEO)
+#ifndef SYSTEM_GNSS_DYNAMIC_MODEL
 #define SYSTEM_GNSS_DYNAMIC_MODEL                      \
     SYSTEM_GNSS_DYNAMIC_MODEL_AIRBORNE_4G
+#endif
 #define SYSTEM_GNSS_OUTPUT_PROTOCOL                    \
     SYSTEM_GNSS_OUTPUT_PROTOCOL_UBX
 #define SYSTEM_GNSS_ENABLED_MESSAGE_MASK               \

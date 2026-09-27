@@ -3,8 +3,11 @@
 #include "app_tasks.h"
 #include "task.h"
 #include "estimator_bus.h"
+#include "estimator_task.h"
 #include "imu_sample_bus.h"
+#if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
 #include "logger_bus.h"
+#endif
 #include "platform_gpio.h"
 #include "platform_critical.h"
 #include "project_resources.h"
@@ -13,6 +16,7 @@
 #include "system_calibration.h"
 #include "system_gnss_if.h"
 #include "system_indicator.h"
+#include "system_navigation_health.h"
 #include "system_user_config.h"
 #include "test_common.h"
 
@@ -23,6 +27,25 @@ static uint8_t s_gpio_level;
 static uint8_t s_alignment_initialized;
 static uint64_t s_now_us;
 static TaskHandle_t s_telemetry_handle;
+
+SystemDeviceResult EstimatorTask_PreparationGet(EstimatorPreparationSnapshot *snapshot)
+{
+    if (snapshot == NULL) { return SYSTEM_DEVICE_INVALID_ARGUMENT; }
+    (void)memset(snapshot, 0, sizeof(*snapshot));
+    return SYSTEM_DEVICE_NOT_READY;
+}
+
+SystemDeviceResult SystemNavigationHealth_GroupGet(uint8_t group,
+    uint64_t evaluation_us, SystemNavigationGroupHealth *snapshot)
+{
+    if ((group >= SYSTEM_NAVIGATION_GROUP_COUNT) || (snapshot == NULL))
+    {
+        return SYSTEM_DEVICE_INVALID_ARGUMENT;
+    }
+    (void)memset(snapshot, 0, sizeof(*snapshot));
+    snapshot->last_receive_us = evaluation_us;
+    return SYSTEM_DEVICE_NOT_READY;
+}
 
 PlatformCriticalState PlatformCritical_Enter(void) { return 0U; }
 void PlatformCritical_Exit(PlatformCriticalState state) { (void)state; }
@@ -52,7 +75,9 @@ SystemDeviceResult SystemGnss_LatestSampleGet(SystemGnssSample *sample)
 SystemDeviceResult SystemInertial_Init(void) { return SYSTEM_DEVICE_OK; }
 ImuSampleBusResult ImuSampleBus_Init(void) { return IMU_SAMPLE_BUS_RESULT_OK; }
 EstimatorBusResult EstimatorBus_Init(void) { return ESTIMATOR_BUS_RESULT_OK; }
+#if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
 LoggerBusResult LoggerBus_Init(void) { return LOGGER_BUS_RESULT_OK; }
+#endif
 void AppTask_Device(void *argument) { (void)argument; }
 void AppTask_Ins(void *argument) { (void)argument; }
 void AppTask_Estimator(void *argument) { (void)argument; }
@@ -95,7 +120,7 @@ int main(void)
 
     /* No test-side Calibration/Alignment/Indicator Init or CAL_START. */
     TEST_CHECK(AppTasks_Init() == AppTasksInitResult_Ok);
-    TEST_CHECK(s_created == 7U);
+    TEST_CHECK(s_created == (6U + (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U ? 1U : 0U)));
     TEST_CHECK(s_selector_calls == 0U);
     TEST_CHECK(SystemCalibration_StatusGet(&calibration) == SYSTEM_DEVICE_OK);
     TEST_CHECK(calibration.mode == SYSTEM_CALIBRATION_MODE_NONE);

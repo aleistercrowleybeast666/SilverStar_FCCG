@@ -81,6 +81,11 @@ static PlatformUartDiagnostics s_uart_diagnostics;
 static uint32_t s_tick_ms = 100U;
 static TestResponseMode s_mode;
 static uint8_t s_request_version_valid;
+static uint16_t s_layer_measurement_ms[3] = {40U, 40U, 40U};
+static uint32_t s_layer_writes[3];
+static uint8_t s_ignore_config_write;
+static uint8_t s_drop_config_ack;
+static uint8_t s_wrong_model;
 
 static uint16_t Test_ReadU16Le(const uint8_t *data)
 {
@@ -278,7 +283,7 @@ static void Test_ValgetRespond(const uint8_t *request_payload,
     (void)memset(payload, 0, sizeof(payload));
     payload[0] = 0x01U;
     payload[1] = (uint8_t)(((s_mode == TEST_RESPONSE_BAD_LAYER) &&
-                            (contains_failure != 0U)) ? 0x03U : 0x00U);
+                            (contains_failure != 0U)) ? 0x03U : request_payload[1]);
     payload[2] = (uint8_t)(((s_mode == TEST_RESPONSE_BAD_POSITION) &&
                             (contains_failure != 0U)) ? 0x01U : 0x00U);
     payload[3] = 0x00U;
@@ -293,6 +298,8 @@ static void Test_ValgetRespond(const uint8_t *request_payload,
             key ^= 0x00000001UL;
         }
         value = Test_KeyValue(key);
+        if ((key == 0x30210001UL) && (request_payload[1] < 3U))
+        { value = s_layer_measurement_ms[request_payload[1]]; }
         value_length = Test_KeyValueLength(key);
         Test_WriteU32Le(&payload[response_length], key);
         response_length = (uint16_t)(response_length + 4U);
@@ -413,6 +420,37 @@ PlatformResult PlatformUart_Write(PlatformUartId id,
              (data[3] == TEST_NAV_SAT_ID))
     {
         Test_NavSatRespond();
+    }
+    else if ((data[2] == TEST_MON_CLASS) && (data[3] == 4U))
+    {
+        uint8_t version[100] = {0U};
+        uint8_t frame[108];
+        uint16_t frame_length;
+        (void)memcpy(&version[40], (s_wrong_model != 0U) ? "MOD=NEO-M8N" : "MOD=NEO-M9N", 11U);
+        (void)memcpy(&version[70], "PROTVER=27.12", 12U);
+        frame_length = Test_FrameBuild(TEST_MON_CLASS, 4U, version, 100U, frame);
+        Test_FrameInject(frame, frame_length, 0U);
+    }
+    else if ((data[2] == TEST_CFG_CLASS) && (data[3] == 0x8AU))
+    {
+        uint8_t layer;
+        uint8_t ack[2] = {TEST_CFG_CLASS, 0x8AU};
+        uint8_t frame[16];
+        uint16_t frame_length;
+        TEST_CHECK(payload_length == 10U);
+        TEST_CHECK(Test_ReadU32Le(&data[10]) == 0x30210001UL);
+        for (layer = 0U; layer < 3U; layer++)
+        {
+            if ((data[7] & (uint8_t)(1U << layer)) == 0U) { continue; }
+            s_layer_writes[layer]++;
+            if (s_ignore_config_write == 0U)
+            { s_layer_measurement_ms[layer] = Test_ReadU16Le(&data[14]); }
+        }
+        if (s_drop_config_ack == 0U)
+        {
+            frame_length = Test_FrameBuild(TEST_ACK_CLASS, 1U, ack, 2U, frame);
+            Test_FrameInject(frame, frame_length, 0U);
+        }
     }
     else if ((data[2] == TEST_MON_CLASS) &&
              (data[3] == TEST_MON_RF_ID))
@@ -790,6 +828,40 @@ static void Test_DiscontinuityCompletesTransactions(void)
                GnssNeoM9nTransactionDetailRxDiscontinuity);
 }
 
+static void Test_ConfigDiffReadbackPersistence(void)
+{
+    uint8_t saved_count = 0U;
+    s_mode = TEST_RESPONSE_OK;
+    TEST_CHECK(GnssNeoM9n_Init() == GnssNeoM9n_InitOk);
+    s_layer_measurement_ms[0] = 1000U;
+    s_layer_measurement_ms[1] = 1000U;
+    s_layer_measurement_ms[2] = 1000U;
+    TEST_CHECK(GnssNeoM9n_ConfigNavRate(0U, GNSS_CFG_LAYER_RAM, 25U) == 0);
+    TEST_CHECK(s_layer_writes[0] == 1U && s_layer_writes[1] == 0U && s_layer_writes[2] == 0U);
+    TEST_CHECK(GnssNeoM9n_ConfigNavRate(0U, GNSS_CFG_LAYER_RAM, 25U) == 0);
+    TEST_CHECK(s_layer_writes[0] == 1U);
+    TEST_CHECK(GnssNeoM9n_SaveConfig(0U, GNSS_CFG_LAYER_BBR | GNSS_CFG_LAYER_FLASH, &saved_count) == 0);
+    TEST_CHECK(s_layer_writes[1] == 1U && s_layer_writes[2] == 1U);
+    TEST_CHECK(GnssNeoM9n_SaveConfig(0U, GNSS_CFG_LAYER_BBR | GNSS_CFG_LAYER_FLASH, &saved_count) == 0);
+    TEST_CHECK(s_layer_writes[1] == 1U && s_layer_writes[2] == 1U);
+    s_ignore_config_write = 1U;
+    TEST_CHECK(GnssNeoM9n_ConfigNavRate(0U, GNSS_CFG_LAYER_RAM, 10U) == -4);
+    TEST_CHECK(s_layer_measurement_ms[0] == 40U);
+    s_ignore_config_write = 0U;
+    s_drop_config_ack = 1U;
+    TEST_CHECK(GnssNeoM9n_ConfigNavRate(0U, GNSS_CFG_LAYER_BBR, 10U) == -2);
+    TEST_CHECK(s_layer_writes[1] == 2U);
+    s_drop_config_ack = 0U;
+    TEST_CHECK(GnssNeoM9n_ConfigNavRate(0U, GNSS_CFG_LAYER_BBR, 10U) == 0);
+    TEST_CHECK(s_layer_writes[1] == 2U);
+    s_wrong_model = 1U;
+    TEST_CHECK(GnssNeoM9n_Init() == GnssNeoM9n_InitOk);
+    TEST_CHECK(GnssNeoM9n_Identify(0U) == GnssNeoM9nIdentifyWrongModel);
+    TEST_CHECK(GnssNeoM9n_ConfigNavRate(0U, GNSS_CFG_LAYER_RAM, 25U) == -4);
+    TEST_CHECK(s_layer_writes[1] == 2U);
+    s_wrong_model = 0U;
+}
+
 int main(void)
 {
     (void)memset(&s_uart_diagnostics, 0, sizeof(s_uart_diagnostics));
@@ -800,5 +872,6 @@ int main(void)
     Test_DiagnosticParsers();
     Test_AsyncRuntimeTransactions();
     Test_DiscontinuityCompletesTransactions();
+    Test_ConfigDiffReadbackPersistence();
     return Test_Finish("neo_m9n_device");
 }

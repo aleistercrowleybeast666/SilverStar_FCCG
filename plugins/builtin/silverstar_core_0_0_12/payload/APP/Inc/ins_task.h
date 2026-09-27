@@ -43,6 +43,7 @@ typedef struct
 void AppTask_Ins(void *argument);
 SystemDeviceResult InsTask_PrepareStart(void);
 SystemDeviceResult InsTask_InitializeMission(void);
+SystemDeviceResult InsTask_PrepareNavigation(const float q_nb[4]);
 void InsTask_AbortMission(void);
 uint8_t Ins_IsMissionRunning(void);
 uint8_t Ins_IsReadyForMission(void);

@@ -24,8 +24,10 @@
 #include "system_calibration.h"
 #include "system_estimator_diagnostics.h"
 #include "system_health.h"
+#include "system_navigation_health.h"
 #include "system_hardware_quaternion_if.h"
 #include "system_imu_if.h"
+#include "system_navigation_backend.h"
 #include "system_lifecycle.h"
 #include "system_magnetometer_if.h"
 #include "system_navigation_profile.h"
@@ -115,7 +117,7 @@ static void InsTask_DiagnosticsPublish(void)
         (s_mission_running != 0U) && (output.update_seq != 0U) &&
         (output.ins_valid != 0U));
     diagnostics.bias_ready = calibration.ready;
-    if ((SYSTEM_BUILD_ESTIMATOR_ENABLED != 0U) && (s_mission_running != 0U))
+    if ((SYSTEM_FUSION_ALGORITHM != SYSTEM_FUSION_NONE) && (s_mission_running != 0U))
     {
         InsTask_NavigationDiagnosticsApply(&diagnostics);
     }
@@ -151,6 +153,7 @@ static uint8_t InsTask_SampleCorrect(const InsImuSample *source,
         return 0U;
     }
     destination->timestamp_us = source->sample_timestamp_us;
+    destination->quality_flags = source->quality_flags;
     if (SystemCalibration_ImuCorrectionApply(
             source->accel_b_mps2,
             source->gyro_b_radps,
@@ -546,6 +549,63 @@ static void InsTask_PureOutputPublish(const InsState *state)
     InsTask_OutputPublish();
 }
 
+static float s_eskf_gyro_pair[2][3];
+static float s_eskf_accel_pair[2][3];
+static uint32_t s_eskf_quality_flags;
+
+/* Integrate the actual adjacent sample segments onto two equal physical halves.
+ * This preserves nonuniform timestamp spacing without duplicating coning. */
+static float InsTask_HalfMean(float first, float middle, float last,
+    uint64_t middle_us, uint64_t end_us, uint8_t half)
+{
+    const float values[3] = {first, middle, last};
+    const uint64_t times[3] = {0U, middle_us, end_us};
+    uint64_t begin = (half == 0U) ? 0U : end_us / 2U;
+    uint64_t end = (half == 0U) ? end_us / 2U : end_us;
+    float integral = 0.0f;
+    SILVERSTAR_ASSERT((middle_us > 0U) && (end_us > middle_us),
+        SILVERSTAR_ASSERT_MODULE_APP, SILVERSTAR_ASSERT_REASON_STATE_INVARIANT);
+    SILVERSTAR_ASSERT(half < 2U, SILVERSTAR_ASSERT_MODULE_APP, SILVERSTAR_ASSERT_REASON_ENUM_RANGE);
+    for (uint8_t segment = 0U; segment < 2U; segment++)
+    {
+        uint64_t left = (begin > times[segment]) ? begin : times[segment];
+        uint64_t right = (end < times[segment + 1U]) ? end : times[segment + 1U];
+        if (right > left)
+        {
+            float span = (float)(times[segment + 1U] - times[segment]);
+            float fraction = ((float)(left - times[segment]) + (float)(right - times[segment])) / span;
+            float mean = values[segment] + 0.5f * fraction * (values[segment + 1U] - values[segment]);
+            integral += mean * (float)(right - left);
+        }
+    }
+    return integral / (float)(end - begin);
+}
+
+static void InsTask_BodyPairBuild(const InsAlgorithmSample *last)
+{
+    const InsAlgorithmSample *first = &s_navigation_input.inertial.sample_history[0];
+    const InsAlgorithmSample *middle = &s_navigation_input.inertial.sample_history[1];
+    uint64_t middle_us, end_us;
+    SILVERSTAR_ASSERT_OBJECT(last, InsAlgorithmSample, SILVERSTAR_ASSERT_MODULE_APP);
+    SILVERSTAR_ASSERT(s_navigation_input.inertial.sample_count == 2U,
+        SILVERSTAR_ASSERT_MODULE_APP, SILVERSTAR_ASSERT_REASON_STATE_INVARIANT);
+    s_eskf_quality_flags = first->quality_flags | middle->quality_flags | last->quality_flags;
+    if ((middle->timestamp_us <= first->timestamp_us) || (last->timestamp_us <= middle->timestamp_us))
+    { s_eskf_quality_flags |= SYSTEM_IMU_QUALITY_TIME_DISCONTINUITY; return; }
+    middle_us = middle->timestamp_us - first->timestamp_us;
+    end_us = last->timestamp_us - first->timestamp_us;
+    for (uint8_t half = 0U; half < 2U; half++)
+    {
+        for (uint8_t axis = 0U; axis < 3U; axis++)
+        {
+            s_eskf_gyro_pair[half][axis] = InsTask_HalfMean(first->gyro_b_radps[axis],
+                middle->gyro_b_radps[axis], last->gyro_b_radps[axis], middle_us, end_us, half);
+            s_eskf_accel_pair[half][axis] = InsTask_HalfMean(first->accel_b_mps2[axis],
+                middle->accel_b_mps2[axis], last->accel_b_mps2[axis], middle_us, end_us, half);
+        }
+    }
+}
+
 static void InsTask_InertialOutputsPublish(
     const InsImuSample *imu_sample,
     const InsState *state)
@@ -565,6 +625,11 @@ static void InsTask_InertialOutputsPublish(
     increment.timestamp_us = state->timestamp_us;
     increment.sequence = ++s_increment_sequence;
     increment.dt_s = state->dt_s;
+    if (SYSTEM_FUSION_ALGORITHM == SYSTEM_FUSION_ESKF15)
+    {
+        SystemNavigationBackend_BodyInputFill(&increment, &s_eskf_gyro_pair[0][0],
+            &s_eskf_accel_pair[0][0], s_eskf_quality_flags);
+    }
     (void)memcpy(increment.delta_theta_b_corrected,
                  state->delta_theta_b_coning_corrected,
                  sizeof(increment.delta_theta_b_corrected));
@@ -572,7 +637,7 @@ static void InsTask_InertialOutputsPublish(
                  state->delta_velocity_b_sculling_corrected,
                  sizeof(increment.delta_velocity_b_sculling_corrected));
 
-    if (SYSTEM_BUILD_ESTIMATOR_ENABLED == 0U)
+    if (SYSTEM_FUSION_ALGORITHM == SYSTEM_FUSION_NONE)
     {
         InsTask_PureOutputPublish(state);
     }
@@ -584,10 +649,10 @@ static void InsTask_InertialOutputsPublish(
     increment_record.sequence = increment.sequence;
     increment_record.dt_s = increment.dt_s;
     (void)memcpy(increment_record.delta_theta_b_corrected,
-                 increment.delta_theta_b_corrected,
+                 state->delta_theta_b_coning_corrected,
                  sizeof(increment_record.delta_theta_b_corrected));
     (void)memcpy(increment_record.delta_velocity_b_sculling_corrected,
-                 increment.delta_velocity_b_sculling_corrected,
+                 state->delta_velocity_b_sculling_corrected,
                  sizeof(increment_record.delta_velocity_b_sculling_corrected));
     increment_record.health_flags = state->health_flags;
     (void)LoggerBus_InertialIncrementPush(state->timestamp_us,
@@ -595,7 +660,7 @@ static void InsTask_InertialOutputsPublish(
                                           &increment_record);
 #endif
     (void)EstimatorBus_PredictionPush(&increment);
-    if (SYSTEM_BUILD_ESTIMATOR_ENABLED != 0U)
+    if (SYSTEM_FUSION_ALGORITHM != SYSTEM_FUSION_NONE)
     {
         InsTask_DiagnosticsPublish();
     }
@@ -635,9 +700,16 @@ static void InsTask_Propagate(const InsImuSample *imu_sample)
     if (imu_sample == NULL) { return; }
     SILVERSTAR_ASSERT_OBJECT(imu_sample, InsImuSample,
         SILVERSTAR_ASSERT_MODULE_APP);
+    SystemNavigationHealth_ImuQualityRecord(imu_sample->quality_flags);
+    if ((imu_sample->quality_flags & 0x72U) != 0U) { return; }
     if (InsTask_SampleCorrect(imu_sample, &algorithm_sample) == 0U) { return; }
-    if (SYSTEM_BUILD_ESTIMATOR_ENABLED != 0U)
+    if (SYSTEM_FUSION_ALGORITHM != SYSTEM_FUSION_NONE)
     {
+        if ((SYSTEM_FUSION_ALGORITHM == SYSTEM_FUSION_ESKF15) &&
+            (s_navigation_input.inertial.sample_count == 2U))
+        {
+            InsTask_BodyPairBuild(&algorithm_sample);
+        }
         if (InsInertial_Update(&s_navigation_input.inertial,
                 &algorithm_sample, &state) != INS_INERTIAL_UPDATE_READY)
         {
@@ -651,7 +723,7 @@ static void InsTask_Propagate(const InsImuSample *imu_sample)
     }
     InsTask_InertialOutputsPublish(imu_sample, &state);
 #if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
-    if (SYSTEM_BUILD_ESTIMATOR_ENABLED == 0U)
+    if (SYSTEM_FUSION_ALGORITHM == SYSTEM_FUSION_NONE)
     {
         InsTask_PureRecordWrite(imu_sample, &state);
     }
@@ -795,6 +867,19 @@ SystemDeviceResult InsTask_PrepareStart(void)
     return InsTask_StartFreezeFinalize(profile, now_us, freeze_result);
 }
 
+SystemDeviceResult InsTask_PrepareNavigation(const float q_nb[4])
+{
+    uint32_t lock;
+    uint8_t initialized;
+    if (q_nb == NULL) { return SYSTEM_DEVICE_INVALID_ARGUMENT; }
+    SILVERSTAR_ASSERT_OBJECT(q_nb, float, SILVERSTAR_ASSERT_MODULE_APP);
+    if (s_mission_running != 0U) { return SYSTEM_DEVICE_BAD_STATE; }
+    lock = InsTask_IrqLock();
+    initialized = InsMechanization_ResetNavigationWithAttitude(&s_navigation_input.pure_ins, q_nb);
+    InsTask_IrqUnlock(lock);
+    return initialized ? SYSTEM_DEVICE_OK : SYSTEM_DEVICE_VERIFY_FAILED;
+}
+
 SystemDeviceResult InsTask_InitializeMission(void)
 {
     float initial_q_nb[4];
@@ -810,7 +895,7 @@ SystemDeviceResult InsTask_InitializeMission(void)
         return SYSTEM_DEVICE_NOT_READY;
     }
     InsInertial_Reset(&s_navigation_input.inertial);
-    if ((SYSTEM_BUILD_ESTIMATOR_ENABLED == 0U) &&
+    if ((SYSTEM_FUSION_ALGORITHM == SYSTEM_FUSION_NONE) &&
         (InsMechanization_ResetNavigationWithAttitude(
             &s_navigation_input.pure_ins, initial_q_nb) == 0U))
     {
@@ -910,7 +995,7 @@ uint8_t Ins_GetLatestSnapshot(InsOutputSnapshot *snapshot)
     {
         return 0U;
     }
-    if ((SYSTEM_BUILD_ESTIMATOR_ENABLED != 0U) && (s_mission_running != 0U))
+    if ((SYSTEM_FUSION_ALGORITHM != SYSTEM_FUSION_NONE) && (s_mission_running != 0U))
     {
         (void)memset(snapshot, 0, sizeof(*snapshot));
         return 0U;

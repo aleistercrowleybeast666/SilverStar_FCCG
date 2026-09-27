@@ -387,7 +387,7 @@ def _Pull_Normalize(value: str) -> str:
 
 def _OutputType_Normalize(value: str, signal: str) -> str:
     upper = value.upper()
-    if "OD" in upper or "OPEN_DRAIN" in upper:
+    if re.search(r"(?:^|_)OD(?:_|$)", upper) or "OPEN_DRAIN" in upper:
         return "open_drain"
     if signal == "GPIO_Output" or "PP" in upper or "PUSH_PULL" in upper:
         return "push_pull"
@@ -409,9 +409,9 @@ def _Speed_Normalize(value: str, signal: str) -> str:
 
 def _Level_Normalize(value: str, signal: str) -> str:
     upper = value.upper()
-    if "SET" in upper or upper in {"HIGH", "1"}:
+    if re.search(r"(?:^|_)SET(?:_|$)", upper) or upper in {"HIGH", "1"}:
         return "high"
-    if "RESET" in upper or upper in {"LOW", "0"}:
+    if re.search(r"(?:^|_)RESET(?:_|$)", upper) or upper in {"LOW", "0"}:
         return "low"
     return "low" if signal == "GPIO_Output" else ""
 

@@ -1,0 +1,10 @@
+FCCG_PROGRESS|POWER10|PLAN|4
+FCCG_PROGRESS|POWER10|BEGIN|1|4|Algorithm\Estimator\KF6\Src\navigation_kf.c
+FCCG_PROGRESS|POWER10|DONE|1|4|Algorithm\Estimator\KF6\Src\navigation_kf.c
+FCCG_PROGRESS|POWER10|BEGIN|2|4|APP\Src\estimator_task.c
+FCCG_PROGRESS|POWER10|DONE|2|4|APP\Src\estimator_task.c
+FCCG_PROGRESS|POWER10|BEGIN|3|4|function_rules
+FCCG_PROGRESS|POWER10|DONE|3|4|function_rules
+FCCG_PROGRESS|POWER10|BEGIN|4|4|build_policy
+Power of Ten check passed: 549 checks, 2 first-party C files, 196 functions.
+FCCG_PROGRESS|POWER10|DONE|4|4|build_policy

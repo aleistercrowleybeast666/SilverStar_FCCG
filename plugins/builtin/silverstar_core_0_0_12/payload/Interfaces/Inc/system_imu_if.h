@@ -24,6 +24,14 @@
 
 #define SYSTEM_IMU_NOISE_VALID_PROCESS_ACCEL_STD (1UL << 0)
 
+#define SYSTEM_IMU_QUALITY_NEAR_RANGE         (1UL << 0)
+#define SYSTEM_IMU_QUALITY_CLIPPED            (1UL << 1)
+#define SYSTEM_IMU_QUALITY_TIME_UNCERTAIN     (1UL << 2)
+#define SYSTEM_IMU_QUALITY_HISTORY_RESET      (1UL << 3)
+#define SYSTEM_IMU_QUALITY_TIME_DISCONTINUITY  (1UL << 4)
+#define SYSTEM_IMU_QUALITY_RANGE_UNVERIFIED   (1UL << 5)
+#define SYSTEM_IMU_QUALITY_PAIR_SKEW          (1UL << 6)
+
 typedef struct
 {
     uint64_t sample_timestamp_us;
@@ -35,6 +43,9 @@ typedef struct
     float gyro_b_radps[3];
     float temperature_c;
     uint32_t valid_mask;
+    /* Raw samples retain their actual sign/value even at the ADC rails.
+     * A receive-time proxy is never advertised as a hardware sample epoch. */
+    uint32_t quality_flags;
 } SystemImuSample;
 
 typedef struct
@@ -62,6 +73,8 @@ typedef struct
     uint32_t valid_frame_count;
     uint32_t checksum_error_count;
     uint32_t parser_resync_count;
+    uint32_t config_generation;
+    uint8_t config_generation_valid;
 } SystemImuIoDetail;
 
 const char *SystemImu_NameGet(void);

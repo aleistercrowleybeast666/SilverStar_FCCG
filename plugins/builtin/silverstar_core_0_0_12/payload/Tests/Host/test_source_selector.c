@@ -2,7 +2,9 @@
 #include <stdint.h>
 #include <string.h>
 
+#if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
 #include "logger_bus.h"
+#endif
 #include "platform_critical.h"
 #include "project_device_instances.h"
 #include "system_gnss_if.h"
@@ -15,12 +17,14 @@
 #define TEST_INSTANCE_COUNT 3U
 #define TEST_EVENT_COUNT_MAX 32U
 
+#if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
 typedef struct
 {
     FlightLogEventId event_id;
     uint32_t arg0;
     uint32_t arg1;
 } TestEvent;
+#endif
 
 static uint8_t s_imu_count = TEST_INSTANCE_COUNT;
 static uint8_t s_gnss_count = TEST_INSTANCE_COUNT;
@@ -57,7 +61,9 @@ static uint32_t s_telemetry_send_count[TEST_INSTANCE_COUNT];
 static uint32_t s_telemetry_receive_count[TEST_INSTANCE_COUNT];
 static uint32_t s_telemetry_process_count[TEST_INSTANCE_COUNT];
 
+#if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
 static TestEvent s_events[TEST_EVENT_COUNT_MAX];
+#endif
 static uint8_t s_event_count;
 
 static void Test_StateReset(void)
@@ -94,7 +100,9 @@ static void Test_StateReset(void)
                  sizeof(s_telemetry_receive_count));
     (void)memset(s_telemetry_process_count, 0,
                  sizeof(s_telemetry_process_count));
+#if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
     (void)memset(s_events, 0, sizeof(s_events));
+#endif
     s_event_count = 0U;
     for (instance = 0U; instance < TEST_INSTANCE_COUNT; instance++)
     {
@@ -410,6 +418,7 @@ uint64_t SystemTime_GetMonotonicUs(void) { return s_now_us; }
 PlatformCriticalState PlatformCritical_Enter(void) { return 0U; }
 void PlatformCritical_Exit(PlatformCriticalState state) { (void)state; }
 
+#if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
 LoggerBusResult LoggerBus_EventPush(
     uint64_t timestamp_us, FlightLogEventId event_id,
     uint32_t arg0, uint32_t arg1)
@@ -426,6 +435,14 @@ LoggerBusResult LoggerBus_EventPush(
 
 static uint8_t Test_EventReasonGet(uint8_t index)
 { return (uint8_t)(s_events[index].arg0 >> 24U); }
+#endif
+
+static void Test_EventCountAssert(uint8_t enabled_count)
+{
+    /* Disabled logging must leave the event sink absent. The source-selection
+     * and timeout assertions below execute unchanged in both configurations. */
+    TEST_CHECK(s_event_count == ((SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U) ? enabled_count : 0U));
+}
 
 static uint8_t Test_ActiveGet(
     SystemDeviceResult (*getter)(uint8_t *))
@@ -465,11 +482,13 @@ static void Test_ImuSelectionAndLock(void)
                SYSTEM_DEVICE_OK);
     TEST_CHECK(Test_ActiveGet(
         SystemSourceSelector_ImuActiveInstanceGet) == 2U);
-    TEST_CHECK(s_event_count == 1U);
+    Test_EventCountAssert(1U);
+#if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
     TEST_CHECK(s_events[0].event_id ==
                FLIGHT_LOG_EVENT_SENSOR_SOURCE_CHANGE);
     TEST_CHECK(Test_EventReasonGet(0U) ==
                SYSTEM_SOURCE_CHANGE_REASON_PRESTART_PRIMARY_UNAVAILABLE);
+#endif
     for (instance = 0U; instance < TEST_INSTANCE_COUNT; instance++)
     { TEST_CHECK(s_imu_process_count[instance] == 1U); }
 
@@ -478,7 +497,7 @@ static void Test_ImuSelectionAndLock(void)
     SystemImu_Process();
     TEST_CHECK(Test_ActiveGet(
         SystemSourceSelector_ImuActiveInstanceGet) == 2U);
-    TEST_CHECK(s_event_count == 1U);
+    Test_EventCountAssert(1U);
 }
 
 static void Test_GnssOneWayLiveness(void)
@@ -502,9 +521,11 @@ static void Test_GnssOneWayLiveness(void)
     SystemGnss_Process();
     TEST_CHECK(Test_ActiveGet(
         SystemSourceSelector_GnssActiveInstanceGet) == 1U);
-    TEST_CHECK(s_event_count == 1U);
+    Test_EventCountAssert(1U);
+#if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
     TEST_CHECK(Test_EventReasonGet(0U) ==
                SYSTEM_SOURCE_CHANGE_REASON_GNSS_LIVENESS_TIMEOUT);
+#endif
     s_gnss_health[0].online = 1U;
     SystemGnss_Process();
     TEST_CHECK(Test_ActiveGet(
@@ -513,12 +534,12 @@ static void Test_GnssOneWayLiveness(void)
     SystemGnss_Process();
     TEST_CHECK(Test_ActiveGet(
         SystemSourceSelector_GnssActiveInstanceGet) == 2U);
-    TEST_CHECK(s_event_count == 2U);
+    Test_EventCountAssert(2U);
     s_gnss_health[2].online = 0U;
     SystemGnss_Process();
     TEST_CHECK(Test_ActiveGet(
         SystemSourceSelector_GnssActiveInstanceGet) == 2U);
-    TEST_CHECK(s_event_count == 2U);
+    Test_EventCountAssert(2U);
     for (instance = 0U; instance < TEST_INSTANCE_COUNT; instance++)
     {
         TEST_CHECK(s_gnss_init_count[instance] == 1U);
@@ -575,9 +596,11 @@ static void Test_TelemetryThresholdAndReset(void)
     TEST_CHECK(s_telemetry_stop_count[0] == 1U);
     TEST_CHECK(s_telemetry_send_count[0] == 10U);
     TEST_CHECK(s_telemetry_send_count[1] == 0U);
-    TEST_CHECK(s_event_count == 1U);
+    Test_EventCountAssert(1U);
+#if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
     TEST_CHECK(Test_EventReasonGet(0U) ==
         SYSTEM_SOURCE_CHANGE_REASON_TELEMETRY_CONSECUTIVE_TX_TIMEOUT);
+#endif
     Test_TelemetryAttempt(1U, SYSTEM_DEVICE_OK, 1U);
     TEST_CHECK(SystemSourceSelector_TelemetryConsecutiveTimeoutCountGet() ==
                0U);
@@ -617,7 +640,7 @@ static void Test_TelemetryChainAndLastCandidate(void)
     Test_TelemetryAttempt(1U, SYSTEM_DEVICE_TIMEOUT, 10U);
     TEST_CHECK(Test_ActiveGet(
         SystemSourceSelector_TelemetryActiveInstanceGet) == 2U);
-    TEST_CHECK(s_event_count == 2U);
+    Test_EventCountAssert(2U);
     Test_TelemetryAttempt(2U, SYSTEM_DEVICE_TIMEOUT, 20U);
     TEST_CHECK(Test_ActiveGet(
         SystemSourceSelector_TelemetryActiveInstanceGet) == 2U);
@@ -626,7 +649,7 @@ static void Test_TelemetryChainAndLastCandidate(void)
     TEST_CHECK(s_telemetry_send_count[0] == 10U);
     TEST_CHECK(s_telemetry_send_count[1] == 10U);
     TEST_CHECK(s_telemetry_send_count[2] == 20U);
-    TEST_CHECK(s_event_count == 2U);
+    Test_EventCountAssert(2U);
     Test_TelemetryAttempt(2U, SYSTEM_DEVICE_OK, 1U);
     TEST_CHECK(SystemSourceSelector_TelemetryConsecutiveTimeoutCountGet() ==
                0U);
@@ -661,9 +684,11 @@ static void Test_TelemetryInitFailureSkipsCandidate(void)
     TEST_CHECK(SystemTelemetry_Init() == SYSTEM_DEVICE_OK);
     TEST_CHECK(Test_ActiveGet(
         SystemSourceSelector_TelemetryActiveInstanceGet) == 1U);
-    TEST_CHECK(s_event_count == 1U);
+    Test_EventCountAssert(1U);
+#if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
     TEST_CHECK(Test_EventReasonGet(0U) ==
                SYSTEM_SOURCE_CHANGE_REASON_TELEMETRY_INIT_FAILURE);
+#endif
     TEST_CHECK(SystemTelemetry_Start() == SYSTEM_DEVICE_OK);
     TEST_CHECK(s_telemetry_start_count[0] == 0U);
     TEST_CHECK(s_telemetry_start_count[1] == 1U);

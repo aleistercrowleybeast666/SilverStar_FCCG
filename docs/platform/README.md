@@ -13,4 +13,4 @@ FCCG自身的软件架构、插件格式、工程格式、GUI和生成器说明�
 
 ## Algorithm configuration contract
 
-Pure INS/KF6 实际参数、单位、P0/Q/R 转换与 decoder 1.2 边界见[算法参数契约](../ALGORITHM_PARAMETERS.md)。默认值保留旧算法数值行为；公式、时序与融合策略不变。
+Pure INS/KF6/ESKF15 实际参数、单位、P0/Q/R 转换与 decoder 1.2 边界见[算法参数契约](../ALGORITHM_PARAMETERS.md)。当前质量策略 revision 3、ESKF revision 1 及预飞、时序、日志的跨组件行为见[导航契约](../NAVIGATION_CONTRACT.md)。历史 decoder 按原版本复算。

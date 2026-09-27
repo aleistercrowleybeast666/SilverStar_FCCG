@@ -23,6 +23,8 @@
 #include "system_lifecycle.h"
 #include "system_lifecycle_backend.h"
 #include "system_time.h"
+#include "system_navigation_health.h"
+#include "system_navigation_profile.h"
 
 #define FLIGHT_TASK_FAULT_READY_TRANSITION 0x52445954UL
 #define FLIGHT_TASK_FAULT_RECOVERY_INIT 0x52435649UL
@@ -388,7 +390,11 @@ static void FlightTask_RecoveryEstimatorInputApply(
                      sizeof(input->velocity_enu_mps));
         input->attitude_valid = (uint8_t)(
             (estimator.initialized != 0U) &&
-            (estimator.mission_running != 0U));
+            (estimator.mission_running != 0U) &&
+            ((estimator.health_flags & ESTIMATOR_HEALTH_KF_NUMERIC_ERROR) == 0U) &&
+            (SystemNavigationHealth_OverallGet(SystemTime_GetMonotonicUs(),
+                (SYSTEM_FUSION_ALGORITHM == SYSTEM_FUSION_NONE) ? 0U : 0x0FU,
+                0U) != SYSTEM_NAVIGATION_HEALTH_INVALID));
         input->velocity_valid = input->attitude_valid;
         input->ins_timestamp_us = estimator.timestamp_us;
         input->ins_sequence = estimator.update_sequence;
@@ -925,6 +931,13 @@ void AppTask_Flight(void *argument)
         if (alignment_process_result != SYSTEM_DEVICE_OK)
         {
             /* Registration is fixed for the task lifetime; retry next cycle. */
+        }
+        if ((SystemLifecycle_GetState() == SYSTEM_STATE_PREFLIGHT) ||
+            (SystemLifecycle_GetState() == SYSTEM_STATE_READY))
+        {
+            /* The preparation snapshot records the exact result and clears READY
+             * on failure; the bounded FlightTask period permits a fresh retry. */
+            (void)EstimatorTask_PrepareNavigation();
         }
         if ((SystemLifecycle_GetState() == SYSTEM_STATE_PREFLIGHT) &&
             (SystemHealth_IsReady() != 0U))

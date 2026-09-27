@@ -19,6 +19,7 @@
 
 #define LOGGER_MAX_TEXT_LENGTH 128U
 #define LOGGER_CRITICAL_FLUSH_MAX_US 20000ULL
+#define LOGGER_STREAMING_WRITE_QUANTUM_BYTES 512U
 
 typedef struct
 {
@@ -36,6 +37,7 @@ typedef struct
     uint8_t startup_report_written;
     uint8_t decoder_profile_queued;
     uint8_t bootstrap_config_queued;
+    uint16_t sink_offset_mod_quantum;
 } LoggerRuntime;
 
 static LoggerRuntime s_logger;
@@ -112,6 +114,9 @@ static uint8_t LoggerTask_SinkWrite(const uint8_t *data, uint32_t length)
         s_diagnostics.append_failure_count++;
         return 0U;
     }
+    s_logger.sink_offset_mod_quantum = (uint16_t)(
+        ((uint32_t)s_logger.sink_offset_mod_quantum + length) %
+        LOGGER_STREAMING_WRITE_QUANTUM_BYTES);
     return 1U;
 }
 
@@ -124,6 +129,24 @@ static uint8_t LoggerTask_AggregateWrite(void)
         return 0U;
     }
     s_logger.aggregate_length = 0U;
+    return 1U;
+}
+
+static uint8_t LoggerTask_StreamingWrite(void)
+{
+    uint32_t tail = ((uint32_t)s_logger.sink_offset_mod_quantum +
+        s_logger.aggregate_length) % LOGGER_STREAMING_WRITE_QUANTUM_BYTES;
+    uint32_t prefix;
+    if (tail >= s_logger.aggregate_length) { return LoggerTask_AggregateWrite(); }
+    prefix = s_logger.aggregate_length - tail;
+    SILVERSTAR_ASSERT(prefix <= sizeof(s_aggregate_buffer),
+        SILVERSTAR_ASSERT_MODULE_APP, SILVERSTAR_ASSERT_REASON_LENGTH_RANGE);
+    /* This is only a batching optimization. Arbitrary byte lengths remain
+     * legal; critical, periodic and final flushes still write the entire tail.
+     * No record padding or DMA-buffer reuse occurs before successful return. */
+    if (LoggerTask_SinkWrite(s_aggregate_buffer, prefix) == 0U) { return 0U; }
+    s_logger.aggregate_length = tail;
+    (void)memmove(s_aggregate_buffer, &s_aggregate_buffer[prefix], tail);
     return 1U;
 }
 
@@ -315,7 +338,7 @@ static uint8_t LoggerTask_RecordAppend(const FlightLogRecord *record)
     if ((s_logger.aggregate_length + serialized_size) >
         sizeof(s_aggregate_buffer))
     {
-        if (LoggerTask_AggregateWrite() == 0U) { return 0U; }
+        if (LoggerTask_StreamingWrite() == 0U) { return 0U; }
     }
     (void)memcpy(&s_aggregate_buffer[s_logger.aggregate_length],
                  s_record_buffer, serialized_size);

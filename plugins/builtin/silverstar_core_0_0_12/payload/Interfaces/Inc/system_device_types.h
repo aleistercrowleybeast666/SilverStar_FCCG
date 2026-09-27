@@ -154,6 +154,11 @@ typedef struct
     float dt_s;
     float delta_theta_b_corrected[3];
     float delta_velocity_b_sculling_corrected[3];
+#if defined(SYSTEM_BUILD_ESKF15_ENABLED) && (SYSTEM_BUILD_ESKF15_ENABLED != 0U)
+    float body_gyro_radps[2][3];
+    float body_accel_mps2[2][3];
+    uint32_t quality_flags;
+#endif
 } SystemInertialIncrement;
 
 #endif /* __SYSTEM_DEVICE_TYPES_H */

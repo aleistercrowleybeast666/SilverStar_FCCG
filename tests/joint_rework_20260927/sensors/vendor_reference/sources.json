@@ -1,0 +1,512 @@
+[
+  {
+    "repo": "STMicroelectronics/lsm6dsv32x-pid",
+    "commit": "ba78ab6cf58e8d58ca287dc5784935de40d08f5c",
+    "path": "LICENSE",
+    "url": "https://raw.githubusercontent.com/STMicroelectronics/lsm6dsv32x-pid/ba78ab6cf58e8d58ca287dc5784935de40d08f5c/LICENSE",
+    "sha256": "b54f36a43cf9b8f6292c8f0f3b4c267ebd59859587e0152c94305bc81dda68bc",
+    "retrieved_date": "2026-09-27",
+    "usage": "Read-only register reference; not copied into production build",
+    "license": "BSD-3-Clause; retained in reference package LICENSE file"
+  },
+  {
+    "repo": "STMicroelectronics/lsm6dsv32x-pid",
+    "commit": "ba78ab6cf58e8d58ca287dc5784935de40d08f5c",
+    "path": "lsm6dsv32x_reg.c",
+    "url": "https://raw.githubusercontent.com/STMicroelectronics/lsm6dsv32x-pid/ba78ab6cf58e8d58ca287dc5784935de40d08f5c/lsm6dsv32x_reg.c",
+    "sha256": "7b9da457d2dc8087ca7bbe845ebfc2550a816ef3a5ca97bd5574e0d530de8a1e",
+    "retrieved_date": "2026-09-27",
+    "usage": "Read-only register reference; not copied into production build",
+    "license": "BSD-3-Clause; retained in reference package LICENSE file"
+  },
+  {
+    "repo": "STMicroelectronics/lsm6dsv32x-pid",
+    "commit": "ba78ab6cf58e8d58ca287dc5784935de40d08f5c",
+    "path": "lsm6dsv32x_reg.h",
+    "url": "https://raw.githubusercontent.com/STMicroelectronics/lsm6dsv32x-pid/ba78ab6cf58e8d58ca287dc5784935de40d08f5c/lsm6dsv32x_reg.h",
+    "sha256": "d01ae02970d61a69d6cad9bca8cb01aaf3b80ca696dc42e42596676cf48335ed",
+    "retrieved_date": "2026-09-27",
+    "usage": "Read-only register reference; not copied into production build",
+    "license": "BSD-3-Clause; retained in reference package LICENSE file"
+  },
+  {
+    "repo": "STMicroelectronics/lsm6dsv320x-pid",
+    "commit": "7fdcb10d2fe2195635413c95b4a2fb59642c466b",
+    "path": "LICENSE",
+    "url": "https://raw.githubusercontent.com/STMicroelectronics/lsm6dsv320x-pid/7fdcb10d2fe2195635413c95b4a2fb59642c466b/LICENSE",
+    "sha256": "b54f36a43cf9b8f6292c8f0f3b4c267ebd59859587e0152c94305bc81dda68bc",
+    "retrieved_date": "2026-09-27",
+    "usage": "Read-only register reference; not copied into production build",
+    "license": "BSD-3-Clause; retained in reference package LICENSE file"
+  },
+  {
+    "repo": "STMicroelectronics/lsm6dsv320x-pid",
+    "commit": "7fdcb10d2fe2195635413c95b4a2fb59642c466b",
+    "path": "lsm6dsv320x_reg.c",
+    "url": "https://raw.githubusercontent.com/STMicroelectronics/lsm6dsv320x-pid/7fdcb10d2fe2195635413c95b4a2fb59642c466b/lsm6dsv320x_reg.c",
+    "sha256": "e070b5d49790bf93931e84f8b72b16ad4edf333366eb4e0f6161cfb6f144ae1a",
+    "retrieved_date": "2026-09-27",
+    "usage": "Read-only register reference; not copied into production build",
+    "license": "BSD-3-Clause; retained in reference package LICENSE file"
+  },
+  {
+    "repo": "STMicroelectronics/lsm6dsv320x-pid",
+    "commit": "7fdcb10d2fe2195635413c95b4a2fb59642c466b",
+    "path": "lsm6dsv320x_reg.h",
+    "url": "https://raw.githubusercontent.com/STMicroelectronics/lsm6dsv320x-pid/7fdcb10d2fe2195635413c95b4a2fb59642c466b/lsm6dsv320x_reg.h",
+    "sha256": "2d097728229d6c83ac9232f828272428dbdd9c59a9b179747050a8cf109ea90f",
+    "retrieved_date": "2026-09-27",
+    "usage": "Read-only register reference; not copied into production build",
+    "license": "BSD-3-Clause; retained in reference package LICENSE file"
+  },
+  {
+    "repo": "boschsensortec/BMI323_SensorAPI",
+    "commit": "b3033e78bc6e2c2e473f24e6d79afef0e16c4655",
+    "path": "LICENSE",
+    "url": "https://raw.githubusercontent.com/boschsensortec/BMI323_SensorAPI/b3033e78bc6e2c2e473f24e6d79afef0e16c4655/LICENSE",
+    "sha256": "179c8853c3312def03362077b40d2beeb2f951730622e64987c4d5eef243fef4",
+    "retrieved_date": "2026-09-27",
+    "usage": "Read-only register reference; not copied into production build",
+    "license": "BSD-3-Clause; retained in reference package LICENSE file"
+  },
+  {
+    "repo": "boschsensortec/BMI323_SensorAPI",
+    "commit": "b3033e78bc6e2c2e473f24e6d79afef0e16c4655",
+    "path": "bmi3.c",
+    "url": "https://raw.githubusercontent.com/boschsensortec/BMI323_SensorAPI/b3033e78bc6e2c2e473f24e6d79afef0e16c4655/bmi3.c",
+    "sha256": "b60b860b34b7bc04589e90e212541b0f7de999ad0f5f024a61252d1846b7b2dc",
+    "retrieved_date": "2026-09-27",
+    "usage": "Read-only register reference; not copied into production build",
+    "license": "BSD-3-Clause; retained in reference package LICENSE file"
+  },
+  {
+    "repo": "boschsensortec/BMI323_SensorAPI",
+    "commit": "b3033e78bc6e2c2e473f24e6d79afef0e16c4655",
+    "path": "bmi3.h",
+    "url": "https://raw.githubusercontent.com/boschsensortec/BMI323_SensorAPI/b3033e78bc6e2c2e473f24e6d79afef0e16c4655/bmi3.h",
+    "sha256": "a28954f869a82ea8764c1441dbadd33c2f486505ed27b05676658c28872fa022",
+    "retrieved_date": "2026-09-27",
+    "usage": "Read-only register reference; not copied into production build",
+    "license": "BSD-3-Clause; retained in reference package LICENSE file"
+  },
+  {
+    "repo": "boschsensortec/BMI323_SensorAPI",
+    "commit": "b3033e78bc6e2c2e473f24e6d79afef0e16c4655",
+    "path": "bmi323.c",
+    "url": "https://raw.githubusercontent.com/boschsensortec/BMI323_SensorAPI/b3033e78bc6e2c2e473f24e6d79afef0e16c4655/bmi323.c",
+    "sha256": "4da41bca9938b91f7331f30be1ec73074344f2df211612ed37f8c5bdb7735122",
+    "retrieved_date": "2026-09-27",
+    "usage": "Read-only register reference; not copied into production build",
+    "license": "BSD-3-Clause; retained in reference package LICENSE file"
+  },
+  {
+    "repo": "boschsensortec/BMI323_SensorAPI",
+    "commit": "b3033e78bc6e2c2e473f24e6d79afef0e16c4655",
+    "path": "bmi323.h",
+    "url": "https://raw.githubusercontent.com/boschsensortec/BMI323_SensorAPI/b3033e78bc6e2c2e473f24e6d79afef0e16c4655/bmi323.h",
+    "sha256": "de807634b480108c78e15a4cd5bcbcac79e22168a492eb7d53bf21dab37ea4be",
+    "retrieved_date": "2026-09-27",
+    "usage": "Read-only register reference; not copied into production build",
+    "license": "BSD-3-Clause; retained in reference package LICENSE file"
+  },
+  {
+    "repo": "boschsensortec/BMI323_SensorAPI",
+    "commit": "b3033e78bc6e2c2e473f24e6d79afef0e16c4655",
+    "path": "bmi323_defs.h",
+    "url": "https://raw.githubusercontent.com/boschsensortec/BMI323_SensorAPI/b3033e78bc6e2c2e473f24e6d79afef0e16c4655/bmi323_defs.h",
+    "sha256": "f60a8db7eaa32947cf9c32fa813d8d7f3812e5e0e2b93eb7726708dc5ab9f318",
+    "retrieved_date": "2026-09-27",
+    "usage": "Read-only register reference; not copied into production build",
+    "license": "BSD-3-Clause; retained in reference package LICENSE file"
+  },
+  {
+    "repo": "boschsensortec/BMI323_SensorAPI",
+    "commit": "b3033e78bc6e2c2e473f24e6d79afef0e16c4655",
+    "path": "bmi330.c",
+    "url": "https://raw.githubusercontent.com/boschsensortec/BMI323_SensorAPI/b3033e78bc6e2c2e473f24e6d79afef0e16c4655/bmi330.c",
+    "sha256": "95f8dc820e4a732777be080cd7f8dc9f7d71a48ee3563f5525d4f255a1eec6f1",
+    "retrieved_date": "2026-09-27",
+    "usage": "Read-only register reference; not copied into production build",
+    "license": "BSD-3-Clause; retained in reference package LICENSE file"
+  },
+  {
+    "repo": "boschsensortec/BMI323_SensorAPI",
+    "commit": "b3033e78bc6e2c2e473f24e6d79afef0e16c4655",
+    "path": "bmi330.h",
+    "url": "https://raw.githubusercontent.com/boschsensortec/BMI323_SensorAPI/b3033e78bc6e2c2e473f24e6d79afef0e16c4655/bmi330.h",
+    "sha256": "a99793d105995d48c5311e735508c04a13b08ebc5f197bc4bbc553cf5f0df56e",
+    "retrieved_date": "2026-09-27",
+    "usage": "Read-only register reference; not copied into production build",
+    "license": "BSD-3-Clause; retained in reference package LICENSE file"
+  },
+  {
+    "repo": "boschsensortec/BMI323_SensorAPI",
+    "commit": "b3033e78bc6e2c2e473f24e6d79afef0e16c4655",
+    "path": "bmi330_defs.h",
+    "url": "https://raw.githubusercontent.com/boschsensortec/BMI323_SensorAPI/b3033e78bc6e2c2e473f24e6d79afef0e16c4655/bmi330_defs.h",
+    "sha256": "adf342abe287e9587a7e3b8ef7c465c1f3615504c3e3e0a4087b5f87c39c55ba",
+    "retrieved_date": "2026-09-27",
+    "usage": "Read-only register reference; not copied into production build",
+    "license": "BSD-3-Clause; retained in reference package LICENSE file"
+  },
+  {
+    "repo": "boschsensortec/BMI323_SensorAPI",
+    "commit": "b3033e78bc6e2c2e473f24e6d79afef0e16c4655",
+    "path": "bmi3_defs.h",
+    "url": "https://raw.githubusercontent.com/boschsensortec/BMI323_SensorAPI/b3033e78bc6e2c2e473f24e6d79afef0e16c4655/bmi3_defs.h",
+    "sha256": "71351a7ab0b0153555fdac9c668a2f16992b039f7e7e4c563c0c5971a105bf92",
+    "retrieved_date": "2026-09-27",
+    "usage": "Read-only register reference; not copied into production build",
+    "license": "BSD-3-Clause; retained in reference package LICENSE file"
+  },
+  {
+    "repo": "boschsensortec/BMI08x_SensorAPI",
+    "commit": "c1ed227e7bb7da1fa600bbd4e5c82d0da1eb416a",
+    "path": "LICENSE",
+    "url": "https://raw.githubusercontent.com/boschsensortec/BMI08x_SensorAPI/c1ed227e7bb7da1fa600bbd4e5c82d0da1eb416a/LICENSE",
+    "sha256": "48bc7896d9b4f41a1a5e0d56a4b9bbf501f017db3273abcf417b66465e469d3e",
+    "retrieved_date": "2026-09-27",
+    "usage": "Read-only register reference; not copied into production build",
+    "license": "BSD-3-Clause; retained in reference package LICENSE file"
+  },
+  {
+    "repo": "boschsensortec/BMI08x_SensorAPI",
+    "commit": "c1ed227e7bb7da1fa600bbd4e5c82d0da1eb416a",
+    "path": "bmi08.h",
+    "url": "https://raw.githubusercontent.com/boschsensortec/BMI08x_SensorAPI/c1ed227e7bb7da1fa600bbd4e5c82d0da1eb416a/bmi08.h",
+    "sha256": "934341dc8cce663b82c2d4c29511b0af1fc9f4c51b57c47597b1a5e6fd96f8fb",
+    "retrieved_date": "2026-09-27",
+    "usage": "Read-only register reference; not copied into production build",
+    "license": "BSD-3-Clause; retained in reference package LICENSE file"
+  },
+  {
+    "repo": "boschsensortec/BMI08x_SensorAPI",
+    "commit": "c1ed227e7bb7da1fa600bbd4e5c82d0da1eb416a",
+    "path": "bmi088_anymotion.h",
+    "url": "https://raw.githubusercontent.com/boschsensortec/BMI08x_SensorAPI/c1ed227e7bb7da1fa600bbd4e5c82d0da1eb416a/bmi088_anymotion.h",
+    "sha256": "15f0844ce346e90d3fdbaf95d03c348316a73d3da95e21111590a5f4fa2280d4",
+    "retrieved_date": "2026-09-27",
+    "usage": "Read-only register reference; not copied into production build",
+    "license": "BSD-3-Clause; retained in reference package LICENSE file"
+  },
+  {
+    "repo": "boschsensortec/BMI08x_SensorAPI",
+    "commit": "c1ed227e7bb7da1fa600bbd4e5c82d0da1eb416a",
+    "path": "bmi088_anymotiona.c",
+    "url": "https://raw.githubusercontent.com/boschsensortec/BMI08x_SensorAPI/c1ed227e7bb7da1fa600bbd4e5c82d0da1eb416a/bmi088_anymotiona.c",
+    "sha256": "2fac3c7f74ee03b737aa96a0ad14b063d9cff8abae3236f12b6e3a20d2d25232",
+    "retrieved_date": "2026-09-27",
+    "usage": "Read-only register reference; not copied into production build",
+    "license": "BSD-3-Clause; retained in reference package LICENSE file"
+  },
+  {
+    "repo": "boschsensortec/BMI08x_SensorAPI",
+    "commit": "c1ed227e7bb7da1fa600bbd4e5c82d0da1eb416a",
+    "path": "bmi088_mm.h",
+    "url": "https://raw.githubusercontent.com/boschsensortec/BMI08x_SensorAPI/c1ed227e7bb7da1fa600bbd4e5c82d0da1eb416a/bmi088_mm.h",
+    "sha256": "39279cecb48d6fb2ef9b0284b812c99d429521cc894310a87f2ae725f61c2c64",
+    "retrieved_date": "2026-09-27",
+    "usage": "Read-only register reference; not copied into production build",
+    "license": "BSD-3-Clause; retained in reference package LICENSE file"
+  },
+  {
+    "repo": "boschsensortec/BMI08x_SensorAPI",
+    "commit": "c1ed227e7bb7da1fa600bbd4e5c82d0da1eb416a",
+    "path": "bmi088_mma.c",
+    "url": "https://raw.githubusercontent.com/boschsensortec/BMI08x_SensorAPI/c1ed227e7bb7da1fa600bbd4e5c82d0da1eb416a/bmi088_mma.c",
+    "sha256": "09ca8047b0a1c11f6fdbe730eae7786d4732b4dcf55e7c70561b5c03c9af5bf7",
+    "retrieved_date": "2026-09-27",
+    "usage": "Read-only register reference; not copied into production build",
+    "license": "BSD-3-Clause; retained in reference package LICENSE file"
+  },
+  {
+    "repo": "boschsensortec/BMI08x_SensorAPI",
+    "commit": "c1ed227e7bb7da1fa600bbd4e5c82d0da1eb416a",
+    "path": "bmi08_defs.h",
+    "url": "https://raw.githubusercontent.com/boschsensortec/BMI08x_SensorAPI/c1ed227e7bb7da1fa600bbd4e5c82d0da1eb416a/bmi08_defs.h",
+    "sha256": "7176c7d6e4979901f0d2ef35ba83f5186c4a0d4e29abc081aece057fa478264b",
+    "retrieved_date": "2026-09-27",
+    "usage": "Read-only register reference; not copied into production build",
+    "license": "BSD-3-Clause; retained in reference package LICENSE file"
+  },
+  {
+    "repo": "boschsensortec/BMI08x_SensorAPI",
+    "commit": "c1ed227e7bb7da1fa600bbd4e5c82d0da1eb416a",
+    "path": "bmi08a.c",
+    "url": "https://raw.githubusercontent.com/boschsensortec/BMI08x_SensorAPI/c1ed227e7bb7da1fa600bbd4e5c82d0da1eb416a/bmi08a.c",
+    "sha256": "969be7f8c4e1f3abffd31a11ea6c360d84fc58e1c7d4690b18c123d359271db5",
+    "retrieved_date": "2026-09-27",
+    "usage": "Read-only register reference; not copied into production build",
+    "license": "BSD-3-Clause; retained in reference package LICENSE file"
+  },
+  {
+    "repo": "boschsensortec/BMI08x_SensorAPI",
+    "commit": "c1ed227e7bb7da1fa600bbd4e5c82d0da1eb416a",
+    "path": "bmi08g.c",
+    "url": "https://raw.githubusercontent.com/boschsensortec/BMI08x_SensorAPI/c1ed227e7bb7da1fa600bbd4e5c82d0da1eb416a/bmi08g.c",
+    "sha256": "ba148d9c73c5750780323329e0b2561475cafb3f3b425ee0a3f77c0a5098d31a",
+    "retrieved_date": "2026-09-27",
+    "usage": "Read-only register reference; not copied into production build",
+    "license": "BSD-3-Clause; retained in reference package LICENSE file"
+  },
+  {
+    "repo": "boschsensortec/BMI08x_SensorAPI",
+    "commit": "c1ed227e7bb7da1fa600bbd4e5c82d0da1eb416a",
+    "path": "bmi08x.h",
+    "url": "https://raw.githubusercontent.com/boschsensortec/BMI08x_SensorAPI/c1ed227e7bb7da1fa600bbd4e5c82d0da1eb416a/bmi08x.h",
+    "sha256": "595b7597124e144d21a6487ac7f7ee42a7b0cbc3e483a7a616383f4e8cff7fb2",
+    "retrieved_date": "2026-09-27",
+    "usage": "Read-only register reference; not copied into production build",
+    "license": "BSD-3-Clause; retained in reference package LICENSE file"
+  },
+  {
+    "repo": "boschsensortec/BMI08x_SensorAPI",
+    "commit": "c1ed227e7bb7da1fa600bbd4e5c82d0da1eb416a",
+    "path": "bmi08xa.c",
+    "url": "https://raw.githubusercontent.com/boschsensortec/BMI08x_SensorAPI/c1ed227e7bb7da1fa600bbd4e5c82d0da1eb416a/bmi08xa.c",
+    "sha256": "b27166df2c8464722aef88e576d4dd82e7ba82f8439f03577567e4d612030d95",
+    "retrieved_date": "2026-09-27",
+    "usage": "Official 6144-byte bmi08x_config_file copied verbatim into selected Sync400 production data; BSD-3-Clause notice and full license retained in Devices/SensorBus",
+    "license": "BSD-3-Clause; retained in reference package LICENSE file"
+  },
+  {
+    "repo": "tdk-invn-oss/motion.mcu.icm45686.driver",
+    "commit": "0a5bed6975b5cdeecb98f95db420f3058dd88547",
+    "path": "LICENSE.txt",
+    "url": "https://raw.githubusercontent.com/tdk-invn-oss/motion.mcu.icm45686.driver/0a5bed6975b5cdeecb98f95db420f3058dd88547/LICENSE.txt",
+    "sha256": "7d5b82484cc0486d9caf2c174988491c50fde1bff931aa6d123404f470a4a571",
+    "retrieved_date": "2026-09-27",
+    "usage": "Read-only register reference; not copied into production build",
+    "license": "BSD-3-Clause; retained in reference package LICENSE file"
+  },
+  {
+    "repo": "tdk-invn-oss/motion.mcu.icm45686.driver",
+    "commit": "0a5bed6975b5cdeecb98f95db420f3058dd88547",
+    "path": "icm45686/imu/inv_imu.h",
+    "url": "https://raw.githubusercontent.com/tdk-invn-oss/motion.mcu.icm45686.driver/0a5bed6975b5cdeecb98f95db420f3058dd88547/icm45686/imu/inv_imu.h",
+    "sha256": "1ce8c42470e9bb49af13c87aeded932fdaf5798c0a83c93268d70b11defefb40",
+    "retrieved_date": "2026-09-27",
+    "usage": "Read-only register reference; not copied into production build",
+    "license": "BSD-3-Clause; retained in reference package LICENSE file"
+  },
+  {
+    "repo": "tdk-invn-oss/motion.mcu.icm45686.driver",
+    "commit": "0a5bed6975b5cdeecb98f95db420f3058dd88547",
+    "path": "icm45686/imu/inv_imu_defs.h",
+    "url": "https://raw.githubusercontent.com/tdk-invn-oss/motion.mcu.icm45686.driver/0a5bed6975b5cdeecb98f95db420f3058dd88547/icm45686/imu/inv_imu_defs.h",
+    "sha256": "2b738ec978601406536944dc5bc7212d670357ab593055685939e20869b5bba3",
+    "retrieved_date": "2026-09-27",
+    "usage": "Read-only register reference; not copied into production build",
+    "license": "BSD-3-Clause; retained in reference package LICENSE file"
+  },
+  {
+    "repo": "tdk-invn-oss/motion.mcu.icm45686.driver",
+    "commit": "0a5bed6975b5cdeecb98f95db420f3058dd88547",
+    "path": "icm45686/imu/inv_imu_driver.c",
+    "url": "https://raw.githubusercontent.com/tdk-invn-oss/motion.mcu.icm45686.driver/0a5bed6975b5cdeecb98f95db420f3058dd88547/icm45686/imu/inv_imu_driver.c",
+    "sha256": "54fb369757735c5015047084ed244cac148fe995b09defee715024ab5df877ba",
+    "retrieved_date": "2026-09-27",
+    "usage": "Read-only register reference; not copied into production build",
+    "license": "BSD-3-Clause; retained in reference package LICENSE file"
+  },
+  {
+    "repo": "tdk-invn-oss/motion.mcu.icm45686.driver",
+    "commit": "0a5bed6975b5cdeecb98f95db420f3058dd88547",
+    "path": "icm45686/imu/inv_imu_driver.h",
+    "url": "https://raw.githubusercontent.com/tdk-invn-oss/motion.mcu.icm45686.driver/0a5bed6975b5cdeecb98f95db420f3058dd88547/icm45686/imu/inv_imu_driver.h",
+    "sha256": "485550c4aed9d536aefff9f293b54f0b23a484c38809975bb2e798c4aa5fd7c3",
+    "retrieved_date": "2026-09-27",
+    "usage": "Read-only register reference; not copied into production build",
+    "license": "BSD-3-Clause; retained in reference package LICENSE file"
+  },
+  {
+    "repo": "tdk-invn-oss/motion.mcu.icm45686.driver",
+    "commit": "0a5bed6975b5cdeecb98f95db420f3058dd88547",
+    "path": "icm45686/imu/inv_imu_driver_advanced.c",
+    "url": "https://raw.githubusercontent.com/tdk-invn-oss/motion.mcu.icm45686.driver/0a5bed6975b5cdeecb98f95db420f3058dd88547/icm45686/imu/inv_imu_driver_advanced.c",
+    "sha256": "e04f9bf2b3208694f37e5686cba2047c4d4ec3a8d691fbec3c5d07c78b7653df",
+    "retrieved_date": "2026-09-27",
+    "usage": "Read-only register reference; not copied into production build",
+    "license": "BSD-3-Clause; retained in reference package LICENSE file"
+  },
+  {
+    "repo": "tdk-invn-oss/motion.mcu.icm45686.driver",
+    "commit": "0a5bed6975b5cdeecb98f95db420f3058dd88547",
+    "path": "icm45686/imu/inv_imu_driver_advanced.h",
+    "url": "https://raw.githubusercontent.com/tdk-invn-oss/motion.mcu.icm45686.driver/0a5bed6975b5cdeecb98f95db420f3058dd88547/icm45686/imu/inv_imu_driver_advanced.h",
+    "sha256": "bdb1d76855077406fe95273fca1b60db66c70647633f16e4b1de52d2a13a083c",
+    "retrieved_date": "2026-09-27",
+    "usage": "Read-only register reference; not copied into production build",
+    "license": "BSD-3-Clause; retained in reference package LICENSE file"
+  },
+  {
+    "repo": "tdk-invn-oss/motion.mcu.icm45686.driver",
+    "commit": "0a5bed6975b5cdeecb98f95db420f3058dd88547",
+    "path": "icm45686/imu/inv_imu_driver_aux1.c",
+    "url": "https://raw.githubusercontent.com/tdk-invn-oss/motion.mcu.icm45686.driver/0a5bed6975b5cdeecb98f95db420f3058dd88547/icm45686/imu/inv_imu_driver_aux1.c",
+    "sha256": "3ac4377f2899c362591c94ef569a6072825b7db35dbaa0638b3827f4ff6b7031",
+    "retrieved_date": "2026-09-27",
+    "usage": "Read-only register reference; not copied into production build",
+    "license": "BSD-3-Clause; retained in reference package LICENSE file"
+  },
+  {
+    "repo": "tdk-invn-oss/motion.mcu.icm45686.driver",
+    "commit": "0a5bed6975b5cdeecb98f95db420f3058dd88547",
+    "path": "icm45686/imu/inv_imu_driver_aux1.h",
+    "url": "https://raw.githubusercontent.com/tdk-invn-oss/motion.mcu.icm45686.driver/0a5bed6975b5cdeecb98f95db420f3058dd88547/icm45686/imu/inv_imu_driver_aux1.h",
+    "sha256": "7b50e7067f1cde30e64fd01568eb439909d28f101739af0d6bd4248da6df89f2",
+    "retrieved_date": "2026-09-27",
+    "usage": "Read-only register reference; not copied into production build",
+    "license": "BSD-3-Clause; retained in reference package LICENSE file"
+  },
+  {
+    "repo": "tdk-invn-oss/motion.mcu.icm45686.driver",
+    "commit": "0a5bed6975b5cdeecb98f95db420f3058dd88547",
+    "path": "icm45686/imu/inv_imu_edmp.c",
+    "url": "https://raw.githubusercontent.com/tdk-invn-oss/motion.mcu.icm45686.driver/0a5bed6975b5cdeecb98f95db420f3058dd88547/icm45686/imu/inv_imu_edmp.c",
+    "sha256": "fd64aaebc66a3ad93b155a0ecab294e4f605c6e71823c9189ecd34f847cb54e3",
+    "retrieved_date": "2026-09-27",
+    "usage": "Read-only register reference; not copied into production build",
+    "license": "BSD-3-Clause; retained in reference package LICENSE file"
+  },
+  {
+    "repo": "tdk-invn-oss/motion.mcu.icm45686.driver",
+    "commit": "0a5bed6975b5cdeecb98f95db420f3058dd88547",
+    "path": "icm45686/imu/inv_imu_edmp.h",
+    "url": "https://raw.githubusercontent.com/tdk-invn-oss/motion.mcu.icm45686.driver/0a5bed6975b5cdeecb98f95db420f3058dd88547/icm45686/imu/inv_imu_edmp.h",
+    "sha256": "edfc5da444071f0714288b8f284e92b03fcea7f7d5814b9194e02b51766e1c0d",
+    "retrieved_date": "2026-09-27",
+    "usage": "Read-only register reference; not copied into production build",
+    "license": "BSD-3-Clause; retained in reference package LICENSE file"
+  },
+  {
+    "repo": "tdk-invn-oss/motion.mcu.icm45686.driver",
+    "commit": "0a5bed6975b5cdeecb98f95db420f3058dd88547",
+    "path": "icm45686/imu/inv_imu_edmp_defs.h",
+    "url": "https://raw.githubusercontent.com/tdk-invn-oss/motion.mcu.icm45686.driver/0a5bed6975b5cdeecb98f95db420f3058dd88547/icm45686/imu/inv_imu_edmp_defs.h",
+    "sha256": "a4c1ec2ed84c14757355945a836a59678edf0cae813aaffa99d000694e19d88d",
+    "retrieved_date": "2026-09-27",
+    "usage": "Read-only register reference; not copied into production build",
+    "license": "BSD-3-Clause; retained in reference package LICENSE file"
+  },
+  {
+    "repo": "tdk-invn-oss/motion.mcu.icm45686.driver",
+    "commit": "0a5bed6975b5cdeecb98f95db420f3058dd88547",
+    "path": "icm45686/imu/inv_imu_edmp_memmap.h",
+    "url": "https://raw.githubusercontent.com/tdk-invn-oss/motion.mcu.icm45686.driver/0a5bed6975b5cdeecb98f95db420f3058dd88547/icm45686/imu/inv_imu_edmp_memmap.h",
+    "sha256": "4be2dbbe179b7e2834ce58a7f12e08dc4e7c12d01ff53c82174d3022b3623cb1",
+    "retrieved_date": "2026-09-27",
+    "usage": "Read-only register reference; not copied into production build",
+    "license": "BSD-3-Clause; retained in reference package LICENSE file"
+  },
+  {
+    "repo": "tdk-invn-oss/motion.mcu.icm45686.driver",
+    "commit": "0a5bed6975b5cdeecb98f95db420f3058dd88547",
+    "path": "icm45686/imu/inv_imu_regmap_be.h",
+    "url": "https://raw.githubusercontent.com/tdk-invn-oss/motion.mcu.icm45686.driver/0a5bed6975b5cdeecb98f95db420f3058dd88547/icm45686/imu/inv_imu_regmap_be.h",
+    "sha256": "eb48aa837742235933a085352ed2056edf97a355a50d52c5a1316ab13fe18b0e",
+    "retrieved_date": "2026-09-27",
+    "usage": "Read-only register reference; not copied into production build",
+    "license": "BSD-3-Clause; retained in reference package LICENSE file"
+  },
+  {
+    "repo": "tdk-invn-oss/motion.mcu.icm45686.driver",
+    "commit": "0a5bed6975b5cdeecb98f95db420f3058dd88547",
+    "path": "icm45686/imu/inv_imu_regmap_le.h",
+    "url": "https://raw.githubusercontent.com/tdk-invn-oss/motion.mcu.icm45686.driver/0a5bed6975b5cdeecb98f95db420f3058dd88547/icm45686/imu/inv_imu_regmap_le.h",
+    "sha256": "f76d63af8b2b4ca0ed60d5f4a6178405be150bc7d1f27042b11ca20707426748",
+    "retrieved_date": "2026-09-27",
+    "usage": "Read-only register reference; not copied into production build",
+    "license": "BSD-3-Clause; retained in reference package LICENSE file"
+  },
+  {
+    "repo": "tdk-invn-oss/motion.mcu.icm45686.driver",
+    "commit": "0a5bed6975b5cdeecb98f95db420f3058dd88547",
+    "path": "icm45686/imu/inv_imu_selftest.c",
+    "url": "https://raw.githubusercontent.com/tdk-invn-oss/motion.mcu.icm45686.driver/0a5bed6975b5cdeecb98f95db420f3058dd88547/icm45686/imu/inv_imu_selftest.c",
+    "sha256": "4d913c92a2d85b67c5973bd347c653bc834c0cb9bc34c9b1edcbdb4b97471fc8",
+    "retrieved_date": "2026-09-27",
+    "usage": "Read-only register reference; not copied into production build",
+    "license": "BSD-3-Clause; retained in reference package LICENSE file"
+  },
+  {
+    "repo": "tdk-invn-oss/motion.mcu.icm45686.driver",
+    "commit": "0a5bed6975b5cdeecb98f95db420f3058dd88547",
+    "path": "icm45686/imu/inv_imu_selftest.h",
+    "url": "https://raw.githubusercontent.com/tdk-invn-oss/motion.mcu.icm45686.driver/0a5bed6975b5cdeecb98f95db420f3058dd88547/icm45686/imu/inv_imu_selftest.h",
+    "sha256": "504586d6825f1b21232a74e18ab850c9b0c45c9b35caac6fbab10ad8ecc117c8",
+    "retrieved_date": "2026-09-27",
+    "usage": "Read-only register reference; not copied into production build",
+    "license": "BSD-3-Clause; retained in reference package LICENSE file"
+  },
+  {
+    "repo": "tdk-invn-oss/motion.mcu.icm45686.driver",
+    "commit": "0a5bed6975b5cdeecb98f95db420f3058dd88547",
+    "path": "icm45686/imu/inv_imu_transport.c",
+    "url": "https://raw.githubusercontent.com/tdk-invn-oss/motion.mcu.icm45686.driver/0a5bed6975b5cdeecb98f95db420f3058dd88547/icm45686/imu/inv_imu_transport.c",
+    "sha256": "3c939d52cc61c14c30656175763f87e52cc0f75c1a987b58c7ccd385919db274",
+    "retrieved_date": "2026-09-27",
+    "usage": "Read-only register reference; not copied into production build",
+    "license": "BSD-3-Clause; retained in reference package LICENSE file"
+  },
+  {
+    "repo": "tdk-invn-oss/motion.mcu.icm45686.driver",
+    "commit": "0a5bed6975b5cdeecb98f95db420f3058dd88547",
+    "path": "icm45686/imu/inv_imu_transport.h",
+    "url": "https://raw.githubusercontent.com/tdk-invn-oss/motion.mcu.icm45686.driver/0a5bed6975b5cdeecb98f95db420f3058dd88547/icm45686/imu/inv_imu_transport.h",
+    "sha256": "940afb19f2ddff303cb7abd10c97ad41a9734315ff8294f532e02dfcd70b334d",
+    "retrieved_date": "2026-09-27",
+    "usage": "Read-only register reference; not copied into production build",
+    "license": "BSD-3-Clause; retained in reference package LICENSE file"
+  },
+  {
+    "repo": "tdk-invn-oss/motion.mcu.icm45686.driver",
+    "commit": "0a5bed6975b5cdeecb98f95db420f3058dd88547",
+    "path": "icm45686/imu/inv_imu_version.h",
+    "url": "https://raw.githubusercontent.com/tdk-invn-oss/motion.mcu.icm45686.driver/0a5bed6975b5cdeecb98f95db420f3058dd88547/icm45686/imu/inv_imu_version.h",
+    "sha256": "2fda9eff22f6501cc93fb70af476fc067fdab846ab554f1336cf1db61ed7799c",
+    "retrieved_date": "2026-09-27",
+    "usage": "Read-only register reference; not copied into production build",
+    "license": "BSD-3-Clause; retained in reference package LICENSE file"
+  },
+  {
+    "publisher": "u-blox",
+    "document": "UBX-23002975 R02",
+    "path": "F10_UBX23002975.pdf",
+    "url": "https://content.u-blox.com/sites/default/files/documents/u-blox-F10-SPG-6.00_InterfaceDescription_UBX-23002975.pdf",
+    "sha256": "a53f2ece01310941760e76b7cb43767872a90bc7eeac7cbcdc271c0778efb586",
+    "retrieved_date": "2026-09-27",
+    "license": "u-blox copyrighted technical documentation; reference only",
+    "usage": "Section 4.9.20 model-specific CFG-SIGNAL keys, supported layers, UART/rate/PVT configuration"
+  },
+  {
+    "repo": "boschsensortec/BMI08x_SensorAPI",
+    "commit": "c1ed227e7bb7da1fa600bbd4e5c82d0da1eb416a",
+    "path": "DataSync.md",
+    "url": "https://raw.githubusercontent.com/boschsensortec/BMI08x_SensorAPI/c1ed227e7bb7da1fa600bbd4e5c82d0da1eb416a/DataSync.md",
+    "sha256": "1bf4481eacc53cde1e813f325fe268fd5a04efb20f981f841868d15862a885e3",
+    "retrieved_date": "2026-09-27",
+    "usage": "Official synchronization net, mode, register and runtime pairing reference",
+    "license": "BSD-3-Clause"
+  },
+  {
+    "repo": "boschsensortec/BMI08x_SensorAPI",
+    "commit": "c1ed227e7bb7da1fa600bbd4e5c82d0da1eb416a",
+    "path": "Readme.txt",
+    "url": "https://raw.githubusercontent.com/boschsensortec/BMI08x_SensorAPI/c1ed227e7bb7da1fa600bbd4e5c82d0da1eb416a/examples/bmi08x/read_synchronized_data_mcu/Readme.txt",
+    "sha256": "3d14a8e57919b27ce9d63fb1b8d6ac5ece135da7757acb9a20d6937f7dcda590",
+    "retrieved_date": "2026-09-27",
+    "usage": "Official synchronization net, mode, register and runtime pairing reference",
+    "license": "BSD-3-Clause"
+  },
+  {
+    "repo": "boschsensortec/BMI08x_SensorAPI",
+    "commit": "c1ed227e7bb7da1fa600bbd4e5c82d0da1eb416a",
+    "path": "read_synchronized_data_mcu.c",
+    "url": "https://raw.githubusercontent.com/boschsensortec/BMI08x_SensorAPI/c1ed227e7bb7da1fa600bbd4e5c82d0da1eb416a/examples/bmi08x/read_synchronized_data_mcu/read_synchronized_data_mcu.c",
+    "sha256": "b3e9acfbd3b1b3de56e2afa3427a7579316f1bf1148beb2997a99b6fd92c2363",
+    "retrieved_date": "2026-09-27",
+    "usage": "Official synchronization net, mode, register and runtime pairing reference",
+    "license": "BSD-3-Clause"
+  }
+]

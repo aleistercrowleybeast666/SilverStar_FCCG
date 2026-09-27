@@ -2201,6 +2201,739 @@
         }
       ],
       "payload_size": 52
+    },
+    {
+      "id": "0x21",
+      "enum": "FLIGHT_LOG_RECORD_ESKF15_STATE",
+      "name": "ESKF15_STATE",
+      "version": 1,
+      "payload_size": 144,
+      "size_macro": "FLIGHT_LOG_ESKF15_STATE_PAYLOAD_SIZE",
+      "c_type": "FlightLogEskf15StateRecord",
+      "member": "eskf15_state",
+      "default_stream": {
+        "enabled": true,
+        "policy": "periodic",
+        "decimation": 1,
+        "period_us": 40000
+      },
+      "fields": [
+        {
+          "name": "snapshot_id",
+          "type": "u32",
+          "unit": "1",
+          "quantity": "dimensionless"
+        },
+        {
+          "name": "epoch",
+          "type": "u32",
+          "unit": "1",
+          "quantity": "dimensionless"
+        },
+        {
+          "name": "source_id",
+          "type": "u32",
+          "unit": "1",
+          "quantity": "dimensionless"
+        },
+        {
+          "name": "calibration_generation",
+          "type": "u32",
+          "unit": "1",
+          "quantity": "dimensionless"
+        },
+        {
+          "name": "algorithm_id",
+          "type": "u8",
+          "unit": "1",
+          "quantity": "dimensionless"
+        },
+        {
+          "name": "algorithm_revision",
+          "type": "u8",
+          "unit": "1",
+          "quantity": "dimensionless"
+        },
+        {
+          "name": "quality_revision",
+          "type": "u8",
+          "unit": "1",
+          "quantity": "dimensionless"
+        },
+        {
+          "name": "health",
+          "type": "u8",
+          "unit": "1",
+          "quantity": "dimensionless"
+        },
+        {
+          "name": "position_enu_m",
+          "type": "f32",
+          "unit": "m",
+          "quantity": "position",
+          "count": 3
+        },
+        {
+          "name": "velocity_enu_mps",
+          "type": "f32",
+          "unit": "m/s",
+          "quantity": "velocity",
+          "count": 3
+        },
+        {
+          "name": "q_nb",
+          "type": "f32",
+          "unit": "1",
+          "quantity": "quaternion",
+          "count": 4
+        },
+        {
+          "name": "gyro_bias_radps",
+          "type": "f32",
+          "unit": "rad/s",
+          "quantity": "bias",
+          "count": 3
+        },
+        {
+          "name": "accel_bias_mps2",
+          "type": "f32",
+          "unit": "m/s^2",
+          "quantity": "bias",
+          "count": 3
+        },
+        {
+          "name": "p_diagonal",
+          "type": "f32",
+          "unit": "mixed",
+          "quantity": "covariance",
+          "count": 15
+        }
+      ]
+    },
+    {
+      "id": "0x22",
+      "enum": "FLIGHT_LOG_RECORD_ESKF15_FULL_P_PART",
+      "name": "ESKF15_FULL_P_PART",
+      "version": 1,
+      "payload_size": 144,
+      "size_macro": "FLIGHT_LOG_ESKF15_FULL_P_PART_PAYLOAD_SIZE",
+      "c_type": "FlightLogEskf15CovariancePartRecord",
+      "member": "eskf15_full_p_part",
+      "default_stream": {
+        "enabled": false,
+        "policy": "periodic",
+        "decimation": 1,
+        "period_us": 40000
+      },
+      "fields": [
+        {
+          "name": "snapshot_id",
+          "type": "u32",
+          "unit": "1",
+          "quantity": "dimensionless"
+        },
+        {
+          "name": "epoch",
+          "type": "u32",
+          "unit": "1",
+          "quantity": "dimensionless"
+        },
+        {
+          "name": "source_id",
+          "type": "u32",
+          "unit": "1",
+          "quantity": "dimensionless"
+        },
+        {
+          "name": "calibration_generation",
+          "type": "u32",
+          "unit": "1",
+          "quantity": "dimensionless"
+        },
+        {
+          "name": "algorithm_id",
+          "type": "u8",
+          "unit": "1",
+          "quantity": "dimensionless"
+        },
+        {
+          "name": "phase",
+          "type": "u8",
+          "unit": "1",
+          "quantity": "dimensionless"
+        },
+        {
+          "name": "part_index",
+          "type": "u8",
+          "unit": "1",
+          "quantity": "dimensionless"
+        },
+        {
+          "name": "part_count",
+          "type": "u8",
+          "unit": "1",
+          "quantity": "dimensionless"
+        },
+        {
+          "name": "offset",
+          "type": "u16",
+          "unit": "1",
+          "quantity": "dimensionless"
+        },
+        {
+          "name": "count",
+          "type": "u16",
+          "unit": "1",
+          "quantity": "dimensionless"
+        },
+        {
+          "name": "values",
+          "type": "f32",
+          "unit": "mixed",
+          "quantity": "covariance",
+          "count": 30
+        }
+      ]
+    },
+    {
+      "id": "0x23",
+      "enum": "FLIGHT_LOG_RECORD_ESKF15_INITIAL_STATE",
+      "name": "ESKF15_INITIAL_STATE",
+      "version": 1,
+      "payload_size": 144,
+      "size_macro": "FLIGHT_LOG_ESKF15_INITIAL_STATE_PAYLOAD_SIZE",
+      "c_type": "FlightLogEskf15StateRecord",
+      "member": "eskf15_initial_state",
+      "default_stream": {
+        "enabled": true,
+        "policy": "one_shot",
+        "decimation": 1,
+        "period_us": 0
+      },
+      "fields": [
+        {
+          "name": "snapshot_id",
+          "type": "u32",
+          "unit": "1",
+          "quantity": "dimensionless"
+        },
+        {
+          "name": "epoch",
+          "type": "u32",
+          "unit": "1",
+          "quantity": "dimensionless"
+        },
+        {
+          "name": "source_id",
+          "type": "u32",
+          "unit": "1",
+          "quantity": "dimensionless"
+        },
+        {
+          "name": "calibration_generation",
+          "type": "u32",
+          "unit": "1",
+          "quantity": "dimensionless"
+        },
+        {
+          "name": "algorithm_id",
+          "type": "u8",
+          "unit": "1",
+          "quantity": "dimensionless"
+        },
+        {
+          "name": "algorithm_revision",
+          "type": "u8",
+          "unit": "1",
+          "quantity": "dimensionless"
+        },
+        {
+          "name": "quality_revision",
+          "type": "u8",
+          "unit": "1",
+          "quantity": "dimensionless"
+        },
+        {
+          "name": "health",
+          "type": "u8",
+          "unit": "1",
+          "quantity": "dimensionless"
+        },
+        {
+          "name": "position_enu_m",
+          "type": "f32",
+          "unit": "m",
+          "quantity": "position",
+          "count": 3
+        },
+        {
+          "name": "velocity_enu_mps",
+          "type": "f32",
+          "unit": "m/s",
+          "quantity": "velocity",
+          "count": 3
+        },
+        {
+          "name": "q_nb",
+          "type": "f32",
+          "unit": "1",
+          "quantity": "quaternion",
+          "count": 4
+        },
+        {
+          "name": "gyro_bias_radps",
+          "type": "f32",
+          "unit": "rad/s",
+          "quantity": "bias",
+          "count": 3
+        },
+        {
+          "name": "accel_bias_mps2",
+          "type": "f32",
+          "unit": "m/s^2",
+          "quantity": "bias",
+          "count": 3
+        },
+        {
+          "name": "p_diagonal",
+          "type": "f32",
+          "unit": "mixed",
+          "quantity": "covariance",
+          "count": 15
+        }
+      ]
+    },
+    {
+      "id": "0x24",
+      "enum": "FLIGHT_LOG_RECORD_ESKF15_INITIAL_P_PART",
+      "name": "ESKF15_INITIAL_P_PART",
+      "version": 1,
+      "payload_size": 144,
+      "size_macro": "FLIGHT_LOG_ESKF15_INITIAL_P_PART_PAYLOAD_SIZE",
+      "c_type": "FlightLogEskf15CovariancePartRecord",
+      "member": "eskf15_initial_p_part",
+      "default_stream": {
+        "enabled": true,
+        "policy": "one_shot",
+        "decimation": 1,
+        "period_us": 0
+      },
+      "fields": [
+        {
+          "name": "snapshot_id",
+          "type": "u32",
+          "unit": "1",
+          "quantity": "dimensionless"
+        },
+        {
+          "name": "epoch",
+          "type": "u32",
+          "unit": "1",
+          "quantity": "dimensionless"
+        },
+        {
+          "name": "source_id",
+          "type": "u32",
+          "unit": "1",
+          "quantity": "dimensionless"
+        },
+        {
+          "name": "calibration_generation",
+          "type": "u32",
+          "unit": "1",
+          "quantity": "dimensionless"
+        },
+        {
+          "name": "algorithm_id",
+          "type": "u8",
+          "unit": "1",
+          "quantity": "dimensionless"
+        },
+        {
+          "name": "phase",
+          "type": "u8",
+          "unit": "1",
+          "quantity": "dimensionless"
+        },
+        {
+          "name": "part_index",
+          "type": "u8",
+          "unit": "1",
+          "quantity": "dimensionless"
+        },
+        {
+          "name": "part_count",
+          "type": "u8",
+          "unit": "1",
+          "quantity": "dimensionless"
+        },
+        {
+          "name": "offset",
+          "type": "u16",
+          "unit": "1",
+          "quantity": "dimensionless"
+        },
+        {
+          "name": "count",
+          "type": "u16",
+          "unit": "1",
+          "quantity": "dimensionless"
+        },
+        {
+          "name": "values",
+          "type": "f32",
+          "unit": "mixed",
+          "quantity": "covariance",
+          "count": 30
+        }
+      ]
+    },
+    {
+      "id": "0x25",
+      "enum": "FLIGHT_LOG_RECORD_ESKF15_MEASUREMENT",
+      "name": "ESKF15_MEASUREMENT",
+      "version": 1,
+      "payload_size": 100,
+      "size_macro": "FLIGHT_LOG_ESKF15_MEASUREMENT_PAYLOAD_SIZE",
+      "c_type": "FlightLogEskf15MeasurementRecord",
+      "member": "eskf15_measurement",
+      "default_stream": {
+        "enabled": true,
+        "policy": "every",
+        "decimation": 1,
+        "period_us": 0
+      },
+      "fields": [
+        {
+          "name": "sample_timestamp_us",
+          "type": "u64",
+          "unit": "us",
+          "quantity": "timestamp"
+        },
+        {
+          "name": "receive_timestamp_us",
+          "type": "u64",
+          "unit": "us",
+          "quantity": "timestamp"
+        },
+        {
+          "name": "measurement_timestamp_us",
+          "type": "u64",
+          "unit": "us",
+          "quantity": "timestamp"
+        },
+        {
+          "name": "evaluation_timestamp_us",
+          "type": "u64",
+          "unit": "us",
+          "quantity": "timestamp"
+        },
+        {
+          "name": "operation_sequence",
+          "type": "u32",
+          "unit": "1",
+          "quantity": "dimensionless"
+        },
+        {
+          "name": "epoch",
+          "type": "u32",
+          "unit": "1",
+          "quantity": "dimensionless"
+        },
+        {
+          "name": "source_id",
+          "type": "u32",
+          "unit": "1",
+          "quantity": "dimensionless"
+        },
+        {
+          "name": "calibration_generation",
+          "type": "u32",
+          "unit": "1",
+          "quantity": "dimensionless"
+        },
+        {
+          "name": "group",
+          "type": "u8",
+          "unit": "1",
+          "quantity": "dimensionless"
+        },
+        {
+          "name": "physically_valid",
+          "type": "u8",
+          "unit": "1",
+          "quantity": "dimensionless"
+        },
+        {
+          "name": "admitted",
+          "type": "u8",
+          "unit": "1",
+          "quantity": "dimensionless"
+        },
+        {
+          "name": "update_result",
+          "type": "u8",
+          "unit": "1",
+          "quantity": "dimensionless"
+        },
+        {
+          "name": "observation",
+          "type": "f32",
+          "unit": "mixed",
+          "quantity": "measurement",
+          "count": 2
+        },
+        {
+          "name": "innovation",
+          "type": "f32",
+          "unit": "mixed",
+          "quantity": "innovation",
+          "count": 2
+        },
+        {
+          "name": "base_variance",
+          "type": "f32",
+          "unit": "mixed",
+          "quantity": "variance",
+          "count": 2
+        },
+        {
+          "name": "effective_variance",
+          "type": "f32",
+          "unit": "mixed",
+          "quantity": "variance",
+          "count": 2
+        },
+        {
+          "name": "nis",
+          "type": "f32",
+          "unit": "1",
+          "quantity": "dimensionless"
+        },
+        {
+          "name": "quality_scale",
+          "type": "f32",
+          "unit": "1",
+          "quantity": "dimensionless"
+        },
+        {
+          "name": "consistency_scale",
+          "type": "f32",
+          "unit": "1",
+          "quantity": "dimensionless"
+        },
+        {
+          "name": "robust_scale",
+          "type": "f32",
+          "unit": "1",
+          "quantity": "dimensionless"
+        }
+      ]
+    },
+    {
+      "id": "0x26",
+      "enum": "FLIGHT_LOG_RECORD_ESKF15_BODY_INPUT",
+      "name": "ESKF15_BODY_INPUT",
+      "version": 1,
+      "payload_size": 84,
+      "size_macro": "FLIGHT_LOG_ESKF15_BODY_INPUT_PAYLOAD_SIZE",
+      "c_type": "FlightLogEskf15BodyInputRecord",
+      "member": "eskf15_body_input",
+      "fields": [
+        {
+          "name": "interval_start_timestamp_us",
+          "type": "u64",
+          "unit": "us",
+          "quantity": "timestamp"
+        },
+        {
+          "name": "interval_end_timestamp_us",
+          "type": "u64",
+          "unit": "us",
+          "quantity": "timestamp"
+        },
+        {
+          "name": "sequence",
+          "type": "u32"
+        },
+        {
+          "name": "source_id",
+          "type": "u32"
+        },
+        {
+          "name": "calibration_generation",
+          "type": "u32"
+        },
+        {
+          "name": "quality_flags",
+          "type": "u32"
+        },
+        {
+          "name": "dt_s",
+          "type": "f32",
+          "unit": "s"
+        },
+        {
+          "name": "body_gyro_radps",
+          "type": "f32",
+          "count": 6,
+          "unit": "rad/s"
+        },
+        {
+          "name": "body_accel_mps2",
+          "type": "f32",
+          "count": 6,
+          "unit": "m/s^2"
+        }
+      ],
+      "default_stream": {
+        "enabled": true,
+        "policy": "every",
+        "decimation": 1,
+        "period_us": 0
+      }
+    },
+    {
+      "id": "0x27",
+      "enum": "FLIGHT_LOG_RECORD_NAV_QUALITY",
+      "name": "NAV_QUALITY",
+      "version": 1,
+      "payload_size": 100,
+      "size_macro": "FLIGHT_LOG_NAV_QUALITY_PAYLOAD_SIZE",
+      "c_type": "FlightLogNavigationQualityRecord",
+      "member": "navigation_quality",
+      "fields": [
+        {
+          "name": "native_epoch_us",
+          "type": "u64",
+          "unit": "us",
+          "quantity": "timestamp"
+        },
+        {
+          "name": "receive_us",
+          "type": "u64",
+          "unit": "us",
+          "quantity": "timestamp"
+        },
+        {
+          "name": "evaluation_us",
+          "type": "u64",
+          "unit": "us",
+          "quantity": "timestamp"
+        },
+        {
+          "name": "window_start_us",
+          "type": "u64",
+          "unit": "us",
+          "quantity": "timestamp"
+        },
+        {
+          "name": "window_end_us",
+          "type": "u64",
+          "unit": "us",
+          "quantity": "timestamp"
+        },
+        {
+          "name": "evidence_age_us",
+          "type": "u64",
+          "unit": "us",
+          "quantity": "timestamp"
+        },
+        {
+          "name": "native_sequence",
+          "type": "u32"
+        },
+        {
+          "name": "source_id",
+          "type": "u32"
+        },
+        {
+          "name": "calibration_generation",
+          "type": "u32"
+        },
+        {
+          "name": "covered_us",
+          "type": "u32"
+        },
+        {
+          "name": "position_epoch_count",
+          "type": "u32"
+        },
+        {
+          "name": "velocity_epoch_count",
+          "type": "u32"
+        },
+        {
+          "name": "closure_en_m",
+          "type": "f32",
+          "count": 2,
+          "unit": "m"
+        },
+        {
+          "name": "closure_norm_m",
+          "type": "f32",
+          "unit": "m"
+        },
+        {
+          "name": "variance_scale",
+          "type": "f32",
+          "unit": "1"
+        },
+        {
+          "name": "quality_revision",
+          "type": "u8"
+        },
+        {
+          "name": "physical_mask",
+          "type": "u8"
+        },
+        {
+          "name": "admitted_mask",
+          "type": "u8"
+        },
+        {
+          "name": "accepted_mask",
+          "type": "u8"
+        },
+        {
+          "name": "nav_output_valid",
+          "type": "u8"
+        },
+        {
+          "name": "health",
+          "type": "u8"
+        },
+        {
+          "name": "evidence_valid",
+          "type": "u8"
+        },
+        {
+          "name": "numsv",
+          "type": "u8"
+        },
+        {
+          "name": "window_reason",
+          "type": "u8"
+        },
+        {
+          "name": "numsv_valid",
+          "type": "u8"
+        },
+        {
+          "name": "window_index",
+          "type": "u8"
+        },
+        {
+          "name": "quality_degraded_mask",
+          "type": "u8"
+        }
+      ],
+      "default_stream": {
+        "enabled": true,
+        "policy": "every",
+        "decimation": 1,
+        "period_us": 0
+      }
     }
   ],
   "fccg": {
@@ -2641,13 +3374,154 @@
         "cadence": {
           "kind": "event"
         }
+      },
+      "FLIGHT_LOG_RECORD_ESKF15_STATE": {
+        "level": "recommended",
+        "purpose": "flight",
+        "default_enabled": true,
+        "display_names": {
+          "zh_CN": "ESKF15 STATE",
+          "en_US": "ESKF15 STATE"
+        },
+        "requires": {
+          "capabilities": [
+            "algorithm.estimator"
+          ]
+        },
+        "cadence": {
+          "kind": "algorithm_output"
+        },
+        "producer_components": [
+          "silverstar.algorithm.estimator.eskf15"
+        ]
+      },
+      "FLIGHT_LOG_RECORD_ESKF15_FULL_P_PART": {
+        "level": "optional",
+        "purpose": "test",
+        "default_enabled": false,
+        "display_names": {
+          "zh_CN": "ESKF15 FULL P PART",
+          "en_US": "ESKF15 FULL P PART"
+        },
+        "requires": {
+          "capabilities": [
+            "algorithm.estimator"
+          ]
+        },
+        "cadence": {
+          "kind": "algorithm_output"
+        },
+        "producer_components": [
+          "silverstar.algorithm.estimator.eskf15"
+        ]
+      },
+      "FLIGHT_LOG_RECORD_ESKF15_INITIAL_STATE": {
+        "level": "required",
+        "purpose": "flight",
+        "default_enabled": true,
+        "display_names": {
+          "zh_CN": "ESKF15 INITIAL STATE",
+          "en_US": "ESKF15 INITIAL STATE"
+        },
+        "requires": {
+          "capabilities": [
+            "algorithm.estimator"
+          ]
+        },
+        "cadence": {
+          "kind": "one_shot"
+        },
+        "producer_components": [
+          "silverstar.algorithm.estimator.eskf15"
+        ]
+      },
+      "FLIGHT_LOG_RECORD_ESKF15_INITIAL_P_PART": {
+        "level": "required",
+        "purpose": "flight",
+        "default_enabled": true,
+        "display_names": {
+          "zh_CN": "ESKF15 INITIAL P PART",
+          "en_US": "ESKF15 INITIAL P PART"
+        },
+        "requires": {
+          "capabilities": [
+            "algorithm.estimator"
+          ]
+        },
+        "cadence": {
+          "kind": "one_shot"
+        },
+        "producer_components": [
+          "silverstar.algorithm.estimator.eskf15"
+        ]
+      },
+      "FLIGHT_LOG_RECORD_ESKF15_MEASUREMENT": {
+        "level": "required",
+        "purpose": "flight",
+        "default_enabled": true,
+        "display_names": {
+          "zh_CN": "ESKF15 MEASUREMENT",
+          "en_US": "ESKF15 MEASUREMENT"
+        },
+        "requires": {
+          "capabilities": [
+            "algorithm.estimator"
+          ]
+        },
+        "cadence": {
+          "kind": "measurement"
+        },
+        "producer_components": [
+          "silverstar.algorithm.estimator.eskf15"
+        ]
+      },
+      "FLIGHT_LOG_RECORD_ESKF15_BODY_INPUT": {
+        "level": "required",
+        "purpose": "flight",
+        "default_enabled": true,
+        "display_names": {
+          "zh_CN": "ESKF15 机体系输入",
+          "en_US": "ESKF15 Body Input"
+        },
+        "requires": {
+          "capabilities": [
+            "algorithm.estimator"
+          ]
+        },
+        "cadence": {
+          "kind": "source"
+        },
+        "producer_components": [
+          "silverstar.algorithm.estimator.eskf15"
+        ]
+      },
+      "FLIGHT_LOG_RECORD_NAV_QUALITY": {
+        "level": "recommended",
+        "purpose": "flight",
+        "default_enabled": true,
+        "display_names": {
+          "zh_CN": "导航质量与窗口证据",
+          "en_US": "Navigation quality evidence"
+        },
+        "requires": {
+          "capabilities": [
+            "algorithm.estimator"
+          ]
+        },
+        "cadence": {
+          "kind": "measurement"
+        },
+        "producer_components": [
+          "silverstar.algorithm.estimator.eskf15",
+          "silverstar.algorithm.estimator.kf6"
+        ]
       }
     }
   },
   "project_semantics": {
     "navigation_replay": {
       "revision": 2,
-      "gnss_integrity_revision": 2,
+      "gnss_integrity_revision": 3,
       "clock": "MCU monotonic microseconds",
       "operation_order": "Sort ESTIMATOR_STEP.operation_sequence, GNSS_MEASUREMENT.receive_operation_sequence/position_operation_sequence/velocity_operation_sequence, and BARO_MEASUREMENT.operation_sequence within replay_epoch. Zero means not executed. Equal position/velocity operation IDs mean one combined insert.",
       "initial_state": "INITIAL_STATE; P0 diagonal and initial velocity; attitude shared with chosen navigation algorithm",
@@ -2672,7 +3546,25 @@
       ],
       "corrected_imu": "Calibrated SI inputs. Do not calibrate again. Verify grouping and coning/sculling against every INERTIAL_INCREMENT interval.",
       "reanchor": "Qualified availability outage only; consistent returning observations at least 1 second, minimum sample count, exhausted bounded normal/inflation attempts; replace only selected state block, variance diagonal from actual R, affected cross covariance zero; apply at measurement time then replay forward.",
-      "fidelity": "Requires complete inputs and C golden validation; never infer operation timing from receive time."
+      "fidelity": "Requires complete inputs and C golden validation; never infer operation timing from receive time.",
+      "nav_fusion_state_change_event": {
+        "id": 47,
+        "name": "NAV_FUSION_STATE_CHANGE",
+        "revision": 3,
+        "arg0": "group[7:0] | state[15:8] | reason[23:16]",
+        "arg1": "elapsed_since_actual_effective_fusion_ms_saturated_u32",
+        "scope": "live supervisor state transitions only; historical replay emits no side effect"
+      },
+      "retired_parameter_ids": {
+        "silverstar.algorithm.estimator.kf6": [
+          "gnss_integrity_recovery_threshold_m",
+          "gnss_integrity_suspect_duration_ms",
+          "gnss_integrity_reject_duration_ms",
+          "gnss_integrity_recovery_duration_ms",
+          "gnss_integrity_hacc_max_m",
+          "gnss_integrity_sacc_max_mps"
+        ]
+      }
     },
     "landing_diagnostics": {
       "record": "LANDING_DIAGNOSTIC",
@@ -2693,6 +3585,17 @@
         "BARO_SPAN",
         "TIMESTAMP_DISCONTINUITY"
       ]
+    },
+    "eskf15_replay": {
+      "algorithm_revision": 1,
+      "quality_revision": 3,
+      "initialization": "ESKF15_INITIAL_STATE plus four identity-matched ESKF15_INITIAL_P_PART records.",
+      "prediction": "ESKF15_BODY_INPUT calibrated body SI two subinterval means before ESKF residual bias or coning/sculling.",
+      "measurement": "ESKF15_MEASUREMENT uses recorded resolved measurement/evaluation times and per-group physical/admitted/outcome evidence.",
+      "calibration_generation": "Actual calibration start_sequence; distinct from INITIAL_STATE.epoch navigation preparation identity.",
+      "covariance": "15 by 15 symmetric upper triangle row-major, 120 values split into four parts of 30; missing/duplicate/conflicting parts are incomplete.",
+      "quality": "NAV_QUALITY revision3; bounded satellite and window variance weighting, no position-bit veto from consistency.",
+      "fidelity": "Require complete exact inputs and C numerical validation; unsupported or incomplete evidence is explicit."
     }
   }
 }

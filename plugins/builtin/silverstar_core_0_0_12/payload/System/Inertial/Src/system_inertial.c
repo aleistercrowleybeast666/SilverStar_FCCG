@@ -32,6 +32,7 @@ static void SystemInertial_DeviceSampleCopy(
                  sizeof(destination->gyro_b_radps));
     destination->temperature_c = source->temperature_c;
     destination->valid_mask = source->valid_mask;
+    destination->quality_flags = source->quality_flags;
 }
 
 SystemDeviceResult SystemInertial_Init(void)

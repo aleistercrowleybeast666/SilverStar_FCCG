@@ -104,8 +104,7 @@ static void Test_GnssFieldCapabilities(void)
     SystemGnssSample sample;
 
     sample = Test_GnssSampleMake(now_us);
-    sample.supported_fields &= ~(SYSTEM_GNSS_FIELD_FIX_OK |
-        SYSTEM_GNSS_FIELD_SATELLITE_COUNT |
+    sample.supported_fields &= ~(SYSTEM_GNSS_FIELD_SATELLITE_COUNT |
         SYSTEM_GNSS_FIELD_HORIZONTAL_ACCURACY |
         SYSTEM_GNSS_FIELD_VERTICAL_ACCURACY |
         SYSTEM_GNSS_FIELD_SPEED_ACCURACY |
@@ -120,6 +119,14 @@ static void Test_GnssFieldCapabilities(void)
                 SYSTEM_GNSS_REJECT_FIELD_UNSUPPORTED) != 0U);
     TEST_CHECK((sample.velocity_reject_mask &
                 SYSTEM_GNSS_REJECT_FIELD_UNSUPPORTED) != 0U);
+
+    sample = Test_GnssSampleMake(now_us);
+    sample.supported_fields &= ~SYSTEM_GNSS_FIELD_FIX_OK;
+    sample.valid_fields &= ~SYSTEM_GNSS_FIELD_FIX_OK;
+    (void)SystemGnssQuality_Evaluate(&sample, now_us);
+    TEST_CHECK(sample.physical_valid_group_mask == 0U);
+    TEST_CHECK(sample.valid_group_mask == 0U);
+    TEST_CHECK(sample.position_usable == 0U);
 
     sample = Test_GnssSampleMake(now_us);
     sample.valid_fields &= ~SYSTEM_GNSS_FIELD_HORIZONTAL_ACCURACY;
@@ -234,14 +241,19 @@ static void Test_GnssIndependentGroups(void)
     sample.horizontal_accuracy_m = 4.06f;
     sample.vertical_accuracy_m = 10.01f;
     (void)SystemGnssQuality_Evaluate(&sample, now_us);
-    TEST_CHECK(sample.valid_group_mask == 13U);
+    TEST_CHECK(sample.valid_group_mask == 15U);
+    TEST_CHECK(sample.physical_valid_group_mask == 15U);
+    TEST_CHECK((sample.quality_degraded_group_mask & 2U) != 0U);
     TEST_CHECK(sample.group_reject_mask[0] == 0U);
     TEST_CHECK(sample.group_reject_mask[1] == SYSTEM_GNSS_REJECT_VACC);
     TEST_CHECK(sample.position_usable == 0U);
     sample = Test_GnssSampleMake(now_us);
     sample.horizontal_accuracy_m = SYSTEM_GNSS_MAX_HORIZONTAL_ACCURACY_M + 1.0f;
     (void)SystemGnssQuality_Evaluate(&sample, now_us);
-    TEST_CHECK(sample.valid_group_mask == 14U);
+    TEST_CHECK(sample.valid_group_mask == 15U);
+    TEST_CHECK(sample.physical_valid_group_mask == 15U);
+    TEST_CHECK((sample.quality_degraded_group_mask & 1U) != 0U);
+    TEST_CHECK(sample.position_usable == 0U);
     TEST_CHECK(sample.group_reject_mask[1] == 0U);
     sample = Test_GnssSampleMake(now_us);
     sample.valid_fields &= ~SYSTEM_GNSS_FIELD_VELOCITY_HORIZONTAL;

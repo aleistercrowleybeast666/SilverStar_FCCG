@@ -43,6 +43,7 @@ from silverstar_fccg.ui.committed_spin import (
     EnterCommittedDoubleSpinBox,
     EnterCommittedSpinBox,
 )
+from silverstar_fccg.ui.device_initialization import InitializationSection_Create
 from silverstar_fccg.ui.pages.base import ScrollableLocalizedPage
 from silverstar_fccg.ui.widgets import (
     CollapsibleSection,
@@ -154,6 +155,7 @@ class DevicesPage(ScrollableLocalizedPage):
         self.device_checks: dict[str, StandardCheckBox] = {}
         self.add_buttons: dict[str, QPushButton] = {}
         self.remove_buttons: dict[str, QPushButton] = {}
+        self.initialization_sections: dict[str, CollapsibleSection] = {}
         self._components: tuple[ComponentView, ...] = ()
         self._instances: tuple[DeviceInstanceView, ...] = ()
         self._device_availability: dict[str, SelectionAvailability] = {}
@@ -178,6 +180,10 @@ class DevicesPage(ScrollableLocalizedPage):
         self._instances = tuple(instances)
         self._device_availability = dict(device_availability or {})
 
+        initialization_expanded = {
+            key: section.Expanded_Is() for key, section in self.initialization_sections.items()
+        }
+        self.initialization_sections.clear()
         self._Layout_Clear(self.primary_form)
         self._Layout_Clear(self.telemetry_form)
         self._Layout_Clear(self.other_form)
@@ -332,6 +338,13 @@ class DevicesPage(ScrollableLocalizedPage):
                     summary.setWordWrap(True)
                     summary.setProperty("muted", True)
                     form.addRow(QLabel(), summary)
+                    if instance.initialization or instance.runtime_defaults:
+                        section = InitializationSection_Create(
+                            instance, self._translator,
+                            expanded=initialization_expanded.get(instance_id, False),
+                        )
+                        form.addRow(section)
+                        self.initialization_sections[instance_id] = section
                     remove_button = QPushButton(
                         self._translator.Text_Get("action.remove_device")
                     )
@@ -1768,13 +1781,13 @@ class FlightConfigurationPage(ScrollableLocalizedPage):
             assert isinstance(cadence, CadenceEditor)
             with QSignalBlocker(enabled_check):
                 if isinstance(enabled_check, LockedCheckBox):
-                    enabled_check.LockedState_Set(True)
+                    enabled_check.LockedState_Set(stream.available)
                 else:
                     enabled_check.setChecked(stream.enabled)
                     enabled_check.setEnabled(stream.available)
             enabled_check.setToolTip(
                 self._translator.Text_Get("logging.required_tooltip")
-                if stream.required
+                if stream.required and stream.available
                 else stream.availability_reason
             )
             cadence.Cadence_Set(
@@ -1832,9 +1845,10 @@ class FlightConfigurationPage(ScrollableLocalizedPage):
                     stream_id=original.stream_id,
                     name=original.name,
                     enabled=(
-                        True
-                        if original.required
-                        else bool(enabled_check and enabled_check.isChecked())
+                        original.available and (
+                            original.required
+                            or bool(enabled_check and enabled_check.isChecked())
+                        )
                     ),
                     decimation=(int(decimation.CommittedValue_Get()) if isinstance(decimation, EnterCommittedSpinBox) else original.decimation),
                     cadence_kind=original.cadence_kind,
@@ -1879,10 +1893,11 @@ class FlightConfigurationPage(ScrollableLocalizedPage):
             )
             if enabled_check is None:
                 continue
-            selected = stream.required or (
-                include_available
-                and stream.available
-                and (allowed_purpose is None or stream.purpose == allowed_purpose)
+            selected = stream.available and (
+                stream.required or (
+                    include_available
+                    and (allowed_purpose is None or stream.purpose == allowed_purpose)
+                )
             )
             if enabled_check.isChecked() == selected:
                 continue

@@ -1,0 +1,889 @@
+
+=================================== ERRORS ====================================
+_ ERROR collecting tests/.integrity-generated/pytest-full-top-level/test_clean_all_stays_inside_wo0/fccg/tests/test_kept.py _
+import file mismatch:
+imported module 'test_kept' has this __file__ attribute:
+  D:\python_software\SilverStar_FCCG\tests\.integrity-generated\pytest-full\test_clean_all_stays_inside_wo0\fccg\tests\test_kept.py
+which is not the same as the test file we want to collect:
+  D:\python_software\SilverStar_FCCG\tests\.integrity-generated\pytest-full-top-level\test_clean_all_stays_inside_wo0\fccg\tests\test_kept.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules
+________________ ERROR collecting tests/.pytest-doc-final-0917 ________________
+C:\Users\chdxm\AppData\Local\Programs\Python\Python314\Lib\site-packages\_pytest\runner.py:361: in from_call
+    result: TResult | None = func()
+                             ^^^^^^
+C:\Users\chdxm\AppData\Local\Programs\Python\Python314\Lib\site-packages\_pytest\runner.py:406: in collect
+    return list(collector.collect())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Users\chdxm\AppData\Local\Programs\Python\Python314\Lib\site-packages\_pytest\main.py:569: in collect
+    for direntry in scandir(self.path):
+                    ^^^^^^^^^^^^^^^^^^
+C:\Users\chdxm\AppData\Local\Programs\Python\Python314\Lib\site-packages\_pytest\pathlib.py:954: in scandir
+    scandir_iter = os.scandir(path)
+                   ^^^^^^^^^^^^^^^^
+E   PermissionError: [WinError 5] 拒绝访问。: 'D:\\python_software\\SilverStar_FCCG\\tests\\.pytest-doc-final-0917'
+_______________ ERROR collecting tests/.pytest-final-focus-0917 _______________
+C:\Users\chdxm\AppData\Local\Programs\Python\Python314\Lib\site-packages\_pytest\runner.py:361: in from_call
+    result: TResult | None = func()
+                             ^^^^^^
+C:\Users\chdxm\AppData\Local\Programs\Python\Python314\Lib\site-packages\_pytest\runner.py:406: in collect
+    return list(collector.collect())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Users\chdxm\AppData\Local\Programs\Python\Python314\Lib\site-packages\_pytest\main.py:569: in collect
+    for direntry in scandir(self.path):
+                    ^^^^^^^^^^^^^^^^^^
+C:\Users\chdxm\AppData\Local\Programs\Python\Python314\Lib\site-packages\_pytest\pathlib.py:954: in scandir
+    scandir_iter = os.scandir(path)
+                   ^^^^^^^^^^^^^^^^
+E   PermissionError: [WinError 5] 拒绝访问。: 'D:\\python_software\\SilverStar_FCCG\\tests\\.pytest-final-focus-0917'
+__________________ ERROR collecting tests/.pytest-focus-0917 __________________
+C:\Users\chdxm\AppData\Local\Programs\Python\Python314\Lib\site-packages\_pytest\runner.py:361: in from_call
+    result: TResult | None = func()
+                             ^^^^^^
+C:\Users\chdxm\AppData\Local\Programs\Python\Python314\Lib\site-packages\_pytest\runner.py:406: in collect
+    return list(collector.collect())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Users\chdxm\AppData\Local\Programs\Python\Python314\Lib\site-packages\_pytest\main.py:569: in collect
+    for direntry in scandir(self.path):
+                    ^^^^^^^^^^^^^^^^^^
+C:\Users\chdxm\AppData\Local\Programs\Python\Python314\Lib\site-packages\_pytest\pathlib.py:954: in scandir
+    scandir_iter = os.scandir(path)
+                   ^^^^^^^^^^^^^^^^
+E   PermissionError: [WinError 5] 拒绝访问。: 'D:\\python_software\\SilverStar_FCCG\\tests\\.pytest-focus-0917'
+__________________ ERROR collecting tests/.pytest-full-0917 ___________________
+C:\Users\chdxm\AppData\Local\Programs\Python\Python314\Lib\site-packages\_pytest\runner.py:361: in from_call
+    result: TResult | None = func()
+                             ^^^^^^
+C:\Users\chdxm\AppData\Local\Programs\Python\Python314\Lib\site-packages\_pytest\runner.py:406: in collect
+    return list(collector.collect())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Users\chdxm\AppData\Local\Programs\Python\Python314\Lib\site-packages\_pytest\main.py:569: in collect
+    for direntry in scandir(self.path):
+                    ^^^^^^^^^^^^^^^^^^
+C:\Users\chdxm\AppData\Local\Programs\Python\Python314\Lib\site-packages\_pytest\pathlib.py:954: in scandir
+    scandir_iter = os.scandir(path)
+                   ^^^^^^^^^^^^^^^^
+E   PermissionError: [WinError 5] 拒绝访问。: 'D:\\python_software\\SilverStar_FCCG\\tests\\.pytest-full-0917'
+__________________ ERROR collecting tests/.pytest-last-0917 ___________________
+C:\Users\chdxm\AppData\Local\Programs\Python\Python314\Lib\site-packages\_pytest\runner.py:361: in from_call
+    result: TResult | None = func()
+                             ^^^^^^
+C:\Users\chdxm\AppData\Local\Programs\Python\Python314\Lib\site-packages\_pytest\runner.py:406: in collect
+    return list(collector.collect())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Users\chdxm\AppData\Local\Programs\Python\Python314\Lib\site-packages\_pytest\main.py:569: in collect
+    for direntry in scandir(self.path):
+                    ^^^^^^^^^^^^^^^^^^
+C:\Users\chdxm\AppData\Local\Programs\Python\Python314\Lib\site-packages\_pytest\pathlib.py:954: in scandir
+    scandir_iter = os.scandir(path)
+                   ^^^^^^^^^^^^^^^^
+E   PermissionError: [WinError 5] 拒绝访问。: 'D:\\python_software\\SilverStar_FCCG\\tests\\.pytest-last-0917'
+_ ERROR collecting tests/.pytest-root-diagnose-20260917/test_clean_all_stays_inside_wo0/fccg/tests/test_kept.py _
+import file mismatch:
+imported module 'test_kept' has this __file__ attribute:
+  D:\python_software\SilverStar_FCCG\tests\.integrity-generated\pytest-full\test_clean_all_stays_inside_wo0\fccg\tests\test_kept.py
+which is not the same as the test file we want to collect:
+  D:\python_software\SilverStar_FCCG\tests\.pytest-root-diagnose-20260917\test_clean_all_stays_inside_wo0\fccg\tests\test_kept.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules
+_ ERROR collecting tests/.pytest-root-final-20260917/test_clean_all_stays_inside_wo0/fccg/tests/test_kept.py _
+import file mismatch:
+imported module 'test_kept' has this __file__ attribute:
+  D:\python_software\SilverStar_FCCG\tests\.integrity-generated\pytest-full\test_clean_all_stays_inside_wo0\fccg\tests\test_kept.py
+which is not the same as the test file we want to collect:
+  D:\python_software\SilverStar_FCCG\tests\.pytest-root-final-20260917\test_clean_all_stays_inside_wo0\fccg\tests\test_kept.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules
+_ ERROR collecting tests/.pytest-root-full2-20260917/test_clean_all_stays_inside_wo0/fccg/tests/test_kept.py _
+import file mismatch:
+imported module 'test_kept' has this __file__ attribute:
+  D:\python_software\SilverStar_FCCG\tests\.integrity-generated\pytest-full\test_clean_all_stays_inside_wo0\fccg\tests\test_kept.py
+which is not the same as the test file we want to collect:
+  D:\python_software\SilverStar_FCCG\tests\.pytest-root-full2-20260917\test_clean_all_stays_inside_wo0\fccg\tests\test_kept.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules
+__________________ ERROR collecting tests/.pytest-runtime16 ___________________
+C:\Users\chdxm\AppData\Local\Programs\Python\Python314\Lib\site-packages\_pytest\runner.py:361: in from_call
+    result: TResult | None = func()
+                             ^^^^^^
+C:\Users\chdxm\AppData\Local\Programs\Python\Python314\Lib\site-packages\_pytest\runner.py:406: in collect
+    return list(collector.collect())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Users\chdxm\AppData\Local\Programs\Python\Python314\Lib\site-packages\_pytest\main.py:569: in collect
+    for direntry in scandir(self.path):
+                    ^^^^^^^^^^^^^^^^^^
+C:\Users\chdxm\AppData\Local\Programs\Python\Python314\Lib\site-packages\_pytest\pathlib.py:954: in scandir
+    scandir_iter = os.scandir(path)
+                   ^^^^^^^^^^^^^^^^
+E   PermissionError: [WinError 5] 拒绝访问。: 'D:\\python_software\\SilverStar_FCCG\\tests\\.pytest-runtime16'
+______________ ERROR collecting tests/.pytest-runtime16-complete ______________
+C:\Users\chdxm\AppData\Local\Programs\Python\Python314\Lib\site-packages\_pytest\runner.py:361: in from_call
+    result: TResult | None = func()
+                             ^^^^^^
+C:\Users\chdxm\AppData\Local\Programs\Python\Python314\Lib\site-packages\_pytest\runner.py:406: in collect
+    return list(collector.collect())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Users\chdxm\AppData\Local\Programs\Python\Python314\Lib\site-packages\_pytest\main.py:569: in collect
+    for direntry in scandir(self.path):
+                    ^^^^^^^^^^^^^^^^^^
+C:\Users\chdxm\AppData\Local\Programs\Python\Python314\Lib\site-packages\_pytest\pathlib.py:954: in scandir
+    scandir_iter = os.scandir(path)
+                   ^^^^^^^^^^^^^^^^
+E   PermissionError: [WinError 5] 拒绝访问。: 'D:\\python_software\\SilverStar_FCCG\\tests\\.pytest-runtime16-complete'
+_______________ ERROR collecting tests/.pytest-runtime16-frozen _______________
+C:\Users\chdxm\AppData\Local\Programs\Python\Python314\Lib\site-packages\_pytest\runner.py:361: in from_call
+    result: TResult | None = func()
+                             ^^^^^^
+C:\Users\chdxm\AppData\Local\Programs\Python\Python314\Lib\site-packages\_pytest\runner.py:406: in collect
+    return list(collector.collect())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Users\chdxm\AppData\Local\Programs\Python\Python314\Lib\site-packages\_pytest\main.py:569: in collect
+    for direntry in scandir(self.path):
+                    ^^^^^^^^^^^^^^^^^^
+C:\Users\chdxm\AppData\Local\Programs\Python\Python314\Lib\site-packages\_pytest\pathlib.py:954: in scandir
+    scandir_iter = os.scandir(path)
+                   ^^^^^^^^^^^^^^^^
+E   PermissionError: [WinError 5] 拒绝访问。: 'D:\\python_software\\SilverStar_FCCG\\tests\\.pytest-runtime16-frozen'
+________________ ERROR collecting tests/.pytest-runtime16-last ________________
+C:\Users\chdxm\AppData\Local\Programs\Python\Python314\Lib\site-packages\_pytest\runner.py:361: in from_call
+    result: TResult | None = func()
+                             ^^^^^^
+C:\Users\chdxm\AppData\Local\Programs\Python\Python314\Lib\site-packages\_pytest\runner.py:406: in collect
+    return list(collector.collect())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Users\chdxm\AppData\Local\Programs\Python\Python314\Lib\site-packages\_pytest\main.py:569: in collect
+    for direntry in scandir(self.path):
+                    ^^^^^^^^^^^^^^^^^^
+C:\Users\chdxm\AppData\Local\Programs\Python\Python314\Lib\site-packages\_pytest\pathlib.py:954: in scandir
+    scandir_iter = os.scandir(path)
+                   ^^^^^^^^^^^^^^^^
+E   PermissionError: [WinError 5] 拒绝访问。: 'D:\\python_software\\SilverStar_FCCG\\tests\\.pytest-runtime16-last'
+_______________ ERROR collecting tests/.pytest-runtime16-stack ________________
+C:\Users\chdxm\AppData\Local\Programs\Python\Python314\Lib\site-packages\_pytest\runner.py:361: in from_call
+    result: TResult | None = func()
+                             ^^^^^^
+C:\Users\chdxm\AppData\Local\Programs\Python\Python314\Lib\site-packages\_pytest\runner.py:406: in collect
+    return list(collector.collect())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Users\chdxm\AppData\Local\Programs\Python\Python314\Lib\site-packages\_pytest\main.py:569: in collect
+    for direntry in scandir(self.path):
+                    ^^^^^^^^^^^^^^^^^^
+C:\Users\chdxm\AppData\Local\Programs\Python\Python314\Lib\site-packages\_pytest\pathlib.py:954: in scandir
+    scandir_iter = os.scandir(path)
+                   ^^^^^^^^^^^^^^^^
+E   PermissionError: [WinError 5] 拒绝访问。: 'D:\\python_software\\SilverStar_FCCG\\tests\\.pytest-runtime16-stack'
+__________________ ERROR collecting tests/.pytest-runtime16b __________________
+C:\Users\chdxm\AppData\Local\Programs\Python\Python314\Lib\site-packages\_pytest\runner.py:361: in from_call
+    result: TResult | None = func()
+                             ^^^^^^
+C:\Users\chdxm\AppData\Local\Programs\Python\Python314\Lib\site-packages\_pytest\runner.py:406: in collect
+    return list(collector.collect())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Users\chdxm\AppData\Local\Programs\Python\Python314\Lib\site-packages\_pytest\main.py:569: in collect
+    for direntry in scandir(self.path):
+                    ^^^^^^^^^^^^^^^^^^
+C:\Users\chdxm\AppData\Local\Programs\Python\Python314\Lib\site-packages\_pytest\pathlib.py:954: in scandir
+    scandir_iter = os.scandir(path)
+                   ^^^^^^^^^^^^^^^^
+E   PermissionError: [WinError 5] 拒绝访问。: 'D:\\python_software\\SilverStar_FCCG\\tests\\.pytest-runtime16b'
+__________________ ERROR collecting tests/.pytest-runtime16c __________________
+C:\Users\chdxm\AppData\Local\Programs\Python\Python314\Lib\site-packages\_pytest\runner.py:361: in from_call
+    result: TResult | None = func()
+                             ^^^^^^
+C:\Users\chdxm\AppData\Local\Programs\Python\Python314\Lib\site-packages\_pytest\runner.py:406: in collect
+    return list(collector.collect())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Users\chdxm\AppData\Local\Programs\Python\Python314\Lib\site-packages\_pytest\main.py:569: in collect
+    for direntry in scandir(self.path):
+                    ^^^^^^^^^^^^^^^^^^
+C:\Users\chdxm\AppData\Local\Programs\Python\Python314\Lib\site-packages\_pytest\pathlib.py:954: in scandir
+    scandir_iter = os.scandir(path)
+                   ^^^^^^^^^^^^^^^^
+E   PermissionError: [WinError 5] 拒绝访问。: 'D:\\python_software\\SilverStar_FCCG\\tests\\.pytest-runtime16c'
+__________________ ERROR collecting tests/.pytest-runtime16d __________________
+C:\Users\chdxm\AppData\Local\Programs\Python\Python314\Lib\site-packages\_pytest\runner.py:361: in from_call
+    result: TResult | None = func()
+                             ^^^^^^
+C:\Users\chdxm\AppData\Local\Programs\Python\Python314\Lib\site-packages\_pytest\runner.py:406: in collect
+    return list(collector.collect())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Users\chdxm\AppData\Local\Programs\Python\Python314\Lib\site-packages\_pytest\main.py:569: in collect
+    for direntry in scandir(self.path):
+                    ^^^^^^^^^^^^^^^^^^
+C:\Users\chdxm\AppData\Local\Programs\Python\Python314\Lib\site-packages\_pytest\pathlib.py:954: in scandir
+    scandir_iter = os.scandir(path)
+                   ^^^^^^^^^^^^^^^^
+E   PermissionError: [WinError 5] 拒绝访问。: 'D:\\python_software\\SilverStar_FCCG\\tests\\.pytest-runtime16d'
+__________________ ERROR collecting tests/.pytest-runtime16e __________________
+C:\Users\chdxm\AppData\Local\Programs\Python\Python314\Lib\site-packages\_pytest\runner.py:361: in from_call
+    result: TResult | None = func()
+                             ^^^^^^
+C:\Users\chdxm\AppData\Local\Programs\Python\Python314\Lib\site-packages\_pytest\runner.py:406: in collect
+    return list(collector.collect())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Users\chdxm\AppData\Local\Programs\Python\Python314\Lib\site-packages\_pytest\main.py:569: in collect
+    for direntry in scandir(self.path):
+                    ^^^^^^^^^^^^^^^^^^
+C:\Users\chdxm\AppData\Local\Programs\Python\Python314\Lib\site-packages\_pytest\pathlib.py:954: in scandir
+    scandir_iter = os.scandir(path)
+                   ^^^^^^^^^^^^^^^^
+E   PermissionError: [WinError 5] 拒绝访问。: 'D:\\python_software\\SilverStar_FCCG\\tests\\.pytest-runtime16e'
+_________________ ERROR collecting tests/.pytest-sparse-0916 __________________
+C:\Users\chdxm\AppData\Local\Programs\Python\Python314\Lib\site-packages\_pytest\runner.py:361: in from_call
+    result: TResult | None = func()
+                             ^^^^^^
+C:\Users\chdxm\AppData\Local\Programs\Python\Python314\Lib\site-packages\_pytest\runner.py:406: in collect
+    return list(collector.collect())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Users\chdxm\AppData\Local\Programs\Python\Python314\Lib\site-packages\_pytest\main.py:569: in collect
+    for direntry in scandir(self.path):
+                    ^^^^^^^^^^^^^^^^^^
+C:\Users\chdxm\AppData\Local\Programs\Python\Python314\Lib\site-packages\_pytest\pathlib.py:954: in scandir
+    scandir_iter = os.scandir(path)
+                   ^^^^^^^^^^^^^^^^
+E   PermissionError: [WinError 5] 拒绝访问。: 'D:\\python_software\\SilverStar_FCCG\\tests\\.pytest-sparse-0916'
+_________________ ERROR collecting tests/.pytest-sparse-0916b _________________
+C:\Users\chdxm\AppData\Local\Programs\Python\Python314\Lib\site-packages\_pytest\runner.py:361: in from_call
+    result: TResult | None = func()
+                             ^^^^^^
+C:\Users\chdxm\AppData\Local\Programs\Python\Python314\Lib\site-packages\_pytest\runner.py:406: in collect
+    return list(collector.collect())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Users\chdxm\AppData\Local\Programs\Python\Python314\Lib\site-packages\_pytest\main.py:569: in collect
+    for direntry in scandir(self.path):
+                    ^^^^^^^^^^^^^^^^^^
+C:\Users\chdxm\AppData\Local\Programs\Python\Python314\Lib\site-packages\_pytest\pathlib.py:954: in scandir
+    scandir_iter = os.scandir(path)
+                   ^^^^^^^^^^^^^^^^
+E   PermissionError: [WinError 5] 拒绝访问。: 'D:\\python_software\\SilverStar_FCCG\\tests\\.pytest-sparse-0916b'
+_________________ ERROR collecting tests/.pytest-sparse-0916c _________________
+C:\Users\chdxm\AppData\Local\Programs\Python\Python314\Lib\site-packages\_pytest\runner.py:361: in from_call
+    result: TResult | None = func()
+                             ^^^^^^
+C:\Users\chdxm\AppData\Local\Programs\Python\Python314\Lib\site-packages\_pytest\runner.py:406: in collect
+    return list(collector.collect())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Users\chdxm\AppData\Local\Programs\Python\Python314\Lib\site-packages\_pytest\main.py:569: in collect
+    for direntry in scandir(self.path):
+                    ^^^^^^^^^^^^^^^^^^
+C:\Users\chdxm\AppData\Local\Programs\Python\Python314\Lib\site-packages\_pytest\pathlib.py:954: in scandir
+    scandir_iter = os.scandir(path)
+                   ^^^^^^^^^^^^^^^^
+E   PermissionError: [WinError 5] 拒绝访问。: 'D:\\python_software\\SilverStar_FCCG\\tests\\.pytest-sparse-0916c'
+_________________ ERROR collecting tests/.pytest-sparse-0916d _________________
+C:\Users\chdxm\AppData\Local\Programs\Python\Python314\Lib\site-packages\_pytest\runner.py:361: in from_call
+    result: TResult | None = func()
+                             ^^^^^^
+C:\Users\chdxm\AppData\Local\Programs\Python\Python314\Lib\site-packages\_pytest\runner.py:406: in collect
+    return list(collector.collect())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Users\chdxm\AppData\Local\Programs\Python\Python314\Lib\site-packages\_pytest\main.py:569: in collect
+    for direntry in scandir(self.path):
+                    ^^^^^^^^^^^^^^^^^^
+C:\Users\chdxm\AppData\Local\Programs\Python\Python314\Lib\site-packages\_pytest\pathlib.py:954: in scandir
+    scandir_iter = os.scandir(path)
+                   ^^^^^^^^^^^^^^^^
+E   PermissionError: [WinError 5] 拒绝访问。: 'D:\\python_software\\SilverStar_FCCG\\tests\\.pytest-sparse-0916d'
+_________________ ERROR collecting tests/.pytest-sparse-0916e _________________
+C:\Users\chdxm\AppData\Local\Programs\Python\Python314\Lib\site-packages\_pytest\runner.py:361: in from_call
+    result: TResult | None = func()
+                             ^^^^^^
+C:\Users\chdxm\AppData\Local\Programs\Python\Python314\Lib\site-packages\_pytest\runner.py:406: in collect
+    return list(collector.collect())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Users\chdxm\AppData\Local\Programs\Python\Python314\Lib\site-packages\_pytest\main.py:569: in collect
+    for direntry in scandir(self.path):
+                    ^^^^^^^^^^^^^^^^^^
+C:\Users\chdxm\AppData\Local\Programs\Python\Python314\Lib\site-packages\_pytest\pathlib.py:954: in scandir
+    scandir_iter = os.scandir(path)
+                   ^^^^^^^^^^^^^^^^
+E   PermissionError: [WinError 5] 拒绝访问。: 'D:\\python_software\\SilverStar_FCCG\\tests\\.pytest-sparse-0916e'
+_______________ ERROR collecting tests/.pytest_cache/sparse0916 _______________
+C:\Users\chdxm\AppData\Local\Programs\Python\Python314\Lib\site-packages\_pytest\runner.py:361: in from_call
+    result: TResult | None = func()
+                             ^^^^^^
+C:\Users\chdxm\AppData\Local\Programs\Python\Python314\Lib\site-packages\_pytest\runner.py:406: in collect
+    return list(collector.collect())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Users\chdxm\AppData\Local\Programs\Python\Python314\Lib\site-packages\_pytest\main.py:569: in collect
+    for direntry in scandir(self.path):
+                    ^^^^^^^^^^^^^^^^^^
+C:\Users\chdxm\AppData\Local\Programs\Python\Python314\Lib\site-packages\_pytest\pathlib.py:954: in scandir
+    scandir_iter = os.scandir(path)
+                   ^^^^^^^^^^^^^^^^
+E   PermissionError: [WinError 5] 拒绝访问。: 'D:\\python_software\\SilverStar_FCCG\\tests\\.pytest_cache\\sparse0916'
+_ ERROR collecting tests/.t26/test_clean_all_stays_inside_wo0/fccg/tests/test_kept.py _
+import file mismatch:
+imported module 'test_kept' has this __file__ attribute:
+  D:\python_software\SilverStar_FCCG\tests\.integrity-generated\pytest-full\test_clean_all_stays_inside_wo0\fccg\tests\test_kept.py
+which is not the same as the test file we want to collect:
+  D:\python_software\SilverStar_FCCG\tests\.t26\test_clean_all_stays_inside_wo0\fccg\tests\test_kept.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules
+_ ERROR collecting tests/.tmp_full_rev2_final/test_clean_all_stays_inside_wo0/fccg/tests/test_kept.py _
+import file mismatch:
+imported module 'test_kept' has this __file__ attribute:
+  D:\python_software\SilverStar_FCCG\tests\.integrity-generated\pytest-full\test_clean_all_stays_inside_wo0\fccg\tests\test_kept.py
+which is not the same as the test file we want to collect:
+  D:\python_software\SilverStar_FCCG\tests\.tmp_full_rev2_final\test_clean_all_stays_inside_wo0\fccg\tests\test_kept.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules
+_ ERROR collecting tests/.tmp_full_revision2_accept/test_clean_all_stays_inside_wo0/fccg/tests/test_kept.py _
+import file mismatch:
+imported module 'test_kept' has this __file__ attribute:
+  D:\python_software\SilverStar_FCCG\tests\.integrity-generated\pytest-full\test_clean_all_stays_inside_wo0\fccg\tests\test_kept.py
+which is not the same as the test file we want to collect:
+  D:\python_software\SilverStar_FCCG\tests\.tmp_full_revision2_accept\test_clean_all_stays_inside_wo0\fccg\tests\test_kept.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules
+_ ERROR collecting tests/.tmp_full_revision2_accept_final/test_clean_all_stays_inside_wo0/fccg/tests/test_kept.py _
+import file mismatch:
+imported module 'test_kept' has this __file__ attribute:
+  D:\python_software\SilverStar_FCCG\tests\.integrity-generated\pytest-full\test_clean_all_stays_inside_wo0\fccg\tests\test_kept.py
+which is not the same as the test file we want to collect:
+  D:\python_software\SilverStar_FCCG\tests\.tmp_full_revision2_accept_final\test_clean_all_stays_inside_wo0\fccg\tests\test_kept.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules
+_ ERROR collecting tests/.tmp_full_revision2_final/test_clean_all_stays_inside_wo0/fccg/tests/test_kept.py _
+import file mismatch:
+imported module 'test_kept' has this __file__ attribute:
+  D:\python_software\SilverStar_FCCG\tests\.integrity-generated\pytest-full\test_clean_all_stays_inside_wo0\fccg\tests\test_kept.py
+which is not the same as the test file we want to collect:
+  D:\python_software\SilverStar_FCCG\tests\.tmp_full_revision2_final\test_clean_all_stays_inside_wo0\fccg\tests\test_kept.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules
+_ ERROR collecting tests/.tmp_logging_purpose_pytest_full_explicit_20260926/test_clean_all_stays_inside_wo0/fccg/tests/test_kept.py _
+import file mismatch:
+imported module 'test_kept' has this __file__ attribute:
+  D:\python_software\SilverStar_FCCG\tests\.integrity-generated\pytest-full\test_clean_all_stays_inside_wo0\fccg\tests\test_kept.py
+which is not the same as the test file we want to collect:
+  D:\python_software\SilverStar_FCCG\tests\.tmp_logging_purpose_pytest_full_explicit_20260926\test_clean_all_stays_inside_wo0\fccg\tests\test_kept.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules
+_ ERROR collecting tests/.tmp_logging_purpose_reports/ruff-baseline/tests/test_enter_commit_gui.py _
+import file mismatch:
+imported module 'test_enter_commit_gui' has this __file__ attribute:
+  D:\python_software\SilverStar_FCCG\tests\.pkg27\tests\test_enter_commit_gui.py
+which is not the same as the test file we want to collect:
+  D:\python_software\SilverStar_FCCG\tests\.tmp_logging_purpose_reports\ruff-baseline\tests\test_enter_commit_gui.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules
+_ ERROR collecting tests/.tmp_logging_purpose_reports/ruff-baseline/tests/test_generation_feature_completion.py _
+import file mismatch:
+imported module 'test_generation_feature_completion' has this __file__ attribute:
+  D:\python_software\SilverStar_FCCG\tests\.pkg27\tests\test_generation_feature_completion.py
+which is not the same as the test file we want to collect:
+  D:\python_software\SilverStar_FCCG\tests\.tmp_logging_purpose_reports\ruff-baseline\tests\test_generation_feature_completion.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules
+_ ERROR collecting tests/.tmp_logging_purpose_reports/ruff-baseline/tests/test_gui_smoke.py _
+import file mismatch:
+imported module 'test_gui_smoke' has this __file__ attribute:
+  D:\python_software\SilverStar_FCCG\tests\.pkg27\tests\test_gui_smoke.py
+which is not the same as the test file we want to collect:
+  D:\python_software\SilverStar_FCCG\tests\.tmp_logging_purpose_reports\ruff-baseline\tests\test_gui_smoke.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules
+_ ERROR collecting tests/.tmp_logging_purpose_reports/ruff-baseline/tests/test_joint_navigation_golden.py _
+import file mismatch:
+imported module 'test_joint_navigation_golden' has this __file__ attribute:
+  D:\python_software\SilverStar_FCCG\tests\.pkg27\tests\test_joint_navigation_golden.py
+which is not the same as the test file we want to collect:
+  D:\python_software\SilverStar_FCCG\tests\.tmp_logging_purpose_reports\ruff-baseline\tests\test_joint_navigation_golden.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules
+_ ERROR collecting tests/.tmp_logging_purpose_reports/ruff-baseline/tests/test_logging_cadence_progress.py _
+import file mismatch:
+imported module 'test_logging_cadence_progress' has this __file__ attribute:
+  D:\python_software\SilverStar_FCCG\tests\.pkg27\tests\test_logging_cadence_progress.py
+which is not the same as the test file we want to collect:
+  D:\python_software\SilverStar_FCCG\tests\.tmp_logging_purpose_reports\ruff-baseline\tests\test_logging_cadence_progress.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules
+_ ERROR collecting tests/.tmp_logging_purpose_reports/ruff-baseline/tests/test_prompt_acceptance.py _
+import file mismatch:
+imported module 'test_prompt_acceptance' has this __file__ attribute:
+  D:\python_software\SilverStar_FCCG\tests\.pkg27\tests\test_prompt_acceptance.py
+which is not the same as the test file we want to collect:
+  D:\python_software\SilverStar_FCCG\tests\.tmp_logging_purpose_reports\ruff-baseline\tests\test_prompt_acceptance.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules
+_ ERROR collecting tests/.tmp_logging_purpose_reports/ruff-baseline/tests/test_service_gui.py _
+import file mismatch:
+imported module 'test_service_gui' has this __file__ attribute:
+  D:\python_software\SilverStar_FCCG\tests\.pkg27\tests\test_service_gui.py
+which is not the same as the test file we want to collect:
+  D:\python_software\SilverStar_FCCG\tests\.tmp_logging_purpose_reports\ruff-baseline\tests\test_service_gui.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules
+_ ERROR collecting tests/.tmp_logging_purpose_reports/ruff-baseline/tests/test_storage_integrity.py _
+import file mismatch:
+imported module 'test_storage_integrity' has this __file__ attribute:
+  D:\python_software\SilverStar_FCCG\tests\.pkg27\tests\test_storage_integrity.py
+which is not the same as the test file we want to collect:
+  D:\python_software\SilverStar_FCCG\tests\.tmp_logging_purpose_reports\ruff-baseline\tests\test_storage_integrity.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules
+_ ERROR collecting tests/.tmp_release_0_0_12_full/test_clean_all_stays_inside_wo0/fccg/tests/test_kept.py _
+import file mismatch:
+imported module 'test_kept' has this __file__ attribute:
+  D:\python_software\SilverStar_FCCG\tests\.integrity-generated\pytest-full\test_clean_all_stays_inside_wo0\fccg\tests\test_kept.py
+which is not the same as the test file we want to collect:
+  D:\python_software\SilverStar_FCCG\tests\.tmp_release_0_0_12_full\test_clean_all_stays_inside_wo0\fccg\tests\test_kept.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules
+_ ERROR collecting tests/.tmp_release_0_0_12_full_closeout/test_clean_all_stays_inside_wo0/fccg/tests/test_kept.py _
+import file mismatch:
+imported module 'test_kept' has this __file__ attribute:
+  D:\python_software\SilverStar_FCCG\tests\.integrity-generated\pytest-full\test_clean_all_stays_inside_wo0\fccg\tests\test_kept.py
+which is not the same as the test file we want to collect:
+  D:\python_software\SilverStar_FCCG\tests\.tmp_release_0_0_12_full_closeout\test_clean_all_stays_inside_wo0\fccg\tests\test_kept.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules
+_ ERROR collecting tests/joint_rework_20260927/pytest_root_temp/test_clean_all_stays_inside_wo0/fccg/tests/test_kept.py _
+import file mismatch:
+imported module 'test_kept' has this __file__ attribute:
+  D:\python_software\SilverStar_FCCG\tests\.integrity-generated\pytest-full\test_clean_all_stays_inside_wo0\fccg\tests\test_kept.py
+which is not the same as the test file we want to collect:
+  D:\python_software\SilverStar_FCCG\tests\joint_rework_20260927\pytest_root_temp\test_clean_all_stays_inside_wo0\fccg\tests\test_kept.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules
+_____________ ERROR collecting tests/test_algorithm_parameters.py _____________
+import file mismatch:
+imported module 'test_algorithm_parameters' has this __file__ attribute:
+  D:\python_software\SilverStar_FCCG\tests\.pkg27\tests\test_algorithm_parameters.py
+which is not the same as the test file we want to collect:
+  D:\python_software\SilverStar_FCCG\tests\test_algorithm_parameters.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules
+________________ ERROR collecting tests/test_build_progress.py ________________
+import file mismatch:
+imported module 'test_build_progress' has this __file__ attribute:
+  D:\python_software\SilverStar_FCCG\tests\.pkg27\tests\test_build_progress.py
+which is not the same as the test file we want to collect:
+  D:\python_software\SilverStar_FCCG\tests\test_build_progress.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules
+_____________ ERROR collecting tests/test_compliance_refactor.py ______________
+import file mismatch:
+imported module 'test_compliance_refactor' has this __file__ attribute:
+  D:\python_software\SilverStar_FCCG\tests\.pkg27\tests\test_compliance_refactor.py
+which is not the same as the test file we want to collect:
+  D:\python_software\SilverStar_FCCG\tests\test_compliance_refactor.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules
+___________ ERROR collecting tests/test_configuration_reconcile.py ____________
+import file mismatch:
+imported module 'test_configuration_reconcile' has this __file__ attribute:
+  D:\python_software\SilverStar_FCCG\tests\.pkg27\tests\test_configuration_reconcile.py
+which is not the same as the test file we want to collect:
+  D:\python_software\SilverStar_FCCG\tests\test_configuration_reconcile.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules
+_____________ ERROR collecting tests/test_current_prompt_round.py _____________
+import file mismatch:
+imported module 'test_current_prompt_round' has this __file__ attribute:
+  D:\python_software\SilverStar_FCCG\tests\.pkg27\tests\test_current_prompt_round.py
+which is not the same as the test file we want to collect:
+  D:\python_software\SilverStar_FCCG\tests\test_current_prompt_round.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules
+________ ERROR collecting tests/test_device_capability_architecture.py ________
+import file mismatch:
+imported module 'test_device_capability_architecture' has this __file__ attribute:
+  D:\python_software\SilverStar_FCCG\tests\.pkg27\tests\test_device_capability_architecture.py
+which is not the same as the test file we want to collect:
+  D:\python_software\SilverStar_FCCG\tests\test_device_capability_architecture.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules
+__________ ERROR collecting tests/test_device_initialization_gui.py ___________
+import file mismatch:
+imported module 'test_device_initialization_gui' has this __file__ attribute:
+  D:\python_software\SilverStar_FCCG\tests\.pkg27\tests\test_device_initialization_gui.py
+which is not the same as the test file we want to collect:
+  D:\python_software\SilverStar_FCCG\tests\test_device_initialization_gui.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules
+________________ ERROR collecting tests/test_documentation.py _________________
+import file mismatch:
+imported module 'test_documentation' has this __file__ attribute:
+  D:\python_software\SilverStar_FCCG\tests\.pkg27\tests\test_documentation.py
+which is not the same as the test file we want to collect:
+  D:\python_software\SilverStar_FCCG\tests\test_documentation.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules
+_______________ ERROR collecting tests/test_enter_commit_gui.py _______________
+import file mismatch:
+imported module 'test_enter_commit_gui' has this __file__ attribute:
+  D:\python_software\SilverStar_FCCG\tests\.pkg27\tests\test_enter_commit_gui.py
+which is not the same as the test file we want to collect:
+  D:\python_software\SilverStar_FCCG\tests\test_enter_commit_gui.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules
+____________ ERROR collecting tests/test_estimator_build_matrix.py ____________
+import file mismatch:
+imported module 'test_estimator_build_matrix' has this __file__ attribute:
+  D:\python_software\SilverStar_FCCG\tests\.pkg27\tests\test_estimator_build_matrix.py
+which is not the same as the test file we want to collect:
+  D:\python_software\SilverStar_FCCG\tests\test_estimator_build_matrix.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules
+_____________ ERROR collecting tests/test_final_freeze_0_0_12.py ______________
+import file mismatch:
+imported module 'test_final_freeze_0_0_12' has this __file__ attribute:
+  D:\python_software\SilverStar_FCCG\tests\.pkg27\tests\test_final_freeze_0_0_12.py
+which is not the same as the test file we want to collect:
+  D:\python_software\SilverStar_FCCG\tests\test_final_freeze_0_0_12.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules
+_______________ ERROR collecting tests/test_fixed_lag_replay.py _______________
+import file mismatch:
+imported module 'test_fixed_lag_replay' has this __file__ attribute:
+  D:\python_software\SilverStar_FCCG\tests\.pkg27\tests\test_fixed_lag_replay.py
+which is not the same as the test file we want to collect:
+  D:\python_software\SilverStar_FCCG\tests\test_fixed_lag_replay.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules
+________ ERROR collecting tests/test_generated_device_capabilities.py _________
+import file mismatch:
+imported module 'test_generated_device_capabilities' has this __file__ attribute:
+  D:\python_software\SilverStar_FCCG\tests\.pkg27\tests\test_generated_device_capabilities.py
+which is not the same as the test file we want to collect:
+  D:\python_software\SilverStar_FCCG\tests\test_generated_device_capabilities.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules
+________ ERROR collecting tests/test_generation_feature_completion.py _________
+import file mismatch:
+imported module 'test_generation_feature_completion' has this __file__ attribute:
+  D:\python_software\SilverStar_FCCG\tests\.pkg27\tests\test_generation_feature_completion.py
+which is not the same as the test file we want to collect:
+  D:\python_software\SilverStar_FCCG\tests\test_generation_feature_completion.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules
+____________ ERROR collecting tests/test_generator_integration.py _____________
+import file mismatch:
+imported module 'test_generator_integration' has this __file__ attribute:
+  D:\python_software\SilverStar_FCCG\tests\.pkg27\tests\test_generator_integration.py
+which is not the same as the test file we want to collect:
+  D:\python_software\SilverStar_FCCG\tests\test_generator_integration.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules
+__________________ ERROR collecting tests/test_gui_smoke.py ___________________
+import file mismatch:
+imported module 'test_gui_smoke' has this __file__ attribute:
+  D:\python_software\SilverStar_FCCG\tests\.pkg27\tests\test_gui_smoke.py
+which is not the same as the test file we want to collect:
+  D:\python_software\SilverStar_FCCG\tests\test_gui_smoke.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules
+____________ ERROR collecting tests/test_hardware_and_variants.py _____________
+import file mismatch:
+imported module 'test_hardware_and_variants' has this __file__ attribute:
+  D:\python_software\SilverStar_FCCG\tests\.pkg27\tests\test_hardware_and_variants.py
+which is not the same as the test file we want to collect:
+  D:\python_software\SilverStar_FCCG\tests\test_hardware_and_variants.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules
+_____________________ ERROR collecting tests/test_i18n.py _____________________
+import file mismatch:
+imported module 'test_i18n' has this __file__ attribute:
+  D:\python_software\SilverStar_FCCG\tests\.pkg27\tests\test_i18n.py
+which is not the same as the test file we want to collect:
+  D:\python_software\SilverStar_FCCG\tests\test_i18n.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules
+________ ERROR collecting tests/test_indicators_and_protocol_names.py _________
+import file mismatch:
+imported module 'test_indicators_and_protocol_names' has this __file__ attribute:
+  D:\python_software\SilverStar_FCCG\tests\.pkg27\tests\test_indicators_and_protocol_names.py
+which is not the same as the test file we want to collect:
+  D:\python_software\SilverStar_FCCG\tests\test_indicators_and_protocol_names.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules
+______________ ERROR collecting tests/test_inertial_frontend.py _______________
+import file mismatch:
+imported module 'test_inertial_frontend' has this __file__ attribute:
+  D:\python_software\SilverStar_FCCG\tests\.pkg27\tests\test_inertial_frontend.py
+which is not the same as the test file we want to collect:
+  D:\python_software\SilverStar_FCCG\tests\test_inertial_frontend.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules
+__________ ERROR collecting tests/test_internal_platform_refactor.py __________
+import file mismatch:
+imported module 'test_internal_platform_refactor' has this __file__ attribute:
+  D:\python_software\SilverStar_FCCG\tests\.pkg27\tests\test_internal_platform_refactor.py
+which is not the same as the test file we want to collect:
+  D:\python_software\SilverStar_FCCG\tests\test_internal_platform_refactor.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules
+_____________ ERROR collecting tests/test_internal_rc_closeout.py _____________
+import file mismatch:
+imported module 'test_internal_rc_closeout' has this __file__ attribute:
+  D:\python_software\SilverStar_FCCG\tests\.pkg27\tests\test_internal_rc_closeout.py
+which is not the same as the test file we want to collect:
+  D:\python_software\SilverStar_FCCG\tests\test_internal_rc_closeout.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules
+___________ ERROR collecting tests/test_joint_navigation_golden.py ____________
+import file mismatch:
+imported module 'test_joint_navigation_golden' has this __file__ attribute:
+  D:\python_software\SilverStar_FCCG\tests\.pkg27\tests\test_joint_navigation_golden.py
+which is not the same as the test file we want to collect:
+  D:\python_software\SilverStar_FCCG\tests\test_joint_navigation_golden.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules
+___________ ERROR collecting tests/test_joint_sensor_generation.py ____________
+import file mismatch:
+imported module 'test_joint_sensor_generation' has this __file__ attribute:
+  D:\python_software\SilverStar_FCCG\tests\.pkg27\tests\test_joint_sensor_generation.py
+which is not the same as the test file we want to collect:
+  D:\python_software\SilverStar_FCCG\tests\test_joint_sensor_generation.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules
+_____________ ERROR collecting tests/test_joint_sensor_library.py _____________
+import file mismatch:
+imported module 'test_joint_sensor_library' has this __file__ attribute:
+  D:\python_software\SilverStar_FCCG\tests\.pkg27\tests\test_joint_sensor_library.py
+which is not the same as the test file we want to collect:
+  D:\python_software\SilverStar_FCCG\tests\test_joint_sensor_library.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules
+__________________ ERROR collecting tests/test_kf6_outage.py __________________
+import file mismatch:
+imported module 'test_kf6_outage' has this __file__ attribute:
+  D:\python_software\SilverStar_FCCG\tests\.pkg27\tests\test_kf6_outage.py
+which is not the same as the test file we want to collect:
+  D:\python_software\SilverStar_FCCG\tests\test_kf6_outage.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules
+____________ ERROR collecting tests/test_landing_snapshot_time.py _____________
+import file mismatch:
+imported module 'test_landing_snapshot_time' has this __file__ attribute:
+  D:\python_software\SilverStar_FCCG\tests\.pkg27\tests\test_landing_snapshot_time.py
+which is not the same as the test file we want to collect:
+  D:\python_software\SilverStar_FCCG\tests\test_landing_snapshot_time.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules
+___________ ERROR collecting tests/test_logging_cadence_progress.py ___________
+import file mismatch:
+imported module 'test_logging_cadence_progress' has this __file__ attribute:
+  D:\python_software\SilverStar_FCCG\tests\.pkg27\tests\test_logging_cadence_progress.py
+which is not the same as the test file we want to collect:
+  D:\python_software\SilverStar_FCCG\tests\test_logging_cadence_progress.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules
+___________ ERROR collecting tests/test_logging_purpose_profiles.py ___________
+import file mismatch:
+imported module 'test_logging_purpose_profiles' has this __file__ attribute:
+  D:\python_software\SilverStar_FCCG\tests\.pkg27\tests\test_logging_purpose_profiles.py
+which is not the same as the test file we want to collect:
+  D:\python_software\SilverStar_FCCG\tests\test_logging_purpose_profiles.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules
+_______ ERROR collecting tests/test_multi_instance_minimal_failover.py ________
+import file mismatch:
+imported module 'test_multi_instance_minimal_failover' has this __file__ attribute:
+  D:\python_software\SilverStar_FCCG\tests\.pkg27\tests\test_multi_instance_minimal_failover.py
+which is not the same as the test file we want to collect:
+  D:\python_software\SilverStar_FCCG\tests\test_multi_instance_minimal_failover.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules
+__________ ERROR collecting tests/test_navigation_integrity_host.py ___________
+import file mismatch:
+imported module 'test_navigation_integrity_host' has this __file__ attribute:
+  D:\python_software\SilverStar_FCCG\tests\.pkg27\tests\test_navigation_integrity_host.py
+which is not the same as the test file we want to collect:
+  D:\python_software\SilverStar_FCCG\tests\test_navigation_integrity_host.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules
+____________ ERROR collecting tests/test_navigation_log_overlay.py ____________
+import file mismatch:
+imported module 'test_navigation_log_overlay' has this __file__ attribute:
+  D:\python_software\SilverStar_FCCG\tests\.pkg27\tests\test_navigation_log_overlay.py
+which is not the same as the test file we want to collect:
+  D:\python_software\SilverStar_FCCG\tests\test_navigation_log_overlay.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules
+________________ ERROR collecting tests/test_navigation_v1.py _________________
+import file mismatch:
+imported module 'test_navigation_v1' has this __file__ attribute:
+  D:\python_software\SilverStar_FCCG\tests\.pkg27\tests\test_navigation_v1.py
+which is not the same as the test file we want to collect:
+  D:\python_software\SilverStar_FCCG\tests\test_navigation_v1.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules
+______________ ERROR collecting tests/test_optional_protocols.py ______________
+import file mismatch:
+imported module 'test_optional_protocols' has this __file__ attribute:
+  D:\python_software\SilverStar_FCCG\tests\.pkg27\tests\test_optional_protocols.py
+which is not the same as the test file we want to collect:
+  D:\python_software\SilverStar_FCCG\tests\test_optional_protocols.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules
+_______________ ERROR collecting tests/test_path_preferences.py _______________
+import file mismatch:
+imported module 'test_path_preferences' has this __file__ attribute:
+  D:\python_software\SilverStar_FCCG\tests\.pkg27\tests\test_path_preferences.py
+which is not the same as the test file we want to collect:
+  D:\python_software\SilverStar_FCCG\tests\test_path_preferences.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules
+____________ ERROR collecting tests/test_platform_backends_host.py ____________
+import file mismatch:
+imported module 'test_platform_backends_host' has this __file__ attribute:
+  D:\python_software\SilverStar_FCCG\tests\.pkg27\tests\test_platform_backends_host.py
+which is not the same as the test file we want to collect:
+  D:\python_software\SilverStar_FCCG\tests\test_platform_backends_host.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules
+_______________ ERROR collecting tests/test_plugin_security.py ________________
+import file mismatch:
+imported module 'test_plugin_security' has this __file__ attribute:
+  D:\python_software\SilverStar_FCCG\tests\.pkg27\tests\test_plugin_security.py
+which is not the same as the test file we want to collect:
+  D:\python_software\SilverStar_FCCG\tests\test_plugin_security.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules
+________________ ERROR collecting tests/test_project_domain.py ________________
+import file mismatch:
+imported module 'test_project_domain' has this __file__ attribute:
+  D:\python_software\SilverStar_FCCG\tests\.pkg27\tests\test_project_domain.py
+which is not the same as the test file we want to collect:
+  D:\python_software\SilverStar_FCCG\tests\test_project_domain.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules
+______________ ERROR collecting tests/test_project_lifecycle.py _______________
+import file mismatch:
+imported module 'test_project_lifecycle' has this __file__ attribute:
+  D:\python_software\SilverStar_FCCG\tests\.pkg27\tests\test_project_lifecycle.py
+which is not the same as the test file we want to collect:
+  D:\python_software\SilverStar_FCCG\tests\test_project_lifecycle.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules
+______________ ERROR collecting tests/test_prompt_acceptance.py _______________
+import file mismatch:
+imported module 'test_prompt_acceptance' has this __file__ attribute:
+  D:\python_software\SilverStar_FCCG\tests\.pkg27\tests\test_prompt_acceptance.py
+which is not the same as the test file we want to collect:
+  D:\python_software\SilverStar_FCCG\tests\test_prompt_acceptance.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules
+_____________ ERROR collecting tests/test_protocol_gui_mapping.py _____________
+import file mismatch:
+imported module 'test_protocol_gui_mapping' has this __file__ attribute:
+  D:\python_software\SilverStar_FCCG\tests\.pkg27\tests\test_protocol_gui_mapping.py
+which is not the same as the test file we want to collect:
+  D:\python_software\SilverStar_FCCG\tests\test_protocol_gui_mapping.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules
+______ ERROR collecting tests/test_reference_import_progress_adapters.py ______
+import file mismatch:
+imported module 'test_reference_import_progress_adapters' has this __file__ attribute:
+  D:\python_software\SilverStar_FCCG\tests\.pkg27\tests\test_reference_import_progress_adapters.py
+which is not the same as the test file we want to collect:
+  D:\python_software\SilverStar_FCCG\tests\test_reference_import_progress_adapters.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules
+_________ ERROR collecting tests/test_retired_algorithm_parameters.py _________
+import file mismatch:
+imported module 'test_retired_algorithm_parameters' has this __file__ attribute:
+  D:\python_software\SilverStar_FCCG\tests\.pkg27\tests\test_retired_algorithm_parameters.py
+which is not the same as the test file we want to collect:
+  D:\python_software\SilverStar_FCCG\tests\test_retired_algorithm_parameters.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules
+________________ ERROR collecting tests/test_runtime_safety.py ________________
+import file mismatch:
+imported module 'test_runtime_safety' has this __file__ attribute:
+  D:\python_software\SilverStar_FCCG\tests\.pkg27\tests\test_runtime_safety.py
+which is not the same as the test file we want to collect:
+  D:\python_software\SilverStar_FCCG\tests\test_runtime_safety.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules
+____________ ERROR collecting tests/test_sensor_recommendations.py ____________
+import file mismatch:
+imported module 'test_sensor_recommendations' has this __file__ attribute:
+  D:\python_software\SilverStar_FCCG\tests\.pkg27\tests\test_sensor_recommendations.py
+which is not the same as the test file we want to collect:
+  D:\python_software\SilverStar_FCCG\tests\test_sensor_recommendations.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules
+_________________ ERROR collecting tests/test_service_gui.py __________________
+import file mismatch:
+imported module 'test_service_gui' has this __file__ attribute:
+  D:\python_software\SilverStar_FCCG\tests\.pkg27\tests\test_service_gui.py
+which is not the same as the test file we want to collect:
+  D:\python_software\SilverStar_FCCG\tests\test_service_gui.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules
+_________________ ERROR collecting tests/test_stack_budget.py _________________
+import file mismatch:
+imported module 'test_stack_budget' has this __file__ attribute:
+  D:\python_software\SilverStar_FCCG\tests\.pkg27\tests\test_stack_budget.py
+which is not the same as the test file we want to collect:
+  D:\python_software\SilverStar_FCCG\tests\test_stack_budget.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules
+______________ ERROR collecting tests/test_storage_integrity.py _______________
+import file mismatch:
+imported module 'test_storage_integrity' has this __file__ attribute:
+  D:\python_software\SilverStar_FCCG\tests\.pkg27\tests\test_storage_integrity.py
+which is not the same as the test file we want to collect:
+  D:\python_software\SilverStar_FCCG\tests\test_storage_integrity.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules
+_______________ ERROR collecting tests/test_theme_and_safety.py _______________
+import file mismatch:
+imported module 'test_theme_and_safety' has this __file__ attribute:
+  D:\python_software\SilverStar_FCCG\tests\.pkg27\tests\test_theme_and_safety.py
+which is not the same as the test file we want to collect:
+  D:\python_software\SilverStar_FCCG\tests\test_theme_and_safety.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules
+_________________ ERROR collecting tests/test_touch_scroll.py _________________
+import file mismatch:
+imported module 'test_touch_scroll' has this __file__ attribute:
+  D:\python_software\SilverStar_FCCG\tests\.pkg27\tests\test_touch_scroll.py
+which is not the same as the test file we want to collect:
+  D:\python_software\SilverStar_FCCG\tests\test_touch_scroll.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules
+____ ERROR collecting tests/test_verified_board_fixed_resource_mapping.py _____
+import file mismatch:
+imported module 'test_verified_board_fixed_resource_mapping' has this __file__ attribute:
+  D:\python_software\SilverStar_FCCG\tests\.pkg27\tests\test_verified_board_fixed_resource_mapping.py
+which is not the same as the test file we want to collect:
+  D:\python_software\SilverStar_FCCG\tests\test_verified_board_fixed_resource_mapping.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules
+_______________ ERROR collecting tests/test_workspace_policy.py _______________
+import file mismatch:
+imported module 'test_workspace_policy' has this __file__ attribute:
+  D:\python_software\SilverStar_FCCG\tests\.pkg27\tests\test_workspace_policy.py
+which is not the same as the test file we want to collect:
+  D:\python_software\SilverStar_FCCG\tests\test_workspace_policy.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules
+=========================== short test summary info ===========================
+ERROR tests/.integrity-generated/pytest-full-top-level/test_clean_all_stays_inside_wo0/fccg/tests/test_kept.py
+ERROR tests/.pytest-doc-final-0917 - PermissionError: [WinError 5] 拒绝访问。...
+ERROR tests/.pytest-final-focus-0917 - PermissionError: [WinError 5] 拒绝访问...
+ERROR tests/.pytest-focus-0917 - PermissionError: [WinError 5] 拒绝访问。: 'D...
+ERROR tests/.pytest-full-0917 - PermissionError: [WinError 5] 拒绝访问。: 'D:...
+ERROR tests/.pytest-last-0917 - PermissionError: [WinError 5] 拒绝访问。: 'D:...
+ERROR tests/.pytest-root-diagnose-20260917/test_clean_all_stays_inside_wo0/fccg/tests/test_kept.py
+ERROR tests/.pytest-root-final-20260917/test_clean_all_stays_inside_wo0/fccg/tests/test_kept.py
+ERROR tests/.pytest-root-full2-20260917/test_clean_all_stays_inside_wo0/fccg/tests/test_kept.py
+ERROR tests/.pytest-runtime16 - PermissionError: [WinError 5] 拒绝访问。: 'D:...
+ERROR tests/.pytest-runtime16-complete - PermissionError: [WinError 5] 拒绝访...
+ERROR tests/.pytest-runtime16-frozen - PermissionError: [WinError 5] 拒绝访问...
+ERROR tests/.pytest-runtime16-last - PermissionError: [WinError 5] 拒绝访问。...
+ERROR tests/.pytest-runtime16-stack - PermissionError: [WinError 5] 拒绝访问...
+ERROR tests/.pytest-runtime16b - PermissionError: [WinError 5] 拒绝访问。: 'D...
+ERROR tests/.pytest-runtime16c - PermissionError: [WinError 5] 拒绝访问。: 'D...
+ERROR tests/.pytest-runtime16d - PermissionError: [WinError 5] 拒绝访问。: 'D...
+ERROR tests/.pytest-runtime16e - PermissionError: [WinError 5] 拒绝访问。: 'D...
+ERROR tests/.pytest-sparse-0916 - PermissionError: [WinError 5] 拒绝访问。: '...
+ERROR tests/.pytest-sparse-0916b - PermissionError: [WinError 5] 拒绝访问。: ...
+ERROR tests/.pytest-sparse-0916c - PermissionError: [WinError 5] 拒绝访问。: ...
+ERROR tests/.pytest-sparse-0916d - PermissionError: [WinError 5] 拒绝访问。: ...
+ERROR tests/.pytest-sparse-0916e - PermissionError: [WinError 5] 拒绝访问。: ...
+ERROR tests/.pytest_cache/sparse0916 - PermissionError: [WinError 5] 拒绝访问...
+ERROR tests/.t26/test_clean_all_stays_inside_wo0/fccg/tests/test_kept.py
+ERROR tests/.tmp_full_rev2_final/test_clean_all_stays_inside_wo0/fccg/tests/test_kept.py
+ERROR tests/.tmp_full_revision2_accept/test_clean_all_stays_inside_wo0/fccg/tests/test_kept.py
+ERROR tests/.tmp_full_revision2_accept_final/test_clean_all_stays_inside_wo0/fccg/tests/test_kept.py
+ERROR tests/.tmp_full_revision2_final/test_clean_all_stays_inside_wo0/fccg/tests/test_kept.py
+ERROR tests/.tmp_logging_purpose_pytest_full_explicit_20260926/test_clean_all_stays_inside_wo0/fccg/tests/test_kept.py
+ERROR tests/.tmp_logging_purpose_reports/ruff-baseline/tests/test_enter_commit_gui.py
+ERROR tests/.tmp_logging_purpose_reports/ruff-baseline/tests/test_generation_feature_completion.py
+ERROR tests/.tmp_logging_purpose_reports/ruff-baseline/tests/test_gui_smoke.py
+ERROR tests/.tmp_logging_purpose_reports/ruff-baseline/tests/test_joint_navigation_golden.py
+ERROR tests/.tmp_logging_purpose_reports/ruff-baseline/tests/test_logging_cadence_progress.py
+ERROR tests/.tmp_logging_purpose_reports/ruff-baseline/tests/test_prompt_acceptance.py
+ERROR tests/.tmp_logging_purpose_reports/ruff-baseline/tests/test_service_gui.py
+ERROR tests/.tmp_logging_purpose_reports/ruff-baseline/tests/test_storage_integrity.py
+ERROR tests/.tmp_release_0_0_12_full/test_clean_all_stays_inside_wo0/fccg/tests/test_kept.py
+ERROR tests/.tmp_release_0_0_12_full_closeout/test_clean_all_stays_inside_wo0/fccg/tests/test_kept.py
+ERROR tests/joint_rework_20260927/pytest_root_temp/test_clean_all_stays_inside_wo0/fccg/tests/test_kept.py
+ERROR tests/test_algorithm_parameters.py
+ERROR tests/test_build_progress.py
+ERROR tests/test_compliance_refactor.py
+ERROR tests/test_configuration_reconcile.py
+ERROR tests/test_current_prompt_round.py
+ERROR tests/test_device_capability_architecture.py
+ERROR tests/test_device_initialization_gui.py
+ERROR tests/test_documentation.py
+ERROR tests/test_enter_commit_gui.py
+ERROR tests/test_estimator_build_matrix.py
+ERROR tests/test_final_freeze_0_0_12.py
+ERROR tests/test_fixed_lag_replay.py
+ERROR tests/test_generated_device_capabilities.py
+ERROR tests/test_generation_feature_completion.py
+ERROR tests/test_generator_integration.py
+ERROR tests/test_gui_smoke.py
+ERROR tests/test_hardware_and_variants.py
+ERROR tests/test_i18n.py
+ERROR tests/test_indicators_and_protocol_names.py
+ERROR tests/test_inertial_frontend.py
+ERROR tests/test_internal_platform_refactor.py
+ERROR tests/test_internal_rc_closeout.py
+ERROR tests/test_joint_navigation_golden.py
+ERROR tests/test_joint_sensor_generation.py
+ERROR tests/test_joint_sensor_library.py
+ERROR tests/test_kf6_outage.py
+ERROR tests/test_landing_snapshot_time.py
+ERROR tests/test_logging_cadence_progress.py
+ERROR tests/test_logging_purpose_profiles.py
+ERROR tests/test_multi_instance_minimal_failover.py
+ERROR tests/test_navigation_integrity_host.py
+ERROR tests/test_navigation_log_overlay.py
+ERROR tests/test_navigation_v1.py
+ERROR tests/test_optional_protocols.py
+ERROR tests/test_path_preferences.py
+ERROR tests/test_platform_backends_host.py
+ERROR tests/test_plugin_security.py
+ERROR tests/test_project_domain.py
+ERROR tests/test_project_lifecycle.py
+ERROR tests/test_prompt_acceptance.py
+ERROR tests/test_protocol_gui_mapping.py
+ERROR tests/test_reference_import_progress_adapters.py
+ERROR tests/test_retired_algorithm_parameters.py
+ERROR tests/test_runtime_safety.py
+ERROR tests/test_sensor_recommendations.py
+ERROR tests/test_service_gui.py
+ERROR tests/test_stack_budget.py
+ERROR tests/test_storage_integrity.py
+ERROR tests/test_theme_and_safety.py
+ERROR tests/test_touch_scroll.py
+ERROR tests/test_verified_board_fixed_resource_mapping.py
+ERROR tests/test_workspace_policy.py
+!!!!!!!!!!!!!!!!!! Interrupted: 93 errors during collection !!!!!!!!!!!!!!!!!!!
+93 errors in 464.28s (0:07:44)

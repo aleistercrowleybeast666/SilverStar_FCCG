@@ -97,7 +97,15 @@
       "initialization": "new estimator epoch at mission initialization",
       "time_axis": "MCU monotonic microseconds; receive time owns availability"
     },
-    "gnss_integrity_revision": 2
+    "gnss_integrity_revision": 3,
+    "retired_parameter_ids": [
+      "gnss_integrity_recovery_threshold_m",
+      "gnss_integrity_suspect_duration_ms",
+      "gnss_integrity_reject_duration_ms",
+      "gnss_integrity_recovery_duration_ms",
+      "gnss_integrity_hacc_max_m",
+      "gnss_integrity_sacc_max_mps"
+    ]
   },
   "selection": {
     "kind": "strategy",
@@ -778,13 +786,14 @@
         "order": 30,
         "generated_symbol": "SYSTEM_ESTIMATOR_GNSS_INTEGRITY_RECOVERY_THRESHOLD_M",
         "display_names": {
-          "en_US": "Recovery threshold",
-          "zh_CN": "恢复阈值"
+          "en_US": "Recovery threshold (legacy, inactive)",
+          "zh_CN": "恢复阈值（旧配置，已退役）"
         },
         "description": {
-          "en_US": "Recovery threshold for GNSS-native horizontal position/velocity closure.",
-          "zh_CN": "GNSS 原生水平位置/速度闭合检测的恢复阈值。"
-        }
+          "en_US": "Retired in quality revision 3: saved legacy value only, not executed. Revision 2 logs retain their original meaning.",
+          "zh_CN": "质量策略 revision 3 已退役：仅保留旧配置值，不参与新算法执行；revision 2 历史日志保持原含义。"
+        },
+        "lifecycle": "legacy_read_only"
       },
       {
         "id": "gnss_integrity_suspect_duration_ms",
@@ -801,13 +810,14 @@
         "order": 31,
         "generated_symbol": "SYSTEM_ESTIMATOR_GNSS_INTEGRITY_SUSPECT_DURATION_MS",
         "display_names": {
-          "en_US": "Continuous abnormal time before suspect",
-          "zh_CN": "进入可疑所需异常时间"
+          "en_US": "Continuous abnormal time before suspect (legacy, inactive)",
+          "zh_CN": "进入可疑所需异常时间（旧配置，已退役）"
         },
         "description": {
-          "en_US": "Continuous abnormal time before suspect. Actual onboard value.",
-          "zh_CN": "进入可疑所需异常时间；机载实际使用值。"
-        }
+          "en_US": "Retired in quality revision 3: saved legacy value only, not executed. Revision 2 logs retain their original meaning.",
+          "zh_CN": "质量策略 revision 3 已退役：仅保留旧配置值，不参与新算法执行；revision 2 历史日志保持原含义。"
+        },
+        "lifecycle": "legacy_read_only"
       },
       {
         "id": "gnss_integrity_reject_duration_ms",
@@ -824,13 +834,14 @@
         "order": 32,
         "generated_symbol": "SYSTEM_ESTIMATOR_GNSS_INTEGRITY_REJECT_DURATION_MS",
         "display_names": {
-          "en_US": "Additional rejection duration",
-          "zh_CN": "额外拒绝持续时间"
+          "en_US": "Additional rejection duration (legacy, inactive)",
+          "zh_CN": "额外拒绝持续时间（旧配置，已退役）"
         },
         "description": {
-          "en_US": "Additional rejection duration for GNSS-native horizontal position/velocity closure.",
-          "zh_CN": "GNSS 原生水平位置/速度闭合检测的额外拒绝持续时间。"
-        }
+          "en_US": "Retired in quality revision 3: saved legacy value only, not executed. Revision 2 logs retain their original meaning.",
+          "zh_CN": "质量策略 revision 3 已退役：仅保留旧配置值，不参与新算法执行；revision 2 历史日志保持原含义。"
+        },
+        "lifecycle": "legacy_read_only"
       },
       {
         "id": "gnss_integrity_recovery_duration_ms",
@@ -847,13 +858,14 @@
         "order": 33,
         "generated_symbol": "SYSTEM_ESTIMATOR_GNSS_INTEGRITY_RECOVERY_DURATION_MS",
         "display_names": {
-          "en_US": "Continuous healthy recovery evidence time",
-          "zh_CN": "连续恢复证据时间"
+          "en_US": "Continuous healthy recovery evidence time (legacy, inactive)",
+          "zh_CN": "连续恢复证据时间（旧配置，已退役）"
         },
         "description": {
-          "en_US": "Continuous healthy recovery evidence time. Actual onboard value.",
-          "zh_CN": "连续恢复证据时间；机载实际使用值。"
-        }
+          "en_US": "Retired in quality revision 3: saved legacy value only, not executed. Revision 2 logs retain their original meaning.",
+          "zh_CN": "质量策略 revision 3 已退役：仅保留旧配置值，不参与新算法执行；revision 2 历史日志保持原含义。"
+        },
+        "lifecycle": "legacy_read_only"
       },
       {
         "id": "gnss_integrity_position_r_scale",
@@ -863,19 +875,19 @@
         "unit": "1",
         "representation": "value",
         "min": 1.0,
-        "max": 100.0,
+        "max": 4.0,
         "precision": 3,
         "step": 0.01,
         "group": "gnss_integrity",
         "order": 34,
         "generated_symbol": "SYSTEM_ESTIMATOR_GNSS_INTEGRITY_POSITION_R_SCALE",
         "display_names": {
-          "en_US": "Suspect/recovering Pos EN R multiplier",
-          "zh_CN": "可疑和恢复观察时水平位置 R 倍率"
+          "en_US": "Maximum Pos EN consistency variance multiplier",
+          "zh_CN": "水平位置一致性方差倍率上限"
         },
         "description": {
-          "en_US": "Suspect/recovering Pos EN R multiplier. Actual onboard value.",
-          "zh_CN": "可疑和恢复观察时水平位置 R 倍率；机载实际使用值。"
+          "en_US": "Revision 3 bounds continuous closure-error weighting in [1, this value]. Values above 4 are rejected; legacy values are never clamped.",
+          "zh_CN": "revision 3 连续闭合误差降权倍率限制在 [1, 此值]；大于 4 的旧配置明确拒绝，不静默限幅。"
         }
       },
       {
@@ -893,13 +905,14 @@
         "order": 35,
         "generated_symbol": "SYSTEM_ESTIMATOR_GNSS_INTEGRITY_HACC_MAX_M",
         "display_names": {
-          "en_US": "Maximum receiver hAcc for evidence",
-          "zh_CN": "证据允许的接收机 hAcc 上限"
+          "en_US": "Maximum receiver hAcc for evidence (legacy, inactive)",
+          "zh_CN": "证据允许的接收机 hAcc 上限（旧配置，已退役）"
         },
         "description": {
-          "en_US": "Maximum receiver hAcc for evidence. Actual onboard value.",
-          "zh_CN": "证据允许的接收机 hAcc 上限；机载实际使用值。"
-        }
+          "en_US": "Retired in quality revision 3: saved legacy value only, not executed. Revision 2 logs retain their original meaning.",
+          "zh_CN": "质量策略 revision 3 已退役：仅保留旧配置值，不参与新算法执行；revision 2 历史日志保持原含义。"
+        },
+        "lifecycle": "legacy_read_only"
       },
       {
         "id": "gnss_integrity_sacc_max_mps",
@@ -916,13 +929,14 @@
         "order": 36,
         "generated_symbol": "SYSTEM_ESTIMATOR_GNSS_INTEGRITY_SACC_MAX_MPS",
         "display_names": {
-          "en_US": "Maximum receiver sAcc for evidence",
-          "zh_CN": "证据允许的接收机 sAcc 上限"
+          "en_US": "Maximum receiver sAcc for evidence (legacy, inactive)",
+          "zh_CN": "证据允许的接收机 sAcc 上限（旧配置，已退役）"
         },
         "description": {
-          "en_US": "Maximum receiver sAcc for evidence. Actual onboard value.",
-          "zh_CN": "证据允许的接收机 sAcc 上限；机载实际使用值。"
-        }
+          "en_US": "Retired in quality revision 3: saved legacy value only, not executed. Revision 2 logs retain their original meaning.",
+          "zh_CN": "质量策略 revision 3 已退役：仅保留旧配置值，不参与新算法执行；revision 2 历史日志保持原含义。"
+        },
+        "lifecycle": "legacy_read_only"
       }
     ]
   }

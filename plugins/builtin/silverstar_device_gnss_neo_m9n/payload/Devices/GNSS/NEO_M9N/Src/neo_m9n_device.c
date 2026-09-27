@@ -145,6 +145,9 @@ typedef struct
     uint8_t valget_received;
     uint32_t valget_expected_keys[GNSS_VALGET_EXPECTED_MAX];
     uint8_t valget_expected_key_count;
+    uint8_t valget_layer;
+    uint8_t identity_seen;
+    uint8_t identity_verified;
     GnssNeoM9nConfigReadDiagnostics valget_diagnostics;
     GnssNeoM9nSatelliteDiagnostics satellite_diagnostics;
     GnssNeoM9nRfDiagnostics rf_diagnostics;
@@ -185,6 +188,7 @@ _Static_assert(PROJECT_NEO_M9N_INSTANCE_COUNT <=
 #define s_valget_expected_keys         (s_contexts[instance].valget_expected_keys)
 #define s_valget_expected_key_count    \
     (s_contexts[instance].valget_expected_key_count)
+#define s_valget_layer (s_contexts[instance].valget_layer)
 #define s_valget_diagnostics           (s_contexts[instance].valget_diagnostics)
 #define s_satellite_diagnostics        \
     (s_contexts[instance].satellite_diagnostics)
@@ -367,7 +371,7 @@ static int Gnss_WaitAck(uint8_t instance, uint8_t cls, uint8_t id, uint32_t time
 static GnssNeoM9nConfigReadResult Gnss_WaitValget(uint8_t instance, uint32_t timeout_ms);
 static GnssNeoM9nAsyncStartResult Gnss_ValgetAsyncStart(uint8_t instance,
     const uint32_t *keys,
-    uint8_t count);
+    uint8_t count, uint8_t layer);
 static GnssNeoM9nAsyncPollResult Gnss_ValgetAsyncPoll(uint8_t instance,
     GnssNeoM9nConfigSnapshot *snapshot,
     GnssNeoM9nConfigReadDiagnostics *diagnostics,
@@ -1068,7 +1072,7 @@ static GnssNeoM9nConfigReadResult Gnss_WaitValget(uint8_t instance, uint32_t tim
 
 static GnssNeoM9nAsyncStartResult Gnss_ValgetAsyncStart(uint8_t instance,
     const uint32_t *keys,
-    uint8_t count)
+    uint8_t count, uint8_t layer)
 {
     if (keys == NULL) { return GnssNeoM9nAsyncStartInvalidArgument; }
     SILVERSTAR_ASSERT_OBJECT(keys, uint32_t,
@@ -1078,7 +1082,7 @@ static GnssNeoM9nAsyncStartResult Gnss_ValgetAsyncStart(uint8_t instance,
     uint8_t index;
 
     if ((keys == NULL) || (count == 0U) ||
-        (count > GNSS_VALGET_EXPECTED_MAX) ||
+        (count > GNSS_VALGET_EXPECTED_MAX) || (layer > GNSS_VALGET_LAYER_FLASH) ||
         ((uint16_t)(GNSS_VALGET_HEADER_LEN + ((uint16_t)count * 4U)) >
          GNSS_UBX_TX_MAX_PAYLOAD_LEN))
     {
@@ -1102,7 +1106,8 @@ static GnssNeoM9nAsyncStartResult Gnss_ValgetAsyncStart(uint8_t instance,
     s_transaction_discontinuity = 0U;
     s_valget_expected_key_count = count;
     payload[0] = 0x00U;
-    payload[1] = GNSS_VALGET_LAYER_RAM;
+    payload[1] = layer;
+    s_valget_layer = layer;
     payload[2] = 0x00U;
     payload[3] = 0x00U;
     for (index = 0U; index < count; index++)
@@ -1178,10 +1183,8 @@ static void Gnss_ValgetAsyncCancel(uint8_t instance,
     s_valget_received = 1U;
 }
 
-static GnssNeoM9nConfigReadResult GnssNeoM9n_SendValget(uint8_t instance,
-    const uint32_t *keys,
-    uint8_t count,
-    uint32_t timeout_ms)
+static GnssNeoM9nConfigReadResult Gnss_ValgetLayerRead(uint8_t instance,
+    const uint32_t *keys, uint8_t count, uint32_t timeout_ms, uint8_t layer)
 {
     if (keys == NULL) { return GnssNeoM9nConfigReadNotReady; }
     SILVERSTAR_ASSERT_OBJECT(keys, uint32_t,
@@ -1191,7 +1194,7 @@ static GnssNeoM9nConfigReadResult GnssNeoM9n_SendValget(uint8_t instance,
 
     /* Bootstrap-only path may synchronously drain frames queued before submit. */
     (void)GnssNeoM9n_Process(instance, PlatformTime_Ms());
-    start_result = Gnss_ValgetAsyncStart(instance, keys, count);
+    start_result = Gnss_ValgetAsyncStart(instance, keys, count, layer);
     if (start_result == GnssNeoM9nAsyncStartInvalidArgument)
     {
         return GnssNeoM9nConfigReadMalformedResponse;
@@ -1220,7 +1223,13 @@ static GnssNeoM9nConfigReadResult GnssNeoM9n_SendValget(uint8_t instance,
     return result;
 }
 
-static int GnssNeoM9n_SendValset(uint8_t instance, uint8_t layers, const GnssCfgItem_t *items, uint8_t count, uint32_t timeout_ms)
+static GnssNeoM9nConfigReadResult GnssNeoM9n_SendValget(uint8_t instance,
+    const uint32_t *keys, uint8_t count, uint32_t timeout_ms)
+{
+    return Gnss_ValgetLayerRead(instance, keys, count, timeout_ms, GNSS_VALGET_LAYER_RAM);
+}
+
+static int Gnss_ValsetRawSend(uint8_t instance, uint8_t layers, const GnssCfgItem_t *items, uint8_t count, uint32_t timeout_ms)
 {
     if (items == NULL) { return -1; }
     SILVERSTAR_ASSERT_OBJECT(items, GnssCfgItem_t,
@@ -1284,6 +1293,67 @@ static int GnssNeoM9n_SendValset(uint8_t instance, uint8_t layers, const GnssCfg
     }
 
     return Gnss_WaitAck(instance, GNSS_UBX_CFG_CLASS, GNSS_UBX_CFG_VALSET_ID, timeout_ms);
+}
+
+/* Compare and verify one exact key and layer. NVM is never blindly retried. */
+static int Gnss_ConfigItemRead(uint8_t instance, const GnssCfgItem_t *item,
+    uint8_t layer, uint32_t timeout_ms, uint8_t *matched)
+{
+    if ((item == NULL) || (matched == NULL)) { return -1; }
+    SILVERSTAR_ASSERT_OBJECT(item, GnssCfgItem_t, SILVERSTAR_ASSERT_MODULE_DEVICE);
+    *matched = 0U;
+    if (Gnss_ValgetLayerRead(instance, &item->key, 1U, timeout_ms, layer) !=
+        GnssNeoM9nConfigReadResponseOk) { return -2; }
+    if ((s_valget_cache_count != 1U) || (s_valget_cache[0].key != item->key) ||
+        (s_valget_cache[0].value_len != item->value_len)) { return -4; }
+    *matched = (s_valget_cache[0].value == item->value) ? 1U : 0U;
+    return 0;
+}
+
+static int Gnss_ConfigItemApply(uint8_t instance, const GnssCfgItem_t *item,
+    uint8_t layer, uint32_t timeout_ms)
+{
+    uint8_t matched;
+    int result;
+    if (item == NULL) { return -1; }
+    SILVERSTAR_ASSERT_OBJECT(item, GnssCfgItem_t, SILVERSTAR_ASSERT_MODULE_DEVICE);
+    result = Gnss_ConfigItemRead(instance, item, layer, timeout_ms, &matched);
+    if ((result != 0) || (matched != 0U)) { return result; }
+    result = Gnss_ValsetRawSend(instance, (uint8_t)(1U << layer), item, 1U, timeout_ms);
+    if ((layer == GNSS_VALGET_LAYER_RAM) && (item->key == GNSS_CFG_UART1_BAUDRATE))
+    {
+        /* The baud ACK can be emitted at either baud. Readback at the new baud is authoritative. */
+        if ((result != 0) && (result != -2)) { return result; }
+        if (PlatformUart_BaudSet(NeoM9nResource_UartGet(instance), (uint32_t)item->value) != PLATFORM_OK)
+        { return -1; }
+        PlatformTime_DelayMs(GNSS_UART_CONFIG_SETTLE_MS);
+    }
+    else if (result != 0) { return result; }
+    result = Gnss_ConfigItemRead(instance, item, layer, timeout_ms, &matched);
+    if (result != 0) { return result; }
+    return (matched != 0U) ? 0 : -4;
+}
+
+static int GnssNeoM9n_SendValset(uint8_t instance, uint8_t layers,
+    const GnssCfgItem_t *items, uint8_t count, uint32_t timeout_ms)
+{
+    uint8_t layer;
+    uint8_t index;
+    int result;
+    if ((items == NULL) || (count == 0U) || (count > GNSS_CFG_CACHE_MAX_ITEMS) ||
+        (layers == 0U) || ((layers & (uint8_t)~GNSS_CFG_LAYER_ALL) != 0U)) { return -1; }
+    SILVERSTAR_ASSERT_OBJECT(items, GnssCfgItem_t, SILVERSTAR_ASSERT_MODULE_DEVICE);
+    if (GnssNeoM9n_Identify(instance) != GnssNeoM9nIdentifyOk) { return -4; }
+    for (layer = GNSS_VALGET_LAYER_RAM; layer <= GNSS_VALGET_LAYER_FLASH; layer++)
+    {
+        if ((layers & (uint8_t)(1U << layer)) == 0U) { continue; }
+        for (index = 0U; index < count; index++)
+        {
+            result = Gnss_ConfigItemApply(instance, &items[index], layer, timeout_ms);
+            if (result != 0) { return result; }
+        }
+    }
+    return 0;
 }
 
 static void Gnss_ParseNavPvt(uint8_t instance, uint32_t now_ms)
@@ -1573,10 +1643,7 @@ static uint8_t Gnss_ValgetHeaderValidate(uint8_t instance)
         Gnss_ValgetFailureSet(instance, GnssNeoM9nTransactionDetailBadVersion);
         return 0U;
     }
-    if ((s_parser.payload[1] != GNSS_VALGET_LAYER_RAM) &&
-        (s_parser.payload[1] != GNSS_VALGET_LAYER_BBR) &&
-        (s_parser.payload[1] != GNSS_VALGET_LAYER_FLASH) &&
-        (s_parser.payload[1] != GNSS_VALGET_LAYER_DEFAULT))
+    if (s_parser.payload[1] != s_valget_layer)
     {
         Gnss_ValgetFailureSet(instance, GnssNeoM9nTransactionDetailBadLayer);
         return 0U;
@@ -1846,11 +1913,66 @@ static void Gnss_ParsePayloadByte(uint8_t instance, uint8_t byte)
     }
 }
 
+static void Gnss_MonVerParse(uint8_t instance)
+{
+    uint16_t offset;
+    uint8_t model = 0U;
+    uint8_t protocol = 0U;
+    SILVERSTAR_ASSERT_OBJECT(&s_parser, GnssUbxParser_t, SILVERSTAR_ASSERT_MODULE_DEVICE);
+    if ((s_parser.payload_len < 40U) || (((s_parser.payload_len - 40U) % 30U) != 0U)) { return; }
+    for (offset = 40U; (offset + 30U) <= s_parser.payload_len; offset = (uint16_t)(offset + 30U))
+    {
+        if (memcmp(&s_parser.payload[offset], "MOD=NEO-M9N", 12U) == 0) { model = 1U; }
+        if (memcmp(&s_parser.payload[offset], "PROTVER=27.", 11U) == 0) { protocol = 1U; }
+    }
+    s_contexts[instance].identity_seen = 1U;
+    s_contexts[instance].identity_verified = (uint8_t)(model & protocol);
+}
+
+static GnssNeoM9nIdentifyResult Gnss_IdentityPoll(uint8_t instance)
+{
+    uint32_t poll;
+    if (GnssNeoM9n_SendUbx(instance, GNSS_UBX_MON_CLASS, 0x04U, NULL, 0U) != 0)
+    { return GnssNeoM9nIdentifyIoError; }
+    SILVERSTAR_ASSERT_OBJECT(&s_parser, GnssUbxParser_t, SILVERSTAR_ASSERT_MODULE_DEVICE);
+    for (poll = 0U; poll < 200U; poll++)
+    {
+        (void)GnssNeoM9n_Process(instance, PlatformTime_Ms());
+        if (s_contexts[instance].identity_seen != 0U)
+        { return (s_contexts[instance].identity_verified != 0U) ? GnssNeoM9nIdentifyOk : GnssNeoM9nIdentifyWrongModel; }
+        PlatformTime_DelayMs(1U);
+    }
+    return GnssNeoM9nIdentifyTimeout;
+}
+
+GnssNeoM9nIdentifyResult GnssNeoM9n_Identify(uint8_t instance)
+{
+    uint32_t candidates[3] = {GNSS_DEFAULT_BAUDRATE, 38400U, 9600U};
+    uint8_t index;
+    GnssNeoM9nIdentifyResult result;
+    if (instance >= PROJECT_NEO_M9N_INSTANCE_COUNT) { return GnssNeoM9nIdentifyIoError; }
+    SILVERSTAR_ASSERT_OBJECT(&s_parser, GnssUbxParser_t, SILVERSTAR_ASSERT_MODULE_DEVICE);
+    if (s_contexts[instance].identity_verified != 0U) { return GnssNeoM9nIdentifyOk; }
+    candidates[0] = Gnss_UartBaudrateGet(instance);
+    for (index = 0U; index < 3U; index++)
+    {
+        if (PlatformUart_BaudSet(NeoM9nResource_UartGet(instance), candidates[index]) != PLATFORM_OK)
+        { return GnssNeoM9nIdentifyIoError; }
+        Gnss_ParserReset(instance);
+        s_contexts[instance].identity_seen = 0U;
+        result = Gnss_IdentityPoll(instance);
+        if (result != GnssNeoM9nIdentifyTimeout) { return result; }
+    }
+    return GnssNeoM9nIdentifyTimeout;
+}
+
 static void Gnss_ParsedFrameDispatch(uint8_t instance, uint32_t now_ms)
 {
     SILVERSTAR_ASSERT_OBJECT(&s_parser, GnssUbxParser_t,
         SILVERSTAR_ASSERT_MODULE_DEVICE);
     Gnss_UpdateUbxStats(instance, now_ms);
+    if ((s_parser.msg_class == GNSS_UBX_MON_CLASS) && (s_parser.msg_id == 0x04U))
+    { Gnss_MonVerParse(instance); return; }
     if ((s_parser.msg_class == GNSS_UBX_NAV_CLASS) &&
         (s_parser.msg_id == GNSS_UBX_NAV_PVT_ID) &&
         (s_parser.payload_len == GNSS_UBX_NAV_PVT_LEN))
@@ -2018,6 +2140,9 @@ static void Gnss_TransactionStateResetLocked(uint8_t instance)
     (void)memset(&s_config_async, 0, sizeof(s_config_async));
     (void)memset(s_config_cache, 0, sizeof(s_config_cache));
     s_config_cache_count = 0U;
+    s_contexts[instance].identity_seen = 0U;
+    s_contexts[instance].identity_verified = 0U;
+    s_valget_layer = GNSS_VALGET_LAYER_RAM;
     s_uart_baud_changed = 0U;
     s_uart_baseline_ubx_frames = 0U;
     s_parser_resync_count = 0U;
@@ -2552,7 +2677,7 @@ static void Gnss_ConfigAsyncGroupStart(uint8_t instance,
 
     SILVERSTAR_ASSERT_OBJECT(group, GnssConfigReadGroupDefinition,
         SILVERSTAR_ASSERT_MODULE_DEVICE);
-    start_result = Gnss_ValgetAsyncStart(instance, group->keys, group->key_count);
+    start_result = Gnss_ValgetAsyncStart(instance, group->keys, group->key_count, GNSS_VALGET_LAYER_RAM);
     s_config_async.request_start_ms = PlatformTime_Ms();
     if (start_result == GnssNeoM9nAsyncStartOk)
     {
@@ -2575,7 +2700,7 @@ static void Gnss_ConfigAsyncKeyStart(uint8_t instance,
     SILVERSTAR_ASSERT_OBJECT(group, GnssConfigReadGroupDefinition,
         SILVERSTAR_ASSERT_MODULE_DEVICE);
     start_result = Gnss_ValgetAsyncStart(instance,
-        &group->keys[s_config_async.key_index], 1U);
+        &group->keys[s_config_async.key_index], 1U, GNSS_VALGET_LAYER_RAM);
     s_config_async.request_start_ms = PlatformTime_Ms();
     if (start_result == GnssNeoM9nAsyncStartOk)
     {

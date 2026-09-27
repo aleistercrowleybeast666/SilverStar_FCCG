@@ -957,134 +957,74 @@ void IMU_StreamReset(uint8_t instance)
     IMU_IrqUnlock(state);
 }
 
-static void IMU_DefaultConfigStepUpdate(const char *name, IMUState state, IMUState *result)
+static void IMU_DefaultValuesGet(const IMUConfig *config, uint16_t values[10])
 {
-    (void)name;
-    if ((state == IMU_OK) || (result == NULL))
-    {
-        return;
-    }
-
-    if (*result == IMU_OK)
-    {
-        *result = state;
-    }
-
+    SILVERSTAR_ASSERT_OBJECT(config, IMUConfig, SILVERSTAR_ASSERT_MODULE_DEVICE);
+    values[0] = config->BaudrateValue;
+    values[1] = config->OrientationValue;
+    values[2] = config->AlgorithmValue;
+    values[3] = config->BandwidthValue;
+    values[4] = config->OutputRateValue;
+    values[5] = config->GyroRangeValue;
+    values[6] = config->AccelRangeValue;
+    values[7] = config->FusionFilterValue;
+    values[8] = config->AccelerationFilterValue;
+    values[9] = config->ReturnContentValue;
 }
 
-static IMUState IMU_DefaultTransportAttitudeApply(uint8_t instance,
-    IMUOutputRate output_rate,
-    IMUAlgorithm algorithm)
+static IMUState IMU_DefaultDifferencesApply(uint8_t instance,
+    const uint16_t actual[10], const uint16_t expected[10], uint8_t *changed)
 {
-    IMUState state;
-    IMUState result = IMU_OK;
-
-    SILVERSTAR_ASSERT_OBJECT(&s_config_cache, IMUConfig,
-        SILVERSTAR_ASSERT_MODULE_DEVICE);
-    state = IMU_SetBaudrate(instance, Baudrate_230400);
-    if (state == IMU_OK)
+    static const uint8_t registers[10] = {IMU_REG_BAUD, IMU_REG_ORIENT,
+        IMU_REG_AXIS6, IMU_REG_BANDWIDTH, IMU_REG_RRATE, IMU_REG_GYRORANGE,
+        IMU_REG_ACCRANGE, IMU_REG_FILTK, IMU_REG_ACCFILT, IMU_REG_RSW};
+    uint8_t index;
+    SILVERSTAR_ASSERT_OBJECT(changed, uint8_t, SILVERSTAR_ASSERT_MODULE_DEVICE);
+    *changed = 0U;
+    for (index = 0U; index < 10U; index++)
     {
-        IMU_ConfigCacheSetField(instance, IMU_CONFIG_VALID_BAUD,
-                                IMU_DEFAULT_BAUD_VALUE);
+        IMUState result;
+        if (actual[index] == expected[index]) { continue; }
+        result = (index == 0U) ? IMU_SetBaudrate(instance, Baudrate_230400) :
+            IMU_WriteRegister(instance, registers[index], expected[index], 0U);
+        if (result != IMU_OK) { return result; }
+        *changed = 1U;
     }
-    IMU_DefaultConfigStepUpdate("baudrate", state, &result);
-    if (result != IMU_OK) { return result; }
-
-    state = IMU_SetInstallationOrientation(instance, IMU_DEFAULT_ORIENT_VALUE,
-                                           IMU_ORIENT_CONFIG_TIMEOUT_MS);
-    IMU_DefaultConfigStepUpdate("orientation_write", state, &result);
-    if (result != IMU_OK) { return result; }
-
-    state = IMU_SetAlgorithm(instance, algorithm);
-    if (state == IMU_OK)
-    {
-        IMU_ConfigCacheSetField(instance, IMU_CONFIG_VALID_ALGORITHM,
-                                (uint16_t)algorithm);
-    }
-    IMU_DefaultConfigStepUpdate("algorithm", state, &result);
-    if (result != IMU_OK) { return result; }
-
-    state = IMU_SetBandwidth(instance, (IMUBandwidth)IMU_DEFAULT_BANDWIDTH_VALUE);
-    if (state == IMU_OK)
-    {
-        IMU_ConfigCacheSetField(instance, IMU_CONFIG_VALID_BANDWIDTH, IMU_DEFAULT_BANDWIDTH_VALUE);
-    }
-    IMU_DefaultConfigStepUpdate("bandwidth", state, &result);
-    if (result != IMU_OK) { return result; }
-
-    state = IMU_SetOutputRate(instance, output_rate);
-    if (state == IMU_OK)
-    {
-        IMU_ConfigCacheSetField(instance, IMU_CONFIG_VALID_RATE,
-                                (uint16_t)output_rate);
-    }
-    IMU_DefaultConfigStepUpdate("rate", state, &result);
-    return result;
-}
-
-static IMUState IMU_DefaultSensorOutputApply(uint8_t instance)
-{
-    IMUState state;
-    IMUState result = IMU_OK;
-
-    SILVERSTAR_ASSERT_OBJECT(&s_config_cache, IMUConfig,
-        SILVERSTAR_ASSERT_MODULE_DEVICE);
-    state = IMU_SetGyroRange(instance, (IMUGyroRange)IMU_DEFAULT_GYRO_RANGE_VALUE);
-    if (state == IMU_OK)
-    {
-        IMU_ConfigCacheSetField(instance, IMU_CONFIG_VALID_GYRO_RANGE, IMU_DEFAULT_GYRO_RANGE_VALUE);
-    }
-    IMU_DefaultConfigStepUpdate("gyro_range", state, &result);
-    if (result != IMU_OK) { return result; }
-
-    state = IMU_SetAccelRange(instance, (IMUAccelRange)IMU_DEFAULT_ACCEL_RANGE_VALUE);
-    if (state == IMU_OK)
-    {
-        IMU_ConfigCacheSetField(instance, IMU_CONFIG_VALID_ACCEL_RANGE, IMU_DEFAULT_ACCEL_RANGE_VALUE);
-    }
-    IMU_DefaultConfigStepUpdate("accel_range", state, &result);
-    if (result != IMU_OK) { return result; }
-
-    state = IMU_SetFusionFilter(instance, IMU_DEFAULT_FUSION_FILTER_VALUE);
-    if (state == IMU_OK)
-    {
-        IMU_ConfigCacheSetField(instance, IMU_CONFIG_VALID_FUSION_FILTER, IMU_DEFAULT_FUSION_FILTER_VALUE);
-    }
-    IMU_DefaultConfigStepUpdate("fusion_filter", state, &result);
-    if (result != IMU_OK) { return result; }
-
-    state = IMU_SetAccelerationFilter(instance, IMU_DEFAULT_ACCEL_FILTER_VALUE);
-    if (state == IMU_OK)
-    {
-        IMU_ConfigCacheSetField(instance, IMU_CONFIG_VALID_ACCEL_FILTER, IMU_DEFAULT_ACCEL_FILTER_VALUE);
-    }
-    IMU_DefaultConfigStepUpdate("accel_filter", state, &result);
-    if (result != IMU_OK) { return result; }
-
-    state = IMU_SetReturnContent(instance, FC_IMU_RETURN_CONTENT_DEFAULT);
-    if (state == IMU_OK)
-    {
-        IMU_ConfigCacheSetField(instance, IMU_CONFIG_VALID_RETURN_CONTENT,
-                                FC_IMU_RETURN_CONTENT_DEFAULT);
-    }
-    IMU_DefaultConfigStepUpdate("return_content", state, &result);
-    return result;
+    return IMU_OK;
 }
 
 IMUState IMU_ApplyDefaultConfig(uint8_t instance, IMUOutputRate output_rate,
                                 IMUAlgorithm algorithm)
 {
+    IMUConfig actual = {0};
+    uint16_t values[10];
+    uint16_t expected[10] = {IMU_DEFAULT_BAUD_VALUE, IMU_DEFAULT_ORIENT_VALUE,
+        (uint16_t)algorithm, IMU_DEFAULT_BANDWIDTH_VALUE, (uint16_t)output_rate,
+        IMU_DEFAULT_GYRO_RANGE_VALUE, IMU_DEFAULT_ACCEL_RANGE_VALUE,
+        IMU_DEFAULT_FUSION_FILTER_VALUE, IMU_DEFAULT_ACCEL_FILTER_VALUE,
+        FC_IMU_RETURN_CONTENT_DEFAULT};
     IMUState result;
-
-    SILVERSTAR_ASSERT_OBJECT(&s_config_cache, IMUConfig,
-        SILVERSTAR_ASSERT_MODULE_DEVICE);
-    result = IMU_DefaultTransportAttitudeApply(instance, output_rate, algorithm);
+    uint8_t changed;
+    uint8_t index;
+    SILVERSTAR_ASSERT_OBJECT(&actual, IMUConfig, SILVERSTAR_ASSERT_MODULE_DEVICE);
+    result = IMU_ReadCurrentConfig(instance, &actual);
     if (result != IMU_OK) { return result; }
-    result = IMU_DefaultSensorOutputApply(instance);
+    IMU_DefaultValuesGet(&actual, values);
+    result = IMU_DefaultDifferencesApply(instance, values, expected, &changed);
     if (result != IMU_OK) { return result; }
-
-    /* Exactly one nonvolatile save closes the physical configuration. */
-    return IMU_SaveConfig(instance);
+    if (changed == 0U) { return IMU_OK; }
+    /* Transport success is not readback. Verify every effective field.
+     * JY exposes no independent NVM comparison: startup remains volatile.
+     * Explicit maintenance may call IMU_SaveConfig; never infer NVM changes. */
+    result = IMU_ReadCurrentConfig(instance, &actual);
+    if (result != IMU_OK) { return result; }
+    IMU_DefaultValuesGet(&actual, values);
+    for (index = 0U; index < 10U; index++)
+    {
+        if (values[index] != expected[index]) { return IMU_RESP_INVALID; }
+    }
+    IMU_StreamReset(instance);
+    return IMU_OK;
 }
 
 IMUState IMU_LocalGravitySet(uint8_t instance, float gravity_mps2)

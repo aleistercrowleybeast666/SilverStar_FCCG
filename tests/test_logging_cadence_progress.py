@@ -50,7 +50,7 @@ def test_logging_metadata_declares_cadence_and_legacy_policy_fallback(
         definition.record: definition
         for definition in ProtocolLogDefinitions_Get(model, builtin_catalog)
     }
-    assert len(definitions) == 28
+    assert len(definitions) == 35
     assert definitions[
         "FLIGHT_LOG_RECORD_DECODER_PROFILE_DESCRIPTOR"
     ].cadence.kind == "one_shot"
@@ -354,9 +354,10 @@ def test_logging_bulk_selection_respects_availability_and_configuration_refresh(
         streams = {
             stream.record: stream for stream in window._model.logging_streams
         }
+        views = {stream.stream_id: stream for stream in page._streams}
         assert all(
             streams[definition.record].enabled
-            == (definition.level == "required")
+            == (definition.level == "required" and views[definition.record].available)
             for definition in definitions
         )
 

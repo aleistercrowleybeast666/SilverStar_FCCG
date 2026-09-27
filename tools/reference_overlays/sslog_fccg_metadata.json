@@ -16,6 +16,7 @@
       "FLIGHT_LOG_RECORD_STATS": {
         "level": "recommended",
         "purpose": "flight",
+        "default_enabled": true,
         "display_names": {
           "zh_CN": "日志统计",
           "en_US": "Log Statistics"
@@ -134,6 +135,7 @@
       "FLIGHT_LOG_RECORD_TELEMETRY_DIAG": {
         "level": "recommended",
         "purpose": "flight",
+        "default_enabled": true,
         "display_names": {
           "zh_CN": "遥测诊断",
           "en_US": "Telemetry Diagnostic"
@@ -207,6 +209,7 @@
       "FLIGHT_LOG_RECORD_MAG_NATIVE": {
         "level": "recommended",
         "purpose": "flight",
+        "default_enabled": true,
         "display_names": {
           "zh_CN": "磁力计原始数据",
           "en_US": "Native Magnetometer Data"
@@ -434,6 +437,147 @@
         "cadence": {
           "kind": "event"
         }
+      },
+      "FLIGHT_LOG_RECORD_ESKF15_STATE": {
+        "level": "recommended",
+        "purpose": "flight",
+        "default_enabled": true,
+        "display_names": {
+          "zh_CN": "ESKF15 STATE",
+          "en_US": "ESKF15 STATE"
+        },
+        "requires": {
+          "capabilities": [
+            "algorithm.estimator"
+          ]
+        },
+        "cadence": {
+          "kind": "algorithm_output"
+        },
+        "producer_components": [
+          "silverstar.algorithm.estimator.eskf15"
+        ]
+      },
+      "FLIGHT_LOG_RECORD_ESKF15_FULL_P_PART": {
+        "level": "optional",
+        "purpose": "test",
+        "default_enabled": false,
+        "display_names": {
+          "zh_CN": "ESKF15 FULL P PART",
+          "en_US": "ESKF15 FULL P PART"
+        },
+        "requires": {
+          "capabilities": [
+            "algorithm.estimator"
+          ]
+        },
+        "cadence": {
+          "kind": "algorithm_output"
+        },
+        "producer_components": [
+          "silverstar.algorithm.estimator.eskf15"
+        ]
+      },
+      "FLIGHT_LOG_RECORD_ESKF15_INITIAL_STATE": {
+        "level": "required",
+        "purpose": "flight",
+        "default_enabled": true,
+        "display_names": {
+          "zh_CN": "ESKF15 INITIAL STATE",
+          "en_US": "ESKF15 INITIAL STATE"
+        },
+        "requires": {
+          "capabilities": [
+            "algorithm.estimator"
+          ]
+        },
+        "cadence": {
+          "kind": "one_shot"
+        },
+        "producer_components": [
+          "silverstar.algorithm.estimator.eskf15"
+        ]
+      },
+      "FLIGHT_LOG_RECORD_ESKF15_INITIAL_P_PART": {
+        "level": "required",
+        "purpose": "flight",
+        "default_enabled": true,
+        "display_names": {
+          "zh_CN": "ESKF15 INITIAL P PART",
+          "en_US": "ESKF15 INITIAL P PART"
+        },
+        "requires": {
+          "capabilities": [
+            "algorithm.estimator"
+          ]
+        },
+        "cadence": {
+          "kind": "one_shot"
+        },
+        "producer_components": [
+          "silverstar.algorithm.estimator.eskf15"
+        ]
+      },
+      "FLIGHT_LOG_RECORD_ESKF15_MEASUREMENT": {
+        "level": "required",
+        "purpose": "flight",
+        "default_enabled": true,
+        "display_names": {
+          "zh_CN": "ESKF15 MEASUREMENT",
+          "en_US": "ESKF15 MEASUREMENT"
+        },
+        "requires": {
+          "capabilities": [
+            "algorithm.estimator"
+          ]
+        },
+        "cadence": {
+          "kind": "measurement"
+        },
+        "producer_components": [
+          "silverstar.algorithm.estimator.eskf15"
+        ]
+      },
+      "FLIGHT_LOG_RECORD_ESKF15_BODY_INPUT": {
+        "level": "required",
+        "purpose": "flight",
+        "default_enabled": true,
+        "display_names": {
+          "zh_CN": "ESKF15 机体系输入",
+          "en_US": "ESKF15 Body Input"
+        },
+        "requires": {
+          "capabilities": [
+            "algorithm.estimator"
+          ]
+        },
+        "cadence": {
+          "kind": "source"
+        },
+        "producer_components": [
+          "silverstar.algorithm.estimator.eskf15"
+        ]
+      },
+      "FLIGHT_LOG_RECORD_NAV_QUALITY": {
+        "level": "recommended",
+        "purpose": "flight",
+        "default_enabled": true,
+        "display_names": {
+          "zh_CN": "导航质量与窗口证据",
+          "en_US": "Navigation quality evidence"
+        },
+        "requires": {
+          "capabilities": [
+            "algorithm.estimator"
+          ]
+        },
+        "cadence": {
+          "kind": "measurement"
+        },
+        "producer_components": [
+          "silverstar.algorithm.estimator.eskf15",
+          "silverstar.algorithm.estimator.kf6"
+        ]
       }
     }
   },

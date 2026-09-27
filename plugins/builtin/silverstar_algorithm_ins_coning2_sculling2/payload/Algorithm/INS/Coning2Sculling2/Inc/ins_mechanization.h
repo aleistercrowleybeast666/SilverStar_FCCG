@@ -22,6 +22,7 @@ typedef struct
     float gyro_b_radps[3];
     float q_nb[4];
     uint32_t valid_flags;
+    uint32_t quality_flags;
 } InsAlgorithmSample;
 
 typedef struct

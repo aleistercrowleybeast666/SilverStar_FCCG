@@ -71,10 +71,10 @@ typedef struct
 static SystemSourceSelectorImuState s_imu;
 static SystemSourceSelectorGnssState s_gnss;
 static SystemSourceSelectorTelemetryState s_telemetry;
+#if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
 static SystemSourceSelectorPendingEvent
     s_pending_events[SYSTEM_SOURCE_SELECTOR_PENDING_EVENT_COUNT_MAX];
 static uint8_t s_pending_event_count;
-#if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
 static uint8_t s_pending_event_flush_active;
 #endif
 

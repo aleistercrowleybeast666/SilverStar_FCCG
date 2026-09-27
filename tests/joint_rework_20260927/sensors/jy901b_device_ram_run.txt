@@ -1,0 +1,3 @@
+jy901b_device: 50 checks, 0 failures
+
+exit_code=0

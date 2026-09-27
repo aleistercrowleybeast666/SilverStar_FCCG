@@ -217,6 +217,11 @@ static void Test_RequiredAlignmentReadySet(void)
     s_barometer.state = SYSTEM_ALIGNMENT_COMPONENT_READY;
     s_barometer.sample_count = 100U;
     s_barometer.ready = 1U;
+    s_gnss.state = SYSTEM_ALIGNMENT_COMPONENT_READY;
+    s_gnss.sample_count = 100U;
+    s_gnss.horizontal_accuracy_m = 0.8f;
+    s_gnss.vertical_accuracy_m = 1.2f;
+    s_gnss.ready = 1U;
     s_guard_sample.observation_timestamp_us = s_guard_timestamp_us;
     s_guard_sample.inertial_sample_timestamp_us = s_guard_timestamp_us;
     s_guard_sample.inertial_receive_timestamp_us = s_guard_timestamp_us;
@@ -505,6 +510,7 @@ static void Test_ValidityGuard(void)
     TEST_CHECK(status.ready == 0U);
     TEST_CHECK(status.ready_mask ==
         (SYSTEM_ALIGNMENT_SOURCE_MASK_ATTITUDE |
+         SYSTEM_ALIGNMENT_SOURCE_MASK_GNSS_ORIGIN |
          SYSTEM_ALIGNMENT_SOURCE_MASK_BARO_ORIGIN));
     TEST_CHECK(status.component[SYSTEM_ALIGNMENT_SOURCE_ATTITUDE].ready != 0U);
     TEST_CHECK(status.component[SYSTEM_ALIGNMENT_SOURCE_BARO_ORIGIN].ready != 0U);
@@ -614,7 +620,9 @@ int main(void)
     TEST_CHECK(status.capability_mask == 0x07U);
     TEST_CHECK(status.unavailable_mask == 0U);
     TEST_CHECK(status.selected_mask == 0x07U);
-    TEST_CHECK(status.required_mask == 0x05U);
+    TEST_CHECK(status.required_mask == (0x05U |
+        (((SYSTEM_BUILD_ESTIMATOR_ENABLED != 0U) &&
+          (SYSTEM_ESTIMATOR_GNSS_FUSION_REQUIRES_PREFLIGHT_ORIGIN != 0U)) ? 0x02U : 0U)));
     TEST_CHECK(SystemAlignment_Start() == SYSTEM_DEVICE_NOT_READY);
 
     TEST_CHECK(SystemCalibration_Start(SYSTEM_CALIBRATION_MODE_NONE) ==
@@ -631,12 +639,31 @@ int main(void)
     TEST_CHECK(status.state == SYSTEM_ALIGNMENT_STATE_COLLECTING);
     TEST_CHECK(status.ready_mask == SYSTEM_ALIGNMENT_SOURCE_MASK_ATTITUDE);
     Test_RequiredAlignmentReadySet();
+    /* SS0002: ACK/attitude/barometer complete while GNSS origin is still absent. */
+    s_gnss.ready = 0U;
+    s_gnss.state = SYSTEM_ALIGNMENT_COMPONENT_COLLECTING;
+    TEST_CHECK(SystemAlignment_Process() == SYSTEM_DEVICE_OK);
+    TEST_CHECK(SystemAlignment_StatusGet(&status) == SYSTEM_DEVICE_OK);
+    if ((status.required_mask & SYSTEM_ALIGNMENT_SOURCE_MASK_GNSS_ORIGIN) != 0U)
+    {
+        TEST_CHECK(status.ready == 0U);
+        TEST_CHECK(Test_StartReadyGet() == 0U);
+        TEST_CHECK(SystemAlignment_PrepareMission() == SYSTEM_DEVICE_NOT_READY);
+    }
+    else
+    {
+        /* Explicit Pure INS configuration remains legal without a GNSS origin. */
+        TEST_CHECK(status.ready == 1U);
+        TEST_CHECK(Test_StartReadyGet() == 1U);
+    }
+    Test_RequiredAlignmentReadySet();
     TEST_CHECK(SystemAlignment_Process() == SYSTEM_DEVICE_OK);
     TEST_CHECK(SystemAlignment_StatusGet(&status) == SYSTEM_DEVICE_OK);
     TEST_CHECK(status.state == SYSTEM_ALIGNMENT_STATE_READY);
     TEST_CHECK(status.ready == 1U);
     TEST_CHECK(status.ready_mask ==
         (SYSTEM_ALIGNMENT_SOURCE_MASK_ATTITUDE |
+         SYSTEM_ALIGNMENT_SOURCE_MASK_GNSS_ORIGIN |
          SYSTEM_ALIGNMENT_SOURCE_MASK_BARO_ORIGIN));
     TEST_CHECK(Test_StartReadyGet() == 1U);
 
@@ -704,9 +731,8 @@ int main(void)
     Test_PreflightQuaternionAuthority();
     Test_ValidityGuard();
 
-    /* Optional selected GNSS may be unavailable for this boot. The source is
-       reported DISABLED, but ATTITUDE+BARO can still satisfy the required
-       mask and no configuration fault is raised. */
+    /* Missing GNSS blocks a GNSS navigation configuration, while explicitly
+       selected Pure INS still treats this physical device as optional. */
     Test_StartupDeviceResultsSet(SYSTEM_DEVICE_ALREADY_MATCHED,
                                  SYSTEM_DEVICE_ALREADY_MATCHED);
     s_startup_report.devices[SYSTEM_STARTUP_DEVICE_GNSS].init_result =
@@ -716,7 +742,9 @@ int main(void)
     TEST_CHECK(status.capability_mask ==
         (SYSTEM_ALIGNMENT_SOURCE_MASK_ATTITUDE |
          SYSTEM_ALIGNMENT_SOURCE_MASK_BARO_ORIGIN));
-    TEST_CHECK(status.config_result == SYSTEM_ALIGNMENT_CONFIG_OK);
+    TEST_CHECK(status.config_result ==
+        (((status.required_mask & SYSTEM_ALIGNMENT_SOURCE_MASK_GNSS_ORIGIN) != 0U) ?
+            SYSTEM_ALIGNMENT_CONFIG_REQUIRED_UNAVAILABLE : SYSTEM_ALIGNMENT_CONFIG_OK));
     TEST_CHECK(status.unavailable_mask ==
         SYSTEM_ALIGNMENT_SOURCE_MASK_GNSS_ORIGIN);
     TEST_CHECK(status.component[SYSTEM_ALIGNMENT_SOURCE_GNSS_ORIGIN].state ==
@@ -724,12 +752,14 @@ int main(void)
     TEST_CHECK(SystemCalibration_Reset() == SYSTEM_DEVICE_OK);
     TEST_CHECK(SystemCalibration_Start(SYSTEM_CALIBRATION_MODE_NONE) ==
                SYSTEM_DEVICE_OK);
-    TEST_CHECK(SystemAlignment_Start() == SYSTEM_DEVICE_OK);
+    TEST_CHECK(SystemAlignment_Start() ==
+        (((status.required_mask & SYSTEM_ALIGNMENT_SOURCE_MASK_GNSS_ORIGIN) != 0U) ?
+            SYSTEM_DEVICE_UNSUPPORTED : SYSTEM_DEVICE_OK));
     Test_RequiredAlignmentReadySet();
     TEST_CHECK(SystemAlignment_Process() == SYSTEM_DEVICE_OK);
     TEST_CHECK(SystemAlignment_StatusGet(&status) == SYSTEM_DEVICE_OK);
-    TEST_CHECK(status.state == SYSTEM_ALIGNMENT_STATE_READY);
-    TEST_CHECK(status.ready != 0U);
+    TEST_CHECK(status.ready ==
+        (((status.required_mask & SYSTEM_ALIGNMENT_SOURCE_MASK_GNSS_ORIGIN) != 0U) ? 0U : 1U));
     TEST_CHECK(status.component[SYSTEM_ALIGNMENT_SOURCE_GNSS_ORIGIN].state ==
         SYSTEM_ALIGNMENT_COMPONENT_DISABLED);
 

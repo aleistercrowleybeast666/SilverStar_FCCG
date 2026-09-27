@@ -97,8 +97,12 @@ static void Test_ContextAndStreamIsolation(void)
     TEST_CHECK(diagnostics0.valid_frame_count == 2U);
     TEST_CHECK(diagnostics1.valid_frame_count == 2U);
 
+    HostPlatformMock_Jy901bEnable(resources1.uart, 1U, 0U);
     TEST_CHECK(IMU_ApplyDefaultConfig(
         1U, OutputRate_100Hz, Algorithm_9Axis) == IMU_OK);
+    TEST_CHECK(IMU_GetData(1U)->FrameCount == 0U);
+    Test_PairInject(resources1.uart, -1024, -222);
+    IMU_Poll(1U);
     IMU_ConfigCacheGet(1U, &config1);
     IMU_Reset(0U);
     IMU_ConfigCacheGet(0U, &config0);

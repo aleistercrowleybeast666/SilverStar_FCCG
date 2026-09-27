@@ -1,6 +1,9 @@
 #include "system_user_config.h"
 
 #if defined(TEST_EXPECT_DEFAULT_JY901B_PROFILE)
+#include "jy901b_imu_build_capabilities.h"
+#include "jy901b_magnetometer_build_capabilities.h"
+#include "jy901b_quaternion_build_capabilities.h"
 _Static_assert(SYSTEM_ALIGNMENT_ALGORITHM ==
                SYSTEM_ALIGNMENT_GRAVITY_KNOWN_YAW,
                "Default alignment must be Gravity Known Yaw");

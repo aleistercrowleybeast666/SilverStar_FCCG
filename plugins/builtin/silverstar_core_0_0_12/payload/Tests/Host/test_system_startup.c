@@ -10,7 +10,9 @@
 #include "system_hardware_quaternion_if.h"
 #include "system_imu_if.h"
 #include "system_lifecycle.h"
+#if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
 #include "system_log_policy.h"
+#endif
 #include "system_magnetometer_if.h"
 #include "system_navigation_profile.h"
 #include "system_output_if.h"
@@ -115,7 +117,9 @@ SystemDeviceResult SystemLifecycle_EnterPreflight(void)
 
 void SystemHealth_Init(void) {}
 void SystemHealth_Process(void) { s_health_process_count++; }
+#if (SILVERSTAR_PROTOCOL_LOGGING_ENABLED != 0U)
 void SystemLogPolicy_Init(void) {}
+#endif
 SystemDeviceResult SystemConsole_Init(void) { return SYSTEM_DEVICE_OK; }
 void DebugLog_Init(void) {}
 void DebugLog_Print(const char *format, ...)

@@ -80,7 +80,7 @@ def test_reference_import_definition_preserves_current_fccg_overlays(
         for component in components
     }
 
-    assert len(manifests) == 36
+    assert len(manifests) == 65
     assert {
         "silverstar.protocol.telemetry.air_m0",
         "silverstar.protocol.maintenance.serial_0_0",
@@ -914,7 +914,12 @@ def test_decoder_profile_is_deterministic_data_only(builtin_catalog) -> None:
             assert canonical.endswith(b"\n")
             assert b"\r" not in canonical
             assert not canonical.startswith(b"\xef\xbb\xbf")
-            assert b": " not in canonical
+            # Punctuation inside a description is data; check the complete JSON
+            # canonicalization, not a byte substring that also matches strings.
+            assert canonical == (
+                json.dumps(json.loads(canonical), ensure_ascii=False, sort_keys=True,
+                           separators=(",", ":"), allow_nan=False) + "\n"
+            ).encode("utf-8")
         assert manifest["record_catalog_sha256"] == hashlib.sha256(
             catalog_bytes
         ).hexdigest()

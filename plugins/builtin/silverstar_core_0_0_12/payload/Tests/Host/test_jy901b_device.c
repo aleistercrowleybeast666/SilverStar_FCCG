@@ -161,13 +161,14 @@ static void Test_ApplyUsesOneSave(void)
     IMUConfig config;
 
     HostPlatformMock_Reset();
+    HostPlatformMock_Jy901bEnable(PROJECT_RESOURCE_IMU_UART, 1U, 0U);
     TEST_CHECK(IMU_LocalGravitySet(SYSTEM_LOCAL_GRAVITY_MPS2) == IMU_OK);
     TEST_CHECK(IMU_Init() == IMU_OK);
     TEST_CHECK(IMU_ApplyDefaultConfig(OutputRate_200Hz,
                                       Algorithm_6Axis) == IMU_OK);
     tx_length = HostPlatformMock_UartTxTake(
         PROJECT_RESOURCE_IMU_UART, tx, sizeof(tx));
-    TEST_CHECK(Test_RegisterWriteCount(tx, tx_length, IMU_REG_SAVE) == 1U);
+    TEST_CHECK(Test_RegisterWriteCount(tx, tx_length, IMU_REG_SAVE) == 0U);
     TEST_CHECK(Test_RegisterWriteCount(tx, tx_length, IMU_REG_BAUD) == 1U);
     TEST_CHECK(Test_RegisterWriteCount(tx, tx_length, IMU_REG_ORIENT) == 1U);
     TEST_CHECK(Test_RegisterWriteCount(tx, tx_length, IMU_REG_AXIS6) == 1U);
@@ -183,6 +184,23 @@ static void Test_ApplyUsesOneSave(void)
     TEST_CHECK(config.AlgorithmValue == IMU_ALGORITHM_6_AXIS_VALUE);
     TEST_CHECK(config.OutputRateValue == IMU_RRATE_200HZ_VALUE);
     TEST_CHECK(config.ReturnContentValue == FC_IMU_RETURN_CONTENT_DEFAULT);
+    TEST_CHECK(IMU_ApplyDefaultConfig(OutputRate_200Hz, Algorithm_6Axis) == IMU_OK);
+    tx_length = HostPlatformMock_UartTxTake(PROJECT_RESOURCE_IMU_UART, tx, sizeof(tx));
+    TEST_CHECK(Test_RegisterWriteCount(tx, tx_length, IMU_REG_SAVE) == 0U);
+    TEST_CHECK(Test_RegisterWriteCount(tx, tx_length, IMU_REG_BAUD) == 0U);
+    TEST_CHECK(Test_RegisterWriteCount(tx, tx_length, IMU_REG_RRATE) == 0U);
+}
+
+static void Test_ReadbackMismatchDoesNotSave(void)
+{
+    uint8_t tx[TEST_TX_BUFFER_CAPACITY];
+    uint16_t length;
+    HostPlatformMock_Reset();
+    HostPlatformMock_Jy901bEnable(PROJECT_RESOURCE_IMU_UART, 1U, 1U);
+    TEST_CHECK(IMU_Init() == IMU_OK);
+    TEST_CHECK(IMU_ApplyDefaultConfig(OutputRate_200Hz, Algorithm_6Axis) == IMU_RESP_INVALID);
+    length = HostPlatformMock_UartTxTake(PROJECT_RESOURCE_IMU_UART, tx, sizeof(tx));
+    TEST_CHECK(Test_RegisterWriteCount(tx, length, IMU_REG_SAVE) == 0U);
 }
 
 static void Test_WriteFailureDoesNotSave(void)
@@ -210,5 +228,6 @@ int main(void)
     Test_ParserAndNativeSample();
     Test_ApplyUsesOneSave();
     Test_WriteFailureDoesNotSave();
+    Test_ReadbackMismatchDoesNotSave();
     return Test_Finish("jy901b_device");
 }

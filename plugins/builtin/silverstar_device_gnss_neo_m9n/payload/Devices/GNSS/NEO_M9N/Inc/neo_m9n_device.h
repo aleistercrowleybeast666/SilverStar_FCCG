@@ -143,6 +143,16 @@ typedef enum
 
 typedef enum
 {
+    GnssNeoM9nIdentifyOk = 0,
+    GnssNeoM9nIdentifyWrongModel,
+    GnssNeoM9nIdentifyTimeout,
+    GnssNeoM9nIdentifyIoError
+} GnssNeoM9nIdentifyResult;
+
+GnssNeoM9nIdentifyResult GnssNeoM9n_Identify(uint8_t instance);
+
+typedef enum
+{
     GnssNeoM9n_UpdateOk = 0,
     GnssNeoM9n_UpdateNoData
 } GnssNeoM9nUpdateResult;

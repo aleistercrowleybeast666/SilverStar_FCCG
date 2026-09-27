@@ -1,0 +1,14 @@
+RETURN=1
+FAIL D:\python_software\SilverStar_FCCG\plugins\builtin\silverstar_core_0_0_12\payload\Tests\Host\test_estimator_preparation.c:137: health.has_success == 1U && health.last_successful_fusion_us == 1010000ULL
+FAIL D:\python_software\SilverStar_FCCG\plugins\builtin\silverstar_core_0_0_12\payload\Tests\Host\test_estimator_preparation.c:138: health.state == SYSTEM_NAVIGATION_SOFT_WEIGHTED
+FAIL D:\python_software\SilverStar_FCCG\plugins\builtin\silverstar_core_0_0_12\payload\Tests\Host\test_estimator_preparation.c:139: fabsf((health.variance_scale) - (scale * 2.0f)) <= (0.0001f)
+FAIL D:\python_software\SilverStar_FCCG\plugins\builtin\silverstar_core_0_0_12\payload\Tests\Host\test_estimator_preparation.c:137: health.has_success == 1U && health.last_successful_fusion_us == 1010000ULL
+FAIL D:\python_software\SilverStar_FCCG\plugins\builtin\silverstar_core_0_0_12\payload\Tests\Host\test_estimator_preparation.c:138: health.state == SYSTEM_NAVIGATION_SOFT_WEIGHTED
+FAIL D:\python_software\SilverStar_FCCG\plugins\builtin\silverstar_core_0_0_12\payload\Tests\Host\test_estimator_preparation.c:139: fabsf((health.variance_scale) - (scale * 2.0f)) <= (0.0001f)
+FAIL D:\python_software\SilverStar_FCCG\plugins\builtin\silverstar_core_0_0_12\payload\Tests\Host\test_estimator_preparation.c:137: health.has_success == 1U && health.last_successful_fusion_us == 1010000ULL
+FAIL D:\python_software\SilverStar_FCCG\plugins\builtin\silverstar_core_0_0_12\payload\Tests\Host\test_estimator_preparation.c:138: health.state == SYSTEM_NAVIGATION_SOFT_WEIGHTED
+FAIL D:\python_software\SilverStar_FCCG\plugins\builtin\silverstar_core_0_0_12\payload\Tests\Host\test_estimator_preparation.c:139: fabsf((health.variance_scale) - (scale * 2.0f)) <= (0.0001f)
+FAIL D:\python_software\SilverStar_FCCG\plugins\builtin\silverstar_core_0_0_12\payload\Tests\Host\test_estimator_preparation.c:137: health.has_success == 1U && health.last_successful_fusion_us == 1010000ULL
+FAIL D:\python_software\SilverStar_FCCG\plugins\builtin\silverstar_core_0_0_12\payload\Tests\Host\test_estimator_preparation.c:138: health.state == SYSTEM_NAVIGATION_SOFT_WEIGHTED
+FAIL D:\python_software\SilverStar_FCCG\plugins\builtin\silverstar_core_0_0_12\payload\Tests\Host\test_estimator_preparation.c:139: fabsf((health.variance_scale) - (scale * 2.0f)) <= (0.0001f)
+estimator_preparation_actual: 288 checks, 12 failures

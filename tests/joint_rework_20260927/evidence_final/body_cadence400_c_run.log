@@ -1,0 +1,2 @@
+raw=801 intervals=800 BODY=400 duration_us=2000000 max_history=120/192
+eskf_actual_app_body_cadence: 4413 checks, 0 failures

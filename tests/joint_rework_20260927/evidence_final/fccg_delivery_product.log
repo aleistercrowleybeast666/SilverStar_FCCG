@@ -1,0 +1,52 @@
+........................................................................ [ 13%]
+.............F..........F............................................... [ 27%]
+..........F............................................................. [ 41%]
+........................................................................ [ 54%]
+........................................................................ [ 68%]
+.................................F..s................................... [ 82%]
+.....................F.................................................. [ 96%]
+.....................                                                    [100%]
+================================== FAILURES ===================================
+______________ test_current_docs_release_and_calibration_claims _______________
+tests\test_documentation.py:51: in test_current_docs_release_and_calibration_claims
+    assert not re.search(r"\bExisting\b|使用现有校准", content), path
+E   AssertionError: WindowsPath('D:/python_software/SilverStar_FCCG/docs/SENSOR_LIBRARY_VALIDATION.md')
+E   assert not <re.Match object; span=(5714, 5722), match='Existing'>
+E    +  where <re.Match object; span=(5714, 5722), match='Existing'> = <function search at 0x000001E4E226F950>('\\bExisting\\b|使用现有校准', '# Joint sensor library implementation and validation\n\nExecuted 2026-09-27. This report covers FCCG builtin drivers,...Actual response ledger; RAM default; explicit BBR/Flash | MOCK_VALIDATED / COMPILE_VALIDATED / HARDWARE_UNVERIFIED |\n')
+E    +    where <function search at 0x000001E4E226F950> = re.search
+_____________ test_platform_release_has_one_runtime_version_truth _____________
+tests\test_final_freeze_0_0_12.py:334: in test_platform_release_has_one_runtime_version_truth
+    assert len(manifests) == 63
+E   AssertionError: assert 65 == 63
+E    +  where 65 = len([{'schema_version': 0, 'id': 'silverstar.algorithm.alignment.common', 'name': 'Alignment Common', 'type': 'algorithm',...chema_version': 0, 'id': 'silverstar.algorithm.calibration', 'name': 'IMU Calibration', 'type': 'algorithm', ...}, ...])
+____________ test_main_window_shell_navigation_theme_and_language _____________
+tests\test_gui_smoke.py:271: in test_main_window_shell_navigation_theme_and_language
+    assert window.plugin_manager_dialog.panel.plugin_table.rowCount() == 63
+E   assert 65 == 63
+E    +  where 65 = <built-in method rowCount of EngineeringTable object at 0x000001E488985F00>()
+E    +    where <built-in method rowCount of EngineeringTable object at 0x000001E488985F00> = <silverstar_fccg.ui.widgets.EngineeringTable(0x1e489145590, name="engineeringTable") at 0x000001E488985F00>.rowCount
+E    +      where <silverstar_fccg.ui.widgets.EngineeringTable(0x1e489145590, name="engineeringTable") at 0x000001E488985F00> = <silverstar_fccg.ui.pages.plugins.PluginManagerPanel(0x1e48a371690) at 0x000001E48A0A6F80>.plugin_table
+E    +        where <silverstar_fccg.ui.pages.plugins.PluginManagerPanel(0x1e48a371690) at 0x000001E48A0A6F80> = <silverstar_fccg.ui.pages.plugins.PluginManagerDialog(0x1e48925df40) at 0x000001E48A0E3200>.panel
+E    +          where <silverstar_fccg.ui.pages.plugins.PluginManagerDialog(0x1e48925df40) at 0x000001E48A0E3200> = <silverstar_fccg.ui.main_window.MainWindow(0x1e48a35baf0) at 0x000001E48A0D4740>.plugin_manager_dialog
+______ test_reference_import_definition_preserves_current_fccg_overlays _______
+tests\test_prompt_acceptance.py:83: in test_reference_import_definition_preserves_current_fccg_overlays
+    assert len(manifests) == 65
+E   AssertionError: assert 65 == 63
+E    +  where 65 = len({'silverstar.core.0_0_12': {'schema_version': 0, 'id': 'silverstar.core.0_0_12', 'name': 'SilverStar Core 0.0.12', 'ty...c.mission_action.gpio_output_service', 'name': 'GPIO Mission-Action Output Service', 'type': 'flight_logic', ...}, ...})
+__________ test_gui_service_loads_catalog_opens_project_and_previews __________
+tests\test_service_gui.py:32: in test_gui_service_loads_catalog_opens_project_and_previews
+    assert window.plugin_manager_dialog.panel.plugin_table.rowCount() == 65
+E   assert 65 == 63
+E    +  where 65 = <built-in method rowCount of EngineeringTable object at 0x000001E4C2313600>()
+E    +    where <built-in method rowCount of EngineeringTable object at 0x000001E4C2313600> = <silverstar_fccg.ui.widgets.EngineeringTable(0x1e4bda48fb0, name="engineeringTable") at 0x000001E4C2313600>.rowCount
+E    +      where <silverstar_fccg.ui.widgets.EngineeringTable(0x1e4bda48fb0, name="engineeringTable") at 0x000001E4C2313600> = <silverstar_fccg.ui.pages.plugins.PluginManagerPanel(0x1e4c2b78a90) at 0x000001E4C12AEF80>.plugin_table
+E    +        where <silverstar_fccg.ui.pages.plugins.PluginManagerPanel(0x1e4c2b78a90) at 0x000001E4C12AEF80> = <silverstar_fccg.ui.pages.plugins.PluginManagerDialog(0x1e4c310e660) at 0x000001E4C3489040>.panel
+E    +          where <silverstar_fccg.ui.pages.plugins.PluginManagerDialog(0x1e4c310e660) at 0x000001E4C3489040> = <silverstar_fccg.ui.main_window.MainWindow(0x1e4c2b65770) at 0x000001E4C2347E00>.plugin_manager_dialog
+=========================== short test summary info ===========================
+SKIPPED [1] tests\test_prompt_acceptance.py:287: read-only reference firmware task is still active
+FAILED tests/test_documentation.py::test_current_docs_release_and_calibration_claims
+FAILED tests/test_final_freeze_0_0_12.py::test_platform_release_has_one_runtime_version_truth
+FAILED tests/test_gui_smoke.py::test_main_window_shell_navigation_theme_and_language
+FAILED tests/test_prompt_acceptance.py::test_reference_import_definition_preserves_current_fccg_overlays
+FAILED tests/test_service_gui.py::test_gui_service_loads_catalog_opens_project_and_previews
+5 failed, 519 passed, 1 skipped in 2112.25s (0:35:12)

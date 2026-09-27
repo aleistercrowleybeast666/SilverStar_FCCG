@@ -608,12 +608,20 @@ static void SystemAlignment_PreflightStateRestore(void)
 void SystemAlignment_Init(void)
 {
     uint32_t primask = SystemAlignment_IrqLock();
+    SILVERSTAR_ASSERT_OBJECT(&s_status, SystemAlignmentStatus, SILVERSTAR_ASSERT_MODULE_SYSTEM);
+    SILVERSTAR_ASSERT(s_initialized <= 1U, SILVERSTAR_ASSERT_MODULE_SYSTEM, SILVERSTAR_ASSERT_REASON_STATE_INVARIANT);
 
     (void)memset(&s_status, 0, sizeof(s_status));
     SystemAlignment_GuardReset();
     s_status.capability_mask = SystemAlignment_CapabilityDetect();
     s_status.selected_mask = SYSTEM_USER_ALIGNMENT_SELECTED_MASK;
     s_status.required_mask = SYSTEM_USER_ALIGNMENT_REQUIRED_MASK;
+    /* GNSS-dependent navigation cannot make READY on attitude/barometer alone. */
+    if ((SYSTEM_FUSION_ALGORITHM != SYSTEM_FUSION_NONE) &&
+        (SYSTEM_ESTIMATOR_GNSS_FUSION_REQUIRES_PREFLIGHT_ORIGIN != 0U))
+    {
+        s_status.required_mask |= SYSTEM_ALIGNMENT_SOURCE_MASK_GNSS_ORIGIN;
+    }
     s_status.config_result = SystemAlignment_MasksValidate(
         s_status.capability_mask, s_status.selected_mask,
         s_status.required_mask, &s_status.unavailable_mask);

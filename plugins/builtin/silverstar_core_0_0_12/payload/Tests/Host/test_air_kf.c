@@ -1,3 +1,4 @@
+#include <float.h>
 #include <math.h>
 #include <limits.h>
 #include <stdint.h>
@@ -16,6 +17,39 @@ static void Test_PutU32Le(uint8_t *data, uint32_t value)
     data[1] = (uint8_t)(value >> 8);
     data[2] = (uint8_t)(value >> 16);
     data[3] = (uint8_t)(value >> 24);
+}
+
+static void Test_AirNavigation(void)
+{
+    static const uint8_t expected[3][9] = {
+        {0x15U, 0x22U, 0x34U, 0x12U, 7U, 0U, 1U, 2U, 31U},
+        {0x16U, 0x23U, 0x34U, 0x12U, 7U, 0U, 127U, 15U, 17U},
+        {0x17U, 0x24U, 0x34U, 0x12U, 7U, 0U, 9U, 12U, 0U}
+    };
+    AirNavigationStatusPayload status = {0x1234U, 7U, {0U, 0U, 0U}};
+    uint8_t frame[AIR_NAV_CAPABILITY_LEN];
+    uint8_t length = 0U;
+    uint8_t index;
+
+    for (index = 0U; index < 3U; index++)
+    {
+        (void)memcpy(status.tail, &expected[index][6], sizeof(status.tail));
+        TEST_CHECK(Air_NavigationStatusBuild(expected[index][1],
+            expected[index][0], &status, frame, sizeof(frame), &length) == AIR_BUILD_OK);
+        TEST_CHECK(length == 9U);
+        TEST_CHECK(memcmp(frame, expected[index], 9U) == 0);
+        TEST_CHECK(Air_FrameValidate(frame, length) == AIR_PARSE_OK);
+        TEST_CHECK(Air_FrameValidate(frame, 8U) == AIR_PARSE_BAD_LEN);
+    }
+    TEST_CHECK(Air_NavigationStatusBuild(1U, AIR_TYPE_NAV_HEALTH,
+        &status, frame, 8U, &length) == AIR_BUILD_BAD_LEN);
+    TEST_CHECK(length == 0U);
+    status.session = 0U;
+    TEST_CHECK(Air_NavigationStatusBuild(1U, AIR_TYPE_NAV_HEALTH,
+        &status, frame, sizeof(frame), &length) == AIR_BUILD_BAD_PARAM);
+    TEST_CHECK(Air_CmdTokenIsValid(AIR_CMD_NAV_SUBSCRIBE, 0x4E561234UL) != 0U);
+    TEST_CHECK(Air_CmdTokenIsValid(AIR_CMD_NAV_SUBSCRIBE, 0x4E560000UL) == 0U);
+    TEST_CHECK(Air_CmdTokenIsValid(AIR_CMD_NAV_SUBSCRIBE, 0x4E571234UL) == 0U);
 }
 
 static void Test_Air(void)
@@ -936,10 +970,90 @@ static void Test_Kf(void)
     }
 }
 
+static void Test_KfZeroGainCannotFuse(void)
+{
+    NavigationKfContext context, before;
+    float covariance[6][6] = {{0.0f}};
+    const float observation[3] = {1.0f, 1.0f, 1.0f};
+    const float variance[3] = {FLT_MAX, FLT_MAX, FLT_MAX};
+    uint8_t axis;
+    NavigationKf_Init(&context);
+    for (axis = 0U; axis < 6U; axis++)
+    { covariance[axis][axis] = SYSTEM_ESTIMATOR_P_DIAGONAL_MIN; }
+    TEST_CHECK(NavigationKf_ResetWithCovariance(&context, &covariance[0][0]) != 0U);
+    before = context;
+    TEST_CHECK(NavigationKf_UpdateGnssPosition(&context, observation, variance) == NAV_KF_UPDATE_NUMERIC_ERROR);
+    TEST_CHECK(NavigationKf_UpdateGnssVelocity3D(&context, observation, variance) == NAV_KF_UPDATE_NUMERIC_ERROR);
+    TEST_CHECK(NavigationKf_UpdateBaroAltitude(&context, 1.0f, FLT_MAX) == NAV_KF_UPDATE_NUMERIC_ERROR);
+    TEST_CHECK(memcmp(context.state, before.state, sizeof(context.state)) == 0);
+    TEST_CHECK(memcmp(context.covariance, before.covariance, sizeof(context.covariance)) == 0);
+    TEST_CHECK(context.position_accept_count == 0U && context.position_soft_count == 0U);
+    TEST_CHECK(context.velocity_accept_count == 0U && context.velocity_soft_count == 0U);
+    TEST_CHECK(context.baro_accept_count == 0U && context.baro_soft_count == 0U);
+    TEST_CHECK(context.position_reject_count == 1U && context.velocity_reject_count == 1U && context.baro_reject_count == 1U);
+    TEST_CHECK(context.numeric_error_count == 5U);
+    TEST_CHECK((context.health_flags & NAV_KF_HEALTH_NUMERIC_ERROR) != 0U);
+    for (axis = 0U; axis < NAV_KF_GNSS_GROUP_COUNT; axis++)
+    {
+        TEST_CHECK(context.gnss_group_accept_count[axis] == 0U);
+        TEST_CHECK(context.gnss_group_reject_count[axis] == 1U);
+    }
+}
+
+static void Test_KfFinitePositiveGainRemainsEffective(void)
+{
+    NavigationKfContext context;
+    NavigationKfGnssSeparatedUpdateResult result;
+    float covariance[6][6] = {{0.0f}};
+    const float observation[3] = {1.0f, 1.0f, 1.0f};
+    const float variance[3] = {1.0f, 1.0f, 1.0f};
+    uint8_t axis;
+    NavigationKf_Init(&context);
+    for (axis = 0U; axis < 6U; axis++)
+    { covariance[axis][axis] = SYSTEM_ESTIMATOR_P_DIAGONAL_MIN; }
+    TEST_CHECK(NavigationKf_ResetWithCovariance(&context, &covariance[0][0]) != 0U);
+    TEST_CHECK(NavigationKf_UpdateGnssPositionGroups(&context, observation, variance, 1U, &result) == NAV_KF_UPDATE_ACCEPTED);
+    TEST_CHECK(result.horizontal_result == NAV_KF_UPDATE_ACCEPTED);
+    TEST_CHECK(context.state[0] > 0.0f && context.state[1] > 0.0f);
+    TEST_CHECK(context.gnss_group_accept_count[0] == 1U);
+    TEST_CHECK(context.numeric_error_count == 0U);
+    /* Zero innovation with a normal positive gain is still a real P update. */
+    NavigationKf_Init(&context);
+    TEST_CHECK(NavigationKf_UpdateBaroAltitude(&context, 0.0f, 1.0f) == NAV_KF_UPDATE_ACCEPTED);
+    TEST_CHECK(context.state[2] == 0.0f);
+    TEST_CHECK(context.covariance[2][2] < SYSTEM_ESTIMATOR_P0_POSITION_U_VARIANCE_M2);
+    TEST_CHECK(context.baro_accept_count == 1U);
+}
+
+static void Test_KfNonfiniteGainPreservesState(void)
+{
+    NavigationKfContext context, before;
+    NavigationKfGnssSeparatedUpdateResult result;
+    const float observation[3] = {0.0f, 0.0f, 0.0f};
+    const float variance[3] = {1.0e-8f, 1.0e-8f, 1.0e-8f};
+    NavigationKf_Init(&context);
+    context.covariance[0][0] = SYSTEM_ESTIMATOR_P_DIAGONAL_MIN;
+    /* Fault injection: finite corrupt cross covariance overflows K, not S. */
+    context.covariance[3][0] = FLT_MAX;
+    before = context;
+    TEST_CHECK(NavigationKf_UpdateGnssPositionGroups(&context, observation, variance, 1U, &result) == NAV_KF_UPDATE_NUMERIC_ERROR);
+    TEST_CHECK(result.horizontal_result == NAV_KF_UPDATE_NUMERIC_ERROR);
+    TEST_CHECK(memcmp(context.state, before.state, sizeof(context.state)) == 0);
+    TEST_CHECK(memcmp(context.covariance, before.covariance, sizeof(context.covariance)) == 0);
+    TEST_CHECK(context.gnss_group_accept_count[0] == 0U);
+    TEST_CHECK(context.gnss_group_reject_count[0] == 1U);
+    TEST_CHECK(context.numeric_error_count == 1U);
+    TEST_CHECK((context.health_flags & NAV_KF_HEALTH_NUMERIC_ERROR) != 0U);
+}
+
 int main(void)
 {
     Test_Air();
+    Test_AirNavigation();
     Test_Kf();
+    Test_KfZeroGainCannotFuse();
+    Test_KfFinitePositiveGainRemainsEffective();
+    Test_KfNonfiniteGainPreservesState();
     Test_KfGnssGroupIsolation();
     Test_KfGnssMotionConsistency();
     Test_KfGnssOutlierProtection();

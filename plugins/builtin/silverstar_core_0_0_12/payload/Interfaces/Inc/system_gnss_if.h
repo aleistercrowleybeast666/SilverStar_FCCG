@@ -111,6 +111,8 @@ typedef struct
     uint32_t velocity_reject_mask;
     uint32_t group_reject_mask[SYSTEM_GNSS_QUALITY_GROUP_COUNT];
     uint8_t valid_group_mask;
+    uint8_t physical_valid_group_mask;
+    uint8_t quality_degraded_group_mask;
     int32_t latitude_e7;
     int32_t longitude_e7;
     int32_t ellipsoid_height_mm;

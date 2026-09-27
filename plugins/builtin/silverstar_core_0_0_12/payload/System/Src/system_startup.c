@@ -368,9 +368,9 @@ static void SystemStartup_ImuConfig(void)
         if ((device->persist_result == SYSTEM_DEVICE_NOT_EXECUTED) &&
             (SystemStartup_DeviceResultIsSuccessful(result) != 0U))
         {
-            device->persist_result = SYSTEM_DEVICE_VERIFY_FAILED;
-            device->persist_failed_mask = device->applied_mask;
-            device->failed_mask |= device->persist_failed_mask;
+            /* Successful volatile configuration is not a persistence request.
+               ConfigVerify below still checks the effective device values. */
+            device->persist_result = SYSTEM_DEVICE_CONFIG_NO_ACTION;
         }
     }
     else
@@ -441,9 +441,8 @@ static void SystemStartup_GnssConfigExecute(
     if ((device->persist_result == SYSTEM_DEVICE_NOT_EXECUTED) &&
         (SystemStartup_DeviceResultIsSuccessful(result) != 0U))
     {
-        device->persist_result = SYSTEM_DEVICE_VERIFY_FAILED;
-        device->persist_failed_mask = device->applied_mask;
-        device->failed_mask |= device->persist_failed_mask;
+        /* Boot initializes RAM. Explicit Save owns BBR/Flash transactions. */
+        device->persist_result = SYSTEM_DEVICE_CONFIG_NO_ACTION;
     }
     if (SYSTEM_GNSS_BOOT_VERIFY_CONFIG != 0U)
     {

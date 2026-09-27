@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-from silverstar_fccg.project.algorithm_parameters import AlgorithmParameters_Resolve
-
-from dataclasses import dataclass
 import math
 import re
+from dataclasses import dataclass
 
 from silverstar_fccg.app.version import (
     SILVERSTAR_BUILD_ID,
@@ -15,13 +13,18 @@ from silverstar_fccg.core.errors import FccgError
 from silverstar_fccg.hardware.platform import PlatformCompatibilityErrors_Get
 from silverstar_fccg.plugins.catalog import PluginCatalog
 from silverstar_fccg.plugins.manifest import SelectionKind
+from silverstar_fccg.project.algorithm_parameters import AlgorithmParameters_Resolve
+from silverstar_fccg.project.capabilities import CapabilityResolution_Resolve
 from silverstar_fccg.project.logging import (
     LogAvailability_Get,
     LogPolicyLevel,
     ProtocolLogDefinitions_Get,
 )
-from silverstar_fccg.project.capabilities import CapabilityResolution_Resolve
-from silverstar_fccg.project.model import ProjectModel, ProjectModelError, ProjectModel_Parse
+from silverstar_fccg.project.model import (
+    ProjectModel,
+    ProjectModel_Parse,
+    ProjectModelError,
+)
 from silverstar_fccg.project.protocols import ProtocolResolution_Resolve
 from silverstar_fccg.project.resources import (
     BoardHardwareInventory_Get,
@@ -922,6 +925,8 @@ def Project_Validate(model: ProjectModel, catalog: PluginCatalog) -> ProjectVali
                     f"{capability}",
                 )
             )
+        for conflict in capability_result.source_conflicts:
+            issues.append(ValidationIssue("error", "capability_source_conflict", conflict))
     if model.protocols.get("logging") is not None:
         log_sink_providers = tuple(
             instance.instance_id

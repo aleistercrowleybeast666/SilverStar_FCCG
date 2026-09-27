@@ -79,8 +79,9 @@ static uint8_t SystemGnssQuality_BasicFixCheck(
     if (SystemGnssQuality_FieldSupported(
             sample, SYSTEM_GNSS_FIELD_FIX_OK) == 0U)
     {
-        *reject_mask |= SYSTEM_GNSS_REJECT_FIELD_UNSUPPORTED;
+        *reject_mask |= SYSTEM_GNSS_REJECT_FIELD_UNSUPPORTED | SYSTEM_GNSS_REJECT_FIX_FLAG;
         *quality_degraded = 1U;
+        blocking = 1U;
     }
     else if (SystemGnssQuality_FieldValid(
                  sample, SYSTEM_GNSS_FIELD_FIX_OK) == 0U)
@@ -117,9 +118,11 @@ static uint8_t SystemGnssQuality_SatelliteCheck(
         (sample->satellite_count < SYSTEM_GNSS_MIN_SATELLITES))
     {
         *reject_mask |= SYSTEM_GNSS_REJECT_SATELLITES;
-        blocking = 1U;
+        sample->quality_degraded = 1U;
     }
-    return blocking;
+    /* numSV is quality evidence, never physical validity by itself. */
+    if (blocking != 0U) { sample->quality_degraded = 1U; }
+    return 0U;
 }
 
 static uint8_t SystemGnssQuality_AccuracyCheck(
@@ -140,10 +143,15 @@ static uint8_t SystemGnssQuality_AccuracyCheck(
         &blocking, &sample->quality_degraded);
     if ((SystemGnssQuality_FieldSupported(sample, field) != 0U) &&
         (SystemGnssQuality_FieldValid(sample, field) != 0U) &&
-        (!isfinite(value) || (value < 0.0f) || (value > maximum)))
+        (!isfinite(value) || (value < 0.0f)))
     {
         *reject_mask |= reason;
         blocking = 1U;
+    }
+    else if ((SystemGnssQuality_FieldValid(sample, field) != 0U) && (value > maximum))
+    {
+        *reject_mask |= reason;
+        sample->quality_degraded = 1U; /* Reported finite sigma already increases R. */
     }
     return blocking;
 }
@@ -209,6 +217,8 @@ SystemDeviceResult SystemGnssQuality_Evaluate(SystemGnssSample *sample,
     sample->quality_degraded = 0U;
     sample->valid_group_mask = 0U;
     sample->velocity_valid_mask = 0U;
+    sample->physical_valid_group_mask = 0U;
+    sample->quality_degraded_group_mask = 0U;
     common_blocking = SystemGnssQuality_BasicFixCheck(
         sample, &common_reason, &sample->quality_degraded);
     common_blocking |= SystemGnssQuality_SatelliteCheck(sample, &common_reason);
@@ -222,11 +232,15 @@ SystemDeviceResult SystemGnssQuality_Evaluate(SystemGnssSample *sample,
         sample->group_reject_mask[group] = common_reason;
         if (SystemGnssQuality_GroupEvaluate(sample, group, common_blocking) != 0U)
         { sample->valid_group_mask |= (uint8_t)(1U << group); }
+        if (sample->group_reject_mask[group] != 0U)
+        { sample->quality_degraded_group_mask |= (uint8_t)(1U << group); }
     }
+    sample->physical_valid_group_mask = sample->valid_group_mask;
     sample->position_reject_mask = sample->group_reject_mask[0] | sample->group_reject_mask[1];
     sample->velocity_reject_mask = sample->group_reject_mask[2] | sample->group_reject_mask[3];
     /* Preserve the strict pre-START origin gate and aggregate status contract. */
-    sample->position_usable = (uint8_t)((sample->valid_group_mask & 3U) == 3U);
+    sample->position_usable = (uint8_t)(((sample->valid_group_mask & 3U) == 3U) &&
+        ((sample->position_reject_mask & (SYSTEM_GNSS_REJECT_SATELLITES | SYSTEM_GNSS_REJECT_HACC | SYSTEM_GNSS_REJECT_VACC)) == 0U));
     if ((sample->valid_group_mask & 4U) != 0U)
     { sample->velocity_valid_mask |= SYSTEM_GNSS_VEL_VALID_E | SYSTEM_GNSS_VEL_VALID_N; }
     if ((sample->valid_group_mask & 8U) != 0U)

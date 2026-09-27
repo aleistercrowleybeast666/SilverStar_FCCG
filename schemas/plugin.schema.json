@@ -776,6 +776,7 @@
             "dma_rx_required": {"type": "boolean"},
             "dma_tx_required": {"type": "boolean"},
             "irq_required": {"type": "boolean"},
+            "pin_label": {"type": "string", "minLength": 1},
             "uart": {"$ref": "#/$defs/uartConstraints"},
             "spi": {"$ref": "#/$defs/spiConstraints"},
             "i2c": {"$ref": "#/$defs/i2cConstraints"},

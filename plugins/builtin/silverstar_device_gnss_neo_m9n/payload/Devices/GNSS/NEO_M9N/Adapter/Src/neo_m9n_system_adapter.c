@@ -180,7 +180,7 @@ static SystemDeviceResult NeoM9nGnssAdapter_Init(uint8_t instance)
     s_effective_config.dynamic_model = SYSTEM_GNSS_DYNAMIC_MODEL_PORTABLE;
     s_effective_config.output_protocol = SYSTEM_GNSS_OUTPUT_PROTOCOL_UBX;
     s_effective_config.enabled_message_mask = 0U;
-    s_effective_config.requested_mask = NEO_M9N_SUPPORTED_CONFIG_MASK;
+    s_effective_config.requested_mask = 0U;
     if (GnssNeoM9n_Init(instance) != GnssNeoM9n_InitOk)
     {
         s_health.error_count++;
@@ -847,7 +847,7 @@ static SystemDeviceResult NeoM9nGnssAdapter_ApplyConfig(uint8_t instance,
     if (s_runtime_owner_active != 0U) { return SYSTEM_DEVICE_BUSY; }
     NeoM9nGnssAdapter_TransactionReset(instance);
     (void)memset(&context, 0, sizeof(context));
-    context.layers = GNSS_CFG_LAYER_ALL;
+    context.layers = GNSS_CFG_LAYER_RAM;
     context.failed_mask = config->requested_mask;
     s_config_transaction.write_layers = context.layers;
     NeoM9nGnssAdapter_TransportConfigApply(instance, config, &context);
@@ -863,7 +863,7 @@ static SystemDeviceResult NeoM9nGnssAdapter_ApplyConfig(uint8_t instance,
     }
     report->applied_mask = config->requested_mask &
                            NEO_M9N_SUPPORTED_CONFIG_MASK;
-    report->persisted = 1U;
+    report->persisted = 0U;
     report->success = 1U;
     NeoM9nGnssAdapter_EffectiveConfigUpdate(instance, config, report);
     return validation;
@@ -873,7 +873,7 @@ static SystemDeviceResult NeoM9nGnssAdapter_GetConfig(uint8_t instance, SystemGn
 {
     if (config == NULL) { return SYSTEM_DEVICE_INVALID_ARGUMENT; }
     *config = s_effective_config;
-    return SYSTEM_DEVICE_OK;
+    return (config->requested_mask != 0U) ? SYSTEM_DEVICE_OK : SYSTEM_DEVICE_NOT_READY;
 }
 
 static SystemDeviceResult NeoM9nGnssAdapter_NoiseCharacteristicsGet(

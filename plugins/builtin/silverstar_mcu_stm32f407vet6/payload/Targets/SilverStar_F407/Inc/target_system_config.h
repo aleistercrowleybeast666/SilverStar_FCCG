@@ -3,12 +3,16 @@
 
 #include "system_capabilities.h"
 #include "system_configuration_types.h"
+#if !defined(SILVERSTAR_PROJECT_DEVICE_CAPABILITIES)
+/* Legacy reference builds retain package-owned facts. Generated projects
+ * supply all selected-device facts from their resolved physical providers. */
 #include "jy901b_barometer_build_capabilities.h"
 #include "jy901b_imu_build_capabilities.h"
 #include "jy901b_magnetometer_build_capabilities.h"
 #include "jy901b_quaternion_build_capabilities.h"
 #include "mission_action_output_build_capabilities.h"
 #include "neo_m9n_build_capabilities.h"
+#endif
 
 /*
  * Build-time composition for the SilverStar_F407 target.  Concrete Device
@@ -264,8 +268,14 @@
 #define SYSTEM_IMU_CAP_LANDING_IMPACT_DETECTION \
     SYSTEM_SELECTED_IMU_LANDING_IMPACT_QUALIFIED
 
+#if defined(SILVERSTAR_PROJECT_DEVICE_CAPABILITIES)
+_Static_assert((SYSTEM_USER_MAGNETOMETER_ENABLE == 0U) ||
+               (SYSTEM_SELECTED_MAGNETOMETER_RAW_OUTPUT_AVAILABLE != 0U),
+               "Enabled magnetometer requires a selected physical provider");
+#else
 _Static_assert(SYSTEM_USER_MAGNETOMETER_ENABLE ==
                JY901B_MAGNETOMETER_ADAPTER_ENABLE,
                "Target magnetometer selection and JY901B frame must match");
+#endif
 
 #endif /* __TARGET_SYSTEM_CONFIG_H */

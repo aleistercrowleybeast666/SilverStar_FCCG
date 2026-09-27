@@ -12,6 +12,14 @@
 
 static const SslogRecordMetadata s_sslog_metadata[] =
 {
+    { FLIGHT_LOG_RECORD_NAV_QUALITY, 1U, FLIGHT_LOG_NAV_QUALITY_PAYLOAD_SIZE, "NAV_QUALITY" },
+    { FLIGHT_LOG_RECORD_ESKF15_BODY_INPUT, 1U, FLIGHT_LOG_ESKF15_BODY_INPUT_PAYLOAD_SIZE, "ESKF15_BODY_INPUT" },
+    { FLIGHT_LOG_RECORD_ESKF15_STATE, 1U, FLIGHT_LOG_ESKF15_STATE_PAYLOAD_SIZE, "ESKF15_STATE" },
+    { FLIGHT_LOG_RECORD_ESKF15_FULL_P_PART, 1U, FLIGHT_LOG_ESKF15_FULL_P_PART_PAYLOAD_SIZE, "ESKF15_FULL_P_PART" },
+    { FLIGHT_LOG_RECORD_ESKF15_INITIAL_STATE, 1U, FLIGHT_LOG_ESKF15_INITIAL_STATE_PAYLOAD_SIZE, "ESKF15_INITIAL_STATE" },
+    { FLIGHT_LOG_RECORD_ESKF15_INITIAL_P_PART, 1U, FLIGHT_LOG_ESKF15_INITIAL_P_PART_PAYLOAD_SIZE, "ESKF15_INITIAL_P_PART" },
+    { FLIGHT_LOG_RECORD_ESKF15_MEASUREMENT, 1U, FLIGHT_LOG_ESKF15_MEASUREMENT_PAYLOAD_SIZE, "ESKF15_MEASUREMENT" },
+
     { FLIGHT_LOG_RECORD_LANDING_DIAGNOSTIC, 0U, FLIGHT_LOG_LANDING_DIAGNOSTIC_PAYLOAD_SIZE, "LANDING_DIAGNOSTIC" },
     { FLIGHT_LOG_RECORD_GNSS_RECOVERY, 1U, FLIGHT_LOG_GNSS_RECOVERY_PAYLOAD_SIZE, "GNSS_RECOVERY" },
     { FLIGHT_LOG_RECORD_ESTIMATOR_STEP, 0U, FLIGHT_LOG_ESTIMATOR_STEP_PAYLOAD_SIZE, "ESTIMATOR_STEP" },
@@ -2459,6 +2467,380 @@ static uint16_t SslogRecords_DecoderProfileDescriptorDeserialize(
     return reader.offset;
 }
 
+static uint16_t SslogRecords_Eskf15StateSerialize(
+    const FlightLogEskf15StateRecord *payload,
+    uint8_t *buffer, uint16_t buffer_size)
+{
+    SslogWriteCursor writer = { buffer, buffer_size, 0U };
+    if ((payload == NULL) || (buffer == NULL)) { return 0U; }
+    SILVERSTAR_ASSERT_OBJECT(payload, FlightLogEskf15StateRecord,
+                             SILVERSTAR_ASSERT_MODULE_PROTOCOL);
+    SILVERSTAR_ASSERT(buffer_size == 144U, SILVERSTAR_ASSERT_MODULE_PROTOCOL,
+                      SILVERSTAR_ASSERT_REASON_BUFFER_CAPACITY);
+    SslogRecords_WriterU32Put(&writer, payload->snapshot_id);
+    SslogRecords_WriterU32Put(&writer, payload->epoch);
+    SslogRecords_WriterU32Put(&writer, payload->source_id);
+    SslogRecords_WriterU32Put(&writer, payload->calibration_generation);
+    SslogRecords_WriterU8Put(&writer, payload->algorithm_id);
+    SslogRecords_WriterU8Put(&writer, payload->algorithm_revision);
+    SslogRecords_WriterU8Put(&writer, payload->quality_revision);
+    SslogRecords_WriterU8Put(&writer, payload->health);
+    for (uint16_t index = 0U; index < 3U; index++)
+    {
+        SslogRecords_WriterF32Put(&writer, payload->position_enu_m[index]);
+    }
+    for (uint16_t index = 0U; index < 3U; index++)
+    {
+        SslogRecords_WriterF32Put(&writer, payload->velocity_enu_mps[index]);
+    }
+    for (uint16_t index = 0U; index < 4U; index++)
+    {
+        SslogRecords_WriterF32Put(&writer, payload->q_nb[index]);
+    }
+    for (uint16_t index = 0U; index < 3U; index++)
+    {
+        SslogRecords_WriterF32Put(&writer, payload->gyro_bias_radps[index]);
+    }
+    for (uint16_t index = 0U; index < 3U; index++)
+    {
+        SslogRecords_WriterF32Put(&writer, payload->accel_bias_mps2[index]);
+    }
+    for (uint16_t index = 0U; index < 15U; index++)
+    {
+        SslogRecords_WriterF32Put(&writer, payload->p_diagonal[index]);
+    }
+    return (writer.offset == buffer_size) ? writer.offset : 0U;
+}
+
+static uint16_t SslogRecords_Eskf15StateDeserialize(
+    FlightLogEskf15StateRecord *payload,
+    const uint8_t *buffer, uint16_t buffer_size)
+{
+    SslogReadCursor reader = { buffer, buffer_size, 0U };
+    if ((payload == NULL) || (buffer == NULL)) { return 0U; }
+    SILVERSTAR_ASSERT_OBJECT(payload, FlightLogEskf15StateRecord,
+                             SILVERSTAR_ASSERT_MODULE_PROTOCOL);
+    SILVERSTAR_ASSERT(buffer_size == 144U, SILVERSTAR_ASSERT_MODULE_PROTOCOL,
+                      SILVERSTAR_ASSERT_REASON_BUFFER_CAPACITY);
+    payload->snapshot_id = SslogRecords_ReaderU32Get(&reader);
+    payload->epoch = SslogRecords_ReaderU32Get(&reader);
+    payload->source_id = SslogRecords_ReaderU32Get(&reader);
+    payload->calibration_generation = SslogRecords_ReaderU32Get(&reader);
+    payload->algorithm_id = SslogRecords_ReaderU8Get(&reader);
+    payload->algorithm_revision = SslogRecords_ReaderU8Get(&reader);
+    payload->quality_revision = SslogRecords_ReaderU8Get(&reader);
+    payload->health = SslogRecords_ReaderU8Get(&reader);
+    for (uint16_t index = 0U; index < 3U; index++)
+    {
+        payload->position_enu_m[index] = SslogRecords_ReaderF32Get(&reader);
+    }
+    for (uint16_t index = 0U; index < 3U; index++)
+    {
+        payload->velocity_enu_mps[index] = SslogRecords_ReaderF32Get(&reader);
+    }
+    for (uint16_t index = 0U; index < 4U; index++)
+    {
+        payload->q_nb[index] = SslogRecords_ReaderF32Get(&reader);
+    }
+    for (uint16_t index = 0U; index < 3U; index++)
+    {
+        payload->gyro_bias_radps[index] = SslogRecords_ReaderF32Get(&reader);
+    }
+    for (uint16_t index = 0U; index < 3U; index++)
+    {
+        payload->accel_bias_mps2[index] = SslogRecords_ReaderF32Get(&reader);
+    }
+    for (uint16_t index = 0U; index < 15U; index++)
+    {
+        payload->p_diagonal[index] = SslogRecords_ReaderF32Get(&reader);
+    }
+    return (reader.offset == buffer_size) ? reader.offset : 0U;
+}
+
+static uint16_t SslogRecords_Eskf15CovariancePartSerialize(
+    const FlightLogEskf15CovariancePartRecord *payload,
+    uint8_t *buffer, uint16_t buffer_size)
+{
+    SslogWriteCursor writer = { buffer, buffer_size, 0U };
+    if ((payload == NULL) || (buffer == NULL)) { return 0U; }
+    SILVERSTAR_ASSERT_OBJECT(payload, FlightLogEskf15CovariancePartRecord,
+                             SILVERSTAR_ASSERT_MODULE_PROTOCOL);
+    SILVERSTAR_ASSERT(buffer_size == 144U, SILVERSTAR_ASSERT_MODULE_PROTOCOL,
+                      SILVERSTAR_ASSERT_REASON_BUFFER_CAPACITY);
+    SslogRecords_WriterU32Put(&writer, payload->snapshot_id);
+    SslogRecords_WriterU32Put(&writer, payload->epoch);
+    SslogRecords_WriterU32Put(&writer, payload->source_id);
+    SslogRecords_WriterU32Put(&writer, payload->calibration_generation);
+    SslogRecords_WriterU8Put(&writer, payload->algorithm_id);
+    SslogRecords_WriterU8Put(&writer, payload->phase);
+    SslogRecords_WriterU8Put(&writer, payload->part_index);
+    SslogRecords_WriterU8Put(&writer, payload->part_count);
+    SslogRecords_WriterU16Put(&writer, payload->offset);
+    SslogRecords_WriterU16Put(&writer, payload->count);
+    for (uint16_t index = 0U; index < 30U; index++)
+    {
+        SslogRecords_WriterF32Put(&writer, payload->values[index]);
+    }
+    return (writer.offset == buffer_size) ? writer.offset : 0U;
+}
+
+static uint16_t SslogRecords_Eskf15CovariancePartDeserialize(
+    FlightLogEskf15CovariancePartRecord *payload,
+    const uint8_t *buffer, uint16_t buffer_size)
+{
+    SslogReadCursor reader = { buffer, buffer_size, 0U };
+    if ((payload == NULL) || (buffer == NULL)) { return 0U; }
+    SILVERSTAR_ASSERT_OBJECT(payload, FlightLogEskf15CovariancePartRecord,
+                             SILVERSTAR_ASSERT_MODULE_PROTOCOL);
+    SILVERSTAR_ASSERT(buffer_size == 144U, SILVERSTAR_ASSERT_MODULE_PROTOCOL,
+                      SILVERSTAR_ASSERT_REASON_BUFFER_CAPACITY);
+    payload->snapshot_id = SslogRecords_ReaderU32Get(&reader);
+    payload->epoch = SslogRecords_ReaderU32Get(&reader);
+    payload->source_id = SslogRecords_ReaderU32Get(&reader);
+    payload->calibration_generation = SslogRecords_ReaderU32Get(&reader);
+    payload->algorithm_id = SslogRecords_ReaderU8Get(&reader);
+    payload->phase = SslogRecords_ReaderU8Get(&reader);
+    payload->part_index = SslogRecords_ReaderU8Get(&reader);
+    payload->part_count = SslogRecords_ReaderU8Get(&reader);
+    payload->offset = SslogRecords_ReaderU16Get(&reader);
+    payload->count = SslogRecords_ReaderU16Get(&reader);
+    for (uint16_t index = 0U; index < 30U; index++)
+    {
+        payload->values[index] = SslogRecords_ReaderF32Get(&reader);
+    }
+    return (reader.offset == buffer_size) ? reader.offset : 0U;
+}
+
+static uint16_t SslogRecords_Eskf15MeasurementSerialize(
+    const FlightLogEskf15MeasurementRecord *payload,
+    uint8_t *buffer, uint16_t buffer_size)
+{
+    SslogWriteCursor writer = { buffer, buffer_size, 0U };
+    if ((payload == NULL) || (buffer == NULL)) { return 0U; }
+    SILVERSTAR_ASSERT_OBJECT(payload, FlightLogEskf15MeasurementRecord,
+                             SILVERSTAR_ASSERT_MODULE_PROTOCOL);
+    SILVERSTAR_ASSERT(buffer_size == 100U, SILVERSTAR_ASSERT_MODULE_PROTOCOL,
+                      SILVERSTAR_ASSERT_REASON_BUFFER_CAPACITY);
+    SslogRecords_WriterU64Put(&writer, payload->sample_timestamp_us);
+    SslogRecords_WriterU64Put(&writer, payload->receive_timestamp_us);
+    SslogRecords_WriterU64Put(&writer, payload->measurement_timestamp_us);
+    SslogRecords_WriterU64Put(&writer, payload->evaluation_timestamp_us);
+    SslogRecords_WriterU32Put(&writer, payload->operation_sequence);
+    SslogRecords_WriterU32Put(&writer, payload->epoch);
+    SslogRecords_WriterU32Put(&writer, payload->source_id);
+    SslogRecords_WriterU32Put(&writer, payload->calibration_generation);
+    SslogRecords_WriterU8Put(&writer, payload->group);
+    SslogRecords_WriterU8Put(&writer, payload->physically_valid);
+    SslogRecords_WriterU8Put(&writer, payload->admitted);
+    SslogRecords_WriterU8Put(&writer, payload->update_result);
+    for (uint16_t index = 0U; index < 2U; index++)
+    {
+        SslogRecords_WriterF32Put(&writer, payload->observation[index]);
+    }
+    for (uint16_t index = 0U; index < 2U; index++)
+    {
+        SslogRecords_WriterF32Put(&writer, payload->innovation[index]);
+    }
+    for (uint16_t index = 0U; index < 2U; index++)
+    {
+        SslogRecords_WriterF32Put(&writer, payload->base_variance[index]);
+    }
+    for (uint16_t index = 0U; index < 2U; index++)
+    {
+        SslogRecords_WriterF32Put(&writer, payload->effective_variance[index]);
+    }
+    SslogRecords_WriterF32Put(&writer, payload->nis);
+    SslogRecords_WriterF32Put(&writer, payload->quality_scale);
+    SslogRecords_WriterF32Put(&writer, payload->consistency_scale);
+    SslogRecords_WriterF32Put(&writer, payload->robust_scale);
+    return (writer.offset == buffer_size) ? writer.offset : 0U;
+}
+
+static uint16_t SslogRecords_Eskf15MeasurementDeserialize(
+    FlightLogEskf15MeasurementRecord *payload,
+    const uint8_t *buffer, uint16_t buffer_size)
+{
+    SslogReadCursor reader = { buffer, buffer_size, 0U };
+    if ((payload == NULL) || (buffer == NULL)) { return 0U; }
+    SILVERSTAR_ASSERT_OBJECT(payload, FlightLogEskf15MeasurementRecord,
+                             SILVERSTAR_ASSERT_MODULE_PROTOCOL);
+    SILVERSTAR_ASSERT(buffer_size == 100U, SILVERSTAR_ASSERT_MODULE_PROTOCOL,
+                      SILVERSTAR_ASSERT_REASON_BUFFER_CAPACITY);
+    payload->sample_timestamp_us = SslogRecords_ReaderU64Get(&reader);
+    payload->receive_timestamp_us = SslogRecords_ReaderU64Get(&reader);
+    payload->measurement_timestamp_us = SslogRecords_ReaderU64Get(&reader);
+    payload->evaluation_timestamp_us = SslogRecords_ReaderU64Get(&reader);
+    payload->operation_sequence = SslogRecords_ReaderU32Get(&reader);
+    payload->epoch = SslogRecords_ReaderU32Get(&reader);
+    payload->source_id = SslogRecords_ReaderU32Get(&reader);
+    payload->calibration_generation = SslogRecords_ReaderU32Get(&reader);
+    payload->group = SslogRecords_ReaderU8Get(&reader);
+    payload->physically_valid = SslogRecords_ReaderU8Get(&reader);
+    payload->admitted = SslogRecords_ReaderU8Get(&reader);
+    payload->update_result = SslogRecords_ReaderU8Get(&reader);
+    for (uint16_t index = 0U; index < 2U; index++)
+    {
+        payload->observation[index] = SslogRecords_ReaderF32Get(&reader);
+    }
+    for (uint16_t index = 0U; index < 2U; index++)
+    {
+        payload->innovation[index] = SslogRecords_ReaderF32Get(&reader);
+    }
+    for (uint16_t index = 0U; index < 2U; index++)
+    {
+        payload->base_variance[index] = SslogRecords_ReaderF32Get(&reader);
+    }
+    for (uint16_t index = 0U; index < 2U; index++)
+    {
+        payload->effective_variance[index] = SslogRecords_ReaderF32Get(&reader);
+    }
+    payload->nis = SslogRecords_ReaderF32Get(&reader);
+    payload->quality_scale = SslogRecords_ReaderF32Get(&reader);
+    payload->consistency_scale = SslogRecords_ReaderF32Get(&reader);
+    payload->robust_scale = SslogRecords_ReaderF32Get(&reader);
+    return (reader.offset == buffer_size) ? reader.offset : 0U;
+}
+
+static uint16_t SslogRecords_Eskf15BodyInputSerialize(
+    const FlightLogEskf15BodyInputRecord *payload,
+    uint8_t *buffer, uint16_t buffer_size)
+{
+    SslogWriteCursor writer = { buffer, buffer_size, 0U };
+    if ((payload == NULL) || (buffer == NULL)) { return 0U; }
+    SILVERSTAR_ASSERT_OBJECT(payload, FlightLogEskf15BodyInputRecord,
+                             SILVERSTAR_ASSERT_MODULE_PROTOCOL);
+    SILVERSTAR_ASSERT(buffer_size == 84U, SILVERSTAR_ASSERT_MODULE_PROTOCOL,
+                      SILVERSTAR_ASSERT_REASON_BUFFER_CAPACITY);
+        SslogRecords_WriterU64Put(&writer, payload->interval_start_timestamp_us);
+        SslogRecords_WriterU64Put(&writer, payload->interval_end_timestamp_us);
+        SslogRecords_WriterU32Put(&writer, payload->sequence);
+        SslogRecords_WriterU32Put(&writer, payload->source_id);
+        SslogRecords_WriterU32Put(&writer, payload->calibration_generation);
+        SslogRecords_WriterU32Put(&writer, payload->quality_flags);
+        SslogRecords_WriterF32Put(&writer, payload->dt_s);
+    for (uint16_t index = 0U; index < 6U; index++)
+    {
+        SslogRecords_WriterF32Put(&writer, payload->body_gyro_radps[index]);
+    }
+    for (uint16_t index = 0U; index < 6U; index++)
+    {
+        SslogRecords_WriterF32Put(&writer, payload->body_accel_mps2[index]);
+    }
+    return (writer.offset == buffer_size) ? writer.offset : 0U;
+}
+
+static uint16_t SslogRecords_Eskf15BodyInputDeserialize(
+    FlightLogEskf15BodyInputRecord *payload,
+    const uint8_t *buffer, uint16_t buffer_size)
+{
+    SslogReadCursor reader = { buffer, buffer_size, 0U };
+    if ((payload == NULL) || (buffer == NULL)) { return 0U; }
+    SILVERSTAR_ASSERT_OBJECT(payload, FlightLogEskf15BodyInputRecord,
+                             SILVERSTAR_ASSERT_MODULE_PROTOCOL);
+    SILVERSTAR_ASSERT(buffer_size == 84U, SILVERSTAR_ASSERT_MODULE_PROTOCOL,
+                      SILVERSTAR_ASSERT_REASON_BUFFER_CAPACITY);
+        payload->interval_start_timestamp_us = SslogRecords_ReaderU64Get(&reader);
+        payload->interval_end_timestamp_us = SslogRecords_ReaderU64Get(&reader);
+        payload->sequence = SslogRecords_ReaderU32Get(&reader);
+        payload->source_id = SslogRecords_ReaderU32Get(&reader);
+        payload->calibration_generation = SslogRecords_ReaderU32Get(&reader);
+        payload->quality_flags = SslogRecords_ReaderU32Get(&reader);
+        payload->dt_s = SslogRecords_ReaderF32Get(&reader);
+    for (uint16_t index = 0U; index < 6U; index++)
+    {
+        payload->body_gyro_radps[index] = SslogRecords_ReaderF32Get(&reader);
+    }
+    for (uint16_t index = 0U; index < 6U; index++)
+    {
+        payload->body_accel_mps2[index] = SslogRecords_ReaderF32Get(&reader);
+    }
+    return (reader.offset == buffer_size) ? reader.offset : 0U;
+}
+
+static uint16_t SslogRecords_NavigationQualitySerialize(
+    const FlightLogNavigationQualityRecord *payload,
+    uint8_t *buffer, uint16_t buffer_size)
+{
+    SslogWriteCursor writer = { buffer, buffer_size, 0U };
+    if ((payload == NULL) || (buffer == NULL)) { return 0U; }
+    SILVERSTAR_ASSERT_OBJECT(payload, FlightLogNavigationQualityRecord,
+        SILVERSTAR_ASSERT_MODULE_PROTOCOL);
+    if (buffer_size != FLIGHT_LOG_NAV_QUALITY_PAYLOAD_SIZE) { return 0U; }
+        SslogRecords_WriterU64Put(&writer, payload->native_epoch_us);
+        SslogRecords_WriterU64Put(&writer, payload->receive_us);
+        SslogRecords_WriterU64Put(&writer, payload->evaluation_us);
+        SslogRecords_WriterU64Put(&writer, payload->window_start_us);
+        SslogRecords_WriterU64Put(&writer, payload->window_end_us);
+        SslogRecords_WriterU64Put(&writer, payload->evidence_age_us);
+        SslogRecords_WriterU32Put(&writer, payload->native_sequence);
+        SslogRecords_WriterU32Put(&writer, payload->source_id);
+        SslogRecords_WriterU32Put(&writer, payload->calibration_generation);
+        SslogRecords_WriterU32Put(&writer, payload->covered_us);
+        SslogRecords_WriterU32Put(&writer, payload->position_epoch_count);
+        SslogRecords_WriterU32Put(&writer, payload->velocity_epoch_count);
+    for (uint16_t index = 0U; index < 2U; index++)
+    {
+        SslogRecords_WriterF32Put(&writer, payload->closure_en_m[index]);
+    }
+        SslogRecords_WriterF32Put(&writer, payload->closure_norm_m);
+        SslogRecords_WriterF32Put(&writer, payload->variance_scale);
+        SslogRecords_WriterU8Put(&writer, payload->quality_revision);
+        SslogRecords_WriterU8Put(&writer, payload->physical_mask);
+        SslogRecords_WriterU8Put(&writer, payload->admitted_mask);
+        SslogRecords_WriterU8Put(&writer, payload->accepted_mask);
+        SslogRecords_WriterU8Put(&writer, payload->nav_output_valid);
+        SslogRecords_WriterU8Put(&writer, payload->health);
+        SslogRecords_WriterU8Put(&writer, payload->evidence_valid);
+        SslogRecords_WriterU8Put(&writer, payload->numsv);
+        SslogRecords_WriterU8Put(&writer, payload->window_reason);
+        SslogRecords_WriterU8Put(&writer, payload->numsv_valid);
+        SslogRecords_WriterU8Put(&writer, payload->window_index);
+        SslogRecords_WriterU8Put(&writer, payload->quality_degraded_mask);
+    return (writer.offset == buffer_size) ? writer.offset : 0U;
+}
+
+static uint16_t SslogRecords_NavigationQualityDeserialize(
+    FlightLogNavigationQualityRecord *payload,
+    const uint8_t *buffer, uint16_t buffer_size)
+{
+    SslogReadCursor reader = { buffer, buffer_size, 0U };
+    if ((payload == NULL) || (buffer == NULL)) { return 0U; }
+    SILVERSTAR_ASSERT_OBJECT(payload, FlightLogNavigationQualityRecord,
+        SILVERSTAR_ASSERT_MODULE_PROTOCOL);
+    if (buffer_size != FLIGHT_LOG_NAV_QUALITY_PAYLOAD_SIZE) { return 0U; }
+        payload->native_epoch_us = SslogRecords_ReaderU64Get(&reader);
+        payload->receive_us = SslogRecords_ReaderU64Get(&reader);
+        payload->evaluation_us = SslogRecords_ReaderU64Get(&reader);
+        payload->window_start_us = SslogRecords_ReaderU64Get(&reader);
+        payload->window_end_us = SslogRecords_ReaderU64Get(&reader);
+        payload->evidence_age_us = SslogRecords_ReaderU64Get(&reader);
+        payload->native_sequence = SslogRecords_ReaderU32Get(&reader);
+        payload->source_id = SslogRecords_ReaderU32Get(&reader);
+        payload->calibration_generation = SslogRecords_ReaderU32Get(&reader);
+        payload->covered_us = SslogRecords_ReaderU32Get(&reader);
+        payload->position_epoch_count = SslogRecords_ReaderU32Get(&reader);
+        payload->velocity_epoch_count = SslogRecords_ReaderU32Get(&reader);
+    for (uint16_t index = 0U; index < 2U; index++)
+    {
+        payload->closure_en_m[index] = SslogRecords_ReaderF32Get(&reader);
+    }
+        payload->closure_norm_m = SslogRecords_ReaderF32Get(&reader);
+        payload->variance_scale = SslogRecords_ReaderF32Get(&reader);
+        payload->quality_revision = SslogRecords_ReaderU8Get(&reader);
+        payload->physical_mask = SslogRecords_ReaderU8Get(&reader);
+        payload->admitted_mask = SslogRecords_ReaderU8Get(&reader);
+        payload->accepted_mask = SslogRecords_ReaderU8Get(&reader);
+        payload->nav_output_valid = SslogRecords_ReaderU8Get(&reader);
+        payload->health = SslogRecords_ReaderU8Get(&reader);
+        payload->evidence_valid = SslogRecords_ReaderU8Get(&reader);
+        payload->numsv = SslogRecords_ReaderU8Get(&reader);
+        payload->window_reason = SslogRecords_ReaderU8Get(&reader);
+        payload->numsv_valid = SslogRecords_ReaderU8Get(&reader);
+        payload->window_index = SslogRecords_ReaderU8Get(&reader);
+        payload->quality_degraded_mask = SslogRecords_ReaderU8Get(&reader);
+    return (reader.offset == buffer_size) ? reader.offset : 0U;
+}
+
 static uint16_t SslogRecords_PayloadSerializeLow(
     const FlightLogRecord *record,
     uint8_t *buffer,
@@ -2496,6 +2878,33 @@ static uint16_t SslogRecords_PayloadSerializeLow(
     }
 }
 
+static uint16_t SslogRecords_PayloadNavigationSerialize(
+    const FlightLogRecord *record,
+    uint8_t *buffer, uint16_t payload_size)
+{
+    SILVERSTAR_ASSERT_OBJECT(record, FlightLogRecord, SILVERSTAR_ASSERT_MODULE_PROTOCOL);
+    SILVERSTAR_ASSERT(buffer != NULL, SILVERSTAR_ASSERT_MODULE_PROTOCOL,
+        SILVERSTAR_ASSERT_REASON_NULL_POINTER);
+    switch ((uint32_t)record->record_type)
+    {
+        case FLIGHT_LOG_RECORD_NAV_QUALITY: return SslogRecords_NavigationQualitySerialize(
+            &record->payload.navigation_quality, buffer, payload_size);
+        case FLIGHT_LOG_RECORD_ESKF15_BODY_INPUT: return SslogRecords_Eskf15BodyInputSerialize(
+            &record->payload.eskf15_body_input, buffer, payload_size);
+        case FLIGHT_LOG_RECORD_ESKF15_STATE: return SslogRecords_Eskf15StateSerialize(
+            &record->payload.eskf15_state, buffer, payload_size);
+        case FLIGHT_LOG_RECORD_ESKF15_FULL_P_PART: return SslogRecords_Eskf15CovariancePartSerialize(
+            &record->payload.eskf15_full_p_part, buffer, payload_size);
+        case FLIGHT_LOG_RECORD_ESKF15_INITIAL_STATE: return SslogRecords_Eskf15StateSerialize(
+            &record->payload.eskf15_initial_state, buffer, payload_size);
+        case FLIGHT_LOG_RECORD_ESKF15_INITIAL_P_PART: return SslogRecords_Eskf15CovariancePartSerialize(
+            &record->payload.eskf15_initial_p_part, buffer, payload_size);
+        case FLIGHT_LOG_RECORD_ESKF15_MEASUREMENT: return SslogRecords_Eskf15MeasurementSerialize(
+            &record->payload.eskf15_measurement, buffer, payload_size);
+        default: return 0U;
+    }
+}
+
 static uint16_t SslogRecords_PayloadSerializeHigh(
     const FlightLogRecord *record,
     uint8_t *buffer,
@@ -2505,6 +2914,8 @@ static uint16_t SslogRecords_PayloadSerializeHigh(
                       SILVERSTAR_ASSERT_REASON_NULL_POINTER);
     SILVERSTAR_ASSERT(buffer != NULL, SILVERSTAR_ASSERT_MODULE_PROTOCOL,
                       SILVERSTAR_ASSERT_REASON_NULL_POINTER);
+    if (record->record_type >= FLIGHT_LOG_RECORD_ESKF15_STATE)
+    { return SslogRecords_PayloadNavigationSerialize(record, buffer, payload_size); }
     switch ((uint32_t)record->record_type)
     {
         case FLIGHT_LOG_RECORD_GNSS_NATIVE: return SslogRecords_GnssNativeSerialize(
@@ -2612,6 +3023,33 @@ static uint16_t SslogRecords_PayloadDeserializeLow(
     }
 }
 
+static uint16_t SslogRecords_PayloadNavigationDeserialize(
+    FlightLogRecord *record,
+    const uint8_t *buffer, uint16_t payload_size)
+{
+    SILVERSTAR_ASSERT_OBJECT(record, FlightLogRecord, SILVERSTAR_ASSERT_MODULE_PROTOCOL);
+    SILVERSTAR_ASSERT(buffer != NULL, SILVERSTAR_ASSERT_MODULE_PROTOCOL,
+        SILVERSTAR_ASSERT_REASON_NULL_POINTER);
+    switch ((uint32_t)record->record_type)
+    {
+        case FLIGHT_LOG_RECORD_NAV_QUALITY: return SslogRecords_NavigationQualityDeserialize(
+            &record->payload.navigation_quality, buffer, payload_size);
+        case FLIGHT_LOG_RECORD_ESKF15_BODY_INPUT: return SslogRecords_Eskf15BodyInputDeserialize(
+            &record->payload.eskf15_body_input, buffer, payload_size);
+        case FLIGHT_LOG_RECORD_ESKF15_STATE: return SslogRecords_Eskf15StateDeserialize(
+            &record->payload.eskf15_state, buffer, payload_size);
+        case FLIGHT_LOG_RECORD_ESKF15_FULL_P_PART: return SslogRecords_Eskf15CovariancePartDeserialize(
+            &record->payload.eskf15_full_p_part, buffer, payload_size);
+        case FLIGHT_LOG_RECORD_ESKF15_INITIAL_STATE: return SslogRecords_Eskf15StateDeserialize(
+            &record->payload.eskf15_initial_state, buffer, payload_size);
+        case FLIGHT_LOG_RECORD_ESKF15_INITIAL_P_PART: return SslogRecords_Eskf15CovariancePartDeserialize(
+            &record->payload.eskf15_initial_p_part, buffer, payload_size);
+        case FLIGHT_LOG_RECORD_ESKF15_MEASUREMENT: return SslogRecords_Eskf15MeasurementDeserialize(
+            &record->payload.eskf15_measurement, buffer, payload_size);
+        default: return 0U;
+    }
+}
+
 static uint16_t SslogRecords_PayloadDeserializeHigh(
     FlightLogRecord *record,
     const uint8_t *buffer,
@@ -2621,6 +3059,8 @@ static uint16_t SslogRecords_PayloadDeserializeHigh(
                       SILVERSTAR_ASSERT_REASON_NULL_POINTER);
     SILVERSTAR_ASSERT(buffer != NULL, SILVERSTAR_ASSERT_MODULE_PROTOCOL,
                       SILVERSTAR_ASSERT_REASON_NULL_POINTER);
+    if (record->record_type >= FLIGHT_LOG_RECORD_ESKF15_STATE)
+    { return SslogRecords_PayloadNavigationDeserialize(record, buffer, payload_size); }
     switch ((uint32_t)record->record_type)
     {
         case FLIGHT_LOG_RECORD_GNSS_NATIVE: return SslogRecords_GnssNativeDeserialize(

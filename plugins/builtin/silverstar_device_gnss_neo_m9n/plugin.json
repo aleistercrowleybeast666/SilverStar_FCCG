@@ -205,7 +205,44 @@
           "zh_CN": "仅用于初始建议或无显式配置时的回退；以算法实际配置为准。不是逐样本原生不确定度。"
         }
       }
-    ]
+    ],
+    "runtime_defaults": {
+      "SYSTEM_DEVICE_CLASS_GNSS": {
+        "SYSTEM_GNSS_NAVIGATION_RATE_HZ": 25,
+        "SYSTEM_GNSS_DYNAMIC_MODEL": "SYSTEM_GNSS_DYNAMIC_MODEL_AIRBORNE_4G"
+      }
+    },
+    "initialization": {
+      "configure_on_boot": true,
+      "navigation_rate_hz": 25,
+      "target_baud": 921600,
+      "dynamic_model": "SYSTEM_GNSS_DYNAMIC_MODEL_AIRBORNE_4G",
+      "persistent_layer_default": "RAM",
+      "readback": {
+        "zh_CN": "MON-VER 核对型号/协议；配置实际读回一致且收到新 PVT 才就绪",
+        "en_US": "MON-VER model/protocol check; configuration readback plus a new PVT required for readiness"
+      },
+      "filter": {
+        "zh_CN": "按动态模型解算；没有宣称逐轴滤波参数可配置",
+        "en_US": "Receiver dynamic model; no configurable per-axis filter claim"
+      },
+      "fifo": {
+        "zh_CN": "有界 UART/UBX 字节解析；iTOW 重复/乱序拒绝",
+        "en_US": "Bounded UART/UBX byte parser; duplicate/out-of-order iTOW rejected"
+      },
+      "constellations": {
+        "zh_CN": "GPS/GLONASS/Galileo/BeiDou 按配置逐键读回核验",
+        "en_US": "GPS/GLONASS/Galileo/BeiDou configuration verified key by key"
+      },
+      "conditional_persistence": {
+        "zh_CN": "默认仅 RAM；显式保存逐层先读、差异写、再次读回，不重试失去 ACK 的 NVM 写",
+        "en_US": "RAM by default; explicit save reads each layer, writes differences, reads back; no retry of NVM write after lost ACK"
+      },
+      "hardware_status": {
+        "zh_CN": "当前试验硬件型号；本轮仅软件测试，配置变更待台架验证",
+        "en_US": "Current test hardware model; this turn tests software only, changed configuration requires bench validation"
+      }
+    }
   },
   "instance_policy": {
     "plugin_max": 4,

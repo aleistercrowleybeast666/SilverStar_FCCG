@@ -125,6 +125,7 @@ class AlgorithmParametersPage(ScrollableLocalizedPage):
                               "mode.parameter_range", minimum=parameter.minimum,
                               maximum=parameter.maximum, unit=parameter.unit))
         editor.CommittedValue_Set(value)
+        editor.setReadOnly(parameter.lifecycle == "legacy_read_only")
         return editor
 
     def Language_Apply(self, translator: Translator) -> None:

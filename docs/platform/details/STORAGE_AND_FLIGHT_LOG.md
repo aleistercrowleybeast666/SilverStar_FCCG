@@ -1,10 +1,26 @@
 # SilverStar Storage 与飞行日志格式 0.0
 
+## 当前导航记录扩展
+
+当前 catalog 为原28项加7项独立记录。旧ID、field offset、CRC和payload布局不变；
+新增`ESKF15_STATE`、`ESKF15_FULL_P_PART`、`ESKF15_INITIAL_STATE`、
+`ESKF15_INITIAL_P_PART`、`ESKF15_MEASUREMENT`、`ESKF15_BODY_INPUT`及`NAV_QUALITY`，
+分别使用0x21–0x27。新decoder要求FLP 0.0.5；原decoder不被改写。
+状态变化事件0x2F走真实event codec。新算法不使用KF6身份承载15维内容。
+
+ESKF初始状态/完整初始P、实际body输入和量测操作是所选算法的Required证据；
+不选ESKF时这些记录不可用，GUI不会因其Required级别错误打开它们。
+周期完整P默认关闭；打开后按一次snapshot cadence整体提交四片，每片保持既有槽预算。
+初始P必需性与周期P可选性分开。不同queue可交错，消费者按epoch/snapshot/part关联，
+不得依赖四片恰好邻接状态记录。缺片、CRC、丢记录继续明确报告。
+具体时序、质量与faithful/approximate边界见[导航契约](../../NAVIGATION_CONTRACT.md)。
+
 ## Logger启动准入
 
 上一轮修复SDIO/FatFs落盘字节完整性；本轮修复启动时普通周期流与开文件、descriptor和自检报告
 写入争抢队列的短时突发。用户报告的新日志字节校验已正常，但启动仍有丢记录；它不是新的CRC修复。
-SSLOG 0.0与SilverStar 0.0.12保持不变；当前`.ssdecoder`/Project Semantics为1.2，增加算法实际参数，不改变记录布局。
+SSLOG 0.0与SilverStar 0.0.12保持不变；当前`.ssdecoder`/Project Semantics为1.2。
+旧记录身份、布局和CRC保持不变；导航契约新增独立ESKF15/质量记录，见下文。
 
 LoggerBus持有唯一`LOGGER_BOOTSTRAP` → `LOGGER_STREAMING_READY`准入状态，静态、有界、无heap。
 BOOT/其他EVENT、STATS、System/Device/Algorithm/Stream/Decoder descriptors、Mission config、
@@ -36,7 +52,7 @@ diskio/codec，生产节拍、其他任务工作计数和SD卡延迟是模型；
 Storage backend必须支持任意合法CPU buffer地址、文件offset和写入length，调用方不需要
 4或32字节对齐。MISSION_CONFIG payload=91 bytes、record=119 bytes是合法协议尺寸，
 禁止补齐payload、改变CRC或由FLP放宽CRC来掩盖writer错误。AIR M0、Maintenance/SSLOG 0.0、
-平台0.0.12及SSLOG布局保持不变；`.ssdecoder`当前使用1.2算法参数契约。
+平台0.0.12及旧SSLOG记录布局保持不变；`.ssdecoder`当前使用1.2算法参数契约。
 
 SS0.5的`FATFS/Target/sd_diskio.c`使用固定512-byte main-SRAM buffer。每次只向BSP提交
 一个sector，write先复制、read在完成后复制；匹配read/write completion并等待card-ready后
@@ -55,7 +71,8 @@ best-effort结束sink但不标记finalized。该故障不会停止飞控任务�
 
 ### Queue独立诊断
 
-普通/Estimator queue保持原容量与公平轮转，producer把完整record复制进queue。Overflow只增加明确drop；
+普通/Estimator queue保持原容量，按归一化占用率优先消费且限制连续同队列最多3次成功pop，
+另一队列非空时必须获得服务；producer把完整record复制进queue。Overflow只增加明确drop；
 启动队列已满时不能因decoder descriptor入队失败而关闭文件，否则唯一consumer永远无法腾出空间。
 Logger先保持session打开并消费，在dequeue后重试尚未入队的Required descriptor，成功后只写入一次。
 每次serialize前，writer将新观察到的累计overflow增量加入sequence，因此双队列轮转不会造成push序号重排，

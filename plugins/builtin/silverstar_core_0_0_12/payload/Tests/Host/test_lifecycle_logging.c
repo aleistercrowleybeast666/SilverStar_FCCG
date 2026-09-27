@@ -244,6 +244,12 @@ SystemDeviceResult EstimatorTask_FreezeOrigins(void)
     return SYSTEM_DEVICE_OK;
 }
 
+SystemDeviceResult EstimatorTask_PrepareNavigation(void)
+{
+    /* This logging fixture has no navigation producer or collected origins. */
+    return SYSTEM_DEVICE_NOT_READY;
+}
+
 SystemDeviceResult InsTask_InitializeMission(void)
 {
     return SYSTEM_DEVICE_OK;
@@ -427,8 +433,10 @@ SystemDeviceResult EstimatorTask_GnssAlignmentStatusGet(
 {
     if (status == NULL) { return SYSTEM_DEVICE_INVALID_ARGUMENT; }
     (void)memset(status, 0, sizeof(*status));
-    status->state = SYSTEM_ALIGNMENT_COMPONENT_NOT_READY;
+    /* Normal lifecycle scenarios explicitly supply the now-required GNSS origin. */
+    status->state = SYSTEM_ALIGNMENT_COMPONENT_READY;
     status->supported = 1U;
+    status->ready = 1U;
     return SYSTEM_DEVICE_OK;
 }
 

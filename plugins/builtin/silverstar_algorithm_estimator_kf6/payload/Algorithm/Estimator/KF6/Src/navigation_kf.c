@@ -608,7 +608,7 @@ static uint8_t NavigationKf_VectorSoftWeightProcess(
     return 1U;
 }
 
-static void NavigationKf_VectorGainAndStateApply(
+static uint8_t NavigationKf_VectorGainAndStateApply(
     NavigationKfContext *context,
     NavigationKfVectorWork *work,
     uint8_t dimension,
@@ -617,6 +617,7 @@ static void NavigationKf_VectorGainAndStateApply(
     uint8_t row;
     uint8_t column;
     uint8_t inner;
+    uint8_t nonzero = 0U;
 
     SILVERSTAR_ASSERT_OBJECT(context, NavigationKfContext,
                              SILVERSTAR_ASSERT_MODULE_ALGORITHM);
@@ -633,8 +634,13 @@ static void NavigationKf_VectorGainAndStateApply(
                     context->covariance[row][state_offset + inner] *
                     work->innovation_inverse[inner][column];
             }
+            if (!isfinite(work->gain[row][column])) { return 0U; }
+            if (work->gain[row][column] != 0.0f) { nonzero = 1U; }
         }
     }
+    /* Validate before any state/P mutation; a zero correction alone is valid,
+       but an entirely zero gain cannot refresh successful fusion. */
+    if (nonzero == 0U) { return 0U; }
     for (row = 0U; row < NAV_KF_STATE_DIMENSION; row++)
     {
         for (column = 0U; column < dimension; column++)
@@ -643,6 +649,7 @@ static void NavigationKf_VectorGainAndStateApply(
                                    work->innovation[column];
         }
     }
+    return 1U;
 }
 
 static void NavigationKf_VectorCovarianceBuild(
@@ -736,8 +743,13 @@ static NavigationKfUpdateResult NavigationKf_UpdateVector(
             context, variance, dimension, state_offset,
             last_effective_variance, &work) == 0U)
     { return NAV_KF_UPDATE_NUMERIC_ERROR; }
-    NavigationKf_VectorGainAndStateApply(
-        context, &work, dimension, state_offset);
+    if (NavigationKf_VectorGainAndStateApply(
+            context, &work, dimension, state_offset) == 0U)
+    {
+        context->numeric_error_count++;
+        context->health_flags |= NAV_KF_HEALTH_NUMERIC_ERROR;
+        return NAV_KF_UPDATE_NUMERIC_ERROR;
+    }
     NavigationKf_VectorCovarianceBuild(&work, dimension, state_offset);
     memcpy(context->covariance, work.covariance_new,
            sizeof(work.covariance_new));
