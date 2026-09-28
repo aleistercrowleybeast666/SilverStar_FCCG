@@ -25,3 +25,19 @@ tests/.prompt*-validation*/
 tests/acceptance_*/
 *.egg-info/
 tests/.integrity-*/
+# Generated, one-off validation scratch stays below tests/ and out of the worktree.
+tests/.tmp*/
+tests/.pycache-*/
+tests/**/pycache/
+tests/**/compileall_cache/
+tests/**/compile-cache/
+tests/**/gshc-pycache/
+tests/**/build/FCCG/
+tests/**/work/
+tests/**/*.o
+tests/**/*.d
+tests/**/*.su
+tests/**/*.elf
+tests/**/*.map
+tests/**/*.exe
+tests/**/*.pyc
