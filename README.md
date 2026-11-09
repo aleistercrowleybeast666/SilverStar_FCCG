@@ -1,3 +1,11 @@
+> **已迁入 SilverStar 单仓库 / Migrated to the SilverStar monorepo**
+>
+> 此独立仓库保留迁移前的源码、提交和讨论，已停止独立开发。当前 SCG 源码位于 [SilverStar/apps/SCG](https://github.com/aleistercrowleybeast666/SilverStar/tree/feature/usb-transport-0.1.3-20261013/apps/SCG)；候选工作分支不等于正式发布。
+>
+> 来源提交与合仓边界见[迁移记录](https://github.com/aleistercrowleybeast666/SilverStar/blob/e143188dbad9ca0a70dfdc27f52b4226a370cfe8/docs/architecture/MIGRATION_0_1_0.md)。下方 README 按历史原文保留，其中版本、协议和验证结论仅属于当时范围。
+
+---
+
 # SilverStar Flight Controller Code Generator
 
 ## Algorithm actual parameters / 算法实际参数
